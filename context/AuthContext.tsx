@@ -18,54 +18,107 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Safety timeout: Always stop loading after 10 seconds to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      console.warn("Auth check timeout - forcing loading to complete");
-      setIsLoading(false);
-    }, 10000);
+    let isMounted = true;
 
-    // 1. Check current session on mount
+    // Safety timeout: Always stop loading after 8 seconds to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn("Auth check timeout - forcing loading to complete");
+        setIsLoading(false);
+      }
+    }, 8000);
+
+    // 1. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
+
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setIsLoading(false);
+        clearTimeout(timeoutId);
+        return;
+      }
+
+      if (session?.user) {
+        try {
+          const profile = await fetchUserProfile(session.user.id);
+          if (isMounted) {
+            setUser({
+              id: session.user.id,
+              email: session.user.email || '',
+              name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
+              role: (profile?.role as UserRole) || UserRole.READ_ONLY
+            });
+          }
+        } catch (e) {
+          console.error("Erro ao buscar perfil (onAuthStateChange):", e);
+          // Still set user even if profile fetch fails — DON'T destroy session
+          if (isMounted) {
+            setUser({
+              id: session.user.id,
+              email: session.user.email || '',
+              name: session.user.email?.split('@')[0] || 'Usuário',
+              role: UserRole.READ_ONLY
+            });
+          }
+        }
+      } else if (event !== 'INITIAL_SESSION') {
+        setUser(null);
+      }
+
+      if (isMounted) {
+        setIsLoading(false);
+        clearTimeout(timeoutId);
+      }
+    });
+
+    // 2. Check current session on mount
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        if (!isMounted) return;
+
         if (session?.user) {
-          const profile = await fetchUserProfile(session.user.id);
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
-            role: (profile?.role as UserRole) || UserRole.READ_ONLY
-          });
+          try {
+            const profile = await fetchUserProfile(session.user.id);
+            if (isMounted) {
+              setUser({
+                id: session.user.id,
+                email: session.user.email || '',
+                name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
+                role: (profile?.role as UserRole) || UserRole.READ_ONLY
+              });
+            }
+          } catch (profileErr) {
+            console.error("Erro ao buscar perfil:", profileErr);
+            // Set user without profile — DON'T sign out
+            if (isMounted) {
+              setUser({
+                id: session.user.id,
+                email: session.user.email || '',
+                name: session.user.email?.split('@')[0] || 'Usuário',
+                role: UserRole.READ_ONLY
+              });
+            }
+          }
         }
       } catch (e) {
         console.error("Erro ao verificar sessão Supabase:", e);
-        // Clear potentially corrupted auth data
-        await supabase.auth.signOut();
+        // DO NOT call signOut() here — it destroys valid sessions
+        // The session token may still be valid even if this check had an error
       } finally {
-        clearTimeout(timeoutId);
-        setIsLoading(false);
+        if (isMounted) {
+          clearTimeout(timeoutId);
+          setIsLoading(false);
+        }
       }
     };
 
     checkSession();
 
-    // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
-          role: (profile?.role as UserRole) || UserRole.READ_ONLY
-        });
-      } else {
-        setUser(null);
-      }
-      setIsLoading(false);
-    });
-
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
