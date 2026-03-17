@@ -496,30 +496,38 @@ export const Invoices: React.FC = () => {
     }
   };
 
-  const filteredInvoices = invoices.filter(inv => {
-    const search = searchText.toLowerCase();
-    const matchesSearch = !searchText || inv.client.toLowerCase().includes(search) || inv.invoiceNumber.toLowerCase().includes(search) || (inv.ug || '').toLowerCase().includes(search);
-    const matchesMonth = !filterMonth || inv.monthCompetence.toString() === filterMonth;
-    const matchesYear = !filterYear || inv.yearCompetence.toString() === filterYear;
-    const matchesStatus = !filterStatus || inv.status === filterStatus;
-    const matchesType = !filterType || inv.type === filterType;
-    const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
-    return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad;
-  });
+  const { distribution: currentDistribution, remainingDebt: currentRemainingDebt, totalInvoice: currentTotalInvoice } = useMemo(() => calculateAdvanceDistribution(), [formData, advanceDocs, invoices, allocations]);
+  
+  const totalUsed = useMemo(() => currentDistribution.reduce((acc, curr) => acc + curr.amountUsed, 0), [currentDistribution]);
+  
+  const visibleAdvanceDocs = useMemo(() => {
+    return advanceDocs.filter(d => {
+      const hasBalance = d.availableValue > 0.005;
+      const isSelected = selectedAdvances.includes(d.id);
+      if (!hasBalance && !isSelected) return false;
+      const search = advanceSearchText.toLowerCase();
+      if (!search) return true;
+      return d.client.toLowerCase().includes(search) || d.documentNumber.toLowerCase().includes(search);
+    });
+  }, [advanceDocs, selectedAdvances, advanceSearchText]);
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter(inv => {
+      const search = searchText.toLowerCase();
+      const matchesSearch = !searchText || 
+        inv.client.toLowerCase().includes(search) || 
+        inv.invoiceNumber.toLowerCase().includes(search) || 
+        (inv.ug || '').toLowerCase().includes(search);
+      const matchesMonth = !filterMonth || inv.monthCompetence.toString() === filterMonth;
+      const matchesYear = !filterYear || inv.yearCompetence.toString() === filterYear;
+      const matchesStatus = !filterStatus || inv.status === filterStatus;
+      const matchesType = !filterType || inv.type === filterType;
+      const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
+      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad;
+    });
+  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad]);
 
   const totalCount = filteredInvoices.length;
-  const totalServiceSum = filteredInvoices.reduce((sum, inv) => sum + (getInvoiceCalculations(inv).valService), 0);
-  const { distribution: currentDistribution, remainingDebt: currentRemainingDebt, totalInvoice: currentTotalInvoice } = calculateAdvanceDistribution();
-  const totalUsed = currentDistribution.reduce((acc, curr) => acc + curr.amountUsed, 0);
-  const visibleAdvanceDocs = advanceDocs.filter(d => {
-    const hasBalance = d.availableValue > 0.005;
-    const isSelected = selectedAdvances.includes(d.id);
-    if (!hasBalance && !isSelected) return false;
-    const search = advanceSearchText.toLowerCase();
-    if (!search) return true;
-    return d.client.toLowerCase().includes(search) || d.documentNumber.toLowerCase().includes(search);
-  });
-
+  
   const calculateTotals = (list: Invoice[]) => {
     return list.reduce((acc, inv) => {
       const calc = getInvoiceCalculations(inv);
@@ -533,6 +541,9 @@ export const Invoices: React.FC = () => {
       };
     }, { valService: 0, add: 0, ded: 0, totalAdvanceUsed: 0, valInvoice: 0, finalBalance: 0 });
   };
+
+  const totals = useMemo(() => calculateTotals(filteredInvoices), [filteredInvoices, allocations, allDocs]);
+  const totalServiceSum = totals.valService;
 
   const exportListPDF = () => {
     const doc = new jsPDF('l');

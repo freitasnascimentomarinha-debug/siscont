@@ -20,6 +20,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
+    // Legacy session cleanup: Remove old custom storage keys that might cause conflicts on desktop
+    try {
+      if (localStorage.getItem('siscont-auth')) {
+        console.warn("Legacy session key 'siscont-auth' detected. Clearing for stability.");
+        localStorage.removeItem('siscont-auth');
+      }
+    } catch (e) {
+      console.error("Failed to clear legacy session key:", e);
+    }
+
     // Safety timeout: Always stop loading after 8 seconds to prevent infinite loading
     const timeoutId = setTimeout(() => {
       if (isMounted) {
