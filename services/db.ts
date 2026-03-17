@@ -63,6 +63,7 @@ export const db = {
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
       name: user.name,
+      email: user.email,
       role: user.role
     });
     if (error) throw error;

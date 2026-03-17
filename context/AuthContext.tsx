@@ -126,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
-      .select('name, role')
+      .select('name, role, email')
       .eq('id', userId)
       .single();
 
@@ -168,6 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .upsert({
         id: data.user.id,
         name: name,
+        email: email,
         role: UserRole.READ_ONLY
       });
 
