@@ -218,6 +218,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(`Cadastro parcial: Conta criada, mas dados do perfil falharam. Erro: ${profileError.message}`);
     }
 
+    // New: Invalidate cache so Admin sees the new user immediately
+    const { db } = await import('../services/db');
+    db.invalidateCache('users');
+
     return true;
   };
 

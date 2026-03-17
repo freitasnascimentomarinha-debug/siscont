@@ -51,6 +51,7 @@ export const Admin: React.FC = () => {
       db.getClients(),
       db.getServices()
     ]);
+    console.log(`[Admin] Carregados ${usrs.length} usuários do banco.`);
     setUsers(usrs);
     setClients(clnts);
     setServices(svcs);
@@ -264,6 +265,15 @@ export const Admin: React.FC = () => {
           <p className="text-slate-500 text-sm">Controle de acessos, cadastros base e sistema</p>
         </div>
         <div className="flex gap-2">
+          {activeTab === 'users' && (
+            <Button size="sm" variant="ghost" onClick={async () => {
+              // @ts-ignore
+              if (db.invalidateCache) db.invalidateCache('users');
+              await refresh();
+            }}>
+              <Cloud className="mr-2 h-4 w-4" /> Recarregar Lista
+            </Button>
+          )}
           <Button size="sm" variant="secondary" onClick={handleSystemBackup}>
             <Save className="mr-2 h-4 w-4" /> Backup (XLSX)
           </Button>

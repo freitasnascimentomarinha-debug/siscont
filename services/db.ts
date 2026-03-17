@@ -249,5 +249,7 @@ export const db = {
     services: JSON.parse(localStorage.getItem('siscont_services') || '[]'),
     users: JSON.parse(localStorage.getItem('siscont_users') || '[]'),
     exits: JSON.parse(localStorage.getItem('siscont_exits') || '[]')
-  })
+  }),
+  
+  invalidateCache
 };
