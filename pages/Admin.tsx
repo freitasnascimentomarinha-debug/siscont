@@ -8,7 +8,7 @@ import { Modal, ConfirmModal } from '../components/ui/Modal';
 // Added missing Database import
 // @ts-ignore
 import * as XLSX from 'xlsx';
-import { Trash2, Edit, Key, Users, Upload, Plus, Building2, Wrench, Save, UserCheck, Shield, Database, Cloud } from 'lucide-react';
+import { Trash2, Edit, Key, Users, Upload, Plus, Building2, Wrench, Save, UserCheck, Shield, Database, Cloud, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 
