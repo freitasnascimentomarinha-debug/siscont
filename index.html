@@ -7,39 +7,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SISCONT</title>
     
-    <!-- CRITICAL: Clear corrupted localStorage BEFORE anything else loads -->
-    <script>
-      (function() {
-        try {
-          console.log('🧹 Pre-load cleanup: Clearing potentially corrupted data...');
-          
-          // Clear ALL Supabase auth keys (main cause of infinite loading)
-          const allKeys = Object.keys(localStorage);
-          let clearedCount = 0;
-          
-          allKeys.forEach(function(key) {
-            // Remove Supabase auth tokens
-            if (key.startsWith('sb-') || key.includes('supabase.auth') || key.includes('auth-token')) {
-              try {
-                localStorage.removeItem(key);
-                clearedCount++;
-              } catch (e) {
-                console.error('Failed to remove:', key, e);
-              }
-            }
-          });
-          
-          if (clearedCount > 0) {
-            console.log('✅ Cleared', clearedCount, 'Supabase auth keys');
-          }
-          
-          console.log('✅ Pre-load cleanup complete');
-        } catch (e) {
-          console.error('❌ Pre-load cleanup failed:', e);
-        }
-      })();
-    </script>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased">

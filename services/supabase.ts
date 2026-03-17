@@ -12,7 +12,5 @@ export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
     auth: {
         persistSession: true,
         autoRefreshToken: true,
-        storageKey: 'siscont-auth',
-        storage: localStorage,
     }
 });
