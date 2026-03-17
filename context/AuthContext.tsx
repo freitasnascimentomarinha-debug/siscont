@@ -178,6 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (name: string, email: string, pass: string) => {
+    console.log(`[Auth] Iniciando registro para: ${email}`);
     const { data, error: authError } = await supabase.auth.signUp({
       email,
       password: pass
@@ -221,6 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // New: Invalidate cache so Admin sees the new user immediately
     const { db } = await import('../services/db');
     db.invalidateCache('users');
+    console.log(`[Auth] Registro concluído e cache invalidado para: ${email}`);
 
     return true;
   };

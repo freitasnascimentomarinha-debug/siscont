@@ -41,20 +41,35 @@ export const Admin: React.FC = () => {
   const [clientError, setClientError] = useState<string | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const backupInputRef = useRef<HTMLInputElement>(null);
 
-  const refresh = async () => {
-    const [usrs, clnts, svcs] = await Promise.all([
-      db.getUsers(),
-      db.getClients(),
-      db.getServices()
-    ]);
-    console.log(`[Admin] Carregados ${usrs.length} usuários do banco.`);
-    setUsers(usrs);
-    setClients(clnts);
-    setServices(svcs);
+  const refresh = async (force = false) => {
+    setIsRefreshing(true);
+    try {
+      if (force) {
+        db.invalidateCache();
+        console.log("[Admin] Cache limpo manualmente.");
+      }
+      const [usrs, clnts, svcs] = await Promise.all([
+        db.getUsers(),
+        db.getClients(),
+        db.getServices()
+      ]);
+      console.log(`[Admin] Sucesso: ${usrs.length} usuários carregados às ${new Date().toLocaleTimeString()}.`);
+      setUsers(usrs);
+      setClients(clnts);
+      setServices(svcs);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error("[Admin] Erro crítico ao atualizar dados:", err);
+      alert("Falha ao atualizar dados. Verifique o console.");
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   useEffect(() => { refresh(); }, []);
@@ -264,13 +279,20 @@ export const Admin: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Administração</h2>
           <p className="text-slate-500 text-sm">Controle de acessos, cadastros base e sistema</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {lastUpdated && (
+            <span className="text-[10px] text-slate-400 font-medium hidden sm:inline-block">
+              Atualizado: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
           {activeTab === 'users' && (
-            <Button size="sm" variant="ghost" onClick={async () => {
-              // @ts-ignore
-              if (db.invalidateCache) db.invalidateCache('users');
-              await refresh();
-            }}>
+            <Button 
+               size="sm" 
+               variant="ghost" 
+               isLoading={isRefreshing}
+               onClick={() => refresh(true)}
+               title="Limpa o cache e busca dados novos no servidor"
+            >
               <Cloud className="mr-2 h-4 w-4" /> Recarregar Lista
             </Button>
           )}
@@ -324,7 +346,9 @@ export const Admin: React.FC = () => {
                       <div className="p-1.5 bg-slate-100 rounded-full text-slate-600"><Users size={14} /></div>
                       {u.name}
                     </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">{u.email}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {u.email || <span className="text-orange-400 italic text-[10px] flex items-center gap-1"><Info size={10}/> E-mail não migrado p/ Perfil</span>}
+                    </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${u.role === UserRole.ADMIN ? 'bg-indigo-100 text-indigo-700' :
                         u.role === UserRole.USER ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'

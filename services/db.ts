@@ -26,6 +26,7 @@ function setCached<T>(key: string, data: T): void {
 }
 
 function invalidateCache(...keys: string[]): void {
+  console.log(`[Cache] Invalidando chaves: ${keys.length === 0 ? 'TUDO' : keys.join(', ')}`);
   if (keys.length === 0) {
     cache.clear();
   } else {
@@ -251,5 +252,6 @@ export const db = {
     exits: JSON.parse(localStorage.getItem('siscont_exits') || '[]')
   }),
   
-  invalidateCache
+  invalidateCache: invalidateCache,
+  refreshCache: () => invalidateCache()
 };
