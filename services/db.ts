@@ -60,12 +60,23 @@ export const db = {
 
   saveUser: async (user: User) => {
     const { supabase } = await import('./supabase');
-    const { error } = await supabase.from('profiles').upsert({
+    const payload: any = {
       id: user.id,
       name: user.name,
-      email: user.email,
-      role: user.role
-    });
+      role: user.role,
+      email: user.email
+    };
+
+    let { error } = await supabase.from('profiles').upsert(payload);
+
+    // Resilience: if email column is missing, try without it
+    if (error && (error.message.includes('email') || error.message.includes('column'))) {
+      console.warn("Retrying saveUser without email column...");
+      const { email: _, ...payloadWithoutEmail } = payload;
+      const retry = await supabase.from('profiles').upsert(payloadWithoutEmail);
+      error = retry.error;
+    }
+
     if (error) throw error;
     invalidateCache('users');
   },

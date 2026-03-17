@@ -191,18 +191,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error("Erro desconhecido ao realizar cadastro.");
     }
 
-    const { error: profileError } = await supabase
+    // Create profile record
+    const profilePayload: any = {
+      id: data.user.id,
+      name: name,
+      role: UserRole.READ_ONLY,
+      email: email
+    };
+
+    let { error: profileError } = await supabase
       .from('profiles')
-      .upsert({
-        id: data.user.id,
-        name: name,
-        email: email,
-        role: UserRole.READ_ONLY
-      });
+      .upsert(profilePayload);
+
+    // If it fails (likely missing email column), try without email
+    if (profileError && (profileError.message.includes('email') || profileError.message.includes('column'))) {
+      console.warn("Retrying profile upsert without 'email' field in register...");
+      const { email: _, ...payloadWithoutEmail } = profilePayload;
+      const retry = await supabase
+        .from('profiles')
+        .upsert(payloadWithoutEmail);
+      profileError = retry.error;
+    }
 
     if (profileError) {
-      console.error("Profile Creation error (retrying upsert):", profileError.message);
-      // Even if profile fails, user is created. We try again with upsert just in case.
+      console.error("Erro ao criar perfil após cadastro:", profileError.message);
+      throw new Error(`Cadastro parcial: Conta criada, mas dados do perfil falharam. Erro: ${profileError.message}`);
     }
 
     return true;
