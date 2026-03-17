@@ -152,10 +152,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
       
       if (retry.data) {
-        // Return a shape that includes email: null to satisfy types
         return { ...retry.data, email: null };
       }
       error = retry.error;
+    }
+
+    // SCENARIO 2: Profile is missing entirely (e.g. Tamara Nascimento) - Auto-heal!
+    if (!data && (!error || error.code === 'PGRST116')) {
+        console.warn(`Profile missing for user ${userId}. Attempting auto-recovery...`);
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+            const newProfile: any = {
+                id: userId,
+                name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Novo Usuário',
+                role: UserRole.READ_ONLY,
+                email: authUser.email
+            };
+            
+            let { error: createError } = await supabase.from('profiles').upsert(newProfile);
+            
+            // Resilience: if email column is missing in DB during recovery
+            if (createError && (createError.message.includes('email') || createError.message.includes('column'))) {
+                const { email: _, ...payloadWithoutEmail } = newProfile;
+                const retryCreate = await supabase.from('profiles').upsert(payloadWithoutEmail);
+                createError = retryCreate.error;
+            }
+            
+            if (!createError) {
+                console.log("Profile auto-recovered successfully.");
+                return newProfile;
+            }
+        }
     }
 
     if (error) {
