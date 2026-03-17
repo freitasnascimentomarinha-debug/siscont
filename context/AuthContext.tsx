@@ -43,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const profile = await fetchUserProfile(session.user.id);
           if (isMounted) {
+            console.log("Perfil carregado:", profile?.name, "Role:", profile?.role);
             setUser({
               id: session.user.id,
               email: session.user.email || '',
@@ -124,14 +125,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const fetchUserProfile = async (userId: string) => {
-    const { data, error } = await supabase
+    // Try fetching with email first
+    let { data, error } = await supabase
       .from('profiles')
       .select('name, role, email')
       .eq('id', userId)
       .single();
 
+    // If it fails (likely missing email column), try without email
+    if (error && (error.message.includes('email') || error.code === 'PGRST100' || error.message.includes('column'))) {
+      console.warn("Retrying profile fetch without 'email' column...");
+      const retry = await supabase
+        .from('profiles')
+        .select('name, role')
+        .eq('id', userId)
+        .single();
+      
+      if (retry.data) {
+        // Return a shape that includes email: null to satisfy types
+        return { ...retry.data, email: null };
+      }
+      error = retry.error;
+    }
+
     if (error) {
-      console.error("Erro ao buscar perfil:", error);
+      console.error("Erro crítico ao buscar perfil:", error.message);
       return null;
     }
     return data;
