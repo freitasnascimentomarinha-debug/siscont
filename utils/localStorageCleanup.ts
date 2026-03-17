@@ -5,24 +5,9 @@ export const cleanupCorruptedLocalStorage = () => {
     console.log('🧹 Running localStorage cleanup...');
 
     try {
-        // CRITICAL: Clear ALL Supabase auth data first
-        // This is the main cause of infinite loading
-        const supabaseKeys = Object.keys(localStorage).filter(key =>
-            key.startsWith('sb-') ||
-            key.includes('supabase') ||
-            key.includes('auth-token')
-        );
-
-        if (supabaseKeys.length > 0) {
-            console.log('🔑 Clearing Supabase auth keys:', supabaseKeys);
-            supabaseKeys.forEach(key => {
-                try {
-                    localStorage.removeItem(key);
-                } catch (e) {
-                    console.error(`Failed to remove ${key}:`, e);
-                }
-            });
-        }
+        // NOTE: Supabase auth tokens (sb-*, supabase, auth-token) are NOT cleared here.
+        // Clearing them would destroy the active session and cause logout on every F5/refresh.
+        // Supabase handles its own token lifecycle (refresh, expiry, etc.).
 
         // List of localStorage keys used by the app
         const appKeys = [
@@ -79,7 +64,7 @@ export const cleanupCorruptedLocalStorage = () => {
             console.warn('🚨 Emergency cleanup: clearing all app data');
             const allKeys = Object.keys(localStorage);
             allKeys.forEach(key => {
-                if (key.startsWith('siscont_') || key.startsWith('sb-') || key.includes('supabase')) {
+                if (key.startsWith('siscont_')) {
                     try {
                         localStorage.removeItem(key);
                     } catch (clearError) {

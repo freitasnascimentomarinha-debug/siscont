@@ -259,11 +259,11 @@ export const Invoices: React.FC = () => {
 
   const handleTypeChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
-    const match = (await db.getServices()).find(s => s.name === val);
+    const match = services.find(s => s.value === val);
     setFormData(prev => {
       const newState = { ...prev, type: val };
       if (match) {
-        newState.unitMeasure = match.unitMeasure;
+        newState.unitMeasure = match.unit;
         newState.serviceAcronym = match.acronym;
       }
       return newState;

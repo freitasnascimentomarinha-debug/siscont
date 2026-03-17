@@ -8,4 +8,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
     console.warn('Supabase URL ou Anon Key não encontrados no arquivo .env');
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
+export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
+    auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        storageKey: 'siscont-auth',
+        storage: localStorage,
+    }
+});

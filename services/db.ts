@@ -2,15 +2,63 @@
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition } from '../types';
 import { supabaseService } from './supabaseService';
 
+// --- Simple In-Memory Cache ---
+const CACHE_TTL = 30_000; // 30 seconds
+
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  promise?: Promise<T>; // Dedup in-flight requests
+}
+
+const cache = new Map<string, CacheEntry<any>>();
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (entry && (Date.now() - entry.timestamp) < CACHE_TTL) {
+    return entry.data;
+  }
+  return null;
+}
+
+function setCached<T>(key: string, data: T): void {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+function invalidateCache(...keys: string[]): void {
+  if (keys.length === 0) {
+    cache.clear();
+  } else {
+    keys.forEach(k => cache.delete(k));
+  }
+}
+
+async function cachedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const cached = getCached<T>(key);
+  if (cached !== null) return cached;
+
+  // Dedup: if already fetching this key, reuse the promise
+  const existing = cache.get(key);
+  if (existing?.promise) return existing.promise;
+
+  const promise = fetcher().then(data => {
+    setCached(key, data);
+    return data;
+  }).catch(err => {
+    cache.delete(key);
+    throw err;
+  });
+
+  cache.set(key, { data: null, timestamp: 0, promise });
+  return promise;
+}
 export const db = {
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
-    return await supabaseService.getUsers();
+    return cachedFetch('users', () => supabaseService.getUsers());
   },
 
   saveUser: async (user: User) => {
-    // Note: Profiles are usually updated via Supabase Auth or a specific trigger.
-    // For now, we use the profiles table.
     const { supabase } = await import('./supabase');
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
@@ -18,30 +66,32 @@ export const db = {
       role: user.role
     });
     if (error) throw error;
+    invalidateCache('users');
   },
 
   deleteUser: async (id: string) => {
     const { supabase } = await import('./supabase');
     const { error } = await supabase.from('profiles').delete().eq('id', id);
     if (error) throw error;
+    invalidateCache('users');
   },
 
   // --- CLIENTS ---
-  getClients: async (): Promise<Client[]> => await supabaseService.getClients(),
-  saveClient: async (client: Client) => await supabaseService.saveClient(client),
-  deleteClient: async (id: string) => await supabaseService.deleteClient(id),
+  getClients: async (): Promise<Client[]> => cachedFetch('clients', () => supabaseService.getClients()),
+  saveClient: async (client: Client) => { await supabaseService.saveClient(client); invalidateCache('clients'); },
+  deleteClient: async (id: string) => { await supabaseService.deleteClient(id); invalidateCache('clients'); },
 
   // --- SERVICES ---
-  getServices: async (): Promise<ServiceDefinition[]> => await supabaseService.getServices(),
-  saveService: async (service: ServiceDefinition) => await supabaseService.saveService(service),
-  deleteService: async (id: string) => await supabaseService.deleteService(id),
+  getServices: async (): Promise<ServiceDefinition[]> => cachedFetch('services', () => supabaseService.getServices()),
+  saveService: async (service: ServiceDefinition) => { await supabaseService.saveService(service); invalidateCache('services'); },
+  deleteService: async (id: string) => { await supabaseService.deleteService(id); invalidateCache('services'); },
 
   // --- INVOICES ---
   getInvoices: async (): Promise<Invoice[]> => {
     const [invoices, allocations, documents] = await Promise.all([
-      supabaseService.getInvoices(),
-      supabaseService.getAllocations(),
-      supabaseService.getDocuments()
+      cachedFetch('raw_invoices', () => supabaseService.getInvoices()),
+      cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
+      cachedFetch('raw_documents', () => supabaseService.getDocuments())
     ]);
 
     return invoices.map(inv => {
@@ -71,15 +121,15 @@ export const db = {
     });
   },
 
-  saveInvoice: async (invoice: Invoice) => await supabaseService.saveInvoice(invoice),
-  deleteInvoice: async (id: string) => await supabaseService.deleteInvoice(id),
+  saveInvoice: async (invoice: Invoice) => { await supabaseService.saveInvoice(invoice); invalidateCache('raw_invoices'); },
+  deleteInvoice: async (id: string) => { await supabaseService.deleteInvoice(id); invalidateCache('raw_invoices'); },
 
   // --- DOCUMENTS ---
   getDocuments: async (): Promise<ReceivedDocument[]> => {
     const [docs, allocations, invoices] = await Promise.all([
-      supabaseService.getDocuments(),
-      supabaseService.getAllocations(),
-      supabaseService.getInvoices()
+      cachedFetch('raw_documents', () => supabaseService.getDocuments()),
+      cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
+      cachedFetch('raw_invoices', () => supabaseService.getInvoices())
     ]);
 
     return docs.map(doc => {
@@ -94,18 +144,18 @@ export const db = {
     });
   },
 
-  saveDocument: async (doc: ReceivedDocument) => await supabaseService.saveDocument(doc),
-  deleteDocument: async (id: string) => await supabaseService.deleteDocument(id),
+  saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },
+  deleteDocument: async (id: string) => { await supabaseService.deleteDocument(id); invalidateCache('raw_documents'); },
 
   // --- ALLOCATIONS ---
-  getAllocations: async (): Promise<PaymentAllocation[]> => await supabaseService.getAllocations(),
-  saveAllocation: async (alloc: PaymentAllocation) => await supabaseService.saveAllocation(alloc),
-  deleteAllocation: async (id: string) => await supabaseService.deleteAllocation(id),
+  getAllocations: async (): Promise<PaymentAllocation[]> => cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
+  saveAllocation: async (alloc: PaymentAllocation) => { await supabaseService.saveAllocation(alloc); invalidateCache('raw_allocations'); },
+  deleteAllocation: async (id: string) => { await supabaseService.deleteAllocation(id); invalidateCache('raw_allocations'); },
 
   // --- CASH FLOW ---
-  getExits: async (): Promise<CashFlowExit[]> => await supabaseService.getExits(),
-  saveExit: async (exit: CashFlowExit) => await supabaseService.saveExit(exit),
-  deleteExit: async (id: string) => await supabaseService.deleteExit(id),
+  getExits: async (): Promise<CashFlowExit[]> => cachedFetch('exits', () => supabaseService.getExits()),
+  saveExit: async (exit: CashFlowExit) => { await supabaseService.saveExit(exit); invalidateCache('exits'); },
+  deleteExit: async (id: string) => { await supabaseService.deleteExit(id); invalidateCache('exits'); },
 
   getCashFlow: async (): Promise<CashFlowItem[]> => {
     const [docs, exits] = await Promise.all([
