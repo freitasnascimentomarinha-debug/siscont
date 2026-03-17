@@ -37,16 +37,20 @@ async function withRetry<T>(operation: () => Promise<T>, label = 'operation'): P
 export const supabaseService = {
     // --- USERS ---
     async getUsers(): Promise<User[]> {
-        const { data, error } = await supabase.from('profiles').select('*');
-        if (error) throw error;
-        return data as User[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('profiles').select('*');
+            if (error) throw error;
+            return data as User[];
+        }, 'getUsers');
     },
 
     // --- CLIENTS ---
     async getClients(): Promise<Client[]> {
-        const { data, error } = await supabase.from('clients').select('*');
-        if (error) throw error;
-        return data as Client[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('clients').select('*');
+            if (error) throw error;
+            return data as Client[];
+        }, 'getClients');
     },
 
     async saveClient(client: Client) {
@@ -71,15 +75,16 @@ export const supabaseService = {
 
     // --- SERVICES ---
     async getServices(): Promise<ServiceDefinition[]> {
-        const { data, error } = await supabase.from('service_definitions').select('*');
-        if (error) throw error;
-        // Map snake_case to camelCase if necessary, but SQL schema used unit_measure
-        return (data || []).map(s => ({
-            id: s.id,
-            name: s.name,
-            unitMeasure: s.unit_measure,
-            acronym: s.acronym
-        }));
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('service_definitions').select('*');
+            if (error) throw error;
+            return (data || []).map(s => ({
+                id: s.id,
+                name: s.name,
+                unitMeasure: s.unit_measure,
+                acronym: s.acronym
+            }));
+        }, 'getServices');
     },
 
     async saveService(service: ServiceDefinition) {
@@ -103,33 +108,35 @@ export const supabaseService = {
 
     // --- INVOICES ---
     async getInvoices(): Promise<Invoice[]> {
-        const { data, error } = await supabase.from('invoices').select('*');
-        if (error) throw error;
-        return (data || []).map(i => ({
-            id: i.id,
-            ug: i.ug,
-            sector: i.sector,
-            command: i.command,
-            client: i.client,
-            invoiceNumber: i.invoice_number,
-            consumption: i.consumption,
-            unitMeasure: i.unit_measure,
-            serviceAcronym: i.service_acronym,
-            value: Number(i.value),
-            adjustmentAddition: Number(i.adjustment_addition),
-            adjustmentDeduction: Number(i.adjustment_deduction),
-            issueDate: i.issue_date,
-            dueDate: i.due_date,
-            monthCompetence: i.month_competence,
-            yearCompetence: i.year_competence,
-            competence: i.competence,
-            type: i.type,
-            isCanceled: i.is_canceled,
-            observation: i.observation,
-            sipladSettled: i.siplad_settled,
-            paidAmount: 0, // This will be calculated by the logic later
-            status: 'OPEN' as any
-        })) as Invoice[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('invoices').select('*');
+            if (error) throw error;
+            return (data || []).map(i => ({
+                id: i.id,
+                ug: i.ug,
+                sector: i.sector,
+                command: i.command,
+                client: i.client,
+                invoiceNumber: i.invoice_number,
+                consumption: i.consumption,
+                unitMeasure: i.unit_measure,
+                serviceAcronym: i.service_acronym,
+                value: Number(i.value),
+                adjustmentAddition: Number(i.adjustment_addition),
+                adjustmentDeduction: Number(i.adjustment_deduction),
+                issueDate: i.issue_date,
+                dueDate: i.due_date,
+                monthCompetence: i.month_competence,
+                yearCompetence: i.year_competence,
+                competence: i.competence,
+                type: i.type,
+                isCanceled: i.is_canceled,
+                observation: i.observation,
+                sipladSettled: i.siplad_settled,
+                paidAmount: 0,
+                status: 'OPEN' as any
+            })) as Invoice[];
+        }, 'getInvoices');
     },
 
     async saveInvoice(invoice: Invoice) {
@@ -170,23 +177,25 @@ export const supabaseService = {
 
     // --- DOCUMENTS ---
     async getDocuments(): Promise<ReceivedDocument[]> {
-        const { data, error } = await supabase.from('received_documents').select('*');
-        if (error) throw error;
-        return (data || []).map(d => ({
-            id: d.id,
-            ug: d.ug,
-            sector: d.sector,
-            command: d.command,
-            client: d.client,
-            documentNumber: d.document_number,
-            documentType: d.document_type,
-            totalValue: Number(d.total_value),
-            date: d.date,
-            operation: d.operation,
-            observation: d.observation,
-            availableValue: 0, // Calculated later
-            informedAdvance: false
-        })) as ReceivedDocument[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('received_documents').select('*');
+            if (error) throw error;
+            return (data || []).map(d => ({
+                id: d.id,
+                ug: d.ug,
+                sector: d.sector,
+                command: d.command,
+                client: d.client,
+                documentNumber: d.document_number,
+                documentType: d.document_type,
+                totalValue: Number(d.total_value),
+                date: d.date,
+                operation: d.operation,
+                observation: d.observation,
+                availableValue: 0,
+                informedAdvance: false
+            })) as ReceivedDocument[];
+        }, 'getDocuments');
     },
 
     async saveDocument(doc: ReceivedDocument) {
@@ -217,19 +226,21 @@ export const supabaseService = {
 
     // --- ALLOCATIONS ---
     async getAllocations(): Promise<PaymentAllocation[]> {
-        const { data, error } = await supabase.from('payment_allocations').select('*');
-        if (error) throw error;
-        return (data || []).map(a => ({
-            id: a.id,
-            documentId: a.document_id,
-            invoiceId: a.invoice_id,
-            amount: Number(a.amount),
-            date: a.date,
-            serviceType: a.service_type,
-            siscontSettled: a.siscont_settled,
-            siscontDueDate: a.siscont_due_date,
-            observation: a.observation
-        })) as PaymentAllocation[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('payment_allocations').select('*');
+            if (error) throw error;
+            return (data || []).map(a => ({
+                id: a.id,
+                documentId: a.document_id,
+                invoiceId: a.invoice_id,
+                amount: Number(a.amount),
+                date: a.date,
+                serviceType: a.service_type,
+                siscontSettled: a.siscont_settled,
+                siscontDueDate: a.siscont_due_date,
+                observation: a.observation
+            })) as PaymentAllocation[];
+        }, 'getAllocations');
     },
 
     async saveAllocation(alloc: PaymentAllocation) {
@@ -258,20 +269,22 @@ export const supabaseService = {
 
     // --- CASH FLOW EXITS ---
     async getExits(): Promise<CashFlowExit[]> {
-        const { data, error } = await supabase.from('cash_flow_exits').select('*');
-        if (error) throw error;
-        return (data || []).map(e => ({
-            id: e.id,
-            date: e.date,
-            documentNumber: e.document_number,
-            documentType: e.document_type,
-            client: e.client,
-            value: Number(e.value),
-            rubric: e.rubric,
-            description: e.description,
-            observation: e.observation,
-            isCanceled: e.is_canceled
-        })) as CashFlowExit[];
+        return await withRetry(async () => {
+            const { data, error } = await supabase.from('cash_flow_exits').select('*');
+            if (error) throw error;
+            return (data || []).map(e => ({
+                id: e.id,
+                date: e.date,
+                documentNumber: e.document_number,
+                documentType: e.document_type,
+                client: e.client,
+                value: Number(e.value),
+                rubric: e.rubric,
+                description: e.description,
+                observation: e.observation,
+                isCanceled: e.is_canceled
+            })) as CashFlowExit[];
+        }, 'getExits');
     },
 
     async saveExit(exit: CashFlowExit) {

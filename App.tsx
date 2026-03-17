@@ -9,6 +9,7 @@ import { ReceivedBalances } from './pages/ReceivedBalances';
 import { CashFlow } from './pages/CashFlow';
 import { Admin } from './pages/Admin';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export type PageID = 'dashboard' | 'invoices' | 'received' | 'cashflow' | 'admin';
 
@@ -60,13 +61,28 @@ const App: React.FC = () => {
   // Clean up corrupted localStorage on app start
   useEffect(() => {
     cleanupCorruptedLocalStorage();
+
+    // Global listener for unhandled errors
+    const handleError = (e: ErrorEvent | PromiseRejectionEvent) => {
+      console.error('Captured global error:', e);
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleError);
+
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleError);
+    };
   }, []);
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-slate-50">
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ErrorBoundary>
     </div>
   );
 };
