@@ -11,6 +11,11 @@ interface AuthContextType {
   isLoading: boolean;
 }
 
+// Global flag to prevent deadlocks between register() and onAuthStateChange() triggering fetchUserProfile
+let isRegisteringInProgress = false;
+// Global set to prevent concurrent auto-recoveries for the same user if onAuthStateChange fires multiple times
+const recoveringProfiles = new Set<string>();
+
 const AuthContext = createContext<AuthContextType>(null!);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -51,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (session?.user) {
         try {
-          const profile = await fetchUserProfile(session.user.id);
+          const profile = await fetchUserProfile(session.user);
           if (isMounted) {
             console.log("Perfil carregado:", profile?.name, "Role:", profile?.role);
             setUser({
@@ -91,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (session?.user) {
           try {
-            const profile = await fetchUserProfile(session.user.id);
+            const profile = await fetchUserProfile(session.user);
             if (isMounted) {
               setUser({
                 id: session.user.id,
@@ -134,7 +139,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = async (authUser: any) => {
+    const userId = authUser.id;
+
+    // Prevent deadlocks if registration is concurrently creating the profile
+    if (isRegisteringInProgress) {
+      console.log(`[Auth] Registro em andamento. Ignorando fetch inicial para evitar deadlock.`);
+      return {
+        id: userId,
+        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Novo Usuário',
+        role: UserRole.READ_ONLY,
+        email: authUser.email
+      };
+    }
+
     // Try fetching with email first
     let { data, error } = await supabase
       .from('profiles')
@@ -159,9 +177,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // SCENARIO 2: Profile is missing entirely (e.g. Tamara Nascimento) - Auto-heal!
     if (!data && (!error || error.code === 'PGRST116')) {
-        console.warn(`Profile missing for user ${userId}. Attempting auto-recovery...`);
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (authUser) {
+        if (recoveringProfiles.has(userId)) {
+             console.log(`[Auth] Recuperação já em andamento para ${userId}. Ignorando chamada duplicada.`);
+             return null;
+        }
+
+        recoveringProfiles.add(userId);
+        try {
+            console.warn(`Profile missing for user ${userId}. Attempting auto-recovery...`);
             const newProfile: any = {
                 id: userId,
                 name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Novo Usuário',
@@ -182,6 +205,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 console.log("Profile auto-recovered successfully.");
                 return newProfile;
             }
+        } finally {
+            recoveringProfiles.delete(userId);
         }
     }
 
@@ -205,53 +230,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (name: string, email: string, pass: string) => {
+    if (isRegisteringInProgress) return false;
+    isRegisteringInProgress = true;
+    
     console.log(`[Auth] Iniciando registro para: ${email}`);
-    const { data, error: authError } = await supabase.auth.signUp({
-      email,
-      password: pass
-    });
+    try {
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: {
+          data: { name }
+        }
+      });
 
-    if (authError) {
-      throw authError;
-    }
+      if (authError) throw authError;
+      if (!data.user) throw new Error("Erro desconhecido ao realizar cadastro.");
 
-    if (!data.user) {
-      throw new Error("Erro desconhecido ao realizar cadastro.");
-    }
+      // Create profile record
+      const profilePayload: any = {
+        id: data.user.id,
+        name: name,
+        role: UserRole.READ_ONLY,
+        email: email
+      };
 
-    // Create profile record
-    const profilePayload: any = {
-      id: data.user.id,
-      name: name,
-      role: UserRole.READ_ONLY,
-      email: email
-    };
-
-    let { error: profileError } = await supabase
-      .from('profiles')
-      .upsert(profilePayload);
-
-    // If it fails (likely missing email column), try without email
-    if (profileError && (profileError.message.includes('email') || profileError.message.includes('column'))) {
-      console.warn("Retrying profile upsert without 'email' field in register...");
-      const { email: _, ...payloadWithoutEmail } = profilePayload;
-      const retry = await supabase
+      let { error: profileError } = await supabase
         .from('profiles')
-        .upsert(payloadWithoutEmail);
-      profileError = retry.error;
+        .upsert(profilePayload);
+
+      // If it fails (likely missing email column), try without email
+      if (profileError && (profileError.message.includes('email') || profileError.message.includes('column'))) {
+        console.warn("Retrying profile upsert without 'email' field in register...");
+        const { email: _, ...payloadWithoutEmail } = profilePayload;
+        const retry = await supabase
+          .from('profiles')
+          .upsert(payloadWithoutEmail);
+        profileError = retry.error;
+      }
+
+      if (profileError) {
+        console.error("Erro ao criar perfil após cadastro:", profileError.message);
+        throw new Error(`Cadastro parcial: Conta criada, mas dados do perfil falharam. Erro: ${profileError.message}`);
+      }
+
+      // Invalidate cache so Admin sees the new user immediately
+      const { db } = await import('../services/db');
+      db.invalidateCache('users');
+      console.log(`[Auth] Registro concluído e cache invalidado para: ${email}`);
+
+      return true;
+    } finally {
+      isRegisteringInProgress = false;
     }
-
-    if (profileError) {
-      console.error("Erro ao criar perfil após cadastro:", profileError.message);
-      throw new Error(`Cadastro parcial: Conta criada, mas dados do perfil falharam. Erro: ${profileError.message}`);
-    }
-
-    // New: Invalidate cache so Admin sees the new user immediately
-    const { db } = await import('../services/db');
-    db.invalidateCache('users');
-    console.log(`[Auth] Registro concluído e cache invalidado para: ${email}`);
-
-    return true;
   };
 
   const logout = async () => {
