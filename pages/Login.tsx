@@ -67,6 +67,7 @@ export const Login: React.FC = () => {
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Ex: 3ºSG-AD Tamara"
+              autoComplete="name"
               disabled={isSubmitting}
               required
             />
@@ -78,6 +79,7 @@ export const Login: React.FC = () => {
             value={email}
             onChange={e => setEmail(e.target.value)}
             placeholder="admin@siscont.com"
+            autoComplete="username"
             disabled={isSubmitting}
             required
           />
@@ -87,6 +89,7 @@ export const Login: React.FC = () => {
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Digite sua senha"
+            autoComplete={isRegistering ? 'new-password' : 'current-password'}
             disabled={isSubmitting}
             required
           />

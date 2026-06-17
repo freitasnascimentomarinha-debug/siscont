@@ -18,6 +18,23 @@ const recoveringProfiles = new Set<string>();
 
 const AuthContext = createContext<AuthContextType>(null!);
 
+const AUTH_REQUEST_TIMEOUT_MS = 12000;
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -154,20 +171,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     // Try fetching with email first
-    let { data, error } = await supabase
-      .from('profiles')
-      .select('name, role, email')
-      .eq('id', userId)
-      .single();
+    let { data, error } = await withTimeout(
+      supabase
+        .from('profiles')
+        .select('name, role, email')
+        .eq('id', userId)
+        .single(),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo limite ao carregar perfil do usuário.'
+    );
 
     // If it fails (likely missing email column), try without email
     if (error && (error.message.includes('email') || error.code === 'PGRST100' || error.message.includes('column'))) {
       console.warn("Retrying profile fetch without 'email' column...");
-      const retry = await supabase
-        .from('profiles')
-        .select('name, role')
-        .eq('id', userId)
-        .single();
+      const retry = await withTimeout(
+        supabase
+          .from('profiles')
+          .select('name, role')
+          .eq('id', userId)
+          .single(),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Tempo limite ao recarregar perfil do usuário.'
+      );
       
       if (retry.data) {
         return { ...retry.data, email: null };
@@ -192,12 +217,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 email: authUser.email
             };
             
-            let { error: createError } = await supabase.from('profiles').upsert(newProfile);
+            let { error: createError } = await withTimeout(
+              supabase.from('profiles').upsert(newProfile),
+              AUTH_REQUEST_TIMEOUT_MS,
+              'Tempo limite ao recuperar perfil do usuário.'
+            );
             
             // Resilience: if email column is missing in DB during recovery
             if (createError && (createError.message.includes('email') || createError.message.includes('column'))) {
                 const { email: _, ...payloadWithoutEmail } = newProfile;
-                const retryCreate = await supabase.from('profiles').upsert(payloadWithoutEmail);
+                const retryCreate = await withTimeout(
+                  supabase.from('profiles').upsert(payloadWithoutEmail),
+                  AUTH_REQUEST_TIMEOUT_MS,
+                  'Tempo limite ao recuperar perfil (sem e-mail).'
+                );
                 createError = retryCreate.error;
             }
             
@@ -218,10 +251,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (email: string, pass: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password: pass
-    });
+    const { error } = await withTimeout(
+      supabase.auth.signInWithPassword({
+        email,
+        password: pass
+      }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo de login excedido. Verifique sua conexao e tente novamente.'
+    );
 
     if (error) {
       throw error;
@@ -235,13 +272,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     console.log(`[Auth] Iniciando registro para: ${email}`);
     try {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email,
-        password: pass,
-        options: {
-          data: { name }
-        }
-      });
+      const { data, error: authError } = await withTimeout(
+        supabase.auth.signUp({
+          email,
+          password: pass,
+          options: {
+            data: { name }
+          }
+        }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Tempo de cadastro excedido. Verifique sua conexao e tente novamente.'
+      );
 
       let authUser = data.user;
 
@@ -256,10 +297,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw authError;
         }
 
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password: pass
-        });
+        const { data: signInData, error: signInError } = await withTimeout(
+          supabase.auth.signInWithPassword({
+            email,
+            password: pass
+          }),
+          AUTH_REQUEST_TIMEOUT_MS,
+          'Tempo de autenticacao excedido. Tente novamente.'
+        );
 
         if (signInError || !signInData.user) {
           throw new Error('Este e-mail já está cadastrado. Tente entrar com sua senha atual ou redefinir a senha.');
@@ -278,17 +323,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: email
       };
 
-      let { error: profileError } = await supabase
-        .from('profiles')
-        .upsert(profilePayload);
+      let { error: profileError } = await withTimeout(
+        supabase
+          .from('profiles')
+          .upsert(profilePayload),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Tempo limite ao salvar perfil.'
+      );
 
       // If it fails (likely missing email column), try without email
       if (profileError && (profileError.message.includes('email') || profileError.message.includes('column'))) {
         console.warn("Retrying profile upsert without 'email' field in register...");
         const { email: _, ...payloadWithoutEmail } = profilePayload;
-        const retry = await supabase
-          .from('profiles')
-          .upsert(payloadWithoutEmail);
+        const retry = await withTimeout(
+          supabase
+            .from('profiles')
+            .upsert(payloadWithoutEmail),
+          AUTH_REQUEST_TIMEOUT_MS,
+          'Tempo limite ao salvar perfil (sem e-mail).'
+        );
         profileError = retry.error;
       }
 

@@ -39,7 +39,8 @@ const AuthenticatedApp = () => {
 const AppContent = () => {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) {
+  // Show splash only while restoring an already authenticated session.
+  if (isLoading && user) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-slate-900 z-50">
         <div className="flex flex-col items-center">
