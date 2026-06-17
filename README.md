@@ -18,3 +18,15 @@ View your app in AI Studio: https://ai.studio/apps/drive/15NW5t6dVY6U2y2o-3fFfGv
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Supabase (Vercel e Local)
+
+Defina as variáveis de ambiente no projeto (local ou Vercel):
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+
+O projeto tambem aceita as variantes:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (ou `VITE_SUPABASE_PUBLISHABLE_KEY`)
