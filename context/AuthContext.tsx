@@ -243,12 +243,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-      if (authError) throw authError;
-      if (!data.user) throw new Error("Erro desconhecido ao realizar cadastro.");
+      let authUser = data.user;
+
+      // If the user already exists, try authenticating with the provided password
+      // so we can recover/create the profile and avoid blocking the flow.
+      if (authError) {
+        const isAlreadyRegistered =
+          authError.message?.toLowerCase().includes('already registered') ||
+          authError.message?.toLowerCase().includes('already exists');
+
+        if (!isAlreadyRegistered) {
+          throw authError;
+        }
+
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password: pass
+        });
+
+        if (signInError || !signInData.user) {
+          throw new Error('Este e-mail já está cadastrado. Tente entrar com sua senha atual ou redefinir a senha.');
+        }
+
+        authUser = signInData.user;
+      }
+
+      if (!authUser) throw new Error("Erro desconhecido ao realizar cadastro.");
 
       // Create profile record
       const profilePayload: any = {
-        id: data.user.id,
+        id: authUser.id,
         name: name,
         role: UserRole.READ_ONLY,
         email: email
