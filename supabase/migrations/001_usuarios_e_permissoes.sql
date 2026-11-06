@@ -160,16 +160,18 @@ as $$
 $$;
 
 -- 5. Proteção de campos sensíveis do perfil -----------------------------
+-- SECURITY INVOKER de propósito: current_user precisa refletir quem executa.
+-- Requisições do navegador rodam como 'authenticated'/'anon'; gatilhos internos,
+-- o serviço de Auth e a chave service_role rodam com outros papéis.
 create or replace function public.protect_profile_fields()
 returns trigger
 language plpgsql
-security definer
 set search_path = public
 as $$
 begin
   new.updated_at := now();
-  -- service_role (API do servidor) e administradores podem tudo
-  if coalesce(auth.role(), '') = 'service_role' or public.is_admin() then
+  -- Servidor (service_role), Auth, gatilhos internos e administradores podem tudo
+  if current_user not in ('authenticated', 'anon') or public.is_admin() then
     return new;
   end if;
   -- Usuário comum: só pode alterar o próprio nome
