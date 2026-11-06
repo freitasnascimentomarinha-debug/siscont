@@ -48,8 +48,21 @@ begin
   end if;
 end $$;
 
--- Perfis órfãos (sem usuário no Auth) são removidos; a FK passa a cascatear
+-- Perfis órfãos (sem usuário no Auth) são removidos. Ex.: os "usuários" criados
+-- pela tela antiga de Administração, que nunca tiveram login.
 delete from public.profiles p where not exists (select 1 from auth.users u where u.id = p.id);
+
+-- Garante a ligação com auth.users (excluir o login exclui o perfil)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.profiles'::regclass and contype = 'f'
+  ) then
+    alter table public.profiles
+      add constraint profiles_id_fkey foreign key (id) references auth.users (id) on delete cascade;
+  end if;
+end $$;
 
 -- 2/3. Sincroniza e-mail e cria perfis que estejam faltando --------------
 update public.profiles p set email = u.email
