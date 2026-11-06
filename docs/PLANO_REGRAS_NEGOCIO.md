@@ -3,6 +3,10 @@
 _Elaborado em 06/11/2026 a partir da OI nº 40-04 (Contabilidade de OMPS-E) e anexos A–L, da planilha
 `Pagamento 2026` (32 abas), das faturas emitidas (AGO26), da ALTCRED G471.2026.AC.00846, da OMS 021/26
 e das trocas de e-mail com DIM, ComGptPatNavS e AviPa Marlim._
+_Revisão 2 (06/11/2026): incorporadas as planilhas Faturamento (livro de emissão 2022–2026), Fluxo de caixa,
+Proposta 4 – Atualização da Taxa Condominial 2026, Rateio de energia ABR26 e Faturas em Aberto OUT26, e as
+respostas do usuário (rateio vem das divisões; sequencial é por ordem de emissão; fluxo de caixa é da Seção de
+Custos)._
 
 ---
 
@@ -13,7 +17,7 @@ e das trocas de e-mail com DIM, ComGptPatNavS e AviPa Marlim._
 | Seção | Atribuições que o sistema precisa apoiar |
 |---|---|
 | **Faturamento** | extrair telefonia do Info 360 (dia 1º); receber medições das divisões; **processar e emitir as faturas mensais** (TC, aluguel de espaço, DA, RB, AE, EL, TL, gás, VT); relatório e controle das faturas; **controle dos adiantamentos**; mensagem de envio das faturas às OM |
-| **Contabilidade de Custos** | **atualizar anualmente a taxa condominial e a diária de atracação**; apurar custos; estimativa de despesas do ano seguinte (PAR) |
+| **Contabilidade de Custos** | **atualizar anualmente a taxa condominial e a diária de atracação**; apurar custos; estimativa de despesas do ano seguinte (PAR); **controlar o fluxo de caixa** (ALTCRED recebidas × notas de empenho por rubrica) — atribuição exercida na prática e ainda **ausente da OI** |
 | **Acompanhamento Contábil** | **conciliar créditos (ALTCRED no SIPLAD) com as faturas**; registrar faturas e pagamentos no SIAFI; controlar saldos devedores; GRU dos clientes extra-MB (Fundo Naval); inserir faturas no SIPLAD e quitá-las; informar ao Faturamento os saldos de adiantamento |
 | **Encarregado da Divisão** | mensagens de **faturas em atraso**; controle das dívidas dos condôminos |
 
@@ -59,7 +63,7 @@ Códigos de OM têm **5 dígitos**. A aba CLIENTES guarda o **indicativo naval**
 | `91645` | código da OM usuária |
 | `DA` | sigla do serviço |
 | `08-2026` | mês/ano de **competência** (referência) |
-| `011` | sequencial — **observação**: é o mesmo todo mês para a mesma OM e serviço (DIM: TC sempre 014, AE sempre 004, EL sempre 010), ou seja, parece ser o nº de ordem do cliente no rol daquele serviço (**confirmar**) |
+| `011` | sequencial **por ordem de emissão** dentro do serviço e da competência: vai de 001 a N, sem lacunas nem repetições (conferido em JUL, AGO e SET26 — ex.: SET26 teve 40 faturas EL numeradas 001–040). Parece fixo para a DIM só porque a ordem dos clientes no lote se mantém |
 | `0` | **versão** — `-1` "cancela e substitui" a `-0` |
 
 **Siglas em uso** (fórmula SWITCH da planilha + faturas extra-MB):
@@ -67,8 +71,8 @@ Códigos de OM têm **5 dígitos**. A aba CLIENTES guarda o **indicativo naval**
 | Sigla | Serviço | "Emitida de acordo com" | Anexo / critério | Fonte dos dados |
 |---|---|---|---|---|
 | TC | Taxa condominial mensal | taxa estabelecida | B / K | tabela anual |
-| AE | Água potável e coleta de esgoto | detalhamento (m³) | C / J 1.1–1.2 | Div. Serviços Auxiliares, até dia 10 |
-| EL | Energia elétrica | detalhamento (kWh e kW demanda) | D / J 1.3–1.4 | Div. Eletricidade, até dia 10 |
+| AE | Água potável e coleta de esgoto | detalhamento (m³) | C / J 1.1–1.2 | Div. Serviços Auxiliares, até dia 10 — **já rateado (R$ por OM)** |
+| EL | Energia elétrica | detalhamento (kWh e kW demanda) | D / J 1.3–1.4 | Div. Eletricidade, até dia 10 — **já rateado** (aba "DADOS BNIC-41": OM, código, dias, kWh, kW, R$, centro de custo) |
 | DA | Diária de atracação | diária estabelecida (R$ × dias) | F / L | Div. Manobras/Marítima, até dia 10 |
 | RB | Rebocador | detalhamento | G / J 1.9 | Div. Manobras, dias 08 e 24 |
 | VT | Aluguel de viaturas | detalhamento (horas + km) | H / J 1.7 | Div. Transportes, até dia 10 |
@@ -89,6 +93,42 @@ crédito se destina), situação. Classificação interna: **PAGAMENTO** ou **AD
 processamento). Uma ALTCRED quita várias faturas de várias OM subordinadas; a sobra é enviada para
 adiantamento e abatida nas faturas seguintes.
 
+### 1.5 Planilhas complementares (revisão 2)
+
+**Faturamento (livro de emissão)** — uma aba por mês (2022–2026) e uma consolidação anual. Colunas: setor,
+comando, cliente, fatura, consumo, unidade, valor do serviço, adiantamento, acréscimo, débito, valor final,
+datas, competência, tipo. Em 2026: R$ 28,3 milhões faturados (R$ 22,6 milhões líquidos de adiantamento).
+
+**Rateio de energia (Div. Eletricidade)** — leituras por medidor → consumo por OM; dados da conta Light
+(consumo fora de ponta/ponta, demanda contratada 7.000 kW, encargos, iluminação pública, energia comprada da
+Matrix); participação de cada OM = kWh da OM ÷ kWh do CNIC, aplicada a consumo, demanda e encargos; **AMRJ
+recebe o resíduo** (total do CNIC − demais OM). Resultado enviado à Contabilidade na aba "DADOS BNIC-41".
+
+**Fluxo de caixa (Seção de Custos)** — por mês: entradas = ALTCRED recebidas (nº, cliente, valor); saídas =
+**notas de empenho** (`740015000012026NE000099`: UG 740015, gestão 00001, ano, nº) com favorecido, valor,
+**rubrica da taxa condominial** (12, 14, 26, 32…) ou categoria (ENERGIA, AGUADA, TELEFONIA, REBOCADOR, OUTROS)
+e descrição; saldo acumulado que passa de um mês para o outro. Abas de apoio: **CONDOMÍNIO** (por rubrica:
+valor vigente × taxa condominial recebida × empenhado × saldo em conta × a receber) e **DISPONÍVEL R.901.16**
+(entradas, saídas e saldo por energia, água, telefonia, condomínio/diária/viatura e "sem indicação").
+
+**Proposta da taxa condominial 2026** — o modelo completo de cálculo:
+1. *Despesas*: 33 rubricas (+34 "outros gastos") com conta contábil, valor previsto 2026, gasto 2025, variação e descontos;
+2. *Matriz OM × rubrica*: quais clientes participam de cada rubrica, agrupados pelas 5 áreas do CNIC;
+3. *Rateio por rubrica*: peso = **lotação × dias** (OM de terra = 30; navio = média de dias atracados no mês,
+   ex.: 9; 21,44; 0,74); parcela = peso ÷ soma dos pesos das beneficiárias × valor da rubrica;
+4. *Descontos negociados* (ex.: 23,5% SecNSNQ; servidor civil AMRJ; rubrica 20 do Batalhão Naval);
+5. *Extrato demonstrativo por OM* (valor anual, mensal e %RUB por rubrica) e *quadro comparativo* taxa 2025 × proposta 2026;
+6. *Navios*: diária = **custo por militar-dia × lotação** (ex.: Mearim, lotação 35 → R$ 95,51/dia).
+
+**Faturamento estimado de fim de exercício (OND)** — em 23/10/26 foi emitido o lote "OND26" (competência
+OUT, vencimento 31/10), e há o precedente "Estimado (OND) 2025". Nele a **taxa condominial é cobrada em
+triplo** (OUT+NOV+DEZ — AMAZUL: 819,76 → 2.459,28) e os **consumos repetem os de SET** (ex.: Santander EL
+1.654 kWh / R$ 1.284,73; EMGEPRON EL 52.500 kWh), para que as OM paguem antes do encerramento do exercício.
+O sistema precisa de um **lote "estimado"** e do **acerto** posterior contra o consumo real (regra a confirmar).
+
+**Faturas em aberto por comando** — extrato mensal por comando (comando, cliente, fatura, valor, total,
+instruções de pagamento, assinatura do Encarregado) enviado para cobrança.
+
 ---
 
 ## 2. Problemas reais encontrados nos dados e nos e-mails
@@ -106,6 +146,11 @@ adiantamento e abatida nas faturas seguintes.
 | D9 | Faturas canceladas/contestadas controladas em abas separadas e no campo observação | status próprios + histórico |
 | D10 | Modelos F e G (Anexos) trazem "05 TOTAL FATURA (01 – 02 – 03)" | usar a fórmula correta (06 = 01 − 02 + 03 − 04) e sugerir correção dos anexos |
 | D11 | Relatórios (vencidas 2025/2026, a vencer, por setor) montados com tabelas dinâmicas manuais | relatórios prontos e sempre atualizados |
+| D12 | Extrato "Faturas em Aberto OUT26" da DIM cobra 3 faturas do Mangaratiba (R$ 41.660,42) que a planilha de controle mostra **pagas** pela ALTCRED G424.2026.AC.00370 em 25/08 | extrato gerado da mesma base do controle — nunca montado à mão |
+| D13 | Fluxo de caixa com valores digitados como texto ("R$ 26.307,29") → saldo `#VALUE!`; entradas faltando → saldo de DEZ25 em −R$ 12,5 milhões | entradas vindas automaticamente das ALTCRED cadastradas; valores sempre numéricos |
+| D14 | Rateio de energia: linha "PAPEM (Ed. 23)" com código 49001 (que é do CTIM); BNIC-RANCHO com 40015 numa aba e 40016 na outra | importação valida o código contra o cadastro de OM |
+| D15 | Livro de emissão com números como texto e "Valor Final" ora número, ora "R$ 0,00" | valores numéricos e calculados (05 = 01 − 02 + 03 − 04) |
+| D16 | A planilha de rateio de energia guarda uma senha de proteção e endereços de rede em texto aberto | não manter credenciais em planilhas; o sistema não armazena esse tipo de dado |
 
 Situação atual da planilha: **1.415 faturas em 2026** (1.110 pagas, 171 vencidas, 121 a vencer, 6
 contestadas, 6 canceladas), **R$ 8,08 milhões em aberto** (R$ 289,8 mil de competência 2025),
@@ -130,7 +175,7 @@ contestadas, 6 canceladas), **R$ 8,08 milhões em aberto** (R$ 289,8 mil de comp
 | Relatórios | dashboard, PDF de listas | **extrato de conciliação por cliente**; quadro de vencidas/a vencer por setor e tipo; mensagem de cobrança; auditoria automática |
 | Anual | — | cálculo da **taxa condominial** (33 rubricas) e da **diária de atracação** |
 | Migração | — | importar a planilha `Pagamento 2026` com relatório de saneamento |
-| Fluxo de Caixa | entradas (documentos) e saídas (empenhos) | **não aparece na OI** — confirmar finalidade (ver decisões) |
+| Fluxo de Caixa | entradas (documentos) e saídas (empenhos) com rubrica em texto livre | rubrica ligada ao catálogo das 33 rubricas; categoria por serviço; nº da NE validado; saldo mensal automático; painel **Condomínio por rubrica** e **Disponível R.901.16** (Fase 5-A) |
 
 ---
 
@@ -195,13 +240,18 @@ divisões ainda não enviaram, com o prazo da OI.
 3.2 **Cálculo**
 - TC: valor mensal da tabela anual vigente da OM.
 - DA: diária vigente do navio × dias atracados (conferência com OMS opcional).
-- AE/EL: valor informado ou **rateio** do custo total da concessionária pelo consumo; não mensurável =
-  **média das 3 últimas** (Anexo J 1.2/1.4).
+- AE/EL: **importa o rateio enviado pelas divisões** (formato "DADOS BNIC-41": código, kWh/m³, kW, R$).
+  O sistema **confere** — soma do rateio = valor da conta da concessionária; códigos existentes no cadastro;
+  OM sem leitura no mês → alerta (não mensurável = média das 3 últimas, Anexo J 1.2/1.4).
 - RB/VT/TL/CR: valor por tabela ou informado.
 
 3.3 **Emissão em lote**: gera todas as faturas da competência com **número automático**
-(OM-SIGLA-MM-AAAA-SEQ-V), emissão no dia 15, **data-limite = +10 dias úteis**, e **abatimento automático
-do adiantamento** disponível (linha 02 + texto "Baixa na ALTCRED ...").
+(OM-SIGLA-MM-AAAA-SEQ-V; **SEQ = 001…N por serviço e competência, na ordem do lote**, sem lacunas; fatura
+avulsa recebe o próximo número livre), emissão no dia 15, **data-limite = +10 dias úteis**, e **abatimento
+automático do adiantamento** disponível (linha 02 + texto "Baixa na ALTCRED ...").
+O lote substitui o livro de emissão (planilha Faturamento) e registra consumo e unidade de cada fatura.
+Tipo de lote **"Estimado de fim de exercício (OND)"**: TC multiplicada pelos meses cobertos, consumo estimado
+(último mês ou média) e marcação para **acerto** posterior com o consumo real.
 
 3.4 **PDF fiel ao modelo FR-172** (Anexos A–I), com o bloco de detalhamento de cada serviço, contato do
 setor, instruções de pagamento, Encarregado e — nas versões — "Esta fatura cancela e substitui a de nº ...".
@@ -231,13 +281,28 @@ SUBSTITUÍDA. Cancelamento simples com motivo obrigatório.
 com saldo parado, adiantamentos disponíveis.
 5.4 **Receita por rubrica** (aba TAXA CONDOMINIAL: % da rubrica × total arrecadado) para a Seção de Custos.
 
+### Fase 5-A — Fluxo de caixa (Seção de Contabilidade de Custos)
+
+5A.1 **Entradas automáticas**: cada ALTCRED/GRU cadastrada na Fase 2 já entra no fluxo (sem redigitação).
+5A.2 **Saídas = notas de empenho**: nº da NE (validado), data, favorecido, valor, **rubrica** (das 33 do
+Anexo K) ou **categoria** (energia, água, telefonia, rebocador, outros), descrição; anulação/cancelamento.
+Importação da lista de NE (planilha/relatório) em vez de digitação.
+5A.3 **Saldo mensal automático** com transporte de saldo e fechamento do exercício.
+5A.4 **Painel Condomínio por rubrica**: valor vigente (da Fase 6) × taxa condominial recebida (receita
+distribuída pelo %RUB) × empenhado × saldo em conta × a receber.
+5A.5 **Disponível R.901.16** por categoria (energia, água, telefonia, condomínio/diária/viatura, sem
+indicação): entradas, saídas e saldo.
+
 ### Fase 6 — Rotinas anuais
 
-6.1 **Taxa condominial**: rubricas do Anexo K com custo estimado e critério de rateio (lotação, nº de
-subestações, nº de ramais, estações + impressoras, OM beneficiárias de cada serviço) → valor mensal por
-OM e % por rubrica; versão por exercício com status (proposta/aprovada ComImSup/divulgada).
-6.2 **Diária de atracação**: lotação do navio e **média de dias atracados nos últimos 3 anos** calculada
-a partir do histórico de faturas DA (ou da classe) → diária do exercício.
+6.1 **Taxa condominial** (reproduz a "Proposta 4"): despesas por rubrica com conta contábil, previsto ×
+gasto no ano anterior; **matriz OM × rubrica**; lotação atual e anterior de cada OM; dias (30 para terra,
+média de dias atracados para navio); rateio peso = lotação × dias; **descontos** por OM/rubrica com
+justificativa; extrato demonstrativo por OM (anual, mensal, %RUB); quadro comparativo ano anterior × proposta
+(o "Anexo B" da divulgação); versão por exercício com status (proposta → aprovada ComImSup → divulgada) e
+publicação da tabela vigente para a emissão mensal (Fase 3).
+6.2 **Diária de atracação**: custo por militar-dia (do modelo da taxa condominial, grupo NAVIOS) × lotação
+do navio; média de dias atracados calculada a partir do histórico de faturas DA dos últimos 3 anos.
 
 ### Fase 7 — Qualidade e conformidade
 - Trilha de auditoria (quem criou/alterou/cancelou cada fatura e baixa).
@@ -245,11 +310,28 @@ a partir do histórico de faturas DA (ou da classe) → diária do exercício.
 
 ---
 
-## 5. Decisões que dependem de você
+## 5. Decisões
 
-1. **Sequencial do número da fatura** (`-011-`): é o nº de ordem fixo do cliente naquele serviço? Onde fica esse rol?
-2. **Vencimento**: usar sempre "+10 dias úteis" ou manter a data-limite fixa (ex.: dia 30)? Hoje a planilha tem 28, 30 e 31 dias.
-3. **Água e energia**: a Contabilidade calcula o rateio a partir da conta da concessionária, ou as divisões já mandam o valor em R$?
-4. **Fluxo de Caixa (empenhos)**: qual a finalidade? Não aparece na OI; manter, renomear ou remover?
-5. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
-6. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 6 (conciliação primeiro porque é onde estão os erros de valor).
+**Respondidas (06/11/2026)**
+- Rateio de água e energia: **as divisões enviam pronto** → o sistema importa e confere (Fase 3.2).
+- Sequencial: **por ordem de emissão**, 001…N por serviço e competência (Fase 3.3).
+- Fluxo de caixa: **atribuição da Seção de Contabilidade de Custos**; a OI precisa ser atualizada (Fase 5-A e item 6).
+
+**Pendentes**
+1. **Vencimento**: no livro de emissão de 2026 o vencimento foi o dia 15 do mês seguinte à emissão até a competência JUL; a partir da competência AGO (emitida 15/09) passou a ser o último dia do mês da emissão (30/09, 31/10). Essa é a regra a adotar daqui em diante?
+2. **Faturamento estimado OND**: a regra é "taxa condominial × 3 + consumo de setembro"? Como é feito o acerto com o consumo real de OUT, NOV e DEZ (fatura de acerto no ano seguinte, acréscimo/débito)?
+3. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
+4. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 5-A → 6 → 7.
+
+## 6. Pontos para a atualização da Ordem Interna 40-04
+
+| Item | Situação atual | Sugestão |
+|---|---|---|
+| 4.4 (Seção de Custos) | não cita o fluxo de caixa | incluir: "f) controlar o fluxo de caixa, registrando os créditos recebidos (ALTCRED/GRU) e as notas de empenho por rubrica da taxa condominial e por serviço, e acompanhar o saldo disponível na AI R.901.16" |
+| Lista de anexos | "E) Modelo de Fatura de Fornecimento de **Gás**" | o arquivo do Anexo E é "Modelo de Fatura de **Descarte de Resíduo Industrial**": ajustar o título ou incluir os dois modelos |
+| Anexos F e G | "05 TOTAL FATURA (01 – 02 – 03)" | "06 TOTAL FATURA (01 – 02 + 03 – 04)", como nos demais |
+| Numeração da fatura | não definida na OI | incluir a regra: `código da OM – sigla – mês – ano – sequencial por serviço e competência – versão`, e que a versão "-1" cancela e substitui a anterior |
+| Data-limite / vencimento | OI 6.1 fala em 10 dias úteis; prática varia | fixar a regra adotada |
+| Contatos dos setores | modelos citam BNIC-32/33; faturas emitidas citam BNIC-34/35 e Agente de Manobras | atualizar os modelos com o setor e telefone vigentes |
+| Serviços sem modelo | CR (cópia reprográfica) e AL (aluguel) são faturados sem anexo próprio | incluir modelos ou citar o modelo genérico |
+| Taxa condominial (item 5) | descreve o rito, não o cálculo | anexar o critério de rateio adotado: peso = lotação × dias (terra 30; navio = média de dias atracados) e a regra dos descontos |
