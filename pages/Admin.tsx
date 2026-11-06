@@ -77,8 +77,9 @@ export const Admin: React.FC = () => {
       setClientError("Preencha todos os campos do cliente.");
       return;
     }
-    if (!/^\d{6}$/.test(String(clientFormData.ug).trim())) {
-      setClientError("A UG deve ter exatamente 6 dígitos numéricos.");
+    // Códigos de OM/UG usados no faturamento da BNIC têm 5 dígitos (ex.: 40002, 91645); aceita 5 ou 6
+    if (!/^\d{5,6}$/.test(String(clientFormData.ug).trim())) {
+      setClientError("O código da OM/UG deve ter 5 ou 6 dígitos numéricos (ex.: 40002).");
       return;
     }
 
@@ -418,7 +419,7 @@ export const Admin: React.FC = () => {
         <div className="space-y-4">
           {clientError && <div className="p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 font-bold">{clientError}</div>}
           <div className="grid grid-cols-2 gap-4">
-            <Input label="UG (6 dígitos)" inputMode="numeric" maxLength={6} value={clientFormData.ug || ''} onChange={e => setClientFormData({ ...clientFormData, ug: e.target.value.replace(/\D/g, '') })} placeholder="789XXX" />
+            <Input label="Código OM/UG" inputMode="numeric" maxLength={6} value={clientFormData.ug || ''} onChange={e => setClientFormData({ ...clientFormData, ug: e.target.value.replace(/\D/g, '') })} placeholder="Ex: 40002" />
             <Input label="Comando" value={clientFormData.command || ''} onChange={e => setClientFormData({ ...clientFormData, command: e.target.value })} placeholder="ex: BNIC" />
           </div>
           <Input label="Nome da OM / Cliente" value={clientFormData.name || ''} onChange={e => setClientFormData({ ...clientFormData, name: e.target.value })} placeholder="Ex: Base Naval..." />
