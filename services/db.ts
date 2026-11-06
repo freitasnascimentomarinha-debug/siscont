@@ -55,36 +55,17 @@ async function cachedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T
 }
 export const db = {
   // --- USERS ---
+  // Gestão completa (criar login, senha, bloquear, excluir) fica em services/adminApi.ts,
+  // pois exige a chave service_role no servidor. Aqui ficam apenas leitura e edição
+  // de perfil, usadas como alternativa quando a API não está configurada.
   getUsers: async (): Promise<User[]> => {
     return cachedFetch('users', () => supabaseService.getUsers());
   },
 
-  saveUser: async (user: User) => {
+  updateProfile: async (user: Pick<User, 'id'> & Partial<Pick<User, 'name' | 'role' | 'active'>>) => {
     const { supabase } = await import('./supabase');
-    const payload: any = {
-      id: user.id,
-      name: user.name,
-      role: user.role,
-      email: user.email
-    };
-
-    let { error } = await supabase.from('profiles').upsert(payload);
-
-    // Resilience: if email column is missing, try without it
-    if (error && (error.message.includes('email') || error.message.includes('column'))) {
-      console.warn("Retrying saveUser without email column...");
-      const { email: _, ...payloadWithoutEmail } = payload;
-      const retry = await supabase.from('profiles').upsert(payloadWithoutEmail);
-      error = retry.error;
-    }
-
-    if (error) throw error;
-    invalidateCache('users');
-  },
-
-  deleteUser: async (id: string) => {
-    const { supabase } = await import('./supabase');
-    const { error } = await supabase.from('profiles').delete().eq('id', id);
+    const { id, ...patch } = user;
+    const { error } = await supabase.from('profiles').update(patch).eq('id', id);
     if (error) throw error;
     invalidateCache('users');
   },
@@ -135,7 +116,13 @@ export const db = {
   },
 
   saveInvoice: async (invoice: Invoice) => { await supabaseService.saveInvoice(invoice); invalidateCache('raw_invoices'); },
-  deleteInvoice: async (id: string) => { await supabaseService.deleteInvoice(id); invalidateCache('raw_invoices'); },
+  deleteInvoice: async (id: string) => {
+    // Remove primeiro as alocações vinculadas para não deixar saldo "preso" em documentos
+    const allocations = await supabaseService.getAllocations();
+    for (const a of allocations.filter(a => a.invoiceId === id)) await supabaseService.deleteAllocation(a.id);
+    await supabaseService.deleteInvoice(id);
+    invalidateCache('raw_invoices', 'raw_allocations');
+  },
 
   // --- DOCUMENTS ---
   getDocuments: async (): Promise<ReceivedDocument[]> => {
@@ -158,7 +145,12 @@ export const db = {
   },
 
   saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },
-  deleteDocument: async (id: string) => { await supabaseService.deleteDocument(id); invalidateCache('raw_documents'); },
+  deleteDocument: async (id: string) => {
+    const allocations = await supabaseService.getAllocations();
+    for (const a of allocations.filter(a => a.documentId === id)) await supabaseService.deleteAllocation(a.id);
+    await supabaseService.deleteDocument(id);
+    invalidateCache('raw_documents', 'raw_allocations');
+  },
 
   // --- ALLOCATIONS ---
   getAllocations: async (): Promise<PaymentAllocation[]> => cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
@@ -172,8 +164,8 @@ export const db = {
 
   getCashFlow: async (): Promise<CashFlowItem[]> => {
     const [docs, exits] = await Promise.all([
-      supabaseService.getDocuments(),
-      supabaseService.getExits()
+      cachedFetch('raw_documents', () => supabaseService.getDocuments()),
+      cachedFetch('exits', () => supabaseService.getExits())
     ]);
 
     const items: CashFlowItem[] = [];
@@ -181,7 +173,7 @@ export const db = {
       items.push({ id: d.id, date: d.date, documentNumber: d.documentNumber, client: d.client, type: 'ENTRY', value: d.totalValue, description: `Entrada via ${d.documentType} (${d.operation})`, observation: d.observation, balanceAfter: 0 });
     });
     exits.forEach(e => {
-      items.push({ id: e.id, date: e.date, documentNumber: e.documentNumber, client: e.client, type: 'EXIT', value: e.value, rubric: e.rubric, description: e.description, observation: e.observation, isCanceled: e.isCanceled, balanceAfter: 0 });
+      items.push({ id: e.id, date: e.date, documentNumber: e.documentNumber, client: e.client, type: 'EXIT', value: e.value, rubric: e.rubric, description: e.description, observation: e.observation, isCanceled: e.isCanceled, documentType: e.documentType, balanceAfter: 0 });
     });
 
     items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -197,61 +189,91 @@ export const db = {
     });
   },
 
-  // --- SYNC & BACKUP ---
-  syncToSupabase: async () => {
-    const { getInvoices, getDocuments, getAllocations, getClients, getServices, getUsers, getExits } = supabaseService;
-    // This is a manual migration helper
-    const localClients = JSON.parse(localStorage.getItem('siscont_clients') || '[]');
-    for (const c of localClients) await supabaseService.saveClient(c);
-    const localServices = JSON.parse(localStorage.getItem('siscont_services') || '[]');
-    for (const s of localServices) await supabaseService.saveService(s);
-    const localInvoices = JSON.parse(localStorage.getItem('siscont_invoices') || '[]');
-    for (const i of localInvoices) await supabaseService.saveInvoice(i);
-    const localDocs = JSON.parse(localStorage.getItem('siscont_documents') || '[]');
-    for (const d of localDocs) await supabaseService.saveDocument(d);
-    const localAllocs = JSON.parse(localStorage.getItem('siscont_allocations') || '[]');
-    for (const a of localAllocs) await supabaseService.saveAllocation(a);
-    const localExits = JSON.parse(localStorage.getItem('siscont_exits') || '[]');
-    for (const e of localExits) await supabaseService.saveExit(e);
-  },
-
-  pullFromSupabase: async () => {
-    const [cl, sv, inv, doc, alc, ext] = await Promise.all([
+  // --- BACKUP & RESTAURAÇÃO (dados no Supabase) ---
+  /** Lê todas as tabelas diretamente do Supabase (sem cache) para gerar o backup. */
+  getAllData: async () => {
+    const [clients, services, invoices, documents, allocations, exits, users] = await Promise.all([
       supabaseService.getClients(),
       supabaseService.getServices(),
       supabaseService.getInvoices(),
       supabaseService.getDocuments(),
       supabaseService.getAllocations(),
-      supabaseService.getExits()
+      supabaseService.getExits(),
+      supabaseService.getUsers().catch(() => [] as User[]),
     ]);
-    localStorage.setItem('siscont_clients', JSON.stringify(cl));
-    localStorage.setItem('siscont_services', JSON.stringify(sv));
-    localStorage.setItem('siscont_invoices', JSON.stringify(inv));
-    localStorage.setItem('siscont_documents', JSON.stringify(doc));
-    localStorage.setItem('siscont_allocations', JSON.stringify(alc));
-    localStorage.setItem('siscont_exits', JSON.stringify(ext));
+    const strip = <T extends object>(rows: T[], keys: string[]) =>
+      rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !keys.includes(k))));
+    return {
+      clients,
+      services,
+      // Campos calculados não vão para o backup
+      invoices: strip(invoices, ['paidAmount', 'status']),
+      documents: strip(documents, ['availableValue', 'informedAdvance']),
+      allocations,
+      exits,
+      users: users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role })),
+    };
   },
 
-  restoreBackup: async (data: any) => {
-    if (data.clients) localStorage.setItem('siscont_clients', JSON.stringify(data.clients));
-    if (data.services) localStorage.setItem('siscont_services', JSON.stringify(data.services));
-    if (data.invoices) localStorage.setItem('siscont_invoices', JSON.stringify(data.invoices));
-    if (data.documents) localStorage.setItem('siscont_documents', JSON.stringify(data.documents));
-    if (data.allocations) localStorage.setItem('siscont_allocations', JSON.stringify(data.allocations));
-    if (data.exits) localStorage.setItem('siscont_exits', JSON.stringify(data.exits));
-    if (data.users) localStorage.setItem('siscont_users', JSON.stringify(data.users));
+  /**
+   * Restaura um backup gravando (upsert) no Supabase. Registros com o mesmo ID
+   * são sobrescritos; registros que não estão no backup são mantidos.
+   * Usuários NÃO são restaurados (logins são gerenciados pelo Supabase Auth).
+   */
+  restoreBackup: async (data: any, onProgress?: (msg: string) => void) => {
+    const toBool = (v: any) => v === true || v === 'true' || v === 1 || v === 'TRUE';
+    const toNum = (v: any) => (v === undefined || v === null || v === '' ? 0 : Number(v));
+    const steps: [string, any[] | undefined, (r: any) => Promise<void>][] = [
+      ['Clientes', data.clients, r => supabaseService.saveClient({ ...r, ug: String(r.ug ?? '') })],
+      ['Serviços', data.services, r => supabaseService.saveService(r)],
+      ['Faturas', data.invoices, r => supabaseService.saveInvoice({
+        ...r,
+        value: toNum(r.value),
+        adjustmentAddition: toNum(r.adjustmentAddition),
+        adjustmentDeduction: toNum(r.adjustmentDeduction),
+        isCanceled: toBool(r.isCanceled),
+        sipladSettled: toBool(r.sipladSettled),
+        ug: r.ug !== undefined ? String(r.ug) : r.ug,
+        invoiceNumber: String(r.invoiceNumber ?? ''),
+      })],
+      ['Documentos', data.documents, r => supabaseService.saveDocument({ ...r, totalValue: toNum(r.totalValue), ug: r.ug !== undefined ? String(r.ug) : r.ug, documentNumber: String(r.documentNumber ?? '') })],
+      ['Alocações', data.allocations, r => supabaseService.saveAllocation({ ...r, amount: toNum(r.amount), siscontSettled: toBool(r.siscontSettled) })],
+      ['Saídas', data.exits, r => supabaseService.saveExit({ ...r, value: toNum(r.value), isCanceled: toBool(r.isCanceled), documentNumber: String(r.documentNumber ?? '') })],
+    ];
+    const summary: Record<string, number> = {};
+    for (const [label, rows, save] of steps) {
+      if (!Array.isArray(rows)) continue;
+      let count = 0;
+      for (const row of rows) {
+        if (!row?.id) continue;
+        await save(row);
+        count++;
+        if (count % 25 === 0) onProgress?.(`${label}: ${count}/${rows.length}`);
+      }
+      summary[label] = count;
+      onProgress?.(`${label}: ${count} registro(s)`);
+    }
+    invalidateCache();
+    return summary;
   },
 
-  getAllData: () => ({
-    invoices: JSON.parse(localStorage.getItem('siscont_invoices') || '[]'),
-    documents: JSON.parse(localStorage.getItem('siscont_documents') || '[]'),
-    allocations: JSON.parse(localStorage.getItem('siscont_allocations') || '[]'),
-    clients: JSON.parse(localStorage.getItem('siscont_clients') || '[]'),
-    services: JSON.parse(localStorage.getItem('siscont_services') || '[]'),
-    users: JSON.parse(localStorage.getItem('siscont_users') || '[]'),
-    exits: JSON.parse(localStorage.getItem('siscont_exits') || '[]')
-  }),
-  
+  /** Dados antigos salvos no navegador (versão anterior do sistema, antes do Supabase). */
+  getLegacyLocalData: () => {
+    const read = (k: string) => {
+      try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; }
+    };
+    const data = {
+      clients: read('siscont_clients'),
+      services: read('siscont_services'),
+      invoices: read('siscont_invoices'),
+      documents: read('siscont_documents'),
+      allocations: read('siscont_allocations'),
+      exits: read('siscont_exits'),
+    };
+    const total = Object.values(data).reduce((n, arr: any) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+    return { data, total };
+  },
+
   invalidateCache: invalidateCache,
   refreshCache: () => invalidateCache()
 };

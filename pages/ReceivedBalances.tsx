@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { notify, friendlyError } from '../utils/notify';
 import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
@@ -66,12 +67,18 @@ export const ReceivedBalances: React.FC = () => {
   const [clients, setClients] = useState<any[]>([]);
 
   const refresh = async () => {
-    const [docs, invs, allocs, clist] = await Promise.all([
-      db.getDocuments(),
-      db.getInvoices(),
-      db.getAllocations(),
-      db.getClients()
-    ]);
+    let docs, invs, allocs, clist;
+    try {
+      [docs, invs, allocs, clist] = await Promise.all([
+        db.getDocuments(),
+        db.getInvoices(),
+        db.getAllocations(),
+        db.getClients()
+      ]);
+    } catch (err) {
+      notify.fail('Erro ao carregar saldos', err);
+      return;
+    }
     setDocuments(docs);
     setInvoices(invs);
     setAllocations(allocs);
@@ -199,11 +206,17 @@ export const ReceivedBalances: React.FC = () => {
       observation: docFormData.observation || ''
     };
 
-    await db.saveDocument(payload);
+    try {
+      await db.saveDocument(payload);
+    } catch (err) {
+      setSaveError(`Erro ao salvar: ${friendlyError(err)}`);
+      return;
+    }
     setIsDocModalOpen(false);
     setDocFormData({});
     setEditingId(null);
     setSaveError(null);
+    notify.success('Documento salvo.');
     await refresh();
   };
 
@@ -212,7 +225,9 @@ export const ReceivedBalances: React.FC = () => {
     if (!activeDoc || selectedInvoiceIds.length === 0) return;
 
     let currentBalance = activeDoc.availableValue;
+    let created = 0;
 
+    try {
     for (const invId of selectedInvoiceIds) {
       const inv = invoices.find(i => i.id === invId);
       if (!inv || currentBalance <= 0) continue;
@@ -237,9 +252,16 @@ export const ReceivedBalances: React.FC = () => {
           serviceType: paymentMeta.serviceType
         });
         currentBalance -= payment;
+        created++;
       }
     }
+    } catch (err) {
+      notify.fail(created > 0 ? `Erro após registrar ${created} pagamento(s)` : 'Erro ao registrar pagamento', err);
+      await refresh();
+      return;
+    }
 
+    notify.success(created > 0 ? `${created} pagamento(s) registrado(s).` : 'Nenhum valor a pagar nas faturas selecionadas.');
     setIsPayModalOpen(false);
     setSelectedInvoiceIds([]);
     await refresh();
@@ -250,11 +272,17 @@ export const ReceivedBalances: React.FC = () => {
     if (allocFormData.id && allocFormData.amount) {
       const original = allocations.find(a => a.id === allocFormData.id);
       if (original) {
-        await db.saveAllocation({
-          ...original,
-          ...allocFormData,
-          amount: Number(allocFormData.amount)
-        } as PaymentAllocation);
+        try {
+          await db.saveAllocation({
+            ...original,
+            ...allocFormData,
+            amount: Number(allocFormData.amount)
+          } as PaymentAllocation);
+          notify.success('Pagamento atualizado.');
+        } catch (err) {
+          notify.fail('Erro ao atualizar pagamento', err);
+          return;
+        }
       }
       setIsEditAllocModalOpen(false);
       setAllocFormData({});
@@ -801,8 +829,13 @@ export const ReceivedBalances: React.FC = () => {
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
         onConfirm={async () => {
-          if (confirmDelete?.type === 'doc') await db.deleteDocument(confirmDelete.id);
-          else if (confirmDelete?.type === 'alloc') await db.deleteAllocation(confirmDelete.id);
+          try {
+            if (confirmDelete?.type === 'doc') await db.deleteDocument(confirmDelete.id);
+            else if (confirmDelete?.type === 'alloc') await db.deleteAllocation(confirmDelete.id);
+            notify.success('Registro excluído.');
+          } catch (err) {
+            notify.fail('Erro ao excluir', err);
+          }
           await refresh();
           setConfirmDelete(null);
         }}

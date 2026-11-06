@@ -31,3 +31,4 @@ dist-ssr
 # Project files not needed in deploy
 *.zip
 *.sql
+!supabase/migrations/*.sql

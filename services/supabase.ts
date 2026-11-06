@@ -17,7 +17,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
     );
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '', {
+/** false quando o deploy não tem as variáveis do Supabase (o App mostra tela de configuração). */
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+
+// URL de reserva evita que createClient('') lance erro na importação (tela branca)
+export const supabase = createClient(supabaseUrl || 'https://supabase-nao-configurado.invalid', supabaseAnonKey || 'nao-configurado', {
     auth: {
         persistSession: true,
         autoRefreshToken: true,

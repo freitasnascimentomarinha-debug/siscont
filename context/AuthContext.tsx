@@ -1,373 +1,307 @@
-
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import type { Session, User as AuthUser } from '@supabase/supabase-js';
 import { User, UserRole } from '../types';
 import { supabase } from '../services/supabase';
+import { db } from '../services/db';
+
+export type RegisterResult = 'PENDING_CONFIRMATION' | 'PENDING_APPROVAL';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, pass: string) => Promise<boolean>;
-  register: (name: string, email: string, pass: string) => Promise<boolean>;
-  logout: () => void;
   isLoading: boolean;
+  /** Mensagem a exibir na tela de login (ex.: acesso pendente/bloqueado). */
+  authNotice: string | null;
+  clearAuthNotice: () => void;
+  /** true quando o usuário chegou pelo link de "esqueci minha senha". */
+  isPasswordRecovery: boolean;
+  login: (email: string, pass: string) => Promise<void>;
+  register: (name: string, email: string, pass: string) => Promise<RegisterResult>;
+  logout: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  /** Troca a senha do usuário logado (ou do fluxo de recuperação). */
+  updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>;
+  updateOwnName: (name: string) => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
-
-// Global flag to prevent deadlocks between register() and onAuthStateChange() triggering fetchUserProfile
-let isRegisteringInProgress = false;
-// Global set to prevent concurrent auto-recoveries for the same user if onAuthStateChange fires multiple times
-const recoveringProfiles = new Set<string>();
 
 const AuthContext = createContext<AuthContextType>(null!);
 
+export const MIN_PASSWORD_LENGTH = 8;
 const AUTH_REQUEST_TIMEOUT_MS = 12000;
+const SESSION_BOOT_TIMEOUT_MS = 8000;
 
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
+export const BLOCKED_MESSAGE =
+  'Seu acesso está pendente de liberação ou foi bloqueado. Procure o administrador do SISCONT.';
+
+export const withTimeout = async <T,>(promise: PromiseLike<T>, timeoutMs: number, timeoutMessage: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
   try {
     return await Promise.race([
-      promise,
+      Promise.resolve(promise),
       new Promise<T>((_, reject) => {
         timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-      })
+      }),
     ]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
 };
 
+/** Converte mensagens do Supabase Auth (inglês) para mensagens claras em português. */
+export const translateAuthError = (err: any): Error => {
+  const msg = String(err?.message || err || '');
+  const low = msg.toLowerCase();
+  if (low.includes('invalid login credentials')) return new Error('E-mail ou senha incorretos.');
+  if (low.includes('email not confirmed')) return new Error('E-mail ainda não confirmado. Verifique sua caixa de entrada (e o spam).');
+  if (low.includes('banned')) return new Error(BLOCKED_MESSAGE);
+  if (low.includes('already registered') || low.includes('already exists')) return new Error('Este e-mail já está cadastrado. Use "Esqueci minha senha" se não lembrar a senha.');
+  if (low.includes('rate limit') || low.includes('too many')) return new Error('Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.');
+  if (low.includes('password should be') || low.includes('weak password')) return new Error(`Senha fraca: use pelo menos ${MIN_PASSWORD_LENGTH} caracteres, misturando letras e números.`);
+  if (low.includes('same password') || low.includes('different from the old')) return new Error('A nova senha deve ser diferente da atual.');
+  if (low.includes('failed to fetch') || low.includes('network')) return new Error('Sem conexão com o servidor. Verifique sua internet e tente novamente.');
+  return err instanceof Error ? err : new Error(msg || 'Erro inesperado.');
+};
+
+const normalizeRole = (role: unknown): UserRole =>
+  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY
+    ? (role as UserRole)
+    : UserRole.READ_ONLY;
+
+const fallbackName = (authUser: AuthUser) =>
+  (authUser.user_metadata as any)?.name || authUser.email?.split('@')[0] || 'Usuário';
+
+/**
+ * Lê o perfil do usuário. Se não existir (banco sem o gatilho de criação),
+ * cria um perfil de CONSULTA sem NUNCA sobrescrever um perfil existente.
+ */
+async function resolveProfile(authUser: AuthUser): Promise<User> {
+  const { data, error } = await withTimeout(
+    supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle(),
+    AUTH_REQUEST_TIMEOUT_MS,
+    'Tempo limite ao carregar o perfil do usuário.'
+  );
+  if (error) throw error;
+
+  let profile: any = data;
+  if (!profile) {
+    const payload = {
+      id: authUser.id,
+      name: fallbackName(authUser),
+      email: authUser.email,
+      role: UserRole.READ_ONLY,
+    };
+    const { error: insertError } = await withTimeout(
+      supabase.from('profiles').upsert(payload, { onConflict: 'id', ignoreDuplicates: true }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo limite ao criar o perfil do usuário.'
+    );
+    if (insertError) console.warn('[Auth] Não foi possível criar o perfil automaticamente:', insertError.message);
+    profile = payload;
+  }
+
+  return {
+    id: authUser.id,
+    email: authUser.email || profile.email || '',
+    name: profile.name || fallbackName(authUser),
+    role: normalizeRole(profile.role),
+    active: profile.active !== false,
+  };
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [profileVersion, setProfileVersion] = useState(0);
 
+  // 1. Sessão: o callback do onAuthStateChange NÃO pode chamar outras funções
+  //    do Supabase (causa travamento do lock interno => "carregamento eterno").
+  //    Ele apenas registra a sessão; o perfil é buscado no efeito seguinte.
   useEffect(() => {
-    let isMounted = true;
-
-    // Legacy session cleanup: Remove old custom storage keys that might cause conflicts on desktop
     try {
-      if (localStorage.getItem('siscont-auth')) {
-        console.warn("Legacy session key 'siscont-auth' detected. Clearing for stability.");
-        localStorage.removeItem('siscont-auth');
-      }
-    } catch (e) {
-      console.error("Failed to clear legacy session key:", e);
-    }
+      localStorage.removeItem('siscont-auth'); // chave legada
+    } catch { /* ignore */ }
 
-    // Safety timeout: Always stop loading after 8 seconds to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      if (isMounted) {
-        console.warn("Auth check timeout - forcing loading to complete");
-        setIsLoading(false);
-      }
-    }, 8000);
+    const bootTimeout = setTimeout(() => setSessionReady(true), SESSION_BOOT_TIMEOUT_MS);
 
-    // 1. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!isMounted) return;
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
       if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setIsLoading(false);
-        clearTimeout(timeoutId);
-        return;
+        setIsPasswordRecovery(false);
+        db.invalidateCache();
       }
-
-      if (session?.user) {
-        try {
-          const profile = await fetchUserProfile(session.user);
-          if (isMounted) {
-            console.log("Perfil carregado:", profile?.name, "Role:", profile?.role);
-            setUser({
-              id: session.user.id,
-              email: session.user.email || '',
-              name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
-              role: (profile?.role as UserRole) || UserRole.READ_ONLY
-            });
-          }
-        } catch (e) {
-          console.error("Erro ao buscar perfil (onAuthStateChange):", e);
-          // Still set user even if profile fetch fails — DON'T destroy session
-          if (isMounted) {
-            setUser({
-              id: session.user.id,
-              email: session.user.email || '',
-              name: session.user.email?.split('@')[0] || 'Usuário',
-              role: UserRole.READ_ONLY
-            });
-          }
-        }
-      } else if (event !== 'INITIAL_SESSION') {
-        setUser(null);
-      }
-
-      if (isMounted) {
-        setIsLoading(false);
-        clearTimeout(timeoutId);
-      }
+      setSession(newSession);
+      setSessionReady(true);
+      clearTimeout(bootTimeout);
     });
 
-    // 2. Check current session on mount
-    const checkSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!isMounted) return;
-
-        if (session?.user) {
-          try {
-            const profile = await fetchUserProfile(session.user);
-            if (isMounted) {
-              setUser({
-                id: session.user.id,
-                email: session.user.email || '',
-                name: profile?.name || session.user.email?.split('@')[0] || 'Usuário',
-                role: (profile?.role as UserRole) || UserRole.READ_ONLY
-              });
-            }
-          } catch (profileErr) {
-            console.error("Erro ao buscar perfil:", profileErr);
-            // Set user without profile — DON'T sign out
-            if (isMounted) {
-              setUser({
-                id: session.user.id,
-                email: session.user.email || '',
-                name: session.user.email?.split('@')[0] || 'Usuário',
-                role: UserRole.READ_ONLY
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Erro ao verificar sessão Supabase:", e);
-        // DO NOT call signOut() here — it destroys valid sessions
-        // The session token may still be valid even if this check had an error
-      } finally {
-        if (isMounted) {
-          clearTimeout(timeoutId);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    checkSession();
-
     return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
+      clearTimeout(bootTimeout);
       subscription.unsubscribe();
     };
   }, []);
 
-  const fetchUserProfile = async (authUser: any) => {
-    const userId = authUser.id;
+  // 2. Perfil: recarrega quando muda o usuário (não a cada refresh de token)
+  const authUser = session?.user ?? null;
+  const authUserId = authUser?.id ?? null;
 
-    // Prevent deadlocks if registration is concurrently creating the profile
-    if (isRegisteringInProgress) {
-      console.log(`[Auth] Registro em andamento. Ignorando fetch inicial para evitar deadlock.`);
-      return {
-        id: userId,
-        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Novo Usuário',
-        role: UserRole.READ_ONLY,
-        email: authUser.email
-      };
+  useEffect(() => {
+    if (!authUser) {
+      setUser(null);
+      setProfileLoading(false);
+      return;
     }
 
-    // Try fetching with email first
-    let { data, error } = await withTimeout(
-      supabase
-        .from('profiles')
-        .select('name, role, email')
-        .eq('id', userId)
-        .single(),
-      AUTH_REQUEST_TIMEOUT_MS,
-      'Tempo limite ao carregar perfil do usuário.'
-    );
+    let cancelled = false;
+    setProfileLoading(true);
 
-    // If it fails (likely missing email column), try without email
-    if (error && (error.message.includes('email') || error.code === 'PGRST100' || error.message.includes('column'))) {
-      console.warn("Retrying profile fetch without 'email' column...");
-      const retry = await withTimeout(
-        supabase
-          .from('profiles')
-          .select('name, role')
-          .eq('id', userId)
-          .single(),
-        AUTH_REQUEST_TIMEOUT_MS,
-        'Tempo limite ao recarregar perfil do usuário.'
-      );
-      
-      if (retry.data) {
-        return { ...retry.data, email: null };
-      }
-      error = retry.error;
-    }
-
-    // SCENARIO 2: Profile is missing entirely (e.g. Tamara Nascimento) - Auto-heal!
-    if (!data && (!error || error.code === 'PGRST116')) {
-        if (recoveringProfiles.has(userId)) {
-             console.log(`[Auth] Recuperação já em andamento para ${userId}. Ignorando chamada duplicada.`);
-             return null;
+    resolveProfile(authUser)
+      .then(profile => {
+        if (cancelled) return;
+        if (!profile.active) {
+          setAuthNotice(BLOCKED_MESSAGE);
+          setUser(null);
+          supabase.auth.signOut().catch(() => undefined);
+          return;
         }
+        setUser(profile);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('[Auth] Erro ao carregar perfil:', err);
+        // Falha transitória: entra como CONSULTA (o banco ainda protege a escrita)
+        setUser({
+          id: authUser.id,
+          email: authUser.email || '',
+          name: fallbackName(authUser),
+          role: UserRole.READ_ONLY,
+          active: true,
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
 
-        recoveringProfiles.add(userId);
-        try {
-            console.warn(`Profile missing for user ${userId}. Attempting auto-recovery...`);
-            const newProfile: any = {
-                id: userId,
-                name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Novo Usuário',
-                role: UserRole.READ_ONLY,
-                email: authUser.email
-            };
-            
-            let { error: createError } = await withTimeout(
-              supabase.from('profiles').upsert(newProfile),
-              AUTH_REQUEST_TIMEOUT_MS,
-              'Tempo limite ao recuperar perfil do usuário.'
-            );
-            
-            // Resilience: if email column is missing in DB during recovery
-            if (createError && (createError.message.includes('email') || createError.message.includes('column'))) {
-                const { email: _, ...payloadWithoutEmail } = newProfile;
-                const retryCreate = await withTimeout(
-                  supabase.from('profiles').upsert(payloadWithoutEmail),
-                  AUTH_REQUEST_TIMEOUT_MS,
-                  'Tempo limite ao recuperar perfil (sem e-mail).'
-                );
-                createError = retryCreate.error;
-            }
-            
-            if (!createError) {
-                console.log("Profile auto-recovered successfully.");
-                return newProfile;
-            }
-        } finally {
-            recoveringProfiles.delete(userId);
-        }
-    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUserId, profileVersion]);
 
-    if (error) {
-      console.error("Erro crítico ao buscar perfil:", error.message);
-      return null;
-    }
-    return data;
-  };
-
-  const login = async (email: string, pass: string) => {
+  const login = useCallback(async (email: string, pass: string) => {
+    setAuthNotice(null);
     const { error } = await withTimeout(
-      supabase.auth.signInWithPassword({
-        email,
-        password: pass
+      supabase.auth.signInWithPassword({ email: email.trim(), password: pass }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo de login excedido. Verifique sua conexão e tente novamente.'
+    );
+    if (error) throw translateAuthError(error);
+  }, []);
+
+  const register = useCallback(async (name: string, email: string, pass: string): Promise<RegisterResult> => {
+    if (pass.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`A senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+    }
+    const { data, error } = await withTimeout(
+      supabase.auth.signUp({
+        email: email.trim(),
+        password: pass,
+        options: { data: { name: name.trim() }, emailRedirectTo: window.location.origin },
       }),
       AUTH_REQUEST_TIMEOUT_MS,
-      'Tempo de login excedido. Verifique sua conexao e tente novamente.'
+      'Tempo de cadastro excedido. Verifique sua conexão e tente novamente.'
     );
+    if (error) throw translateAuthError(error);
 
-    if (error) {
-      throw error;
+    // Supabase devolve usuário sem identidades quando o e-mail já existe
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      throw new Error('Este e-mail já está cadastrado. Use "Esqueci minha senha" se não lembrar a senha.');
     }
-    return true;
-  };
 
-  const register = async (name: string, email: string, pass: string) => {
-    if (isRegisteringInProgress) return false;
-    isRegisteringInProgress = true;
-    
-    console.log(`[Auth] Iniciando registro para: ${email}`);
+    db.invalidateCache('users');
+    return data.session ? 'PENDING_APPROVAL' : 'PENDING_CONFIRMATION';
+  }, []);
+
+  const logout = useCallback(async () => {
     try {
-      const { data, error: authError } = await withTimeout(
-        supabase.auth.signUp({
-          email,
-          password: pass,
-          options: {
-            data: { name }
-          }
-        }),
-        AUTH_REQUEST_TIMEOUT_MS,
-        'Tempo de cadastro excedido. Verifique sua conexao e tente novamente.'
-      );
-
-      let authUser = data.user;
-
-      // If the user already exists, try authenticating with the provided password
-      // so we can recover/create the profile and avoid blocking the flow.
-      if (authError) {
-        const isAlreadyRegistered =
-          authError.message?.toLowerCase().includes('already registered') ||
-          authError.message?.toLowerCase().includes('already exists');
-
-        if (!isAlreadyRegistered) {
-          throw authError;
-        }
-
-        const { data: signInData, error: signInError } = await withTimeout(
-          supabase.auth.signInWithPassword({
-            email,
-            password: pass
-          }),
-          AUTH_REQUEST_TIMEOUT_MS,
-          'Tempo de autenticacao excedido. Tente novamente.'
-        );
-
-        if (signInError || !signInData.user) {
-          throw new Error('Este e-mail já está cadastrado. Tente entrar com sua senha atual ou redefinir a senha.');
-        }
-
-        authUser = signInData.user;
-      }
-
-      if (!authUser) throw new Error("Erro desconhecido ao realizar cadastro.");
-
-      // Create profile record
-      const profilePayload: any = {
-        id: authUser.id,
-        name: name,
-        role: UserRole.READ_ONLY,
-        email: email
-      };
-
-      let { error: profileError } = await withTimeout(
-        supabase
-          .from('profiles')
-          .upsert(profilePayload),
-        AUTH_REQUEST_TIMEOUT_MS,
-        'Tempo limite ao salvar perfil.'
-      );
-
-      // If it fails (likely missing email column), try without email
-      if (profileError && (profileError.message.includes('email') || profileError.message.includes('column'))) {
-        console.warn("Retrying profile upsert without 'email' field in register...");
-        const { email: _, ...payloadWithoutEmail } = profilePayload;
-        const retry = await withTimeout(
-          supabase
-            .from('profiles')
-            .upsert(payloadWithoutEmail),
-          AUTH_REQUEST_TIMEOUT_MS,
-          'Tempo limite ao salvar perfil (sem e-mail).'
-        );
-        profileError = retry.error;
-      }
-
-      if (profileError) {
-        console.error("Erro ao criar perfil após cadastro:", profileError.message);
-        throw new Error(`Cadastro parcial: Conta criada, mas dados do perfil falharam. Erro: ${profileError.message}`);
-      }
-
-      // Invalidate cache so Admin sees the new user immediately
-      const { db } = await import('../services/db');
-      db.invalidateCache('users');
-      console.log(`[Auth] Registro concluído e cache invalidado para: ${email}`);
-
-      return true;
-    } finally {
-      isRegisteringInProgress = false;
+      await withTimeout(supabase.auth.signOut(), AUTH_REQUEST_TIMEOUT_MS, 'Tempo limite ao sair.');
+    } catch (e) {
+      console.warn('[Auth] signOut falhou, limpando sessão local:', e);
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
     }
-  };
-
-  const logout = async () => {
-    await supabase.auth.signOut();
+    db.invalidateCache();
     setUser(null);
-  };
+    setSession(null);
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const { error } = await withTimeout(
+      supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo limite ao solicitar redefinição de senha.'
+    );
+    if (error) throw translateAuthError(error);
+  }, []);
+
+  const updatePassword = useCallback(async (newPassword: string, currentPassword?: string) => {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`A senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`);
+    }
+    if (currentPassword !== undefined) {
+      const email = session?.user?.email;
+      if (!email) throw new Error('Sessão expirada. Entre novamente.');
+      const { error: checkError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password: currentPassword }),
+        AUTH_REQUEST_TIMEOUT_MS,
+        'Tempo limite ao validar a senha atual.'
+      );
+      if (checkError) throw new Error('Senha atual incorreta.');
+    }
+    const { error } = await withTimeout(
+      supabase.auth.updateUser({ password: newPassword }),
+      AUTH_REQUEST_TIMEOUT_MS,
+      'Tempo limite ao alterar a senha.'
+    );
+    if (error) throw translateAuthError(error);
+    setIsPasswordRecovery(false);
+  }, [session?.user?.email]);
+
+  const updateOwnName = useCallback(async (name: string) => {
+    if (!user) return;
+    const clean = name.trim();
+    if (!clean) throw new Error('Informe o nome.');
+    const { error } = await supabase.from('profiles').update({ name: clean }).eq('id', user.id);
+    if (error) throw error;
+    await supabase.auth.updateUser({ data: { name: clean } }).catch(() => undefined);
+    setUser(prev => (prev ? { ...prev, name: clean } : prev));
+    db.invalidateCache('users');
+  }, [user]);
+
+  const refreshProfile = useCallback(async () => {
+    setProfileVersion(v => v + 1);
+  }, []);
+
+  // Com sessão mas sem perfil resolvido ainda => carregando (evita "piscar" a tela de login)
+  const isLoading = !sessionReady || (!!authUser && !user && !authNotice);
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, isLoading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        authNotice,
+        clearAuthNotice: () => setAuthNotice(null),
+        isPasswordRecovery,
+        login,
+        register,
+        logout,
+        requestPasswordReset,
+        updatePassword,
+        updateOwnName,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

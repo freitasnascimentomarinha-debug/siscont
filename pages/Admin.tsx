@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
-import { User, UserRole, Client, ServiceDefinition } from '../types';
+import { Client, ServiceDefinition } from '../types';
+import { UsersPanel } from '../components/admin/UsersPanel';
 import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-// Added missing Database import
 // @ts-ignore
 import * as XLSX from 'xlsx';
-import { Trash2, Edit, Key, Users, Upload, Plus, Building2, Wrench, Save, UserCheck, Shield, Database, Cloud, Info } from 'lucide-react';
+import { Trash2, Edit, Upload, Plus, Save, Shield, Database, Cloud, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 
@@ -18,28 +18,25 @@ export const Admin: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AdminTab>('users');
 
   // --- STATE: DATA ---
-  const [users, setUsers] = useState<User[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<ServiceDefinition[]>([]);
 
   // --- STATE: MODALS ---
-  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // --- STATE: FORMS ---
-  const [userFormData, setUserFormData] = useState<Partial<User>>({});
   const [clientFormData, setClientFormData] = useState<Partial<Client>>({});
   const [serviceFormData, setServiceFormData] = useState<Partial<ServiceDefinition>>({});
-  const [passwordData, setPasswordData] = useState({ id: '', newPassword: '' });
 
   // --- STATE: HELPERS ---
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
-  const [userError, setUserError] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [systemMsg, setSystemMsg] = useState<{ type: 'ok' | 'error' | 'info'; text: string } | null>(null);
+  const [isSystemBusy, setIsSystemBusy] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,19 +51,17 @@ export const Admin: React.FC = () => {
         db.invalidateCache();
         console.log("[Admin] Cache limpo manualmente.");
       }
-      const [usrs, clnts, svcs] = await Promise.all([
-        db.getUsers(),
+      const [clnts, svcs] = await Promise.all([
         db.getClients(),
         db.getServices()
       ]);
-      console.log(`[Admin] Sucesso: ${usrs.length} usuários carregados às ${new Date().toLocaleTimeString()}.`);
-      setUsers(usrs);
+      setPageError(null);
       setClients(clnts);
       setServices(svcs);
       setLastUpdated(new Date());
-    } catch (err) {
-      console.error("[Admin] Erro crítico ao atualizar dados:", err);
-      alert("Falha ao atualizar dados. Verifique o console.");
+    } catch (err: any) {
+      console.error("[Admin] Erro ao atualizar dados:", err);
+      setPageError(`Falha ao carregar cadastros: ${err?.message || 'verifique a conexão.'}`);
     } finally {
       setIsRefreshing(false);
     }
@@ -76,47 +71,19 @@ export const Admin: React.FC = () => {
 
   // --- CRUD ACTIONS ---
 
-  const handleSaveUser = async () => {
-    setUserError(null);
-    const missing = [];
-    if (!userFormData.name) missing.push("Nome");
-    if (!userFormData.email) missing.push("E-mail");
-    if (!editingId && !userFormData.password) missing.push("Senha");
-
-    if (missing.length > 0) {
-      setUserError(`Campos obrigatórios: ${missing.join(', ')}`);
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const payload: User = {
-        id: editingId || uuidv4(),
-        name: userFormData.name || '',
-        email: userFormData.email || '',
-        role: (userFormData.role as UserRole) || UserRole.USER,
-        password: userFormData.password || (editingId ? users.find(u => u.id === editingId)?.password : '123')
-      };
-      await db.saveUser(payload);
-      closeModals();
-      await refresh();
-    } catch (err: any) {
-      console.error(err);
-      setUserError(`Erro ao salvar usuário: ${err.message}`);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleSaveClient = async () => {
     setClientError(null);
     if (!clientFormData.name || !clientFormData.ug || !clientFormData.sector || !clientFormData.command) {
       setClientError("Preencha todos os campos do cliente.");
       return;
     }
+    if (!/^\d{6}$/.test(String(clientFormData.ug).trim())) {
+      setClientError("A UG deve ter exatamente 6 dígitos numéricos.");
+      return;
+    }
 
     const duplicate = clients.find(c =>
-      c.id !== editingId && (c.ug === clientFormData.ug)
+      c.id !== editingId && (String(c.ug).trim() === String(clientFormData.ug).trim())
     );
 
     if (duplicate) {
@@ -128,10 +95,10 @@ export const Admin: React.FC = () => {
     try {
       const payload: Client = {
         id: editingId || uuidv4(),
-        ug: clientFormData.ug,
-        name: clientFormData.name,
-        sector: clientFormData.sector,
-        command: clientFormData.command
+        ug: String(clientFormData.ug).trim(),
+        name: clientFormData.name.trim(),
+        sector: clientFormData.sector.trim(),
+        command: clientFormData.command.trim()
       };
       await db.saveClient(payload);
       closeModals();
@@ -148,6 +115,11 @@ export const Admin: React.FC = () => {
     setServiceError(null);
     if (!serviceFormData.name || !serviceFormData.unitMeasure || !serviceFormData.acronym) {
       setServiceError("Preencha todos os campos do serviço.");
+      return;
+    }
+    const dupService = services.find(s => s.id !== editingId && s.acronym.trim().toUpperCase() === serviceFormData.acronym!.trim().toUpperCase());
+    if (dupService) {
+      setServiceError(`Já existe um serviço com a sigla ${dupService.acronym} (${dupService.name}).`);
       return;
     }
 
@@ -171,104 +143,108 @@ export const Admin: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (deleteId) {
-      if (activeTab === 'users') await db.deleteUser(deleteId);
+    if (!deleteId) return;
+    try {
       if (activeTab === 'clients') await db.deleteClient(deleteId);
       if (activeTab === 'services') await db.deleteService(deleteId);
+      setPageError(null);
+    } catch (err: any) {
+      setPageError(`Não foi possível excluir: ${err?.message || 'erro desconhecido'}`);
+    } finally {
       setIsDeleteModalOpen(false);
       setDeleteId(null);
       await refresh();
     }
   };
 
-  const handleChangePassword = async () => {
-    // Note: Changing passwords for other users typically requires administrative privileges via Supabase Auth API
-    // or a custom edge function. For now, we update the profile metadata if it exists.
-    if (!passwordData.id || !passwordData.newPassword) return;
-    alert('A alteração de senha de outros usuários deve ser feita diretamente no painel do Supabase Auth por segurança.');
-    setIsPasswordModalOpen(false);
-  };
-
   const closeModals = () => {
-    setIsUserModalOpen(false);
     setIsClientModalOpen(false);
     setIsServiceModalOpen(false);
-    setIsPasswordModalOpen(false);
     setIsDeleteModalOpen(false);
-    setUserFormData({});
     setClientFormData({});
     setServiceFormData({});
     setEditingId(null);
     setClientError(null);
-    setUserError(null);
     setServiceError(null);
   };
 
-  // --- BACKUP ACTIONS ---
-  const handleSystemBackup = () => {
-    const data = db.getAllData();
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.invoices), "Faturas");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.documents), "Documentos");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.allocations), "Alocacoes");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.clients), "Clientes");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.services), "Servicos");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.users), "Usuarios");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.exits), "Saidas");
-    XLSX.writeFile(wb, `SISCONT_BACKUP_${new Date().toISOString().split('T')[0]}.xlsx`);
+  // --- BACKUP ACTIONS (dados lidos/gravados no Supabase) ---
+  const legacy = db.getLegacyLocalData();
+
+  const handleSystemBackup = async () => {
+    setIsSystemBusy(true);
+    setSystemMsg({ type: 'info', text: 'Gerando backup a partir do servidor...' });
+    try {
+      const data = await db.getAllData();
+      const wb = XLSX.utils.book_new();
+      const add = (rows: any[], name: string) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), name);
+      add(data.invoices, "Faturas");
+      add(data.documents, "Documentos");
+      add(data.allocations, "Alocacoes");
+      add(data.clients, "Clientes");
+      add(data.services, "Servicos");
+      add(data.users, "Usuarios");
+      add(data.exits, "Saidas");
+      XLSX.writeFile(wb, `SISCONT_BACKUP_${new Date().toISOString().split('T')[0]}.xlsx`);
+      setSystemMsg({
+        type: 'ok',
+        text: `Backup gerado: ${data.invoices.length} faturas, ${data.documents.length} documentos, ${data.allocations.length} alocações, ${data.exits.length} saídas, ${data.clients.length} clientes, ${data.services.length} serviços.`
+      });
+    } catch (err: any) {
+      setSystemMsg({ type: 'error', text: `Erro ao gerar backup: ${err?.message || 'verifique a conexão.'}` });
+    } finally {
+      setIsSystemBusy(false);
+    }
   };
 
   const handleSystemRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (ev) => {
       try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const backupData: any = {};
-        if (workbook.Sheets["Faturas"]) backupData.invoices = XLSX.utils.sheet_to_json(workbook.Sheets["Faturas"]);
-        if (workbook.Sheets["Documentos"]) backupData.documents = XLSX.utils.sheet_to_json(workbook.Sheets["Documentos"]);
-        if (workbook.Sheets["Alocacoes"]) backupData.allocations = XLSX.utils.sheet_to_json(workbook.Sheets["Alocacoes"]);
-        if (workbook.Sheets["Clientes"]) backupData.clients = XLSX.utils.sheet_to_json(workbook.Sheets["Clientes"]);
-        if (workbook.Sheets["Servicos"]) backupData.services = XLSX.utils.sheet_to_json(workbook.Sheets["Servicos"]);
-        if (workbook.Sheets["Usuarios"]) backupData.users = XLSX.utils.sheet_to_json(workbook.Sheets["Usuarios"]);
-        if (workbook.Sheets["Saidas"]) backupData.exits = XLSX.utils.sheet_to_json(workbook.Sheets["Saidas"]);
-
-        if (window.confirm('Atenção: Restaurar o sistema substituirá TODOS os dados atuais. Deseja continuar?')) {
-          db.restoreBackup(backupData);
-          alert('Sistema restaurado com sucesso. A página será reiniciada.');
-          window.location.reload();
+        const sheet = (n: string) => workbook.Sheets[n] ? XLSX.utils.sheet_to_json(workbook.Sheets[n], { defval: null }) as any[] : undefined;
+        const backupData = {
+          invoices: sheet("Faturas"),
+          documents: sheet("Documentos"),
+          allocations: sheet("Alocacoes"),
+          clients: sheet("Clientes"),
+          services: sheet("Servicos"),
+          exits: sheet("Saidas"),
+        };
+        const resumo = Object.entries(backupData).filter(([, v]) => v).map(([k, v]) => `${k}: ${v!.length}`).join(', ');
+        if (!resumo) {
+          setSystemMsg({ type: 'error', text: 'O arquivo não contém abas de backup do SISCONT.' });
+          return;
         }
-      } catch (err) {
-        alert('Erro ao processar arquivo de backup.');
+        if (!window.confirm(`Restaurar backup "${file.name}"?\n\n${resumo}\n\nRegistros com o mesmo ID serão SOBRESCRITOS no servidor. Registros que não estão no arquivo serão mantidos. Usuários não são alterados.`)) return;
+        setIsSystemBusy(true);
+        const summary = await db.restoreBackup(backupData, msg => setSystemMsg({ type: 'info', text: `Restaurando... ${msg}` }));
+        setSystemMsg({ type: 'ok', text: `Restauração concluída: ${Object.entries(summary).map(([k, v]) => `${k} ${v}`).join(', ')}.` });
+        await refresh(true);
+      } catch (err: any) {
+        setSystemMsg({ type: 'error', text: `Erro ao restaurar: ${err?.message || 'arquivo inválido.'}` });
+      } finally {
+        setIsSystemBusy(false);
       }
     };
     reader.readAsArrayBuffer(file);
   };
 
-  const handleSupabaseSync = async () => {
-    if (window.confirm('Deseja enviar todos os dados locais para o Supabase? Isso pode sobrescrever dados com o mesmo ID.')) {
-      try {
-        await db.syncToSupabase();
-        alert('Sincronização concluída com sucesso!');
-      } catch (err) {
-        console.error(err);
-        alert('Erro ao sincronizar dados.');
-      }
-    }
-  };
-
-  const handleSupabasePull = async () => {
-    if (window.confirm('Atenção: Isso substituirá os dados locais pelos dados do Supabase. Deseja continuar?')) {
-      try {
-        await db.pullFromSupabase();
-        alert('Dados baixados com sucesso! Reiniciando a página...');
-        window.location.reload();
-      } catch (err) {
-        console.error(err);
-        alert('Erro ao baixar dados do Supabase.');
-      }
+  const handleLegacyMigration = async () => {
+    if (!window.confirm(`Enviar ${legacy.total} registro(s) salvos neste navegador (versão antiga do SISCONT) para o servidor? Registros com o mesmo ID serão sobrescritos.`)) return;
+    setIsSystemBusy(true);
+    try {
+      const summary = await db.restoreBackup(legacy.data, msg => setSystemMsg({ type: 'info', text: `Migrando... ${msg}` }));
+      setSystemMsg({ type: 'ok', text: `Migração concluída: ${Object.entries(summary).map(([k, v]) => `${k} ${v}`).join(', ')}.` });
+      await refresh(true);
+    } catch (err: any) {
+      setSystemMsg({ type: 'error', text: `Erro na migração: ${err?.message}` });
+    } finally {
+      setIsSystemBusy(false);
     }
   };
 
@@ -282,31 +258,21 @@ export const Admin: React.FC = () => {
         <div className="flex gap-2 items-center">
           {lastUpdated && (
             <span className="text-[10px] text-slate-400 font-medium hidden sm:inline-block">
-              Atualizado: {lastUpdated.toLocaleTimeString()}
+              Atualizado: {lastUpdated.toLocaleTimeString('pt-BR')}
             </span>
           )}
-          {activeTab === 'users' && (
-            <Button 
-               size="sm" 
-               variant="ghost" 
-               isLoading={isRefreshing}
-               onClick={() => refresh(true)}
-               title="Limpa o cache e busca dados novos no servidor"
-            >
-              <Cloud className="mr-2 h-4 w-4" /> Recarregar Lista
+          <Button size="sm" variant="secondary" onClick={handleSystemBackup} isLoading={isSystemBusy}>
+            {!isSystemBusy && <Save className="mr-2 h-4 w-4" />} Backup (XLSX)
+          </Button>
+          {(activeTab === 'clients' || activeTab === 'services') && (
+            <Button size="sm" onClick={() => {
+              setEditingId(null);
+              if (activeTab === 'clients') setIsClientModalOpen(true);
+              if (activeTab === 'services') setIsServiceModalOpen(true);
+            }}>
+              <Plus className="mr-2 h-4 w-4" /> Incluir {activeTab === 'clients' ? 'Cliente' : 'Serviço'}
             </Button>
           )}
-          <Button size="sm" variant="secondary" onClick={handleSystemBackup}>
-            <Save className="mr-2 h-4 w-4" /> Backup (XLSX)
-          </Button>
-          <Button size="sm" onClick={() => {
-            setEditingId(null);
-            if (activeTab === 'users') setIsUserModalOpen(true);
-            if (activeTab === 'clients') setIsClientModalOpen(true);
-            if (activeTab === 'services') setIsServiceModalOpen(true);
-          }}>
-            <Plus className="mr-2 h-4 w-4" /> Incluir {activeTab === 'users' ? 'Usuário' : activeTab === 'clients' ? 'Cliente' : 'Serviço'}
-          </Button>
         </div>
       </div>
 
@@ -326,49 +292,15 @@ export const Admin: React.FC = () => {
         ))}
       </div>
 
+      {pageError && (
+        <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm flex items-center gap-2">
+          <AlertTriangle size={16} /> {pageError}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {/* --- USERS TAB --- */}
-        {activeTab === 'users' && (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Nome</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">E-mail</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Perfil</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {users.map(u => (
-                  <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4 text-sm font-medium text-slate-900 flex items-center gap-2">
-                      <div className="p-1.5 bg-slate-100 rounded-full text-slate-600"><Users size={14} /></div>
-                      {u.name}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {u.email || <span className="text-orange-400 italic text-[10px] flex items-center gap-1"><Info size={10}/> E-mail não migrado p/ Perfil</span>}
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${u.role === UserRole.ADMIN ? 'bg-indigo-100 text-indigo-700' :
-                        u.role === UserRole.USER ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => { setEditingId(u.id); setUserFormData(u); setIsUserModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-primary-600 transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => { setPasswordData({ id: u.id, newPassword: '' }); setIsPasswordModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-orange-600 transition-colors" title="Trocar Senha"><Key size={16} /></button>
-                        <button onClick={() => { setDeleteId(u.id); setIsDeleteModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {activeTab === 'users' && <UsersPanel />}
 
         {/* --- CLIENTS TAB --- */}
         {activeTab === 'clients' && (
@@ -430,6 +362,7 @@ export const Admin: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+                {services.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-slate-400 italic">Nenhum serviço cadastrado. Use o botão Incluir para começar.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -438,63 +371,54 @@ export const Admin: React.FC = () => {
         {/* --- BACKUP / SYSTEM TAB --- */}
         {activeTab === 'backup' && (
           <div className="p-8 max-w-2xl mx-auto space-y-8">
+            {systemMsg && (
+              <div className={`p-3 rounded-lg border text-sm flex items-start gap-2 ${systemMsg.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : systemMsg.type === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-200 text-blue-800'}`}>
+                {systemMsg.type === 'error' ? <AlertTriangle size={16} className="shrink-0 mt-0.5" /> : <CheckCircle2 size={16} className="shrink-0 mt-0.5" />}
+                <span>{systemMsg.text}</span>
+              </div>
+            )}
+
             <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 flex items-start gap-4">
               <div className="p-3 bg-blue-100 rounded-xl text-blue-600"><Database size={24} /></div>
               <div>
                 <h3 className="text-lg font-bold text-blue-900">Gerar Backup do Sistema</h3>
-                <p className="text-sm text-blue-700 mb-4">Exporta todas as faturas, adiantamentos e cadastros para um arquivo Excel protegido.</p>
-                <Button onClick={handleSystemBackup} className="shadow-blue-200"><Save className="mr-2 h-4 w-4" /> Baixar Planilha de Backup</Button>
+                <p className="text-sm text-blue-700 mb-4">Exporta do servidor todas as faturas, documentos, alocações, saídas e cadastros para uma planilha Excel (uma aba por tabela).</p>
+                <Button onClick={handleSystemBackup} isLoading={isSystemBusy} className="shadow-blue-200">{!isSystemBusy && <Save className="mr-2 h-4 w-4" />} Baixar Planilha de Backup</Button>
               </div>
             </div>
 
             <div className="bg-red-50/50 p-6 rounded-2xl border border-red-100 flex items-start gap-4">
               <div className="p-3 bg-red-100 rounded-xl text-red-600"><Upload size={24} /></div>
               <div>
-                <h3 className="text-lg font-bold text-red-900">Restaurar Dados</h3>
-                <p className="text-sm text-red-700 mb-4">Carrega um backup anterior do SISCONT. Isso apagará todos os dados atuais permanentemente.</p>
+                <h3 className="text-lg font-bold text-red-900">Restaurar Backup</h3>
+                <p className="text-sm text-red-700 mb-4">Carrega uma planilha de backup do SISCONT e grava no servidor. Registros com o mesmo ID são sobrescritos; os demais são mantidos. Usuários não são alterados.</p>
                 <input type="file" ref={backupInputRef} onChange={handleSystemRestore} accept=".xlsx" className="hidden" />
-                <Button variant="danger" onClick={() => backupInputRef.current?.click()} className="shadow-red-200"><Shield className="mr-2 h-4 w-4" /> Importar do Excel</Button>
+                <Button variant="danger" onClick={() => backupInputRef.current?.click()} disabled={isSystemBusy} className="shadow-red-200"><Shield className="mr-2 h-4 w-4" /> Importar do Excel</Button>
               </div>
             </div>
 
-            <div className="bg-emerald-50/50 p-6 rounded-2xl border border-emerald-100 flex items-start gap-4">
-              <div className="p-3 bg-emerald-100 rounded-xl text-emerald-600"><Cloud size={24} /></div>
-              <div>
-                <h3 className="text-lg font-bold text-emerald-900">Nuvem Supabase</h3>
-                <p className="text-sm text-emerald-700 mb-4">Sincronize seus dados locais com o servidor Supabase configurado.</p>
-                <div className="flex gap-4">
-                  <Button variant="secondary" onClick={handleSupabaseSync} className="shadow-emerald-200"><Save className="mr-2 h-4 w-4" /> Enviar para Nuvem</Button>
-                  <Button variant="ghost" onClick={handleSupabasePull} className="text-emerald-700 hover:bg-emerald-100"><Upload className="mr-2 h-4 w-4" /> Baixar da Nuvem</Button>
+            {legacy.total > 0 && (
+              <div className="bg-emerald-50/50 p-6 rounded-2xl border border-emerald-100 flex items-start gap-4">
+                <div className="p-3 bg-emerald-100 rounded-xl text-emerald-600"><Cloud size={24} /></div>
+                <div>
+                  <h3 className="text-lg font-bold text-emerald-900">Dados locais da versão antiga</h3>
+                  <p className="text-sm text-emerald-700 mb-4">Encontrados {legacy.total} registro(s) salvos neste navegador pela versão anterior do SISCONT. Envie-os para o servidor para não perdê-los.</p>
+                  <Button variant="secondary" onClick={handleLegacyMigration} disabled={isSystemBusy}><Cloud className="mr-2 h-4 w-4" /> Enviar para o Servidor</Button>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
 
       {/* --- MODALS --- */}
 
-      {/* USER MODAL */}
-      <Modal isOpen={isUserModalOpen} onClose={closeModals} title={editingId ? "Editar Usuário" : "Novo Usuário"}>
-        <div className="space-y-4">
-          {userError && <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100 font-medium">{userError}</div>}
-          <Input label="Nome Completo" value={userFormData.name || ''} onChange={e => setUserFormData({ ...userFormData, name: e.target.value })} placeholder="Ex: 1ºSG-AD Silva" disabled={isSubmitting} />
-          <Input label="E-mail" type="email" value={userFormData.email || ''} onChange={e => setUserFormData({ ...userFormData, email: e.target.value })} placeholder="nome@siscont.com" disabled={isSubmitting} />
-          {!editingId && <Input label="Senha Inicial" type="password" value={userFormData.password || ''} onChange={e => setUserFormData({ ...userFormData, password: e.target.value })} disabled={isSubmitting} />}
-          <Select label="Perfil de Acesso" options={[{ label: 'Administrador', value: UserRole.ADMIN }, { label: 'Operador', value: UserRole.USER }, { label: 'Consulta', value: UserRole.READ_ONLY }]} value={userFormData.role || ''} onChange={e => setUserFormData({ ...userFormData, role: e.target.value as UserRole })} disabled={isSubmitting} />
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="ghost" onClick={closeModals} disabled={isSubmitting}>Cancelar</Button>
-            <Button onClick={handleSaveUser} isLoading={isSubmitting}>Salvar</Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* CLIENT MODAL */}
       <Modal isOpen={isClientModalOpen} onClose={closeModals} title={editingId ? "Editar Cliente" : "Novo Cliente (UG)"}>
         <div className="space-y-4">
           {clientError && <div className="p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 font-bold">{clientError}</div>}
           <div className="grid grid-cols-2 gap-4">
-            <Input label="UG (6 dígitos)" value={clientFormData.ug || ''} onChange={e => setClientFormData({ ...clientFormData, ug: e.target.value })} placeholder="789XXX" />
+            <Input label="UG (6 dígitos)" inputMode="numeric" maxLength={6} value={clientFormData.ug || ''} onChange={e => setClientFormData({ ...clientFormData, ug: e.target.value.replace(/\D/g, '') })} placeholder="789XXX" />
             <Input label="Comando" value={clientFormData.command || ''} onChange={e => setClientFormData({ ...clientFormData, command: e.target.value })} placeholder="ex: BNIC" />
           </div>
           <Input label="Nome da OM / Cliente" value={clientFormData.name || ''} onChange={e => setClientFormData({ ...clientFormData, name: e.target.value })} placeholder="Ex: Base Naval..." />
@@ -520,17 +444,6 @@ export const Admin: React.FC = () => {
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="ghost" onClick={closeModals} disabled={isSubmitting}>Cancelar</Button>
             <Button onClick={handleSaveService} isLoading={isSubmitting}>Salvar Serviço</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* PASSWORD MODAL */}
-      <Modal isOpen={isPasswordModalOpen} onClose={closeModals} title="Redefinir Senha">
-        <div className="space-y-4">
-          <Input label="Nova Senha" type="password" value={passwordData.newPassword} onChange={e => setPasswordData({ ...passwordData, newPassword: e.target.value })} />
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="ghost" onClick={closeModals}>Cancelar</Button>
-            <Button onClick={handleChangePassword}>Atualizar Senha</Button>
           </div>
         </div>
       </Modal>

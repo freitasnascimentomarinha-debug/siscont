@@ -8,8 +8,12 @@ import { Invoices } from './pages/Invoices';
 import { ReceivedBalances } from './pages/ReceivedBalances';
 import { CashFlow } from './pages/CashFlow';
 import { Admin } from './pages/Admin';
+import { ResetPassword } from './pages/ResetPassword';
+import { UserRole } from './types';
+import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Toaster } from './components/ui/Toaster';
 
 export type PageID = 'dashboard' | 'invoices' | 'received' | 'cashflow' | 'admin';
 
@@ -24,7 +28,7 @@ const AuthenticatedApp = () => {
       case 'received': return <ReceivedBalances />;
       case 'cashflow': return <CashFlow />;
       case 'admin':
-        return user?.role === 'ADMIN' ? <Admin /> : <Dashboard />;
+        return user?.role === UserRole.ADMIN ? <Admin /> : <Dashboard />;
       default: return <Dashboard />;
     }
   };
@@ -37,10 +41,22 @@ const AuthenticatedApp = () => {
 };
 
 const AppContent = () => {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isPasswordRecovery } = useAuth();
 
-  // Show splash only while restoring an already authenticated session.
-  if (isLoading && user) {
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        <div className="max-w-lg bg-white rounded-2xl p-8 shadow-2xl space-y-3 text-sm text-slate-700">
+          <h1 className="text-xl font-bold text-slate-900">SISCONT: configuração pendente</h1>
+          <p>As variáveis de conexão com o banco de dados não foram definidas neste ambiente.</p>
+          <p>Cadastre na Vercel (Settings → Environment Variables) <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_URL</code> e <code className="bg-slate-100 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> e faça um novo deploy.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Splash enquanto a sessão salva é restaurada (com limite de tempo no AuthContext)
+  if (isLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-slate-900 z-50">
         <div className="flex flex-col items-center">
@@ -49,6 +65,11 @@ const AppContent = () => {
         </div>
       </div>
     );
+  }
+
+  // Link de "Esqueci minha senha": exige criar a nova senha antes de entrar
+  if (isPasswordRecovery) {
+    return <ResetPassword />;
   }
 
   if (!user) {
@@ -82,6 +103,7 @@ const App: React.FC = () => {
       <ErrorBoundary>
         <AuthProvider>
           <AppContent />
+          <Toaster />
         </AuthProvider>
       </ErrorBoundary>
     </div>

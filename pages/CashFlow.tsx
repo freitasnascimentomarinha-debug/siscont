@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { notify } from '../utils/notify';
 import { CashFlowItem, CashFlowExit, DocumentType, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
@@ -32,7 +33,13 @@ export const CashFlow: React.FC = () => {
   // File Import Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const refresh = async () => setItems(await db.getCashFlow());
+  const refresh = async () => {
+    try {
+      setItems(await db.getCashFlow());
+    } catch (err) {
+      notify.fail('Erro ao carregar fluxo de caixa', err);
+    }
+  };
   useEffect(() => { refresh(); }, []);
 
   // --- Dynamic Year Calculation ---
@@ -90,9 +97,14 @@ export const CashFlow: React.FC = () => {
       isCanceled: formData.isCanceled || false,
     };
 
-    await db.saveExit(payload);
-    closeModal();
-    await refresh();
+    try {
+      await db.saveExit(payload);
+      closeModal();
+      notify.success('Saída salva.');
+      await refresh();
+    } catch (err) {
+      notify.fail('Erro ao salvar saída', err);
+    }
   };
 
   const handleEdit = (item: CashFlowItem) => {
@@ -101,7 +113,7 @@ export const CashFlow: React.FC = () => {
     setFormData({
       date: item.date,
       documentNumber: item.documentNumber,
-      documentType: DocumentType.EMPENHO, // Defaulting, ideally we should store precise type in db.ts logic for better reconstruction
+      documentType: item.documentType || DocumentType.EMPENHO,
       client: item.client,
       value: item.value,
       rubric: item.rubric,
@@ -115,7 +127,12 @@ export const CashFlow: React.FC = () => {
 
   const handleDelete = async () => {
     if (deleteId && !isReadOnly) {
-      await db.deleteExit(deleteId);
+      try {
+        await db.deleteExit(deleteId);
+        notify.success('Saída excluída.');
+      } catch (err) {
+        notify.fail('Erro ao excluir saída', err);
+      }
       setDeleteId(null);
       await refresh();
     }

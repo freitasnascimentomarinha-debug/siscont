@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
@@ -71,13 +72,19 @@ export const Invoices: React.FC = () => {
   const [clients, setClients] = useState<any[]>([]);
 
   const refresh = async () => {
-    const [invs, allocs, docs, svcs, clist] = await Promise.all([
-      db.getInvoices(),
-      db.getAllocations(),
-      db.getDocuments(),
-      db.getServices(),
-      db.getClients()
-    ]);
+    let invs, allocs, docs, svcs, clist;
+    try {
+      [invs, allocs, docs, svcs, clist] = await Promise.all([
+        db.getInvoices(),
+        db.getAllocations(),
+        db.getDocuments(),
+        db.getServices(),
+        db.getClients()
+      ]);
+    } catch (err) {
+      notify.fail('Erro ao carregar faturas', err);
+      return;
+    }
 
     setInvoices(invs);
     setAllocations(allocs);
@@ -351,7 +358,11 @@ export const Invoices: React.FC = () => {
   const toggleInvoiceSiplad = async (inv: Invoice) => {
     if (isReadOnly) return;
     const updatedInvoice = { ...inv, sipladSettled: !inv.sipladSettled };
-    await db.saveInvoice(updatedInvoice);
+    try {
+      await db.saveInvoice(updatedInvoice);
+    } catch (err) {
+      notify.fail('Erro ao atualizar status Siplad', err);
+    }
     await refresh();
   };
 
@@ -474,7 +485,12 @@ export const Invoices: React.FC = () => {
 
   const handleDelete = async () => {
     if (actionId && !isReadOnly) {
-      await db.deleteInvoice(actionId);
+      try {
+        await db.deleteInvoice(actionId);
+        notify.success('Fatura excluída.');
+      } catch (err) {
+        notify.fail('Erro ao excluir fatura', err);
+      }
       await refresh();
       setActionId(null);
     }
@@ -484,11 +500,16 @@ export const Invoices: React.FC = () => {
     if (actionId && !isReadOnly) {
       const inv = invoices.find(i => i.id === actionId);
       if (inv) {
-        const linkedAllocations = allocations.filter(a => a.invoiceId === inv.id);
-        for (const la of linkedAllocations) {
-          await db.deleteAllocation(la.id);
+        try {
+          const linkedAllocations = allocations.filter(a => a.invoiceId === inv.id);
+          for (const la of linkedAllocations) {
+            await db.deleteAllocation(la.id);
+          }
+          await db.saveInvoice({ ...inv, isCanceled: true, status: InvoiceStatus.CANCELLED, paidAmount: 0 });
+          notify.success(`Fatura ${inv.invoiceNumber} cancelada.`);
+        } catch (err) {
+          notify.fail('Erro ao cancelar fatura', err);
         }
-        await db.saveInvoice({ ...inv, isCanceled: true, status: InvoiceStatus.CANCELLED, paidAmount: 0 });
         await refresh();
       }
       setIsCancelModalOpen(false);

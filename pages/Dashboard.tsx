@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
+import { notify } from '../utils/notify';
 import { Invoice, ReceivedDocument, InvoiceStatus, InvoiceType } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Download, Filter, TrendingUp, AlertCircle, CheckCircle, Wallet, FileText } from 'lucide-react';
@@ -23,12 +24,16 @@ export const Dashboard: React.FC = () => {
   const [endDate, setEndDate] = useState('');
 
   const loadData = async () => {
-    const [invs, docs] = await Promise.all([
-      db.getInvoices(),
-      db.getDocuments()
-    ]);
-    setInvoices(invs);
-    setDocuments(docs);
+    try {
+      const [invs, docs] = await Promise.all([
+        db.getInvoices(),
+        db.getDocuments()
+      ]);
+      setInvoices(invs);
+      setDocuments(docs);
+    } catch (err) {
+      notify.fail('Erro ao carregar o painel', err);
+    }
   };
 
   useEffect(() => {

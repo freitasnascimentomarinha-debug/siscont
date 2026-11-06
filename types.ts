@@ -40,12 +40,26 @@ export enum InvoiceType {
 }
 
 // Interfaces
+export const ROLE_LABELS: Record<UserRole, string> = {
+  [UserRole.ADMIN]: 'Administrador',
+  [UserRole.USER]: 'Operador',
+  [UserRole.READ_ONLY]: 'Consulta',
+};
+
 export interface User {
   id: string;
   name: string;
   email: string;
   role: UserRole;
-  password?: string; 
+  active?: boolean; // false = pendente de liberação ou bloqueado
+}
+
+/** Usuário como retornado pela API de administração (Auth + perfil). */
+export interface ManagedUser extends User {
+  active: boolean;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+  emailConfirmed: boolean;
 }
 
 // New Interface for Client Management (UG Automation)
@@ -146,5 +160,6 @@ export interface CashFlowItem {
   description?: string;
   observation?: string;
   isCanceled?: boolean;
+  documentType?: DocumentType;
   balanceAfter: number;
 }

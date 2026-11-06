@@ -11,9 +11,12 @@ import {
   X,
   Users,
   Maximize,
-  Minimize
+  Minimize,
+  UserCog
 } from 'lucide-react';
 import { PageID } from '../App';
+import { ROLE_LABELS, UserRole } from '../types';
+import { AccountModal } from './AccountModal';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -25,6 +28,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
   const { user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -47,7 +51,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     { id: 'cashflow' as PageID, label: 'Fluxo de Caixa', icon: ArrowLeftRight },
   ];
 
-  if (user?.role === 'ADMIN') {
+  if (user?.role === UserRole.ADMIN) {
     navItems.push({ id: 'admin' as PageID, label: 'Administração', icon: Users });
   }
 
@@ -88,6 +92,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
                 src="https://upload.wikimedia.org/wikipedia/commons/6/61/Logo_of_the_Brazilian_Navy_%28symbol%29.png"
                 alt="Brasão Marinha"
                 className="h-16 w-auto drop-shadow-2xl"
+                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
             <h1 className="font-bold text-2xl tracking-tighter text-white">SISCONT</h1>
@@ -96,11 +101,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
 
           {/* User Profile */}
           <div className="px-6 py-4">
-            <div className="p-4 bg-slate-800/40 rounded-xl border border-slate-700/30">
-              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Operador</p>
+            <button
+              onClick={() => { setIsAccountOpen(true); setIsMobileMenuOpen(false); }}
+              className="w-full text-left p-4 bg-slate-800/40 rounded-xl border border-slate-700/30 hover:bg-slate-800 transition-colors group"
+              title="Minha Conta: alterar nome e senha"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Usuário</p>
+                <UserCog size={14} className="text-slate-500 group-hover:text-primary-400" />
+              </div>
               <p className="font-semibold text-sm truncate text-white">{user?.name}</p>
-              <p className="text-[10px] text-primary-400 font-bold uppercase mt-1 tracking-widest">{user?.role}</p>
-            </div>
+              <p className="text-[10px] text-primary-400 font-bold uppercase mt-1 tracking-widest">{user ? ROLE_LABELS[user.role] : ''}</p>
+            </button>
           </div>
 
           {/* Navigation */}
@@ -156,10 +168,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur"
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
+
+      <AccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
     </div>
   );
 };
