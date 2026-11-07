@@ -11,18 +11,20 @@ import { ImportarTab } from '../components/cadastros/ImportarTab';
 import { MigrarFaturasTab } from '../components/cadastros/MigrarFaturasTab';
 import { DuplicidadesTab } from '../components/cadastros/DuplicidadesTab';
 import { ListaNaviosTab } from '../components/cadastros/ListaNaviosTab';
+import { ExportarTab } from '../components/cadastros/ExportarTab';
 
-type Aba = 'oms' | 'duplicidades' | 'listanavios' | 'comandos' | 'setores' | 'classes' | 'servicos' | 'parametros' | 'importar' | 'migrar';
+type Aba = 'servicos' | 'setores' | 'comandos' | 'oms' | 'classes' | 'listanavios' | 'parametros' | 'duplicidades' | 'exportar' | 'importar' | 'migrar';
 
 const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
-  { id: 'oms', label: 'OM / Clientes' },
-  { id: 'duplicidades', label: 'Duplicidades', admin: true },
-  { id: 'comandos', label: 'Comandos' },
+  { id: 'servicos', label: 'Serviços' },
   { id: 'setores', label: 'Setores' },
+  { id: 'comandos', label: 'Comandos' },
+  { id: 'oms', label: 'OM / Clientes' },
   { id: 'classes', label: 'Classes de navio' },
   { id: 'listanavios', label: 'Lista de navios', admin: true },
-  { id: 'servicos', label: 'Serviços' },
   { id: 'parametros', label: 'Parâmetros e feriados' },
+  { id: 'duplicidades', label: 'Duplicidades', admin: true },
+  { id: 'exportar', label: 'Exportar planilhas' },
   { id: 'importar', label: 'Importar planilhas', admin: true },
   { id: 'migrar', label: 'Migrar faturas', admin: true },
 ];
@@ -30,7 +32,7 @@ const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
 export const Cadastros: React.FC = () => {
   const { user } = useAuth();
   const admin = user?.role === UserRole.ADMIN;
-  const [aba, setAba] = useState<Aba>('oms');
+  const [aba, setAba] = useState<Aba>('servicos');
   const { dados, carregando, erro, naoInstalado, recarregar } = useCadastros();
 
   const ativas = dados.oms.filter(o => o.ativo).length;
@@ -78,6 +80,7 @@ export const Cadastros: React.FC = () => {
             {aba === 'classes' && <ClassesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'servicos' && <ServicosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'parametros' && <ParametrosTab podeEditar={admin} oms={dados.oms} />}
+            {aba === 'exportar' && <ExportarTab dados={dados} />}
             {aba === 'importar' && admin && <ImportarTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'migrar' && admin && <MigrarFaturasTab dados={dados} podeEditar={admin} />}
           </div>

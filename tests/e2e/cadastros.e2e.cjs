@@ -258,6 +258,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  â
     db.oms.push({ id: uid(), codigo: '91645', nome: 'Corveta Barroso', tipo: 'NAVIO', comando_id: cmd.id, ativo: true });
     db.oms.push({ id: uid(), codigo: '91646', nome: 'Navio Teste Sem Fatura', tipo: 'NAVIO', comando_id: cmd.id, ativo: true });
     await page.getByRole('button', { name: 'Recarregar' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
     await page.getByRole('cell', { name: /Corveta Barroso/ }).waitFor();
     const linha = page.getByRole('row', { name: /Corveta Barroso/ });
     await linha.getByTitle('Desativar (mantÃ©m o histÃ³rico)').click();
@@ -282,6 +283,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  â
     const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', setor_id: db.setores[1].id, ativo: true };
     db.comandos.push(cmd);
     await page.getByRole('button', { name: 'Recarregar' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
     await page.getByRole('button', { name: /Nova OM/ }).click();
     await page.getByLabel('Nome', { exact: true }).fill('PRESTNAV');
     await page.getByLabel('Comando (ComImSup)').selectOption(cmd.id);
