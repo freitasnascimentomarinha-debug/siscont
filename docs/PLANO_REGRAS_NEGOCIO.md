@@ -10,6 +10,9 @@ Custos)._
 _Revisão 3 (07/11/2026): incorporados os mapas de acompanhamento de navios atracados/docados (BNIC-35, gerências
 G1–G6, OUT26) e o Histórico Trienal 2026; respostas: vencimento conforme a OI; faturamento OND = média JAN–AGO,
 exceto diárias de atracação, que usam a previsão de atracação enviada pela divisão responsável._
+_Revisão 4 (07/11/2026): acerto do OND por fatura de acerto no ano seguinte; navio docado não paga diária;
+peso de rateio do navio pela média trienal da classe, com regra alternativa para classe sem histórico; descontos
+por OM ou gerais; desativação de navios sem perda de histórico._
 
 ---
 
@@ -117,11 +120,20 @@ valor vigente × taxa condominial recebida × empenhado × saldo em conta × a r
 **Proposta da taxa condominial 2026** — o modelo completo de cálculo:
 1. *Despesas*: 33 rubricas (+34 "outros gastos") com conta contábil, valor previsto 2026, gasto 2025, variação e descontos;
 2. *Matriz OM × rubrica*: quais clientes participam de cada rubrica, agrupados pelas 5 áreas do CNIC;
-3. *Rateio por rubrica*: peso = **lotação × dias** (OM de terra = 30; navio = média de dias atracados no mês,
-   ex.: 9; 21,44; 0,74); parcela = peso ÷ soma dos pesos das beneficiárias × valor da rubrica;
-4. *Descontos negociados* (ex.: 23,5% SecNSNQ; servidor civil AMRJ; rubrica 20 do Batalhão Naval);
-5. *Extrato demonstrativo por OM* (valor anual, mensal e %RUB por rubrica) e *quadro comparativo* taxa 2025 × proposta 2026;
-6. *Navios*: diária = **custo por militar-dia × lotação** (ex.: Mearim, lotação 35 → R$ 95,51/dia).
+3. *Rateio por rubrica*: peso = **lotação × dias**; parcela = peso ÷ soma dos pesos das beneficiárias × valor
+   da rubrica. Dias: OM de terra = 30; **navio = média trienal de dias atracados por mês da sua classe** (ex.: 9;
+   21,44; 0,74). Se **nenhum navio da classe atracou nos últimos 3 anos**, o navio **não entra com peso** no
+   rateio e recebe uma diária calculada pela regra do item 6-b;
+4. *Descontos*: podem ser **por OM** (ex.: 23,5% SecNSNQ; servidor civil AMRJ; rubrica 20 do Batalhão Naval) ou
+   **gerais** (aplicados a todos os clientes da rubrica ou do total);
+5. *Extrato*: extrato demonstrativo por OM (valor anual, mensal e %RUB por rubrica) e quadro comparativo taxa
+   2025 × proposta 2026;
+6. *Navios* — diária de atracação:
+   a. navio de classe com histórico: diária = custo por militar-dia × lotação (ex.: Mearim, lotação 35 → R$ 95,51/dia);
+   b. navio de classe **sem histórico** de atracação: diária = (**valor total das diárias** ÷ **média da tripulação
+      de todos os navios**) × **tripulação do navio**;
+7. *Classes com quantidade de navios diferente entre os anos*: decorre de **navios desativados**. A média trienal
+   divide os dias de cada ano pelo nº de navios da classe **naquele ano**.
 
 **Faturamento estimado de fim de exercício (OND)** — regra informada pelo usuário e conferida no lote OND26
 (emitido 23/10/26, competência OUT, cobre OUT+NOV+DEZ), para que as OM paguem antes do encerramento do exercício:
@@ -171,7 +183,7 @@ instruções de pagamento, assinatura do Encarregado) enviado para cobrança.
 | D16 | A planilha de rateio de energia guarda uma senha de proteção e endereços de rede em texto aberto | não manter credenciais em planilhas; o sistema não armazena esse tipo de dado |
 | D17 | **MÉDIA TRIENAL sem os dados de 2025**: a coluna 2025 está vazia, mas a soma continua dividida por 3 (ex.: Corvetas Classe Barroso 355 + 288 + 0 → média 214 dias/ano, 18/mês; com os 327 dias de 2025 da própria planilha seria 323 dias/ano, 27/mês). Os cabeçalhos também dizem "2022 a 2024" e "QTDE NAVIOS 2022" sobre colunas 2023–2025 | média calculada pelo sistema a partir dos dias registrados, sempre com os 3 exercícios corretos |
 | D18 | Totais do histórico que não fecham: aba 2023_2 soma só as linhas 6–49 (exibe 3.065 dias; a soma real das 103 linhas é 4.567); aba 2025 exibe total anual 4.677, mas os próprios totais mensais somam 5.414 | totais calculados, nunca intervalos fixos |
-| D19 | Critério muda entre anos: 2022/2023 contam "atracados **e docados**"; 2025 conta só "atracados" | regra única e registrada (ver decisão sobre navio docado) |
+| D19 | Critério muda entre anos: 2022/2023 contam "atracados **e docados**"; 2025 conta só "atracados" | regra única: **só dias atracados** (docado não paga); recalcular 2023 sem os docados antes de usá-lo na média |
 | D20 | Mapas BNIC-35 de OUT26: G1 com colunas só até o dia 30 (outubro tem 31); total do NApOc Apa digitado (6) em vez de fórmula; fórmula do Mangaratiba incluindo a própria coluna de total; arquivo G2 com aba "G1" e G6 com aba "G5" | grade gerada pelo sistema com os dias reais do mês e totais calculados |
 
 Situação atual da planilha: **1.415 faturas em 2026** (1.110 pagas, 171 vencidas, 121 a vencer, 6
@@ -212,6 +224,11 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
   indicativo naval, tipo TERRA/NAVIO/EXTRA_MB, comando, área CNIC 1–5, lotação/TMFT, classe do navio,
   CNPJ, endereço, e-mails, ativo).
 - Faturas e ALTCRED passam a apontar para `om_id`/`comando_id` (sem texto livre).
+- **Desativar sem excluir**: OM e navios têm situação (ativo/desativado) e **datas de ativação e desativação**.
+  Navio desativado sai das listas de emissão, dos mapas de atracação e do rateio a partir da data de
+  desativação, mas **todo o histórico permanece** (faturas, dias atracados, média trienal dos anos em que esteve
+  ativo). Exclusão física só para cadastro sem nenhum movimento.
+- Cadastro de **classes de navio** (nome, navios por classe ao longo do tempo) — base da média trienal.
 - [Não é possível lançar fatura para cliente fora do cadastro; nomes únicos por código.]
 
 1.2 **Catálogo de serviços conforme a OI**
@@ -280,6 +297,11 @@ Tipo de lote **"Estimado de fim de exercício (OND)"**: para OM da Marinha, valo
 cada serviço (TC, AE, EL, TL, VT, RB, CR); DA = diária × dias previstos pela BNIC-35; extra-MB segue o mensal.
 Registra a base de cálculo usada e marca as faturas para **acerto** posterior com o consumo real.
 
+3.6 **Acerto do OND (ano seguinte)**: com os valores reais de OUT, NOV e DEZ (medições, mapas de atracação,
+TC), o sistema compara com o estimado de cada OM e serviço e emite **faturas de acerto no exercício seguinte**:
+diferença positiva → **acerto acréscimo** (linha 03); negativa → **acerto débito** (linha 04). Relatório
+estimado × real por OM.
+
 3.4 **PDF fiel ao modelo FR-172** (Anexos A–I), com o bloco de detalhamento de cada serviço, contato do
 setor, instruções de pagamento, Encarregado e — nas versões — "Esta fatura cancela e substitui a de nº ...".
 Download individual ou **ZIP por comando**.
@@ -324,13 +346,16 @@ indicação): entradas, saídas e saldo.
 
 6.1 **Taxa condominial** (reproduz a "Proposta 4"): despesas por rubrica com conta contábil, previsto ×
 gasto no ano anterior; **matriz OM × rubrica**; lotação atual e anterior de cada OM; dias (30 para terra,
-média de dias atracados para navio); rateio peso = lotação × dias; **descontos** por OM/rubrica com
-justificativa; extrato demonstrativo por OM (anual, mensal, %RUB); quadro comparativo ano anterior × proposta
+média de dias atracados para navio); rateio peso = lotação × dias; **descontos por OM ou gerais** (por rubrica ou sobre o
+total), com justificativa; extrato demonstrativo por OM (anual, mensal, %RUB); quadro comparativo ano anterior × proposta
 (o "Anexo B" da divulgação); versão por exercício com status (proposta → aprovada ComImSup → divulgada) e
 publicação da tabela vigente para a emissão mensal (Fase 3).
 6.2 **Diária de atracação e média trienal**: custo por militar-dia (modelo da taxa condominial, grupo NAVIOS) ×
-lotação do navio. A **média trienal por classe** (dias atracados nos 3 exercícios ÷ nº de navios da classe ÷ 3 ÷
-12) é calculada pelo sistema a partir dos mapas BNIC-35 registrados, substituindo a planilha Histórico Trienal.
+lotação do navio. A **média trienal por classe** (para cada exercício: dias atracados da classe ÷ nº de navios
+**ativos** da classe naquele exercício; soma dos 3 exercícios ÷ 3 ÷ 12) é calculada pelo sistema a partir dos mapas
+BNIC-35 registrados — **somente dias "A"; dias "D" (docado) não contam** —, substituindo a planilha Histórico
+Trienal. Classe sem histórico nos 3 anos: navio fora do rateio por peso e diária = (valor total das diárias ÷ média
+da tripulação de todos os navios) × tripulação do navio.
 
 ### Fase 7 — Qualidade e conformidade
 - Trilha de auditoria (quem criou/alterou/cancelou cada fatura e baixa).
@@ -351,12 +376,17 @@ lotação do navio. A **média trienal por classe** (dias atracados nos 3 exerc�
 - Faturamento OND: **média de JAN a AGO**, exceto diárias de atracação, que usam a **previsão de atracação**
   enviada pela divisão responsável (Fase 3.3).
 
+- Acerto do OND: **fatura de acerto no ano seguinte**, com acréscimo ou débito (Fase 3.6).
+- Navio docado: **não paga diária de atracação** — só dias "A" contam para a DA e para a média trienal.
+- Peso do navio no rateio: **média trienal da classe**; classe sem histórico usa a diária alternativa (1.5, item 6-b).
+- Descontos: **por OM ou gerais**.
+- Navios desativados: **desativar sem excluir o histórico** (Fase 1.1).
+- Divisor 10,5 na "média" anual do histórico: origem desconhecida. Como a média trienal usa ÷ 12 e o 10,5 não
+  entra no cálculo da taxa, o sistema **não adota o 10,5**; fica registrado para eventual esclarecimento.
+
 **Pendentes**
-1. **Acerto do OND**: depois de dezembro, o valor estimado é acertado com o consumo real? Se sim, como (fatura de acerto no ano seguinte, acréscimo/débito na próxima fatura)?
-2. **Navio docado (`D` no mapa)**: paga diária de atracação? Em 2022/2023 o histórico somava atracados e docados; em 2025, só atracados.
-3. **Divisor 10,5** na "média" anual do histórico (total ÷ 10,5): de onde vem? A MÉDIA TRIENAL usa ÷ 12.
-4. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
-5. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 5-A → 6 → 7.
+1. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
+2. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 5-A → 6 → 7.
 
 ## 6. Pontos para a atualização da Ordem Interna 40-04
 
@@ -368,7 +398,9 @@ lotação do navio. A **média trienal por classe** (dias atracados nos 3 exerc�
 | Numeração da fatura | não definida na OI | incluir a regra: `código da OM – sigla – mês – ano – sequencial por serviço e competência – versão`, e que a versão "-1" cancela e substitui a anterior |
 | Data-limite / vencimento | OI 6.1 fala em 10 dias úteis; a prática de 2026 foi outra | manter a OI (decisão do usuário) e alinhar a prática; o sistema calcula os 10 dias úteis |
 | Faturamento OND | não previsto | descrever: estimativa de fim de exercício = 3 × média mensal JAN–AGO por serviço; diária = previsão de atracação da divisão responsável; regra de acerto |
-| Mapa de atracação (3.6) | cita apenas o envio dos dados até o dia 10 | prever o envio da **previsão de atracação** de OUT–DEZ para o lote OND e a regra para navio docado |
+| Mapa de atracação (3.6) | cita apenas o envio dos dados até o dia 10 | prever o envio da **previsão de atracação** de OUT–DEZ para o lote OND e registrar que **navio docado não paga diária** |
+| Diária de atracação (3.6 e Anexo L) | cita lotação e média histórica | detalhar: peso = média trienal de dias atracados da classe; classe sem histórico → diária = (total das diárias ÷ média da tripulação de todos os navios) × tripulação do navio |
+| Descontos na taxa condominial | não previstos | prever descontos por OM ou gerais, com justificativa e aprovação |
 | Contatos dos setores | modelos citam BNIC-32/33; faturas emitidas citam BNIC-34/35 e Agente de Manobras | atualizar os modelos com o setor e telefone vigentes |
 | Serviços sem modelo | CR (cópia reprográfica) e AL (aluguel) são faturados sem anexo próprio | incluir modelos ou citar o modelo genérico |
 | Taxa condominial (item 5) | descreve o rito, não o cálculo | anexar o critério de rateio adotado: peso = lotação × dias (terra 30; navio = média de dias atracados) e a regra dos descontos |
