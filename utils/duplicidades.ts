@@ -20,47 +20,71 @@ const compacto = (nome: string) => palavras(nome).join('');
 /** Iniciais das palavras (ex.: Centro de Perícias Médicas da Marinha → CPMM). */
 export const iniciais = (nome: string) => palavras(nome).map(p => p[0]).join('');
 
-function comparar(a: OMDup, b: OMDup): { pontos: number; motivo: string } | null {
-  const na = compacto(a.nome), nb = compacto(b.nome);
+/** Tudo o que a comparação usa, calculado uma vez por OM (com milhares de OM a página não trava). */
+interface Prep { om: OMDup; nome: string; compacto: string; sigla: string; iniciais: string; pal: string[]; set: Set<string>; alternativos: Set<string> }
+function preparar(o: OMDup): Prep {
+  const pal = palavras(o.nome);
+  return {
+    om: o, nome: normalizarNome(o.nome), compacto: pal.join(''), sigla: normalizarNome(o.sigla || '').replace(/[^A-Z0-9]/g, ''),
+    iniciais: pal.map(p => p[0]).join(''), pal: [...new Set(pal)], set: new Set(pal),
+    alternativos: new Set((o.nomesAlternativos || []).map(compacto).filter(Boolean)),
+  };
+}
+
+function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
+  const a = A.om, b = B.om;
+  const na = A.compacto, nb = B.compacto;
   if (!na || !nb) return null;
   if (na === nb) return { pontos: 100, motivo: 'mesmo nome (diferença só de acento, pontuação ou edifício)' };
-  const sa = normalizarNome(a.sigla || '').replace(/[^A-Z0-9]/g, ''), sb = normalizarNome(b.sigla || '').replace(/[^A-Z0-9]/g, '');
+  const sa = A.sigla, sb = B.sigla;
   if (sa && sb && sa === sb) return { pontos: 95, motivo: `mesma sigla (${a.sigla})` };
   // sigla de um = nome do outro, ou nome abreviado = iniciais do outro
-  const ia = iniciais(a.nome), ib = iniciais(b.nome);
+  const ia = A.iniciais, ib = B.iniciais;
   if ((sa && (sa === nb || sa === ib)) || (sb && (sb === na || sb === ia))) return { pontos: 90, motivo: 'um está pela sigla e o outro pelo nome por extenso' };
   if ((na.length <= 8 && na === ib) || (nb.length <= 8 && nb === ia)) return { pontos: 85, motivo: 'nome abreviado (iniciais do outro)' };
   // nome cortado (planilhas cortam em 50 caracteres) ou acrescido
   if (Math.min(na.length, nb.length) >= 10 && (na.startsWith(nb) || nb.startsWith(na))) {
     // "Arsenal ... – TRANSUNIVERSAL": complemento depois de travessão costuma ser outro cliente (terceiro), não abreviação
-    const [curto, longo] = na.length < nb.length ? [a.nome, b.nome] : [b.nome, a.nome];
-    const resto = normalizarNome(longo).slice(normalizarNome(curto).replace(/\s*\(.*?\)\s*/g, '').trim().length);
+    const [curto, longo] = na.length < nb.length ? [A.nome, B.nome] : [B.nome, A.nome];
+    const resto = longo.slice(curto.replace(/\s*\(.*?\)\s*/g, '').trim().length);
     if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto)) return { pontos: 65, motivo: 'mesmo começo, com complemento (pode ser outro cliente)' };
     return { pontos: 85, motivo: 'um nome é o começo do outro' };
   }
-  const pa = new Set(palavras(a.nome)), pb = new Set(palavras(b.nome));
-  const comuns = [...pa].filter(p => pb.has(p)).length;
-  const uniao = new Set([...pa, ...pb]).size;
+  let comuns = 0;
+  for (const p of A.set) if (B.set.has(p)) comuns++;
+  const uniao = A.set.size + B.set.size - comuns;
   const jac = uniao ? comuns / uniao : 0;
   if (comuns >= 2 && jac >= 0.6) return { pontos: Math.round(jac * 80), motivo: `nomes parecidos (${Math.round(jac * 100)}% das palavras em comum)` };
   // abreviações de palavras: "Dir Ind Marinha" × "Diretoria Industrial da Marinha"
-  if (pa.size >= 2 && pa.size === pb.size) {
-    const la = [...pa], lb = [...pb];
+  if (A.set.size >= 2 && A.set.size === B.set.size) {
+    const la = A.pal, lb = B.pal;
     if (la.every((p, i) => lb[i].startsWith(p) || p.startsWith(lb[i]))) return { pontos: 80, motivo: 'palavras abreviadas' };
   }
   return null;
 }
 
-/** Pares suspeitos, do mais provável para o menos. Navio só é comparado com navio. */
+/**
+ * Já unificadas: a desativada tem o nome guardado como nome alternativo da outra (o que a unificação faz).
+ * Esse par não volta a aparecer.
+ */
+function jaUnificadas(A: Prep, B: Prep) {
+  return (!B.om.ativo && A.alternativos.has(B.compacto)) || (!A.om.ativo && B.alternativos.has(A.compacto));
+}
+
+/** Pares suspeitos, do mais provável para o menos. Navio só é comparado com navio; duas desativadas não são comparadas. */
 export function paresDuplicados(oms: OMDup[], ignorar: Set<string> = new Set(), minimo = 60): ParDup[] {
   const out: ParDup[] = [];
-  for (let i = 0; i < oms.length; i++) {
-    for (let j = i + 1; j < oms.length; j++) {
-      const a = oms[i], b = oms[j];
+  const preps = oms.map(preparar);
+  for (let i = 0; i < preps.length; i++) {
+    const A = preps[i];
+    for (let j = i + 1; j < preps.length; j++) {
+      const B = preps[j], a = A.om, b = B.om;
       if ((a.tipo === 'NAVIO') !== (b.tipo === 'NAVIO')) continue;
-      if (ignorar.has(chavePar(a.id, b.id))) continue;
-      const c = comparar(a, b);
-      if (c && c.pontos >= minimo) out.push({ a, b, ...c });
+      if (!a.ativo && !b.ativo) continue;
+      const c = comparar(A, B);
+      if (!c || c.pontos < minimo) continue;
+      if (ignorar.has(chavePar(a.id, b.id)) || jaUnificadas(A, B)) continue;
+      out.push({ a, b, ...c });
     }
   }
   return out.sort((x, y) => y.pontos - x.pontos || Number(x.a.ativo && x.b.ativo) - Number(y.a.ativo && y.b.ativo) || x.a.nome.localeCompare(y.a.nome));

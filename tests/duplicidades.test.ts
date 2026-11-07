@@ -38,3 +38,21 @@ describe('duplicidades no cadastro', () => {
     expect(sugerirManter(om('a', 'X'), om('b', 'X'), new Map([['a', 10], ['b', 2]]))).toBe('a');
   });
 });
+
+describe('duplicidades: depois de unificar e com muitas OM', () => {
+  it('par já unificado (nome da desativada guardado como alternativo) não volta', () => {
+    const fica = { id: 'a', nome: 'Diretoria Industrial da Marinha', codigo: '40030', tipo: 'TERRA', ativo: true, nomesAlternativos: ['DIRETORIA INDUSTRIAL DA MARINHA'] };
+    const saiu = { id: 'b', nome: 'DIRETORIA INDUSTRIAL DA MARINHA', codigo: '40031', tipo: 'TERRA', ativo: false };
+    expect(paresDuplicados([fica, saiu])).toEqual([]);
+    expect(paresDuplicados([{ ...fica, nomesAlternativos: [] }, saiu]).length).toBe(1);
+  });
+  it('duas desativadas não são comparadas', () => {
+    expect(paresDuplicados([{ id: 'a', nome: 'Banco do Brasil', codigo: '00994', tipo: 'EXTRA_MB', ativo: false }, { id: 'b', nome: 'BANCO DO BRASIL', codigo: '40015', tipo: 'EXTRA_MB', ativo: false }])).toEqual([]);
+  });
+  it('3.000 OM em menos de 2 segundos', () => {
+    const pal = ['Comando', 'Diretoria', 'Centro', 'Navio', 'Base', 'Hospital', 'Marinha', 'Naval', 'Rio', 'Ilha', 'Cobras', 'Patrulha', 'Fragata', 'Distrito'];
+    const oms = Array.from({ length: 3000 }, (_, i) => ({ id: `id${i}`, nome: `${pal[i % 14]} ${pal[(i * 5) % 14]} ${pal[(i * 3) % 14]} ${i}`, codigo: String(10000 + i), tipo: i % 5 ? 'TERRA' : 'NAVIO', ativo: true }));
+    const t = Date.now(); paresDuplicados(oms);
+    expect(Date.now() - t).toBeLessThan(2000);
+  });
+});

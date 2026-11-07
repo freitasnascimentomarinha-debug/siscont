@@ -962,6 +962,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/1 cadastro\(s\) unificado\(s\)/).waitFor();
     ok(db.invoices.filter(i => i.om_id === a.id).length === 2 && !db.invoices.some(i => i.om_id === b.id), 'faturas da duplicada passaram para a OM que fica');
     ok(b.ativo === false && /Unificada com/.test(b.motivo_desativacao) && a.nomes_alternativos.includes('DIRETORIA INDUSTRIAL DA MARINHA'), 'duplicada desativada; nome guardado como alternativo');
+    await page.waitForTimeout(500);
+    ok(!(await page.locator('div.border.rounded-xl.p-3').filter({ hasText: '40031' }).count()), 'depois de unificar, o grupo sai da lista (não volta como duplicidade)');
     const grupoBanco = page.locator('div.border.rounded-xl').filter({ hasText: '00994' }).last();
     await grupoBanco.getByRole('button', { name: 'Não são a mesma OM' }).click();
     await page.getByText(/Não aparecerão mais aqui/).waitFor();
