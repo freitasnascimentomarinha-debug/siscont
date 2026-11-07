@@ -141,7 +141,7 @@ export async function salvarTaxas(taxas: { mes: string; taxa: number; fonte?: st
 // ------------------------------------------------------------------ correção por atraso
 export interface CandidatoCorrecao { fatura: Invoice; correcao: Correcao; jaCorrigida?: string }
 
-/** Faturas com pagamento (não adiantamento) feito depois da data-limite. */
+/** Faturas com pagamento (não adiantamento) feito depois do vencimento. */
 export function candidatosCorrecao(invoices: Invoice[], baixas: PaymentAllocation[], docs: ReceivedDocument[], taxas: Map<string, number>, base: number): CandidatoCorrecao[] {
   const docPorId = new Map(docs.map(d => [d.id, d]));
   const corrigidas = new Map(invoices.filter(i => i.acertoDe && (i.baseCalculo as any)?.tipo === 'CORRECAO' && !i.isCanceled).map(i => [i.acertoDe!, i.invoiceNumber]));
@@ -160,7 +160,7 @@ export function candidatosCorrecao(invoices: Invoice[], baixas: PaymentAllocatio
 }
 
 /** Emite as faturas de correção (linha 03, acréscimo) num lote do tipo CORRECAO. */
-export async function emitirCorrecoes(cands: CandidatoCorrecao[], ctx: ContextoFaturamento, opcoes: { competencia: string; emissao: string; limite: string; usuario: string }) {
+export async function emitirCorrecoes(cands: CandidatoCorrecao[], ctx: ContextoFaturamento, opcoes: { competencia: string; emissao: string; limite: string; vencimento?: string; usuario: string }) {
   const omPorId = new Map(ctx.omsFat.map(o => [o.id, o]));
   const itens: ItemLote[] = cands.map(c => {
     const f = c.fatura;
@@ -180,5 +180,5 @@ export async function emitirCorrecoes(cands: CandidatoCorrecao[], ctx: ContextoF
     };
   });
   const numerados = numerar(itens, ctx.invoices.map(i => i.invoiceNumber), opcoes.competencia);
-  return emitirLote(numerados, { tipo: 'CORRECAO', competencia: opcoes.competencia, emissao: opcoes.emissao, limite: opcoes.limite, usuario: opcoes.usuario });
+  return emitirLote(numerados, { tipo: 'CORRECAO', competencia: opcoes.competencia, emissao: opcoes.emissao, limite: opcoes.limite, vencimento: opcoes.vencimento, usuario: opcoes.usuario });
 }

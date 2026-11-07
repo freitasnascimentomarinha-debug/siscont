@@ -99,11 +99,11 @@ describe('planejarMigracao', () => {
     expect(F('40032-DA-08-2026-010-1').valor).toBe(3960.81); // 2960,81 final + 1000 de adiantamento
     expect(plano.avisos.find(a => a.tipo === 'VALOR_DIVERGENTE_LIVRO')?.exemplos?.join()).toMatch(/40032-DA/);
   });
-  it('liga ao cadastro e recalcula vencimento inválido pela OI (10 dias úteis)', () => {
+  it('liga ao cadastro e recalcula vencimento inválido (emissão + 30 dias corridos)', () => {
     const f = F('40032-DA-08-2026-010-1');
     expect(f.omId).toBeTruthy();
     expect(f.cliente).toBe('Navio-Patrulha Mangaratiba');
-    expect(f.vencimento).toBe('2026-09-29'); // emissão 15/09/2026 + 10 dias úteis
+    expect(f.vencimento).toBe('2026-10-15'); // emissão 15/09/2026 + 30 dias corridos
     expect(plano.avisos.find(a => a.tipo === 'VENCIMENTO_CORRIGIDO')).toBeTruthy();
   });
   it('baixas: pagamento (LANÇAMENTOS) e adiantamento (RESUMO); sobra "ADIANTAMENTO" não vira baixa', () => {

@@ -90,7 +90,7 @@ export const AcoesFaturaModais: React.FC<{
               <label className="text-slate-700">04 Débito<input type="number" step="0.01" className={entrada} value={alt.adjustmentDeduction} onChange={e => setAlt({ ...alt, adjustmentDeduction: Number(e.target.value) || 0 })} /></label>
               <label className="text-slate-700">Consumo<input className={entrada} value={alt.consumption} onChange={e => setAlt({ ...alt, consumption: e.target.value })} /></label>
               <label className="text-slate-700">Emissão<input type="date" className={entrada} value={alt.issueDate} onChange={e => setAlt({ ...alt, issueDate: e.target.value })} /></label>
-              <label className="text-slate-700">Data-limite<input type="date" className={entrada} value={alt.dueDate} onChange={e => setAlt({ ...alt, dueDate: e.target.value })} /></label>
+              <label className="text-slate-700">Vencimento<input type="date" className={entrada} value={alt.dueDate} onChange={e => setAlt({ ...alt, dueDate: e.target.value })} /></label>
               <label className="text-slate-700 col-span-3">Observação<input className={entrada} value={alt.observation} onChange={e => setAlt({ ...alt, observation: e.target.value })} /></label>
             </div>
             {bx > novoTotal + 0.005 && <p className="text-amber-700 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />As baixas ({brl(bx)}) passam do novo total ({brl(novoTotal)}): a nova fatura ficará paga a maior.</p>}

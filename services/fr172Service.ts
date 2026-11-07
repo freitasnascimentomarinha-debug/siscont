@@ -24,7 +24,7 @@ export function dadosFr172(inv: Invoice, ctx: ContextoFr172): DadosFr172 {
   const adiant = bx.filter(b => ehAdiantamento(b, ctx.docs.get(b.documentId)));
   const comimsup = (inv.command || '').replace(/^\d{4,5}\s*-\s*/, '').trim();
   return {
-    numero: inv.invoiceNumber, emissao: inv.issueDate, limite: inv.dueDate, mesCompetencia: inv.monthCompetence, anoCompetencia: inv.yearCompetence,
+    numero: inv.invoiceNumber, emissao: inv.issueDate, limite: inv.dataLimiteCertificacao || inv.dueDate, vencimento: inv.dueDate, mesCompetencia: inv.monthCompetence, anoCompetencia: inv.yearCompetence,
     omUsuaria: inv.client, comimsup: comimsup && comimsup.toLowerCase() !== inv.client.toLowerCase() && !/extra/i.test(comimsup) ? comimsup : null, sigla,
     servicoOficial: sv?.nomeOficial || sv?.name || inv.type, emitidaDeAcordoCom: sv?.emitidaDeAcordoCom, setorResponsavel: sv?.setorResponsavel, telefoneSetor: sv?.telefoneSetor,
     valorServico: inv.value, adiantamento: Math.round(adiant.reduce((s, b) => s + b.amount, 0) * 100) / 100,

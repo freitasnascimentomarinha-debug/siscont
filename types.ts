@@ -88,6 +88,8 @@ export interface Invoice {
   command: string;
   client: string;
   invoiceNumber: string;
+  /** Data-limite de certificação no SIPLAD (emissão + 10 dias úteis). Diferente do vencimento (dueDate). */
+  dataLimiteCertificacao?: string | null;
   consumption: string;
   unitMeasure: string;
   serviceAcronym?: string; // New field: Sigla do Serviço (Ex: AE, VT)

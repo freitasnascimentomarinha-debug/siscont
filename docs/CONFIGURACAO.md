@@ -215,6 +215,22 @@ OM × rubrica, descontos por OM, dias atracados por classe e ano (média trienal
   de conciliação, Cobrança) → *Contabilidade de custos* (Fluxo de caixa, Taxa condominial e diárias) → *Configuração*
   (Cadastros, Auditoria, Administração). Cada item mostra o que faz ao passar o mouse.
 
+### 1-K. Certificação × vencimento (script 011)
+
+Execute [`supabase/migrations/011_vencimento_30_dias.sql`](../supabase/migrations/011_vencimento_30_dias.sql) depois do 010
+(idempotente). São duas datas diferentes:
+
+| Data | Regra | Onde aparece |
+|---|---|---|
+| **Data-limite de certificação** no SIPLAD | emissão + 10 dias úteis (OI 40-04, 6.1; parâmetro `prazo_certificacao_dias_uteis`) | FR-172, mensagem de envio, nova coluna `data_limite_certificacao` |
+| **Vencimento** (pagamento) | emissão + 30 dias corridos, levado ao próximo dia útil (parâmetro `prazo_vencimento_dias_corridos`) | coluna *Vencimento* das faturas, situação vencida/a vencer, cobrança, correção por atraso |
+
+- Exceção: faturas **OND** (estimado de fim de exercício) vencem na data de certificação.
+- O script grava a data de certificação de todas as faturas e **recalcula o vencimento das faturas em aberto** (não
+  canceladas, não quitadas, com saldo), exceto OND. Pagas e canceladas não mudam. O vencimento anterior de cada fatura
+  alterada fica em `vencimentos_anteriores_011`; o fim do script traz o comando para desfazer.
+- A calculadora em *Cadastros → Parâmetros* mostra as duas datas.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Calculator, ChevronDown, ChevronRight, Send } from 'lucide-react';
 import {
-  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
+  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
 import {
   DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, numerar, partes, pad, referencia, totaisLote,
@@ -18,6 +18,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [anoOnd, setAnoOnd] = useState(String(new Date().getFullYear() - (new Date().getMonth() < 9 ? 1 : 0)));
   const [emissao, setEmissao] = useState('');
   const [limite, setLimite] = useState('');
+  const [vencimento, setVencimento] = useState('');
   const [siglas, setSiglas] = useState<Set<string>>(new Set(ctx.servicos.map(s => s.sigla)));
   const [divisor, setDivisor] = useState<'PERIODO' | 'MESES_FATURADOS'>('PERIODO');
   const [abater, setAbater] = useState(true);
@@ -35,7 +36,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const compLote = tipo === 'OND' ? `${comp.slice(0, 4)}-10` : comp;
   useEffect(() => {
     const e = dataEmissaoPadrao(compLote, ctx.diaEmissao);
-    setEmissao(e); setLimite(dataLimite(e, ctx));
+    setEmissao(e); setLimite(dataLimite(e, ctx)); setVencimento(dataVencimento(e, ctx, tipo === 'OND'));
     setItens(null);
   }, [compLote, tipo]);
 
@@ -75,7 +76,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const emitir = async () => {
     setEmitindo('Iniciando...');
     try {
-      const r = await emitirLote(final, { tipo, competencia: compLote, emissao, limite, usuario }, setEmitindo);
+      const r = await emitirLote(final, { tipo, competencia: compLote, emissao, limite, vencimento, usuario }, setEmitindo);
       notify.success(`Lote emitido: ${r.faturas} faturas (${brl(r.total)} a pagar); ${r.adiantamentos} abatimento(s) de adiantamento.`);
       setItens(null); setConfirmar(false);
       await onEmitido();
@@ -98,8 +99,9 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
         <Campo rotulo={tipo === 'OND' ? 'Exercício (competência OUT)' : tipo === 'ACERTO' ? 'Competência das faturas de acerto' : 'Competência'}>
           <input className={entrada} type="month" value={comp} onChange={e => setComp(e.target.value)} aria-label="Competência" />
         </Campo>
-        <Campo rotulo="Emissão"><input className={entrada} type="date" value={emissao} onChange={e => { setEmissao(e.target.value); setLimite(dataLimite(e.target.value, ctx)); }} /></Campo>
-        <Campo rotulo={`Data-limite (+${ctx.prazo} dias úteis)`}><input className={entrada} type="date" value={limite} onChange={e => setLimite(e.target.value)} /></Campo>
+        <Campo rotulo="Emissão"><input className={entrada} type="date" value={emissao} onChange={e => { setEmissao(e.target.value); setLimite(dataLimite(e.target.value, ctx)); setVencimento(dataVencimento(e.target.value, ctx, tipo === 'OND')); }} aria-label="Data de emissão" /></Campo>
+        <Campo rotulo={`Certificação SIPLAD (+${ctx.prazo} dias úteis)`}><input className={entrada} type="date" value={limite} onChange={e => { setLimite(e.target.value); if (tipo === 'OND') setVencimento(e.target.value); }} aria-label="Data-limite de certificação" /></Campo>
+        <Campo rotulo={tipo === 'OND' ? 'Vencimento (OND = certificação)' : `Vencimento (+${ctx.prazoVencimento} dias corridos)`}><input className={entrada} type="date" value={vencimento} disabled={tipo === 'OND'} onChange={e => setVencimento(e.target.value)} aria-label="Vencimento" /></Campo>
         {tipo === 'OND' && (
           <Campo rotulo="Média JAN–AGO dividida por">
             <select className={entrada} value={divisor} onChange={e => setDivisor(e.target.value as any)}>
@@ -175,7 +177,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           {fora.size > 0 && <p className="text-xs text-slate-500">{fora.size} fatura(s) retirada(s) da prévia. <button className="text-primary-700 underline" onClick={() => setFora(new Set())}>Recolocar</button></p>}
           {podeEditar && final.length > 0 && (
             <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-slate-700 flex-1">Emitir <b>{final.length}</b> faturas de {referencia(compLote)} com emissão em <b>{br(emissao)}</b> e data-limite <b>{br(limite)}</b>. A numeração segue a ordem acima, sem lacunas.</span>
+              <span className="text-sm text-slate-700 flex-1">Emitir <b>{final.length}</b> faturas de {referencia(compLote)} com emissão em <b>{br(emissao)}</b>, certificação no SIPLAD até <b>{br(limite)}</b> e vencimento em <b>{br(tipo === 'OND' ? limite : vencimento)}</b>. A numeração segue a ordem acima, sem lacunas.</span>
               {!confirmar ? <Button onClick={() => setConfirmar(true)}><Send size={16} className="mr-2" />Emitir lote</Button> : (
                 <>
                   <span className="text-sm font-semibold">Confirma a emissão?</span>

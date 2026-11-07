@@ -5,7 +5,7 @@ import { cadastroService } from './cadastroService';
 import { supabaseService } from './supabaseService';
 import { Comando, Invoice, OM, Setor } from '../types';
 import { listaAdiantamentos } from '../utils/adiantamentos';
-import { somarDiasUteis } from '../utils/diasUteis';
+import { datasDaFatura, somarDiasUteis } from '../utils/diasUteis';
 import {
   AtracacaoFat, DadosLote, DocAdiantDisp, FaturaHist, ItemLote, MedicaoFat, OMFat, PrecoFat, ServicoFat, TipoLote, partes, pad,
 } from '../utils/faturamento';
@@ -96,7 +96,7 @@ export async function salvarAtracacoes(as: { competencia: string; omId: string; 
 // ------------------------------------------------------------------ dados do lote
 export interface ContextoFaturamento {
   oms: OM[]; omsFat: OMFat[]; comandos: Comando[]; setores: Setor[]; servicos: ServicoFat[];
-  invoices: Invoice[]; feriados: string[]; prazo: number; diaEmissao: number;
+  invoices: Invoice[]; feriados: string[]; prazo: number; prazoVencimento: number; diaEmissao: number;
 }
 
 export async function carregarContexto(): Promise<ContextoFaturamento> {
@@ -120,7 +120,7 @@ export async function carregarContexto(): Promise<ContextoFaturamento> {
   return {
     oms, omsFat, comandos, setores, invoices,
     servicos: servicos.filter(s => s.ativo !== false).map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '', ordem: s.ordem ?? 999 })),
-    feriados: feriados.map(f => f.data), prazo: param('prazo_certificacao_dias_uteis', 10), diaEmissao: param('dia_emissao', 15),
+    feriados: feriados.map(f => f.data), prazo: param('prazo_certificacao_dias_uteis', 10), prazoVencimento: param('prazo_vencimento_dias_corridos', 30), diaEmissao: param('dia_emissao', 15),
   };
 }
 
@@ -163,12 +163,15 @@ export const dataEmissaoPadrao = (comp: string, dia: number) => {
   return `${y}-${pad(m)}-${pad(Math.min(dia, 28))}`;
 };
 export const dataLimite = (emissao: string, ctx: ContextoFaturamento) => somarDiasUteis(emissao, ctx.prazo, ctx.feriados);
+/** Vencimento (pagamento): emissão + 30 dias corridos (próximo dia útil); OND vence na data-limite de certificação. */
+export const dataVencimento = (emissao: string, ctx: ContextoFaturamento, ond = false) =>
+  datasDaFatura(emissao, { ond, prazoCertificacao: ctx.prazo, prazoVencimento: ctx.prazoVencimento, feriados: ctx.feriados }).vencimento;
 
 // ------------------------------------------------------------------ emissão
 const fmtQtd = (n: number | null) => (n === null || n === undefined ? '' : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
 
 export async function emitirLote(itens: ItemLote[], opcoes: {
-  tipo: TipoLote; competencia: string; emissao: string; limite: string; usuario: string; observacao?: string;
+  tipo: TipoLote; competencia: string; emissao: string; limite: string; vencimento?: string; usuario: string; observacao?: string;
 }, onProgresso?: (m: string) => void) {
   if (!itens.length) throw new Error('Nenhuma fatura para emitir.');
   if (itens.some(i => !i.numero)) throw new Error('Há faturas sem número.');
@@ -192,14 +195,18 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       id: uuidv4(), ug: i.om.codigo, sector: i.om.setor, command: i.om.comando, client: i.om.nome, invoice_number: i.numero,
       consumption: [fmtQtd(i.quantidade), i.quantidade2 != null ? `${fmtQtd(i.quantidade2)} kW` : ''].filter(Boolean).join(' / '),
       unit_measure: i.unidade, service_acronym: i.sigla, value: r2(i.valor), adjustment_addition: r2(i.acrescimo), adjustment_deduction: r2(i.debito),
-      issue_date: opcoes.emissao, due_date: opcoes.limite, month_competence: mes, year_competence: ano, competence: `${pad(mes)}/${ano}`,
+      issue_date: opcoes.emissao, due_date: i.estimado || opcoes.tipo === 'OND' ? opcoes.limite : (opcoes.vencimento || opcoes.limite), data_limite_certificacao: opcoes.limite, month_competence: mes, year_competence: ano, competence: `${pad(mes)}/${ano}`,
       type: i.servico, is_canceled: false, observation: obs, siplad_settled: false, om_id: i.omId, origem: `Lote ${opcoes.tipo} ${opcoes.competencia}`,
       contestada: false, lote_id: loteId, base_calculo: i.base, estimado: !!i.estimado, acerto_de: i.acertoDe ?? null,
       _adiant: i.adiantamentos || [],
     };
   });
   for (let k = 0; k < linhas.length; k += 300) {
-    const { error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, ...l }) => l));
+    let { error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, ...l }) => l));
+    if (error && /data_limite_certificacao/.test(error.message || '')) {
+      // banco ainda sem o script 011: grava sem a coluna de certificação (o vencimento já sai com a regra nova)
+      ({ error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, data_limite_certificacao, ...l }) => l)));
+    }
     if (error) {
       await supabase.from('lotes_faturamento').delete().eq('id', loteId);
       if (/duplicate key/.test(error.message)) throw new Error('Algum número de fatura já existe (outra emissão ao mesmo tempo?). Recalcule a prévia e tente de novo.');

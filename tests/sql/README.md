@@ -81,3 +81,9 @@ alteração com o e-mail do usuário, só os campos alterados (alteração sem m
 exclusão; a trilha não pode ser alterada nem apagada; Consulta lê a trilha das faturas mas não a de usuários; Admin
 lê a de usuários e registra o backup; Consulta não grava lotação.
 
+## Script 011 (certificação × vencimento)
+
+Com 001–010 aplicados: `psql -d sb -f tests/sql/vencimento_011_tests.sql` (aplica o 011 duas vezes). Esperado: fatura
+em aberto vence em emissão + 30 corridos no próximo dia útil (02/10 → 03/11, pulando domingo e Finados); paga,
+cancelada, quitada fora e OND (estimado ou "OND" na observação) não mudam; pagamento parcial muda; certificação =
+emissão + 10 dias úteis; vencimento anterior guardado para desfazer.

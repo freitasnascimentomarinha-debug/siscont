@@ -8,7 +8,7 @@ import jsPDF from 'jspdf';
 import { mesesDoAno } from './faturamento';
 
 export interface DadosFr172 {
-  numero: string; emissao: string; limite: string; mesCompetencia: number; anoCompetencia: number;
+  numero: string; emissao: string; limite: string; vencimento?: string | null; mesCompetencia: number; anoCompetencia: number;
   omUsuaria: string; comimsup?: string | null; sigla: string;
   servicoOficial: string; emitidaDeAcordoCom?: string | null; setorResponsavel?: string | null; telefoneSetor?: string | null;
   valorServico: number; adiantamento: number; acrescimo: number; debito: number;
@@ -26,7 +26,7 @@ export function detalhamento(d: DadosFr172): [string, string][] {
   const b = d.base || {};
   const total: [string, string] = ['TOTAL (R$)', brl(d.valorServico)];
   if (d.acertoDe && b.tipo === 'CORRECAO') return [
-    ['FATURA PAGA COM ATRASO', d.acertoDe], ['DATA-LIMITE DE CERTIFICAÇÃO', String(b.dataLimite || '').split('-').reverse().join('/')],
+    ['FATURA PAGA COM ATRASO', d.acertoDe], ['VENCIMENTO DA FATURA', String(b.dataLimite || '').split('-').reverse().join('/')],
     ...((b.pagamentos || []) as any[]).map(p => [`PAGO EM ${String(p.data).split('-').reverse().join('/')} (${p.dias} dias): ${brl(p.valor)}`, `+ ${brl(p.correcao)}`] as [string, string]),
     ['CORREÇÃO (POUPANÇA, OI 6.2)', brl(d.acrescimo)],
   ];
@@ -65,6 +65,7 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   if (d.comimsup) { doc.text(`COMIMSUP: ${d.comimsup}`, W / 2, y); y += 5; }
   doc.text(doc.splitTextToSize(`OM USUÁRIA: ${d.omUsuaria}`, W / 2 - M)[0], W / 2, y); y += 9;
   linha(`DATA-LIMITE PARA A CERTIFICAÇÃO DESTA FATURA, A SER FEITA VIA SIPLAD: ${br(d.limite)}`, 9, true);
+  if (d.vencimento) linha(`VENCIMENTO (PAGAMENTO): ${br(d.vencimento)}`, 9, true);
   linha(`REFERÊNCIA: ${mesesDoAno[d.mesCompetencia - 1]}${String(d.anoCompetencia).slice(2)}${d.estimado ? ' (ESTIMADO OUT–DEZ)' : ''}`, 9);
   linha(`EMITIDA DE ACORDO COM ${(d.emitidaDeAcordoCom || 'O DETALHAMENTO NO CAMPO OBSERVAÇÃO').toUpperCase()}`, 9);
   y += 2;

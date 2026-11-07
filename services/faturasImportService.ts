@@ -59,6 +59,7 @@ export async function carregarContexto(proposta: PropostaCadastro): Promise<{ ct
       servicos: servicos.map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '' })),
       feriados: feriados.map(f => f.data),
       prazoDiasUteis: prazo,
+      prazoVencimentoDias: Number(parametros.find(p => p.chave === 'prazo_vencimento_dias_corridos')?.valor) || 30,
       faturasExistentes: new Set(faturas.map(f => (f.invoiceNumber || '').trim().toUpperCase())),
       documentosExistentes: new Set(documentos.map(d => (d.documentNumber || '').trim().toUpperCase())),
       idFaturaExistente: (n => idFat.get(n)),

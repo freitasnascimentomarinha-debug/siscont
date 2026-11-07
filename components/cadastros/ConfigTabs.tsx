@@ -3,7 +3,7 @@ import { Edit, Plus, Save, Trash2 } from 'lucide-react';
 import { Feriado, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
 import { cadastroService } from '../../services/cadastroService';
 import { notify, friendlyError } from '../../utils/notify';
-import { somarDiasUteis, formatarDataBR } from '../../utils/diasUteis';
+import { somarDiasUteis, formatarDataBR, datasDaFatura } from '../../utils/diasUteis';
 import { Modal } from '../ui/Modal';
 import { Input, Select } from '../ui/Input';
 import { Button } from '../ui/Button';
@@ -113,7 +113,9 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar })
   useEffect(() => { carregar(); }, []);
 
   const prazo = Number(params.find(p => p.chave === 'prazo_certificacao_dias_uteis')?.valor) || 10;
+  const prazoVenc = Number(params.find(p => p.chave === 'prazo_vencimento_dias_corridos')?.valor) || 30;
   const dataLimite = useMemo(() => (emissao ? somarDiasUteis(emissao, prazo, feriados.map(f => f.data)) : ''), [emissao, prazo, feriados]);
+  const vencimento = useMemo(() => (emissao ? datasDaFatura(emissao, { prazoCertificacao: prazo, prazoVencimento: prazoVenc, feriados: feriados.map(f => f.data) }).vencimento : ''), [emissao, prazo, prazoVenc, feriados]);
   const anos = [...new Set([...feriados.map(f => f.data.slice(0, 4)), ano])].sort();
   const doAno = feriados.filter(f => f.data.startsWith(ano));
 
@@ -156,12 +158,13 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar })
         </div>
 
         <div className="p-4 rounded-lg border border-sky-200 bg-sky-50/60">
-          <h4 className="text-sm font-semibold text-sky-900 mb-2">Data-limite de certificação no SIPLAD (OI 40-04, 6.1)</h4>
-          <div className="flex flex-wrap items-end gap-3">
+          <h4 className="text-sm font-semibold text-sky-900 mb-2">Certificação e vencimento da fatura</h4>
+          <div className="flex flex-wrap items-end gap-4">
             <div className="w-44"><Input label="Data de emissão" type="date" value={emissao} onChange={e => setEmissao(e.target.value)} /></div>
-            <div className="text-sm text-sky-900 pb-2">+ {prazo} dias úteis = <b className="text-base tabular-nums">{formatarDataBR(dataLimite)}</b></div>
+            <div className="text-sm text-sky-900 pb-2">Certificação no SIPLAD (+ {prazo} dias úteis): <b className="text-base tabular-nums">{formatarDataBR(dataLimite)}</b></div>
+            <div className="text-sm text-sky-900 pb-2">Vencimento (+ {prazoVenc} dias corridos): <b className="text-base tabular-nums">{formatarDataBR(vencimento)}</b></div>
           </div>
-          <p className="text-[11px] text-sky-800/80 mt-2">Não conta sábados, domingos nem as datas da lista de feriados ao lado.</p>
+          <p className="text-[11px] text-sky-800/80 mt-2">Certificação não conta sábados, domingos nem feriados. Vencimento conta dias corridos e, se cair em fim de semana ou feriado, passa para o próximo dia útil. Faturas OND vencem na data de certificação.</p>
         </div>
       </section>
 

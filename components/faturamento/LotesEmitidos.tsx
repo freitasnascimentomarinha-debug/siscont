@@ -21,7 +21,7 @@ export function mensagemEnvio(cmd: { codigo?: string | null; nome: string; indic
     'DE: BNIC',
     'BT',
     `ENVIO DE FATURAS - REFERÊNCIA ${referencia(lote.competencia)}${lote.tipo === 'OND' ? ' (ESTIMADO OUT-DEZ)' : lote.tipo === 'ACERTO' ? ' (ACERTO DO OND)' : ''}`,
-    `ALFA - INFORMO QUE ESTÃO DISPONÍVEIS NO SIPLAD AS FATURAS DE SERVIÇOS DE APOIO ABAIXO, EMITIDAS EM ${br(lote.dataEmissao)}, CUJA DATA-LIMITE PARA CERTIFICAÇÃO É ${br(lote.dataLimite)}:`,
+    `ALFA - INFORMO QUE ESTÃO DISPONÍVEIS NO SIPLAD AS FATURAS DE SERVIÇOS DE APOIO ABAIXO, EMITIDAS EM ${br(lote.dataEmissao)}, CUJA DATA-LIMITE PARA CERTIFICAÇÃO É ${br(lote.dataLimite)}${faturas[0]?.dueDate && faturas[0].dueDate !== lote.dataLimite ? ` E O VENCIMENTO PARA PAGAMENTO É ${br(faturas[0].dueDate)}` : ''}:`,
     ...linhas,
     `BRAVO - TOTAL A PAGAR: ${brl(faturas.reduce((s, f) => s + saldo(f), 0))}.`,
     'CHARLIE - SOLICITO A CERTIFICAÇÃO NO SIPLAD ATÉ A DATA-LIMITE E O ENVIO DA ALTCRED CORRESPONDENTE, INDICANDO NA OBSERVAÇÃO OS NÚMEROS DAS FATURAS.',

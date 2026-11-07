@@ -16,7 +16,7 @@ import type { RegistroPonto } from './pontosAtencao';
  *  - Faturas Pagas / Pagas Extra-MB = histórico quitado sem o detalhe da ALTCRED.
  */
 import { Celula, Matriz, chave, chaveDaLinha, lerComando, lerFatura, limpar, normalizarSetor } from './cadastroImport';
-import { somarDiasUteis } from './diasUteis';
+import { datasDaFatura } from './diasUteis';
 
 // ------------------------------------------------------------ conversões
 export function numero(v: Celula): number | null {
@@ -138,6 +138,8 @@ export interface ContextoImportacao {
   servicos: { sigla: string; nome: string; unidade: string }[];
   feriados: string[];
   prazoDiasUteis: number;
+  /** Vencimento (pagamento) = emissão + N dias corridos; padrão 30. */
+  prazoVencimentoDias?: number;
   faturasExistentes: Set<string>;
   documentosExistentes: Set<string>;
   /** Para completar uma migração já gravada: id do registro existente pelo número (liga baixas novas a ele). */
@@ -305,10 +307,10 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
         }
         let vencimento = data(l.vencimento) || (lv ? data(lv.vencimento) : null);
         if (!vencimento || vencimento < emissao) {
-          const novo = somarDiasUteis(emissao, ctx.prazoDiasUteis, ctx.feriados);
+          const novo = datasDaFatura(emissao, { prazoCertificacao: ctx.prazoDiasUteis, prazoVencimento: ctx.prazoVencimentoDias, feriados: ctx.feriados }).vencimento;
           const original = typeof l.vencimento === 'number' ? (data(l.vencimento) ?? String(l.vencimento)) : limpar(l.vencimento);
           vencCorrigido.push(`${n}: "${original || 'vazio'}" → ${novo}`);
-          anotacoesFatura.push([n, 'VENCIMENTO_CORRIGIDO', `Vencimento na planilha "${original && /^\d{4}-\d{2}-\d{2}$/.test(original) ? br(original) : original || 'vazio'}"; recalculado para ${br(novo)} (emissão + ${ctx.prazoDiasUteis} dias úteis).`]);
+          anotacoesFatura.push([n, 'VENCIMENTO_CORRIGIDO', `Vencimento na planilha "${original && /^\d{4}-\d{2}-\d{2}$/.test(original) ? br(original) : original || 'vazio'}"; recalculado para ${br(novo)} (emissão + ${ctx.prazoVencimentoDias ?? 30} dias corridos).`]);
           vencimento = novo;
         }
 
@@ -359,7 +361,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       cliente: om?.nome ?? limpar(lv.cliente), sigla: f.sigla, tipo: sg?.nome ?? f.sigla, unidade: limpar(lv.unidade) || sg?.unidade || '',
       consumo: limpar(lv.consumo), mesCompetencia: mm, anoCompetencia: aaaa, competencia: f.competencia ? `${String(mm).padStart(2, '0')}/${aaaa}` : '',
       valor: r2(sv), acrescimo: r2(numero(lv.acrescimo) || 0), debito: r2(numero(lv.debito) || 0), emissao,
-      vencimento: venc && venc >= emissao ? venc : somarDiasUteis(emissao, ctx.prazoDiasUteis, ctx.feriados),
+      vencimento: venc && venc >= emissao ? venc : datasDaFatura(emissao, { prazoCertificacao: ctx.prazoDiasUteis, prazoVencimento: ctx.prazoVencimentoDias, feriados: ctx.feriados }).vencimento,
       cancelada: canceladas.has(b.fatura), contestada: contestadas.has(b.fatura), siplad: false, quitacaoExterna: null, quitadaEm: null,
       observacao: 'Fatura ausente das listas da planilha de pagamento; dados do livro de emissão.', statusPlanilha: null, saldoPlanilha: null,
       pontos: [{ tipo: 'FATURA_DO_LIVRO', mensagem: `Citada na baixa da ${b.altcred}, mas ausente das listas da planilha de pagamento; dados tirados do livro de emissão.`, origem: 'migracao', em: ctx.hoje }],
@@ -598,7 +600,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   aviso('BAIXA_SEM_FATURA', true, `${semFatura.length} baixa(s) para fatura que não está nas listas de faturas (não importadas).`, semFatura);
   aviso('BAIXA_SEM_DOCUMENTO', true, `${semDocumento.length} baixa(s) com documento já existente no sistema (não importadas).`, semDocumento);
   aviso('ALTCRED_CRIADA', false, `${altcredCriadas.length} ALTCRED citadas nas baixas e ausentes da aba ALTCRED foram criadas com o valor das baixas.`, altcredCriadas);
-  aviso('VENCIMENTO_CORRIGIDO', false, `${vencCorrigido.length} vencimento(s) inválidos, vazios ou anteriores à emissão recalculados pela OI 40-04 (emissão + ${ctx.prazoDiasUteis} dias úteis).`, vencCorrigido);
+  aviso('VENCIMENTO_CORRIGIDO', false, `${vencCorrigido.length} vencimento(s) inválidos, vazios ou anteriores à emissão recalculados (emissão + ${ctx.prazoVencimentoDias ?? 30} dias corridos).`, vencCorrigido);
   aviso('EMISSAO_CORRIGIDA', false, `${emisCorrigida.length} data(s) de emissão ausentes ou inválidas: adotado o dia 15 do mês seguinte à competência.`, emisCorrigida);
   aviso('VALOR_DIVERGENTE_LIVRO', false, `${servicoDivergente.length} fatura(s) com valor vigente na planilha diferente do livro de emissão (desconto ou correção após a emissão); adotado o valor da planilha.`, servicoDivergente);
   aviso('FATURA_REPETIDA', false, `${repetidas.length} fatura(s) aparecem em mais de uma lista; vale a primeira (FATURAS > Extra-MB > Pagas).`, repetidas);

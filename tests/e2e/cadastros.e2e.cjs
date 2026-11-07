@@ -536,7 +536,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Sim, emitir' }).click();
     await page.getByText(/Lote emitido: 4 faturas/).waitFor({ timeout: 15000 });
     const tc = db.invoices.find(i => i.invoice_number === '40030-TC-08-2026-001-0');
-    ok(tc && tc.issue_date === '2026-09-15' && tc.due_date === '2026-09-29' && tc.lote_id, 'emissão 15/09/2026 e data-limite 29/09/2026 (10 dias úteis)');
+    ok(tc && tc.issue_date === '2026-09-15' && tc.data_limite_certificacao === '2026-09-29' && tc.due_date === '2026-10-15' && tc.lote_id, 'emissão 15/09/2026, certificação 29/09/2026 (10 dias úteis) e vencimento 15/10/2026 (30 dias corridos)');
     const ad = db.payment_allocations.filter(b => b.tipo_baixa === 'ADIANTAMENTO');
     ok(ad.length >= 1 && Math.abs(ad.reduce((s, b) => s + Number(b.amount), 0) - 5000) < 0.01, 'adiantamento de R$ 5.000,00 abatido automaticamente');
     ok(/Baixa na ALTCRED G424.2026.AC.00403/.test(db.invoices.find(i => i.id === ad[0].invoice_id).observation), 'fatura registra "Baixa na ALTCRED"');

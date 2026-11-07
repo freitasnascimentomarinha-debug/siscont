@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Calculator, Save, Send } from 'lucide-react';
-import { ContextoFaturamento, dataEmissaoPadrao, dataLimite } from '../../services/faturamentoService';
+import { ContextoFaturamento, dataEmissaoPadrao, dataLimite, dataVencimento } from '../../services/faturamentoService';
 import { CandidatoCorrecao, Fase4NaoInstaladaError, candidatosCorrecao, emitirCorrecoes, listarTaxas, salvarTaxas } from '../../services/fase4Service';
 import { cadastroService } from '../../services/cadastroService';
 import { db } from '../../services/db';
@@ -57,7 +57,7 @@ export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     setOcupado('emitir');
     try {
       const emissao = dataEmissaoPadrao(comp, ctx.diaEmissao);
-      const r = await emitirCorrecoes(escolhidos, ctx, { competencia: comp, emissao, limite: dataLimite(emissao, ctx), usuario });
+      const r = await emitirCorrecoes(escolhidos, ctx, { competencia: comp, emissao, limite: dataLimite(emissao, ctx), vencimento: dataVencimento(emissao, ctx), usuario });
       notify.success(`${r.faturas} fatura(s) de correção emitida(s), total ${brl(r.total)}.`);
       setCands(null);
       await onEmitido();
