@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import { cadastroService } from '../../services/cadastroService';
 import { db } from '../../services/db';
 import { notify } from '../../utils/notify';
-import { GrupoDup, chavePar, gruposDuplicados, paresDuplicados, sugerirManter } from '../../utils/duplicidades';
+import { GrupoDup, chavePar, gruposDuplicados, paresDuplicados, sugerirComandoPorComplemento, sugerirManter } from '../../utils/duplicidades';
 import { DadosCadastro } from './useCadastros';
 
 /**
@@ -52,6 +52,17 @@ export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boole
       notify.fail(/unificar_om|function|404|PGRST202/i.test(msg) ? 'O banco ainda não tem a função de unificar: execute o script 012 no Supabase (SQL Editor)' : 'Erro ao unificar', e);
     } finally { setTrabalhando(null); }
   };
+  // clientes "RESPONSÁVEL - COMPLEMENTO" (ex.: Arsenal - BGL1) sem o comando do responsável
+  const sugestoes = useMemo(() => sugerirComandoPorComplemento(dados.oms, dados.comandos), [dados.oms, dados.comandos]);
+  const [ajustando, setAjustando] = useState(false);
+  const aplicarComando = async (lista: typeof sugestoes) => {
+    setAjustando(true);
+    try {
+      for (const x of lista) { const o = dados.oms.find(y => y.id === x.om.id); if (o) await cadastroService.saveOM({ ...o, comandoId: x.comandoId }); }
+      notify.success(`${lista.length} cliente(s) ligado(s) ao comando do responsável.`);
+      await recarregar();
+    } catch (e) { notify.fail('Erro ao ajustar o comando', e); } finally { setAjustando(false); }
+  };
   const naoSao = async (g: GrupoDup) => {
     try {
       const pares = g.pares.map(p => chavePar(p.a.id, p.b.id));
@@ -74,6 +85,29 @@ export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boole
           <Button size="sm" variant="ghost" onClick={() => cadastroService.listarNaoDuplicadas().then(setIgnorados)}><RefreshCw size={14} className="mr-1" />Atualizar</Button>
         </div>
       </div>
+      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600">
+        <b>Não são duplicidade:</b> nomes com complemento depois do travessão — “Arsenal de Marinha do Rio de Janeiro <b>- BGL1</b>”, “Diretoria de Patrimônio Histórico… <b>- ILHA FISCAL</b>” — são clientes diferentes
+        (a fatura é de quem está no complemento; o comando responsável é o da primeira parte). Nomes com <b>Ed.XX</b> em edifícios diferentes também são pontos de consumo diferentes.
+      </div>
+      {sugestoes.length > 0 && (
+        <section className="border border-sky-200 bg-sky-50/50 rounded-xl p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h4 className="font-semibold text-sky-900">Clientes com complemento sem o comando do responsável ({sugestoes.length})</h4>
+            {podeEditar && <Button size="sm" onClick={() => aplicarComando(sugestoes)} isLoading={ajustando}>Ligar todos ao comando do responsável</Button>}
+          </div>
+          <table className="w-full text-xs">
+            <thead className="text-slate-500"><tr><th className="text-left">Cliente (quem recebe a fatura)</th><th className="text-left">Comando atual</th><th className="text-left">Comando sugerido</th><th></th></tr></thead>
+            <tbody>{sugestoes.map(x => (
+              <tr key={x.om.id} className="border-t border-sky-100">
+                <td className="py-1"><span className="font-medium">{x.complemento}</span> <span className="text-slate-500">· {x.om.nome} ({x.om.codigo})</span></td>
+                <td>{x.om.comandoId ? cmd.get(x.om.comandoId)?.nome : <span className="text-amber-700">sem comando</span>}</td>
+                <td>{cmd.get(x.comandoId)?.nome} <span className="text-slate-500">({x.origem})</span></td>
+                <td className="text-right">{podeEditar && <button className="text-primary-700 underline" onClick={() => aplicarComando([x])}>ligar</button>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </section>
+      )}
       <div className="text-sm text-slate-700"><b>{visiveis.length}</b> grupo(s) {mostrarFracos ? '' : `prováveis (${grupos.length - visiveis.length} menos prováveis ocultos)`}</div>
       {!visiveis.length && <div className="p-6 text-center text-emerald-700 flex items-center justify-center gap-2"><CheckCircle2 size={18} />Nenhuma duplicidade encontrada.</div>}
       {visiveis.map(g => {

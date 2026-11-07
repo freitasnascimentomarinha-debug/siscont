@@ -262,6 +262,16 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   acento/edifício, mesma sigla, sigla × nome por extenso, nome cortado, códigos diferentes). **Unificar** transfere
   faturas, ALTCRED, preços, medições, lotação etc. para o cadastro que fica, guarda os nomes antigos como alternativos e
   desativa os duplicados (nada é apagado; fica na auditoria). **Não são a mesma OM** tira o grupo da lista.
+  Não são duplicidade: nome com complemento depois de " - " (ex.: *Arsenal de Marinha do Rio de Janeiro - BGL1*,
+  *Diretoria de Patrimônio Histórico… - ILHA FISCAL*: a fatura é de quem está no complemento e o comando responsável é
+  o da primeira parte) e nomes com **Ed.XX** em edifícios diferentes. A mesma página sugere ligar esses clientes ao
+  comando do responsável (*Ligar todos ao comando do responsável*). Mesmo nome com e sem edifício aparece como
+  "confira".
+- **OM emissora** (*Cadastros › Parâmetros*, quadro *OM responsável pela emissão das faturas*): por padrão a BNIC
+  (achada pela sigla/nome; grave para confirmar). Pode ser trocada. Ela **nunca recebe fatura** — o lote a deixa de
+  fora e mostra o valor dela só como controle e contabilidade de custos — e pode **participar ou não dos rateios**:
+  participando, entra na taxa condominial como as demais (a TC dela não é publicada nos Preços); não participando, a
+  parte dela é dividida entre as outras OM. Parâmetros `om_emissora_id` e `om_emissora_rateio` (SIM/NAO).
 - **Painel inicial**: filtros de múltipla escolha (setor, comando, cliente, serviço — ex.: todos os setores exceto
   EXTRA-MB), lembrados no navegador; lista das faturas ordenada por vencimento e ordenável por coluna.
 - **Cobrança**: setores em múltipla escolha e o grupo destacado (antes fixo "Setor do Material = DGMM") com nome e

@@ -200,7 +200,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
               const mudou = JSON.stringify(linhas[o.id]) !== JSON.stringify(salvo[o.id]);
               return (
                 <tr key={o.id} className={mudou ? 'bg-primary-50/40' : ''}>
-                  <td className="px-2 py-1"><div className="font-medium">{o.codigo} · {o.nome}</div><div className="text-[11px] text-slate-500">{o.setor} {o.ativo ? '' : '· desativada'}</div></td>
+                  <td className="px-2 py-1"><div className="font-medium">{o.codigo} · {o.nome}</div><div className="text-[11px] text-slate-500">{o.setor} {o.ativo ? '' : '· desativada'}{o.id === ctx.emissora.omId && <span className="text-sky-700 font-semibold"> · OM emissora: só controle de custos, sem fatura</span>}</div></td>
                   <td className="px-2 py-1 text-right"><input disabled={!podeEditar} aria-label={`Quantidade ${o.nome}`} className="w-28 text-right border border-slate-200 rounded px-1 py-0.5" value={l.quantidade} onChange={e => set(o.id, 'quantidade', e.target.value)} /></td>
                   {ROTULO2[sigla] && <td className="px-2 py-1 text-right"><input disabled={!podeEditar} className="w-24 text-right border border-slate-200 rounded px-1 py-0.5" value={l.quantidade2} onChange={e => set(o.id, 'quantidade2', e.target.value)} /></td>}
                   <td className="px-2 py-1 text-right"><input disabled={!podeEditar} aria-label={`Valor ${o.nome}`} className="w-32 text-right border border-slate-200 rounded px-1 py-0.5" value={l.valor} onChange={e => set(o.id, 'valor', e.target.value)} /></td>

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { Emissora, resolverEmissora } from '../utils/emissora';
 import { supabase } from './supabase';
 import { db } from './db';
 import { cadastroService } from './cadastroService';
@@ -97,6 +98,8 @@ export async function salvarAtracacoes(as: { competencia: string; omId: string; 
 export interface ContextoFaturamento {
   oms: OM[]; omsFat: OMFat[]; comandos: Comando[]; setores: Setor[]; servicos: ServicoFat[];
   invoices: Invoice[]; feriados: string[]; prazo: number; prazoVencimento: number; diaEmissao: number;
+  /** OM emissora (BNIC): entra nos rateios só para controle, nunca recebe fatura. */
+  emissora: Emissora;
 }
 
 export async function carregarContexto(): Promise<ContextoFaturamento> {
@@ -120,6 +123,7 @@ export async function carregarContexto(): Promise<ContextoFaturamento> {
   return {
     oms, omsFat, comandos, setores, invoices,
     servicos: servicos.filter(s => s.ativo !== false).map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '', ordem: s.ordem ?? 999, responsavel: s.setorResponsavel ?? null, telefone: s.telefoneSetor ?? null })),
+    emissora: resolverEmissora(oms, parametros),
     feriados: feriados.map(f => f.data), prazo: param('prazo_certificacao_dias_uteis', 10), prazoVencimento: param('prazo_vencimento_dias_corridos', 30), diaEmissao: param('dia_emissao', 15),
   };
 }

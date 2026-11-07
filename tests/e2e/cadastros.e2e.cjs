@@ -1106,6 +1106,47 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(m(cpmm.id) && m(pres.id) && (m(hcm.id).detalhe || []).length === 1, 'detalhe por hidrômetro guardado');
   });
 
+  await cenario('OM emissora (BNIC): parâmetro, rateio sem fatura e clientes com complemento', [], async (page, db) => {
+    page.on('dialog', d => d.accept());
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cAmrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    db.comandos.push(cAmrj);
+    const om = (codigo, nome, extra = {}) => { const o = { id: uid(), codigo, nome, tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [], ...extra }; db.oms.push(o); return o; };
+    const bnic = om('40015', 'Base Naval da Ilha das Cobras', { sigla: 'BNIC' });
+    const amrj = om('41000', 'Arsenal de Marinha do Rio de Janeiro', { sigla: 'AMRJ', comando_id: cAmrj.id });
+    const bgl = om('40015', 'Arsenal de Marinha do Rio de Janeiro - BGL1', { tipo: 'EXTRA_MB', codigo_proprio: false });
+    om('40015', 'ARSENAL DE MARINHA DO RIO DE JANEIRO - SKM', { tipo: 'EXTRA_MB', codigo_proprio: false, comando_id: cAmrj.id });
+    om('51000', 'Policlínica Naval (Ed.16)'); om('51001', 'POLICLINICA NAVAL (ED.32)');
+    db.service_definitions.push({ id: uid(), name: 'Eletricidade', unit_measure: 'KWH', acronym: 'EL', nome_oficial: 'FORNECIMENTO DE ENERGIA ELÉTRICA', ordem: 30, ativo: true });
+    db.medicoes.push({ id: uid(), competencia: '2026-08', sigla: 'EL', om_id: bnic.id, quantidade: 100, valor: 5000, estimada: false },
+      { id: uid(), competencia: '2026-08', sigla: 'EL', om_id: amrj.id, quantidade: 10, valor: 700, estimada: false });
+    await page.getByRole('button', { name: 'Recarregar' }).click();
+    // duplicidades: complemento e edifícios diferentes não são duplicados; sugere o comando do responsável
+    await page.getByRole('button', { name: 'Duplicidades' }).click();
+    await page.getByText(/Clientes com complemento sem o comando do responsável \(1\)/).waitFor();
+    ok(!(await page.locator('div.border.rounded-xl.p-3').filter({ hasText: 'SKM' }).count()) && !(await page.locator('div.border.rounded-xl.p-3').filter({ hasText: 'ED.32' }).count()), 'complemento (BGL1, SKM) e edifícios diferentes não aparecem como duplicidade');
+    await page.getByRole('button', { name: 'Ligar todos ao comando do responsável' }).click();
+    await page.getByText(/1 cliente\(s\) ligado\(s\)/).waitFor();
+    ok(bgl.comando_id === cAmrj.id, 'BGL1 ligada ao comando do Arsenal');
+    // parâmetro: OM emissora sugerida (BNIC) e gravada
+    await page.getByRole('button', { name: 'Parâmetros e feriados' }).click();
+    await page.getByText(/Sugestão automática: Base Naval da Ilha das Cobras/).waitFor();
+    ok(await page.getByLabel('OM emissora').inputValue() === bnic.id, 'BNIC sugerida como OM emissora');
+    await page.getByLabel('Não participa').check();
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText('OM emissora gravada.').waitFor();
+    ok(db.parametros.find(p => p.chave === 'om_emissora_id').valor === bnic.id && db.parametros.find(p => p.chave === 'om_emissora_rateio').valor === 'NAO', 'OM emissora e participação gravadas nos parâmetros');
+    // lote: a BNIC fica de fora (só controle)
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
+    await page.getByRole('button', { name: 'Lote de faturas' }).click();
+    await page.getByLabel('Competência', { exact: true }).fill('2026-08');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText(/é a OM emissora: R\$ 5\.000,00 de rateio \(EL\)/).waitFor();
+    ok(await page.getByText('41000-EL-08-2026-001-0').isVisible() && !(await page.getByText(/40015-EL-08-2026/).count()), 'lote sem fatura para a OM emissora');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

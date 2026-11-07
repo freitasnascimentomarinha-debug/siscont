@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { Parametro, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { ConfirmModal } from '../components/ui/Modal';
-import { Campo, br, entrada } from '../components/faturamento/comum';
+import { Campo, br, brl, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
 import { AbaResultado, ImportarProposta } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
 import { PorRubrica, mediaTrienal, montarParticipantes, ratearProposta } from '../utils/taxaCondominial';
+import { resolverEmissora } from '../utils/emissora';
+import { cadastroService } from '../services/cadastroService';
 import { notify } from '../utils/notify';
 
 type Aba = 'rubricas' | 'clientes' | 'descontos' | 'resultado' | 'navios' | 'media' | 'diarias';
@@ -40,6 +42,8 @@ export const TaxaCondominial: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const [importar, setImportar] = useState(false);
   const [confirma, setConfirma] = useState<null | 'aprovar' | 'publicarTC' | 'publicarDA' | 'reabrir'>(null);
+  const [parametros, setParametros] = useState<Parametro[]>([]);
+  useEffect(() => { cadastroService.listParametros().then(setParametros).catch(() => undefined); }, []);
 
   const carregar = async () => {
     setCarregando(true); setErro(null);
@@ -56,10 +60,12 @@ export const TaxaCondominial: React.FC = () => {
     if (!dados) return new Map<string, number>();
     return new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id)).map(m => [m.classeId, m.mediaMensal]));
   }, [dados, ano]);
+  // OM emissora (BNIC): participa ou não do rateio; nunca é publicada nos Preços (não é cliente de si mesma)
+  const emissora = useMemo(() => (dados ? resolverEmissora(dados.oms, parametros) : null), [dados, parametros]);
   // cálculos separados: taxa condominial (OM de terra × rubricas TC) e diárias (navios × rubricas DA)
   const { resultado, resultadoDA, descontosPorOM, porRubrica } = useMemo(() => {
     if (!dados) return { resultado: null, resultadoDA: null, descontosPorOM: new Map<number, number>(), porRubrica: [] as PorRubrica[] };
-    const part = montarParticipantes(dados.oms, dados.lotacoes, medias);
+    const part = montarParticipantes(dados.oms, dados.lotacoes, medias).filter(p => !(emissora?.omId === p.omId && !emissora.participaRateio));
     const rubTC = dados.rubricas.filter(r => r.destino === 'TC');
     const terra = part.filter(p => p.tipo === 'TERRA'), navios = part.filter(p => p.tipo === 'NAVIO');
     // critério de cada rubrica (lotação, área, partes iguais, peso), % das OM e % dos navios (à parte ou junto)
@@ -68,7 +74,7 @@ export const TaxaCondominial: React.FC = () => {
     const porOM = new Map<number, number>();
     tc.oms.forEach(o => o.parcelas.forEach(p => porOM.set(p.rubrica, Math.round(((porOM.get(p.rubrica) || 0) + p.desconto) * 100) / 100)));
     return { resultado: tc, resultadoDA: da, descontosPorOM: porOM, porRubrica: r.porRubrica };
-  }, [dados, medias]);
+  }, [dados, medias, emissora]);
 
   const status = dados?.proposta.status || 'PROPOSTA';
   const pendencias = resultado ? [
@@ -83,7 +89,7 @@ export const TaxaCondominial: React.FC = () => {
     try {
       if (confirma === 'aprovar') { await salvarProposta({ ...dados.proposta, status: 'APROVADA', aprovadaEm: new Date().toISOString().slice(0, 10) }); notify.success('Proposta aprovada.'); }
       if (confirma === 'reabrir') { await salvarProposta({ ...dados.proposta, status: 'PROPOSTA', aprovadaEm: null }); notify.success('Proposta reaberta para ajustes.'); }
-      if (confirma === 'publicarTC') { const n = await publicar(ano, resultado, user?.name || user?.email || '', 'TC'); notify.success(`Taxa condominial ${ano} publicada: ${n} OM com TC mensal nos Preços do ano.`); }
+      if (confirma === 'publicarTC') { const n = await publicar(ano, { ...resultado, oms: resultado.oms.filter(o => o.omId !== emissora?.omId) }, user?.name || user?.email || '', 'TC'); notify.success(`Taxa condominial ${ano} publicada: ${n} OM com TC mensal nos Preços do ano.`); }
       if (confirma === 'publicarDA' && resultadoDA) { const n = await publicar(ano, resultadoDA, user?.name || user?.email || '', 'DA'); notify.success(`Diárias ${ano} publicadas: ${n} navio(s) com DA nos Preços do ano.`); }
       carregar();
     } catch (e) { notify.fail('Erro', e); }
@@ -133,6 +139,18 @@ export const TaxaCondominial: React.FC = () => {
           </>}
         </div>
 
+        {emissora?.omId && (() => {
+          const linha = resultado.oms.find(o => o.omId === emissora.omId);
+          return (
+            <div className="p-3 rounded-lg border border-sky-200 bg-sky-50 text-sky-900 text-sm">
+              <b>{emissora.nome}</b> é a OM emissora das faturas.{' '}
+              {emissora.participaRateio
+                ? linha ? <>Participa do rateio: <b>{brl(linha.mensal)}/mês</b> ficam só para controle e contabilidade de custos — não são publicados nos Preços e não geram fatura.</> : <>Participa do rateio, mas não tem lotação/marcação na matriz neste exercício.</>
+                : <>Não participa do rateio: a parte dela é dividida entre as demais OM.</>}
+              <span className="text-xs text-sky-700"> Para mudar a OM emissora ou a participação: Cadastros › Parâmetros.</span>
+            </div>
+          );
+        })()}
         <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-slate-200">
           {GRUPOS.map(g => (
             <div key={g.titulo}>

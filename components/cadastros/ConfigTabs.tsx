@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Edit, Plus, Save, Trash2 } from 'lucide-react';
-import { Feriado, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
+import { Feriado, OM, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
+import { PARAM_EMISSORA, PARAM_EMISSORA_RATEIO, resolverEmissora } from '../../utils/emissora';
 import { cadastroService } from '../../services/cadastroService';
 import { notify, friendlyError } from '../../utils/notify';
 import { somarDiasUteis, formatarDataBR, datasDaFatura } from '../../utils/diasUteis';
@@ -95,7 +96,7 @@ const TIPOS_FERIADO: { value: TipoFeriado; label: string }[] = [
   { value: 'MUNICIPAL', label: 'Municipal (Rio)' }, { value: 'PONTO_FACULTATIVO', label: 'Ponto facultativo' },
 ];
 
-export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar }) => {
+export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ podeEditar, oms = [] }) => {
   const [params, setParams] = useState<Parametro[]>([]);
   const [editados, setEditados] = useState<Record<string, string>>({});
   const [feriados, setFeriados] = useState<Feriado[]>([]);
@@ -142,7 +143,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar })
           {podeEditar && <Button size="sm" onClick={salvarParams} isLoading={salvando} disabled={Object.keys(editados).length === 0}><Save size={14} className="mr-1" /> Salvar alterações</Button>}
         </div>
         <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-          {params.map(p => (
+          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO).map(p => (
             <div key={p.chave} className="p-3 grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
               <div className="md:col-span-2"><div className="text-sm font-medium text-slate-800">{p.descricao || p.chave}</div><div className="text-[11px] font-mono text-slate-400">{p.chave}</div></div>
               <input
@@ -156,6 +157,8 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar })
           ))}
           {params.length === 0 && <div className="p-6 text-center text-sm text-slate-400 italic">Nenhum parâmetro carregado.</div>}
         </div>
+
+        <EmissoraCard oms={oms} params={params} podeEditar={podeEditar} gravado={carregar} />
 
         <div className="p-4 rounded-lg border border-sky-200 bg-sky-50/60">
           <h4 className="text-sm font-semibold text-sky-900 mb-2">Certificação e vencimento da fatura</h4>
@@ -200,6 +203,54 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean }> = ({ podeEditar })
           </div>
         )}
       </section>
+    </div>
+  );
+};
+
+// ------------------------------------------------------------------ OM emissora
+/** OM responsável pela emissão das faturas (BNIC): pode ser trocada e participar ou não dos rateios. Nunca recebe fatura. */
+const EmissoraCard: React.FC<{ oms: OM[]; params: Parametro[]; podeEditar: boolean; gravado: () => Promise<void> }> = ({ oms, params, podeEditar, gravado }) => {
+  const atual = useMemo(() => resolverEmissora(oms, params), [oms, params]);
+  const [omId, setOmId] = useState<string | null>(null);
+  const [participa, setParticipa] = useState<boolean | null>(null);
+  const [salvando, setSalvando] = useState(false);
+  const id = omId ?? atual.omId ?? '';
+  const part = participa ?? atual.participaRateio;
+  const mudou = id !== (atual.omId ?? '') || part !== atual.participaRateio || (!atual.definidaNosParametros && !!id);
+  const opcoes = useMemo(() => oms.filter(o => o.ativo && o.tipo !== 'NAVIO').sort((a, b) => a.nome.localeCompare(b.nome)), [oms]);
+  const salvar = async () => {
+    if (!id) return notify.error('Escolha a OM emissora.');
+    setSalvando(true);
+    try {
+      await cadastroService.saveParametro({ chave: PARAM_EMISSORA, valor: id, descricao: 'OM responsável pela emissão das faturas (não recebe fatura)' });
+      await cadastroService.saveParametro({ chave: PARAM_EMISSORA_RATEIO, valor: part ? 'SIM' : 'NAO', descricao: 'A OM emissora participa dos rateios (controle e contabilidade de custos)' });
+      notify.success('OM emissora gravada.');
+      setOmId(null); setParticipa(null);
+      await gravado();
+    } catch (e) { notify.fail('Erro ao gravar a OM emissora', e); } finally { setSalvando(false); }
+  };
+  return (
+    <div className="p-4 rounded-lg border border-indigo-200 bg-indigo-50/50 space-y-2">
+      <h4 className="text-sm font-semibold text-indigo-900">OM responsável pela emissão das faturas</h4>
+      <p className="text-xs text-indigo-900/80">A OM emissora faz os rateios e emite as faturas. Ela <b>não é cliente de si mesma</b>: nunca recebe fatura. Quando participa dos rateios, a parte dela fica registrada só para <b>controle e contabilidade de custos</b>.</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs text-slate-600 flex flex-col gap-1 min-w-[280px] flex-1">OM emissora
+          <select aria-label="OM emissora" disabled={!podeEditar} className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={id} onChange={e => setOmId(e.target.value)}>
+            <option value="">— escolha —</option>
+            {opcoes.map(o => <option key={o.id} value={o.id}>{o.codigo} · {o.nome}{o.sigla ? ` (${o.sigla})` : ''}</option>)}
+          </select>
+        </label>
+        <fieldset className="text-sm flex gap-3 pb-1.5" disabled={!podeEditar}>
+          <label className="flex items-center gap-1"><input type="radio" name="emissora-rateio" checked={part} onChange={() => setParticipa(true)} />Participa dos rateios</label>
+          <label className="flex items-center gap-1"><input type="radio" name="emissora-rateio" checked={!part} onChange={() => setParticipa(false)} />Não participa</label>
+        </fieldset>
+        {podeEditar && <Button size="sm" onClick={salvar} isLoading={salvando} disabled={!mudou}><Save size={14} className="mr-1" />Gravar</Button>}
+      </div>
+      <p className="text-[11px] text-indigo-900/70">
+        {!atual.definidaNosParametros && atual.omId && <>Sugestão automática: {atual.nome} (pela sigla/nome BNIC). Grave para confirmar. </>}
+        {!atual.omId && <span className="text-red-700">Nenhuma OM emissora encontrada no cadastro: escolha uma. </span>}
+        Participa: a OM entra na taxa condominial e nas medições como as demais, mas o lote de faturas a deixa de fora. Não participa: a parte dela na taxa condominial é dividida entre as outras OM.
+      </p>
     </div>
   );
 };

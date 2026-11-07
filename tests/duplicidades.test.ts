@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { iniciais, paresDuplicados, sugerirManter } from '../utils/duplicidades';
+import { iniciais, paresDuplicados, sugerirComandoPorComplemento, sugerirManter } from '../utils/duplicidades';
+import { partesDoNome, resolverEmissora } from '../utils/emissora';
 
 const om = (id: string, nome: string, extra: any = {}) => ({ id, nome, codigo: '40000', tipo: 'TERRA', ativo: true, ...extra });
 
@@ -26,7 +27,29 @@ describe('duplicidades no cadastro', () => {
     expect(tem('9', '10')).toBe(true);
     expect(tem('11', '12')).toBe(false); // navio não se compara com OM de terra
     expect(tem('13', '14')).toBe(false); // nomes diferentes de verdade
-    expect(pares[0].pontos).toBe(100);
+    expect(pares[0].pontos).toBeGreaterThanOrEqual(90);
+    expect(pares.find(p => [p.a.id, p.b.id].sort().join() === '1,2')?.pontos).toBe(75);   // só um indica o edifício: confira
+  });
+  it('complemento e edifício identificam clientes diferentes', () => {
+    const l = [
+      om('a', 'Arsenal de Marinha do Rio de Janeiro'), om('b', 'Arsenal de Marinha do Rio de Janeiro - BGL1', { tipo: 'EXTRA_MB' }),
+      om('c', 'ARSENAL DE MARINHA DO RIO DE JANEIRO - SKM'),
+      om('d', 'Diretoria de Patrimônio Histórico e Documentação da Marinha'), om('e', 'Diretoria de Patrimônio Histórico e Documentação da Marinha - ILHA FISCAL'),
+      om('f', 'Policlínica Naval (Ed.16)'), om('g', 'POLICLINICA NAVAL (ED.32)'), om('h', 'Policlinica Naval (Ed. 16)'),
+    ];
+    const pares = paresDuplicados(l).map(p => [p.a.id, p.b.id].sort().join(''));
+    expect(pares).toEqual(['fh']);      // só o mesmo nome no mesmo edifício
+  });
+  it('sugere o comando do responsável para o cliente com complemento', () => {
+    const oms = [
+      { ...om('a', 'Arsenal de Marinha do Rio de Janeiro', { sigla: 'AMRJ' }), comandoId: 'cA' },
+      { ...om('b', 'AMRJ - BGL1', { tipo: 'EXTRA_MB' }), comandoId: null },
+      { ...om('d', 'Diretoria de Patrimônio Histórico e Documentação da Marinha'), comandoId: 'cD' },
+      { ...om('e', 'Diretoria de Patrimônio Histórico e Documentação da Marinha - ILHA FISCAL'), comandoId: 'cD' },
+      { ...om('x', 'Comando do 1º Distrito Naval - Oficina'), comandoId: null },
+    ];
+    const s = sugerirComandoPorComplemento(oms, [{ id: 'c1', nome: 'Comando do 1º Distrito Naval', sigla: 'Com1DN' }]);
+    expect(s.map(x => [x.om.id, x.comandoId, x.complemento])).toEqual([['b', 'cA', 'BGL1'], ['x', 'c1', 'Oficina']]);   // Ilha Fiscal já está certa
   });
   it('pares marcados como "não são a mesma" não voltam', () => {
     const l = [om('a', 'DIM'), om('b', 'Diretoria Industrial da Marinha', { sigla: 'DIM' })];
@@ -54,5 +77,21 @@ describe('duplicidades: depois de unificar e com muitas OM', () => {
     const oms = Array.from({ length: 3000 }, (_, i) => ({ id: `id${i}`, nome: `${pal[i % 14]} ${pal[(i * 5) % 14]} ${pal[(i * 3) % 14]} ${i}`, codigo: String(10000 + i), tipo: i % 5 ? 'TERRA' : 'NAVIO', ativo: true }));
     const t = Date.now(); paresDuplicados(oms);
     expect(Date.now() - t).toBeLessThan(2000);
+  });
+});
+
+describe('OM emissora e partes do nome', () => {
+  const oms = [
+    { id: '1', nome: 'Base Naval da Ilha das Cobras', codigo: '40015', sigla: 'BNIC', tipo: 'TERRA', ativo: true },
+    { id: '2', nome: 'Arsenal de Marinha do Rio de Janeiro', codigo: '41000', tipo: 'TERRA', ativo: true },
+  ];
+  it('acha a BNIC sem parâmetro e respeita o parâmetro quando gravado', () => {
+    expect(resolverEmissora(oms, [])).toMatchObject({ omId: '1', participaRateio: true, definidaNosParametros: false });
+    expect(resolverEmissora(oms, [{ chave: 'om_emissora_id', valor: '2' }, { chave: 'om_emissora_rateio', valor: 'NAO' }])).toMatchObject({ omId: '2', participaRateio: false, definidaNosParametros: true });
+  });
+  it('separa responsável, complemento e edifício', () => {
+    expect(partesDoNome('Arsenal de Marinha do Rio de Janeiro - BGL1')).toEqual({ responsavel: 'Arsenal de Marinha do Rio de Janeiro', complemento: 'BGL1', edificio: null });
+    expect(partesDoNome('DGePM-RIO (ed.16)')).toEqual({ responsavel: 'DGePM-RIO', complemento: null, edificio: '16' });
+    expect(partesDoNome('CMS – CAM (Ed. 7B)')).toEqual({ responsavel: 'CMS', complemento: 'CAM', edificio: '7B' });
   });
 });

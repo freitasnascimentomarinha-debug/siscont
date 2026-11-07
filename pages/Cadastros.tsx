@@ -77,7 +77,7 @@ export const Cadastros: React.FC = () => {
             {aba === 'listanavios' && admin && <ListaNaviosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'classes' && <ClassesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'servicos' && <ServicosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
-            {aba === 'parametros' && <ParametrosTab podeEditar={admin} />}
+            {aba === 'parametros' && <ParametrosTab podeEditar={admin} oms={dados.oms} />}
             {aba === 'importar' && admin && <ImportarTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'migrar' && admin && <MigrarFaturasTab dados={dados} podeEditar={admin} />}
           </div>

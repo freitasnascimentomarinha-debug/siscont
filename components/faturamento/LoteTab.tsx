@@ -46,10 +46,14 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       const base = tipo === 'ACERTO' ? `${anoOnd}-10` : compLote;
       const d = { ...(await montarDados(ctx, tipo, base)), siglas: [...siglas], divisorOnd: divisor };
       const lista = tipo === 'MENSAL' ? calcularMes(d, compLote) : tipo === 'OND' ? calcularOnd(d) : calcularAcerto({ ...d, anoOnd: Number(anoOnd) });
-      setItens(lista);
+      // OM emissora (BNIC): o valor dela no rateio é só controle e contabilidade de custos — não gera fatura
+      const emi = ctx.emissora.omId;
+      const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
+      setItens(emi ? lista.filter(i => i.omId !== emi) : lista);
       setAdiant(abater ? await adiantamentosDisponiveis() : []);
       // pendências do mês
       const p: string[] = [];
+      if (daEmissora.length) p.push(`${ctx.emissora.nome} é a OM emissora: ${brl(daEmissora.reduce((s, i) => s + i.valor, 0))} de rateio (${[...new Set(daEmissora.map(i => i.sigla))].join(', ')}) ficam só para controle e contabilidade de custos — não geram fatura.`);
       if (tipo !== 'ACERTO') {
         const [med, atr] = await Promise.all([listarMedicoes([compLote]), listarAtracacoes([compLote])]);
         MEDIDOS.filter(s => siglas.has(s)).forEach(s => { if (!med.some(m => m.sigla === s)) p.push(`Nenhuma medição de ${s} lançada para ${referencia(compLote)}.`); });

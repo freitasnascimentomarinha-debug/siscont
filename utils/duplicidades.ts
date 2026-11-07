@@ -2,6 +2,8 @@
  * Possíveis clientes duplicados no cadastro: mesma sigla, nome abreviado (sigla = iniciais do nome), nome cortado
  * (um começa pelo outro), ou nomes parecidos (palavras em comum). Funções puras.
  */
+import { partesDoNome } from './emissora';
+
 export interface OMDup { id: string; nome: string; sigla?: string | null; codigo: string; tipo: string; ativo: boolean; nomesAlternativos?: string[] }
 export interface ParDup { a: OMDup; b: OMDup; pontos: number; motivo: string }
 
@@ -21,10 +23,12 @@ const compacto = (nome: string) => palavras(nome).join('');
 export const iniciais = (nome: string) => palavras(nome).map(p => p[0]).join('');
 
 /** Tudo o que a comparação usa, calculado uma vez por OM (com milhares de OM a página não trava). */
-interface Prep { om: OMDup; nome: string; compacto: string; sigla: string; iniciais: string; pal: string[]; set: Set<string>; alternativos: Set<string> }
+interface Prep { om: OMDup; nome: string; compacto: string; sigla: string; iniciais: string; pal: string[]; set: Set<string>; alternativos: Set<string>; resp: string; compl: string; edificio: string | null }
 function preparar(o: OMDup): Prep {
   const pal = palavras(o.nome);
+  const pt = partesDoNome(o.nome);
   return {
+    resp: compacto(pt.responsavel), compl: compacto(pt.complemento || ''), edificio: pt.edificio,
     om: o, nome: normalizarNome(o.nome), compacto: pal.join(''), sigla: normalizarNome(o.sigla || '').replace(/[^A-Z0-9]/g, ''),
     iniciais: pal.map(p => p[0]).join(''), pal: [...new Set(pal)], set: new Set(pal),
     alternativos: new Set((o.nomesAlternativos || []).map(compacto).filter(Boolean)),
@@ -35,7 +39,13 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
   const a = A.om, b = B.om;
   const na = A.compacto, nb = B.compacto;
   if (!na || !nb) return null;
-  if (na === nb) return { pontos: 100, motivo: 'mesmo nome (diferença só de acento, pontuação ou edifício)' };
+  // "Arsenal - BGL1" × "Arsenal" ou × "Arsenal - SKM": o complemento é quem consome (outro cliente, mesmo responsável)
+  if (A.resp && A.resp === B.resp && A.compl !== B.compl && !(A.compl && B.compl && (A.compl.startsWith(B.compl) || B.compl.startsWith(A.compl)))) return null;
+  // edifícios diferentes (Ed.16 × Ed.32): pontos de consumo diferentes
+  if (A.edificio && B.edificio && A.edificio !== B.edificio) return null;
+  if (na === nb) return A.edificio !== B.edificio
+    ? { pontos: 75, motivo: `mesmo nome, só um indica o edifício (Ed.${A.edificio || B.edificio}) — confira se é o mesmo ponto de consumo` }
+    : { pontos: 100, motivo: 'mesmo nome (diferença só de acento ou pontuação)' };
   const sa = A.sigla, sb = B.sigla;
   if (sa && sb && sa === sb) return { pontos: 95, motivo: `mesma sigla (${a.sigla})` };
   // sigla de um = nome do outro, ou nome abreviado = iniciais do outro
@@ -47,7 +57,7 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
     // "Arsenal ... – TRANSUNIVERSAL": complemento depois de travessão costuma ser outro cliente (terceiro), não abreviação
     const [curto, longo] = na.length < nb.length ? [A.nome, B.nome] : [B.nome, A.nome];
     const resto = longo.slice(curto.replace(/\s*\(.*?\)\s*/g, '').trim().length);
-    if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto)) return { pontos: 65, motivo: 'mesmo começo, com complemento (pode ser outro cliente)' };
+    if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto)) return null;
     return { pontos: 85, motivo: 'um nome é o começo do outro' };
   }
   let comuns = 0;
@@ -120,4 +130,33 @@ export function gruposDuplicados(pares: ParDup[], limiarUniao = 85): GrupoDup[] 
   });
   grupos.forEach((g, r) => { if (r.startsWith('fraco:')) return; g.membros = [...om.values()].filter(o => raiz(o.id) === r).sort((x, y) => Number(y.ativo) - Number(x.ativo) || x.nome.localeCompare(y.nome)); });
   return [...grupos.values()].sort((a, b) => b.pontos - a.pontos || b.membros.length - a.membros.length);
+}
+
+// ------------------------------------------------------------------ cliente com complemento × comando do responsável
+export interface OMComando extends OMDup { comandoId?: string | null }
+export interface SugestaoComando { om: OMComando; responsavel: string; complemento: string; comandoId: string; origem: string }
+/**
+ * "Arsenal de Marinha do Rio de Janeiro - BGL1": a fatura é da BGL1 (extra-MB ou OM), mas o comando responsável é o do
+ * Arsenal; "DPHDM - ILHA FISCAL": a Ilha Fiscal é da Diretoria. Sugere o comando da parte antes do " - " quando o
+ * cliente está sem comando ou com outro comando.
+ */
+export function sugerirComandoPorComplemento(oms: OMComando[], comandos: { id: string; nome: string; sigla?: string | null; codigo?: string | null }[]): SugestaoComando[] {
+  const k = (t: string) => compacto(t);
+  const base = new Map<string, OMComando>();
+  oms.filter(o => o.comandoId && !partesDoNome(o.nome).complemento).forEach(o => {
+    [o.nome, o.sigla || '', ...(o.nomesAlternativos || [])].map(k).filter(Boolean).forEach(c => { if (!base.has(c) || (o.ativo && !base.get(c)!.ativo)) base.set(c, o); });
+  });
+  const cmd = new Map<string, { id: string; nome: string }>();
+  comandos.forEach(c => [c.nome, c.sigla || ''].map(k).filter(Boolean).forEach(x => cmd.set(x, c)));
+  const out: SugestaoComando[] = [];
+  oms.filter(o => o.ativo).forEach(o => {
+    const pt = partesDoNome(o.nome);
+    if (!pt.complemento) return;
+    const r = k(pt.responsavel);
+    const om = base.get(r);
+    const alvo = om?.comandoId ? { id: om.comandoId, origem: `comando de ${om.nome}` } : cmd.get(r) ? { id: cmd.get(r)!.id, origem: `comando ${cmd.get(r)!.nome}` } : null;
+    if (!alvo || alvo.id === o.comandoId) return;
+    out.push({ om: o, responsavel: pt.responsavel, complemento: pt.complemento, comandoId: alvo.id, origem: alvo.origem });
+  });
+  return out.sort((a, b) => a.om.nome.localeCompare(b.om.nome));
 }
