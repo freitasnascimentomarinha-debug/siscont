@@ -282,6 +282,29 @@ do 012 (idempotente). Cria o armazenamento privado **contratos-tc** (Storage) pa
 - **Conferência com a planilha importada**: valor fechado de cada OM e diária de cada navio (aba PROPOSTA CONDOMINIO) e
   extrato de cada cliente (abas por OM), com ✓/⚠ no *Resultado da taxa*, no extrato da OM e no *Resultado das diárias*.
 
+### 1-N. Critério de rateio, grupo NAVIOS, cadastro interligado e lista de navios (script 014)
+
+Execute [`supabase/migrations/014_criterios_rateio.sql`](../supabase/migrations/014_criterios_rateio.sql) depois do 013
+(idempotente). A parte dos navios já gravada em R$ vira percentual; a rubrica que só os navios pagavam (desconto geral =
+valor inteiro) passa a "OM 0% · navios 100%", sem o desconto.
+
+- **Critério por rubrica** (tabela de Rubricas ou Ficha › passo 4): *por pessoa* (lotação × dias, padrão), *por área*
+  (m²), *partes iguais* ou *peso informado* (qualquer outro critério). Área e peso de cada OM entram na aba Clientes e
+  matriz (as colunas aparecem quando alguma rubrica usa o critério).
+- **% OM**: parte do valor dividida entre as OM (100 = integral; menos = parcial). **Navios %**: parte cobrada do grupo
+  NAVIOS. **Os navios pagam**: *à parte* (padrão 2026 — não diminui o que as OM pagam, garantindo o contrato mesmo se os
+  navios não atracarem) ou *junto com as OM* (um só valor dividido pela lotação; a parte dos navios reduz a das OM).
+- **Grupo NAVIOS** não é rubrica: é a soma do que os navios pagam nas rubricas de que participam (linha ⚓ NAVIOS na
+  matriz), dividida entre os navios pela lotação × dias. O total "Navios" da planilha fica só para conferência.
+- **Justificativas, subsídios e documentos são opcionais** (para qualquer ano).
+- **Faturas e Recebimentos (ALTCRED/GRU)**: o campo *Cliente* busca no Cadastro de OM (nome, sigla, código, nome
+  alternativo ou comando), preenche UG, setor e comando e liga o registro à OM; dá para cadastrar cliente novo na hora.
+  (No Fluxo de caixa o "cliente" é o favorecido da nota de empenho, não uma OM.)
+- **Cadastros › Lista de navios** (Administrador): confere a aba LISTA DE NAVIOS (e DIARIAS) do Histórico Trienal com o
+  cadastro — classes a criar, navios fora do cadastro (incluir ou ligar a um existente), navios com classe diferente
+  (corrigir) e navios ativos fora da lista. A aba Navios da taxa mostra a classe de cada navio e avisa quem está sem
+  classe (sem média trienal, a diária sai pela lotação).
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

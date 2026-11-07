@@ -103,3 +103,10 @@ Com 001–012 aplicados: `psql -d sb -f tests/sql/subsidios_013_tests.sql` (simu
 bucket privado `contratos-tc`; Operador inclui subsídio, anexo e arquivo; subsídio sem descrição recusado; Consulta lê mas
 não inclui; valores fechados (OM e navio) e extrato gravados; subsídio registrado na auditoria.
 
+## Script 014 (critério de rateio)
+
+Com 001–013 aplicados: `psql -d sb -f tests/sql/criterios_014_tests.sql` (aplica o 014 duas vezes). Esperado: parte dos
+navios em R$ vira percentual (Defensas 56%); rubrica paga só pelos navios fica OM 0% / navios 100% sem desconto; total
+do grupo Navios guardado na proposta; critério, percentuais e modo inválidos recusados; área e peso na lotação; área
+negativa recusada.
+

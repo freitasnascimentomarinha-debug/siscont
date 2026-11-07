@@ -225,3 +225,70 @@ describe('planilha da proposta — conferência e subsídios', () => {
     expect(r.justificativas).toEqual([{ rubrica: 1, texto: 'Contrato vigente + reajuste' }]);
   });
 });
+
+import { ratearProposta } from '../utils/taxaCondominial';
+describe('critério de rateio por rubrica', () => {
+  const terra = [
+    { omId: 'a', nome: 'A', tipo: 'TERRA' as const, lotacao: 100, dias: 30, area: 1000, pesoManual: 1 },
+    { omId: 'b', nome: 'B', tipo: 'TERRA' as const, lotacao: 300, dias: 30, area: 1000, pesoManual: 3 },
+  ];
+  const navios = [{ omId: 'n', nome: 'N', tipo: 'NAVIO' as const, lotacao: 100, dias: 10 }];
+  const m = new Set(['1|a', '1|b']);
+  const rub = (extra: any = {}) => [{ numero: 1, descricao: 'R', valorPrevisto: 1200, descontoGeral: 0, ...extra }];
+  const anual = (r: any, id: string) => r.tc.oms.find((o: any) => o.omId === id).anual;
+  it('por pessoa (padrão), por área, partes iguais e peso informado', () => {
+    expect([anual(ratearProposta(rub(), terra, [], m, []), 'a'), anual(ratearProposta(rub(), terra, [], m, []), 'b')]).toEqual([300, 900]);
+    expect(anual(ratearProposta(rub({ criterio: 'AREA' }), terra, [], m, []), 'a')).toBe(600);
+    expect(anual(ratearProposta(rub({ criterio: 'IGUAL' }), terra, [], m, []), 'a')).toBe(600);
+    expect(anual(ratearProposta(rub({ criterio: 'PESO' }), terra, [], m, []), 'b')).toBe(900);
+  });
+  it('valor parcial para as OM (%OM)', () => {
+    expect(ratearProposta(rub({ percentualOM: 50 }), terra, [], m, []).tc.total).toBe(600);
+  });
+  it('navios à parte (modelo 2026): OM pagam 100% e navios a sua % sem afetar as OM', () => {
+    const r = ratearProposta(rub({ percentualNavios: 56 }), terra, navios, m, []);
+    expect(r.tc.total).toBe(1200);
+    expect(r.totalNavios).toBe(672);
+    expect(r.da.oms[0].anual).toBe(672);
+    expect(r.da.oms[0].diaria).toBe(5.6); // 672 ÷ (100 × 10 × 12) × 100
+  });
+  it('navios junto: um só valor dividido entre OM e navios (afeta as OM)', () => {
+    const r = ratearProposta(rub({ percentualNavios: 100, modoNavios: 'CONJUNTO' }), terra, navios, m, []);
+    // pesos: navios 100×10 = 1.000; OM 100×30 + 300×30 = 12.000 → navios 1200 × 1000/13000 = 92,31
+    expect(r.totalNavios).toBe(92.31);
+    expect(r.tc.total).toBe(1107.69);
+  });
+  it('rubrica paga só pelos navios: OM 0% e navios 100%', () => {
+    const r = ratearProposta(rub({ percentualOM: 0, percentualNavios: 100 }), terra, navios, m, []);
+    expect(r.tc.total).toBe(0);
+    expect(r.totalNavios).toBe(1200);
+  });
+});
+
+import { compararNavios, lerListaNavios } from '../utils/listaNavios';
+describe('lista de navios do Histórico Trienal × cadastro', () => {
+  const abas = [{ nome: 'LISTA DE NAVIOS', linhas: [
+    ['CLASSE NAVIO', 'NAVIO'], ['Corvetas Classe Barroso', 'Corveta Barroso'], ['Navios-Patrulha (Classe Grajaú)', 'Gurupi'], ['', 'Gurupá'],
+    ['Aviso Rio Chuí (Classe Pardo)', ''], ['Navio Polar', 'Almirante Maximiano'],
+  ] }, { nome: 'DIARIAS', linhas: [['COMSUP', 'CLASSE NAVIO', 'NAVIO', 'LOTAÇÃO', 'DIARIA'], ['ComForSup', 'Corvetas Classe Barroso', 'Corveta Barroso', 148, 403.86]] }];
+  it('lê a lista (classe repetida em branco) e completa com a aba DIARIAS', () => {
+    const l = lerListaNavios(abas);
+    expect(l.filter(x => x.navio).map(x => x.navio)).toEqual(['Corveta Barroso', 'Gurupi', 'Gurupá', 'Almirante Maximiano']);
+    expect(l.find(x => x.navio === 'Gurupá')!.classe).toBe('Navios-Patrulha (Classe Grajaú)');
+    expect(l.find(x => x.navio === 'Corveta Barroso')).toMatchObject({ lotacao: 148, diaria: 403.86, comsup: 'ComForSup' });
+    expect(l.some(x => x.classe === 'Aviso Rio Chuí (Classe Pardo)' && !x.navio)).toBe(true);
+  });
+  it('compara: confere, classe diferente, navio novo, classe nova e navio fora da lista', () => {
+    const c = compararNavios(lerListaNavios(abas), [
+      { id: '1', nome: 'Corveta Barroso', tipo: 'NAVIO', ativo: true, classeId: 'cb' },
+      { id: '2', nome: 'Navio-Patrulha Gurupi', tipo: 'NAVIO', ativo: true, classeId: null },
+      { id: '3', nome: 'Navio-Patrulha Mangaratiba', tipo: 'NAVIO', ativo: true },
+      { id: '4', nome: 'NApOc Polar', tipo: 'NAVIO', ativo: true, nomesAlternativos: ['Almirante Maximiano'], classeId: 'np' },
+    ], [{ id: 'cb', nome: 'Corvetas Classe Barroso', ativo: true }, { id: 'gr', nome: 'Navios-Patrulha (Classe Grajaú)', ativo: true }, { id: 'np', nome: 'Navio Polar', ativo: true }]);
+    expect(c.conferem.map(x => x.navio.id).sort()).toEqual(['1', '4']);
+    expect(c.classeDiferente.map(x => [x.navio.id, x.classeLista?.id])).toEqual([['2', 'gr']]);
+    expect(c.naviosNovos.map(x => x.navio)).toEqual(['Gurupá']);
+    expect(c.classesNovas).toEqual(['Aviso Rio Chuí (Classe Pardo)']);
+    expect(c.foraDaLista.map(x => x.id)).toEqual(['3']);
+  });
+});

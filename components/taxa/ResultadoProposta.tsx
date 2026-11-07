@@ -8,7 +8,7 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
-import { DadosProposta, importarDescontos, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarRubricasProposta } from '../../services/taxaCondominialService';
+import { DadosProposta, importarDescontos, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarProposta, salvarRubricasProposta } from '../../services/taxaCondominialService';
 import { ClienteModal } from './ClienteModal';
 import { ResultadoRateio } from '../../utils/taxaCondominial';
 import { lerAbas, lerProposta, ligarOMs } from '../../utils/taxaCondominialImport';
@@ -171,20 +171,29 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
       // rubricas depois da última da matriz (34 a 37) servem só para o PAR; "Navios" é a linha das diárias
       const ultimaMatriz = Math.max(0, ...lido.matriz.flatMap(m => m.rubricas));
       const parcela = new Map(lido.navios.map(n => [n.numero, n.valor]));
+      // sem a aba NAVIOS, vale a linha NAVIOS da matriz (100% da rubrica)
+      const navMatriz = new Set(lido.matrizNavios);
       // descontos por OM: os de OM ligadas viram descontos; os de pendentes ficam na pendência
       const descLig = lido.descontos.filter(d => idDe(d.nome)).map(d => ({ omId: idDe(d.nome)!, rubrica: d.rubrica, valor: d.valor }));
       const porRub = new Map<number, number>(); lido.descontos.forEach(d => porRub.set(d.rubrica, (porRub.get(d.rubrica) || 0) + d.valor));
       if (lido.rubricas.length) {
         const atuais = new Map(dados.rubricas.map(r => [r.numero, r]));
-        await salvarRubricasProposta(ano, lido.rubricas.map(r => {
+        // a linha "Navios" da Despesas_NOVO não é rubrica: é o total do grupo dos navios (guardado só para conferência)
+        const linhaNavios = lido.rubricas.find(r => r.destino === 'DA');
+        if (linhaNavios) await salvarProposta({ ...dados.proposta, ano, naviosPlanilha: linhaNavios.valorPrevisto });
+        await salvarRubricasProposta(ano, lido.rubricas.filter(r => r.destino !== 'DA').map(r => {
           // desconto geral = coluna DESCONTOS − soma dos descontos por OM daquela rubrica (ex.: rubrica 5, R$ 180.000)
           const geral = r.descontoPlanilha != null ? Math.max(0, Math.round((r.descontoPlanilha - (porRub.get(r.numero) || 0)) * 100) / 100) : atuais.get(r.numero)?.descontoGeral ?? 0;
           const destino = r.destino === 'TC' && ultimaMatriz > 0 && r.numero > ultimaMatriz ? 'PAR' as const : r.destino;
-          const pn = destino === 'TC' ? parcela.get(r.numero) ?? null : null;
-          const just = geral > 0 && pn && Math.abs(pn - geral) < 0.01 ? 'Rubrica paga pelos navios (aba NAVIOS da planilha)' : 'Desconto geral da planilha (coluna DESCONTOS da Despesas_NOVO)';
+          const pn = destino === 'TC' ? parcela.get(r.numero) ?? (navMatriz.has(r.numero) && !lido.navios.length ? r.valorPrevisto : null) : null;
+          const pctNav = pn && r.valorPrevisto ? Math.round((pn / r.valorPrevisto) * 1e6) / 1e4 : 0;
+          // rubrica que as OM não pagam (na planilha: DESCONTOS = valor inteiro) e os navios pagam: OM 0%, navios 100%
+          const soNavios = geral > 0 && Math.abs(geral - r.valorPrevisto) < 0.01 && pctNav >= 99.99;
+          const at = atuais.get(r.numero);
           return { numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorPrevisto: r.valorPrevisto, gastoAnterior: r.gastoAnterior, destino,
-            descontoPlanilha: r.descontoPlanilha, descontoGeral: geral, parcelaNavios: pn, justificativaValor: atuais.get(r.numero)?.justificativaValor ?? null,
-            justificativa: geral > 0 ? (atuais.get(r.numero)?.justificativa || just) : atuais.get(r.numero)?.justificativa ?? null };
+            descontoPlanilha: r.descontoPlanilha, descontoGeral: soNavios ? 0 : geral, parcelaNavios: pn, percentualNavios: pctNav, percentualOM: soNavios ? 0 : (at?.percentualOM ?? 100),
+            criterio: at?.criterio || 'LOTACAO', modoNavios: at?.modoNavios || 'SEPARADO', justificativaValor: at?.justificativaValor ?? null,
+            justificativa: !soNavios && geral > 0 ? (at?.justificativa || 'Desconto geral da planilha (coluna DESCONTOS da Despesas_NOVO)') : soNavios ? null : at?.justificativa ?? null };
         }));
       }
       if (lido.lotacoes.length) {

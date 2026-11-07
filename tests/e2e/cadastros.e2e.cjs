@@ -739,15 +739,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const arq = path.join(pasta, 'proposta.xlsx');
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025( R$)', 'VARIAÇÃO % (2026/2025)', 'DESCONTOS', 'VALOR RUBRICA ATUALIZADO'],
-      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64, '', 1500, 198500], [2, '', '', 'Navios', 1236100, '', 1151786.23], [3, '', '', 'Recompletamento de Estoque', 5000, '', 0]]), 'Despesas_NOVO');
+      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64, '', 1500, 198500], [2, '', '', 'Navios', 100000, '', 1151786.23], [3, '', '', 'Recompletamento de Estoque', 5000, '', 0]]), 'Despesas_NOVO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'EXTRATO DEMONSTRATIVO DA TAXA CONDOMINIAL – 2026'], ['', 'Nº DE ORDEM', 'DESPESAS –   NAVIOS', 'VALOR ANUAL APROVADO EM REAIS', 'VALOR MENSAL', '', '%RUB', 'VALOR DESCONTO', 'VALOR ATUALIZADO'],
-      ['', 1, 'Manutenção de Telhados', 1236100, 103008.33, '', 1, 0, 1236100], ['', 'TOTAL ANO', '', 1236100]]), 'NAVIOS');
+      ['', 1, 'Manutenção de Telhados', 100000, 8333.33, '', 1, 0, 100000], ['', 'TOTAL ANO', '', 100000]]), 'NAVIOS');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'EXTRATO DEMONSTRATIVO DA TAXA CONDOMINIAL – 2026'], ['', 'Nº DE ORDEM', 'DESPESAS – AMRJ', 'VALOR ANUAL APROVADO EM REAIS', 'VALOR MENSAL', '', '%RUB', 'VALOR DESCONTO', 'VALOR ATUALIZADO'],
       ['', 1, 'Manutenção de Telhados', 167912.5, 13992.71, '', 1, 1000, 166912.5], ['', 'TOTAL ANO', '', 167912.5], ['', 'TOTAL MÊS (ANO / 12)', '', 13992.71]]), 'AMRJ');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'CLIENTES'], ['', '', 1, 2], ['', 'SecNSNQ (Ed.23)', 'x', ''], ['', 'AMRJ', 'X', ''], ['', 'OM NOVA FORA DA ILHA', 'X', ''], ['', 'NAVIOS', '', 'X']]), 'Matriz_NOVO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['OM', 'TAXA 2025', 'MENSAL', 'PROPOSTA 2026 (A)', 'MENSAL', '%', '', 'DESCONTOS ANUAL', '', 'PROPOSTA ATUALIZADA', 'MENSAL', '', '', 1, 2],
       ['SecNSNQ (Ed.23)', 17000, 1416.67, 23275, 1939.58, '', '', 5469.62, '', 17805.38, 1483.78], ['AMRJ', 160000, 13333.33, 167912.5, 13992.71, '', '', 1000, '', 166912.5, 13909.00, '', '', 1000, 0], ['SUB-TOTAL'],
-      ['NAVIOS', 'DIÁRIA 2025', 'PROPOSTA DIÁRIA 2026 (A)', '% (A)', 'N° DIAS MÉDIO', 'VALOR ESTIMADO MÊS'], ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 3500, 3678.87, 0.05, 28, 103008.33], ['SUB-TOTAL']]), 'PROPOSTA CONDOMINIO');
+      ['NAVIOS', 'DIÁRIA 2025', 'PROPOSTA DIÁRIA 2026 (A)', '% (A)', 'N° DIAS MÉDIO', 'VALOR ESTIMADO MÊS'], ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 300, 297.62, -0.01, 28, 8333.33], ['SUB-TOTAL']]), 'PROPOSTA CONDOMINIO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['CLIENTES'], ['OM DE TERRA', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'DIAS'],
       ['SecNSNQ (Ed.23)', 140, 76, 30], ['AMRJ', 1010, 1422, 30], ['OM NOVA FORA DA ILHA', 50, 40, 30], ['SUB TOTAL'], ['NAVIOS', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'Nº MÉDIO DIAS'],
       ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 148, 125, 28], ['TOTAL GERAL']]), 'RATEIO MODELO TÉCNICO_2026');
@@ -770,9 +770,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Gravar importação' }).click();
     await page.getByText(/Proposta importada\. 1 nome\(s\) ficaram pendentes/).waitFor();
     const r1 = db.rubricas.find(r => r.numero === 1), r2 = db.rubricas.find(r => r.numero === 2);
-    ok(db.rubricas.length === 3 && Number(r1.gasto_anterior) === 391421.64 && r2.destino === 'DA' && r1.destino === 'TC', 'rubricas com valor do ano anterior; "Navios" vai para as diárias');
+    ok(db.rubricas.length === 2 && !r2 && Number(r1.gasto_anterior) === 391421.64 && r1.destino === 'TC' && Number(db.propostas_tc[0].navios_planilha) === 100000, '"Navios" não vira rubrica: é o total do grupo (guardado para conferência)');
     ok(db.rubricas.find(r => r.numero === 3).destino === 'PAR', 'rubrica depois da última da matriz fica "só PAR" (fora da taxa)');
-    ok(Number(r1.parcela_navios) === 1236100, 'parte da rubrica 1 paga pelos navios importada da aba NAVIOS');
+    ok(Number(r1.percentual_navios) === 50 && Number(r1.percentual_om) === 100 && r1.criterio === 'LOTACAO' && r1.modo_navios === 'SEPARADO', 'rubrica 1: OM 100% por pessoa e navios 50% à parte (aba NAVIOS)');
     ok(db.fechados_tc.length === 3 && db.fechados_tc.find(f => f.tipo === 'DA').om_id === bar.id && db.extratos_tc.some(e => e.om_id === amrj.id && e.rubrica === 1), 'valores fechados (OM e navios) e extrato da AMRJ guardados para conferência');
     ok(Number(r1.desconto_geral) === 500 && Number(r1.desconto_planilha) === 1500, 'DESCONTOS 1.500 = AMRJ 1.000 (por OM) + 500 de desconto geral');
     ok(db.descontos_tc.length === 1 && db.descontos_tc[0].om_id === amrj.id && Number(db.descontos_tc[0].valor) === 1000, 'desconto da AMRJ na rubrica 1 importado da PROPOSTA CONDOMINIO');
@@ -782,7 +782,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // rubricas: colunas da planilha e conferência dos descontos
     const linhaR1 = (await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).replace(/\s+/g, ' ');
     ok(linhaR1.includes('R$ 1.500,00') && linhaR1.includes('R$ 198.500,00') && linhaR1.includes('✓'), `rubrica 1: descontos R$ 1.500,00, atualizado R$ 198.500,00 e confere com a planilha (${linhaR1})`);
-    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Fora da taxa — só para o cálculo do PAR').isVisible(), 'blocos: soma das rubricas da taxa, navios e PAR');
+    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Fora da taxa — só para o cálculo do PAR').isVisible() && await page.getByText('Grupo NAVIOS — diárias de atracação').isVisible(), 'blocos: soma das rubricas da taxa, grupo NAVIOS e PAR');
+    ok((await page.getByText(/Valor do grupo NAVIOS/).innerText()).includes('R$ 100.000,00'), 'valor do grupo NAVIOS = 50% da rubrica 1 e confere com a planilha');
+    // critério de rateio: por área deixa as colunas de área na matriz; volta para por pessoa
+    await page.getByLabel('Critério da rubrica 1').selectOption('AREA');
+    ok(await page.getByLabel('Critério da rubrica 1').inputValue() === 'AREA', 'critério da rubrica pode ser trocado na tabela');
+    await page.getByLabel('Critério da rubrica 1').selectOption('LOTACAO');
     // ficha da rubrica 1: justificativa, subsídio e contrato
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     await page.getByLabel('Justificativa do valor').fill('Contrato 12/2026 de 12 meses + reajuste');
@@ -845,9 +850,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('row').filter({ hasText: 'AMRJ' }).first().click();
     ok((await page.locator('table').last().innerText()).includes('R$ 166.912,50 ✓'), 'extrato da AMRJ confere rubrica a rubrica com a aba do cliente');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-resultado.png'), fullPage: true });
-    // diárias, separadas: 1.236.100 ÷ (148×28×12) × 148 = 3.678,87/dia
+    // diárias: 50% de 200.000 = 100.000 ÷ (148×28×12) × 148 = 297,62/dia
     await page.getByRole('button', { name: '7. Resultado das diárias' }).click();
-    ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 3.678,87'), 'diária da Corveta Barroso R$ 3.678,87 (custo militar-dia × lotação)');
+    ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 297,62'), 'diária da Corveta Barroso R$ 297,62 (custo militar-dia × lotação)');
     ok(await page.getByText(/valores de diária conferem/).isVisible(), 'diárias conferem com a aba PROPOSTA');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-diarias.png'), fullPage: true });
     // aprovar e publicar
@@ -862,7 +867,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Confirmar' }).click();
     await page.getByText(/Diárias 2026 publicadas: 1 navio/).waitFor();
     const tcSec = db.precos.find(p => p.sigla === 'TC' && p.om_id === sec.id), da = db.precos.find(p => p.sigla === 'DA' && p.om_id === bar.id);
-    ok(tcSec && Number(tcSec.valor) === 1483.78 && da && Number(da.valor) === 3678.87, 'publicado: TC mensal SecNSNQ R$ 1.483,78 e DA da Barroso R$ 3.678,87 nos Preços de 2026');
+    ok(tcSec && Number(tcSec.valor) === 1483.78 && da && Number(da.valor) === 297.62, 'publicado: TC mensal SecNSNQ R$ 1.483,78 e DA da Barroso R$ 297,62 nos Preços de 2026');
     ok(db.propostas_tc.length === 1 && db.propostas_tc[0].status === 'DIVULGADA', 'proposta DIVULGADA');
     // auditoria
     ok(!(await page.getByRole('button', { name: 'Auditoria', exact: true }).count()), 'menu sem item "Auditoria" separado');
@@ -987,6 +992,45 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.parametros.find(p => p.chave === 'setores_material').valor === 'EXTRA-MB' && db.parametros.find(p => p.chave === 'nome_grupo_setores').valor === 'Extra-Marinha', 'grupo de setores não é mais fixo (gravado como parâmetro)');
     await page.getByRole('button', { name: 'Só Extra-Marinha' }).waitFor();
     ok(true, 'atalhos passam a usar o novo grupo');
+    // Faturas e Saldos: o campo Cliente busca no cadastro e preenche UG, setor e comando
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('button', { name: 'Nova Fatura' }).click();
+    await page.getByLabel('Cliente', { exact: true }).fill('industrial');
+    await page.getByRole('option', { name: /Diretoria Industrial da Marinha/ }).first().click();
+    ok(await page.getByText(/Ligado ao cadastro: 40030 · Diretoria Industrial da Marinha/).isVisible()
+      && await page.getByLabel('UG (Unidade Gestora)').inputValue() === '40030' && await page.getByLabel('Setor').inputValue() === 'DGMM', 'fatura: cliente escolhido no cadastro preenche UG, setor e comando');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('button', { name: 'Novo Documento' }).click();
+    await page.getByRole('dialog').getByLabel('Cliente', { exact: true }).fill('banco');
+    ok(await page.getByText('Cadastrar novo cliente').isVisible(), 'documento: busca no cadastro com opção de cadastrar cliente novo');
+    await page.getByRole('option', { name: /Banco do Brasil/ }).first().click();
+    ok(await page.getByText(/Ligado ao cadastro: 00994 · Banco do Brasil/).isVisible(), 'documento ligado à OM do cadastro');
+    await page.keyboard.press('Escape');
+    // Lista de navios do Histórico Trienal × cadastro
+    const classeB = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
+    db.classes_navio.push(classeB);
+    db.oms.push({ id: uid(), codigo: '91645', nome: 'Corveta Barroso', tipo: 'NAVIO', classe_id: null, ativo: true, nomes_alternativos: [] });
+    const hist = path.join(os.tmpdir(), `siscont-lista-${Date.now()}.xlsx`);
+    const wbL = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbL, XLSX.utils.aoa_to_sheet([['CLASSE NAVIO', 'NAVIO'], ['Corvetas Classe Barroso', 'Corveta Barroso'], ['Navio Polar', 'Almirante Maximiano']]), 'LISTA DE NAVIOS');
+    XLSX.writeFile(wbL, hist);
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'Lista de navios' }).click();
+    await page.locator('input[aria-label="Planilha do histórico trienal"]').setInputFiles(hist);
+    await page.getByText(/1 classe\(s\) a criar/).waitFor();
+    ok(await page.getByText('Navios com classe diferente da lista').isVisible(), 'aponta navio do cadastro sem a classe da lista');
+    await page.getByRole('button', { name: 'Corrigir todas pela lista' }).click();
+    await page.getByText(/Classes corrigidas: 1/).waitFor();
+    ok(db.oms.find(o => o.nome === 'Corveta Barroso').classe_id === classeB.id, 'classe do navio corrigida pela lista');
+    await page.getByRole('button', { name: /Criar todas/ }).click();
+    await page.getByText(/Classes criadas: 1/).waitFor();
+    await page.getByRole('button', { name: /Incluir todos/ }).click();
+    await page.getByText(/Navios incluídos no cadastro: 1/).waitFor();
+    const polar = db.oms.find(o => o.nome === 'Almirante Maximiano');
+    ok(polar && polar.tipo === 'NAVIO' && polar.classe_id === db.classes_navio.find(c => c.nome === 'Navio Polar').id, 'classe e navio que faltavam criados no cadastro');
+    await page.getByText('Cadastro de navios e classes confere com a lista.').waitFor();
+    ok(true, 'depois das correções o cadastro confere com a lista');
   });
 
   if (extras.length) {

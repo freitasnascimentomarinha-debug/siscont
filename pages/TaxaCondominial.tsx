@@ -8,7 +8,7 @@ import { Campo, br, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
 import { AbaResultado, ImportarProposta } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
-import { mediaTrienal, montarParticipantes, ratear } from '../utils/taxaCondominial';
+import { PorRubrica, mediaTrienal, montarParticipantes, ratearProposta } from '../utils/taxaCondominial';
 import { notify } from '../utils/notify';
 
 type Aba = 'rubricas' | 'clientes' | 'descontos' | 'resultado' | 'navios' | 'media' | 'diarias';
@@ -57,22 +57,17 @@ export const TaxaCondominial: React.FC = () => {
     return new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id)).map(m => [m.classeId, m.mediaMensal]));
   }, [dados, ano]);
   // cálculos separados: taxa condominial (OM de terra × rubricas TC) e diárias (navios × rubricas DA)
-  const { resultado, resultadoDA, descontosPorOM } = useMemo(() => {
-    if (!dados) return { resultado: null, resultadoDA: null, descontosPorOM: new Map<number, number>() };
+  const { resultado, resultadoDA, descontosPorOM, porRubrica } = useMemo(() => {
+    if (!dados) return { resultado: null, resultadoDA: null, descontosPorOM: new Map<number, number>(), porRubrica: [] as PorRubrica[] };
     const part = montarParticipantes(dados.oms, dados.lotacoes, medias);
     const rubTC = dados.rubricas.filter(r => r.destino === 'TC');
-    // valor das diárias = soma das parcelas dos navios nas rubricas (aba NAVIOS); sem parcelas, o valor da linha "Navios"
-    const somaParcelas = Math.round(rubTC.reduce((s, r) => s + (r.parcelaNavios || 0), 0) * 100) / 100;
-    const linhaNavios = dados.rubricas.find(r => r.destino === 'DA');
-    const rubDA = somaParcelas > 0
-      ? [{ numero: linhaNavios?.numero ?? 38, descricao: 'Navios (soma das parcelas das rubricas)', valorPrevisto: somaParcelas, descontoGeral: 0 }]
-      : dados.rubricas.filter(r => r.destino === 'DA');
     const terra = part.filter(p => p.tipo === 'TERRA'), navios = part.filter(p => p.tipo === 'NAVIO');
-    const tc = ratear(rubTC, terra, dados.matriz, dados.descontos);
-    const da = ratear(rubDA, navios, new Set(rubDA.flatMap(r => navios.map(n => `${r.numero}|${n.omId}`))), dados.descontos);
+    // critério de cada rubrica (lotação, área, partes iguais, peso), % das OM e % dos navios (à parte ou junto)
+    const r = ratearProposta(rubTC, terra, navios, dados.matriz, dados.descontos);
+    const tc = r.tc, da = r.da;
     const porOM = new Map<number, number>();
-    [...tc.oms, ...da.oms].forEach(o => o.parcelas.forEach(p => porOM.set(p.rubrica, Math.round(((porOM.get(p.rubrica) || 0) + p.desconto) * 100) / 100)));
-    return { resultado: tc, resultadoDA: da, descontosPorOM: porOM };
+    tc.oms.forEach(o => o.parcelas.forEach(p => porOM.set(p.rubrica, Math.round(((porOM.get(p.rubrica) || 0) + p.desconto) * 100) / 100)));
+    return { resultado: tc, resultadoDA: da, descontosPorOM: porOM, porRubrica: r.porRubrica };
   }, [dados, medias]);
 
   const status = dados?.proposta.status || 'PROPOSTA';
@@ -151,7 +146,7 @@ export const TaxaCondominial: React.FC = () => {
           ))}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-          {aba === 'rubricas' && <AbaRubricas ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} descontosPorOM={descontosPorOM} usuario={user?.name || user?.email || ''} />}
+          {aba === 'rubricas' && <AbaRubricas ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} descontosPorOM={descontosPorOM} porRubrica={porRubrica} usuario={user?.name || user?.email || ''} />}
           {aba === 'clientes' && <AbaClientes ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} medias={medias} modo="TERRA" />}
           {aba === 'descontos' && <AbaDescontos ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} resultado={resultado} />}
           {aba === 'resultado' && <AbaResultado ano={ano} dados={dados} resultado={resultado} anterior={anterior} modo="TC" />}

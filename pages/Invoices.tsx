@@ -1,4 +1,5 @@
 
+import { SeletorCliente } from '../components/ui/SeletorCliente';
 import { ORDEM_PADRAO, Ordem, ordenarFaturas } from '../utils/ordenarFaturas';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
@@ -202,7 +203,7 @@ export const Invoices: React.FC = () => {
         const clientsList: AnalyticalNode[] = Object.keys(cmdData.clients).sort().map(cliKey => {
           const cliData = cmdData.clients[cliKey];
 
-          const invoiceNodes: AnalyticalNode[] = cliData.invoices.sort((a: any, b: any) => a.dueDate.localeCompare(b.dueDate)).map((inv: any) => ({
+          const invoiceNodes: AnalyticalNode[] = cliData.invoices.sort((a: any, b: any) => (a.dueDate || '').localeCompare(b.dueDate || '')).map((inv: any) => ({
             id: inv.id,
             name: inv.invoiceNumber,
             type: 'invoice',
@@ -276,6 +277,7 @@ export const Invoices: React.FC = () => {
   // ... (Code reused from previous implementation)
 
   const omDoFormulario = (): string | null | undefined => {
+    if (formData.omId) return formData.omId; // escolhido no campo Cliente (cadastro)
     const ug = (formData.ug || '').trim(), nome = (formData.client || '').trim().toLowerCase();
     const m = clients.find(c => c.omId && c.ug === ug && String(c.name).trim().toLowerCase() === nome);
     if (m) return m.omId;
@@ -1262,7 +1264,9 @@ export const Invoices: React.FC = () => {
           <Input label="Setor" required value={formData.sector || ''} onChange={e => setFormData({ ...formData, sector: e.target.value })} disabled={isReadOnly} />
           <Input label="Comando" required value={formData.command || ''} onChange={e => setFormData({ ...formData, command: e.target.value })} disabled={isReadOnly} />
 
-          <Input label="Cliente" required value={formData.client || ''} onChange={e => setFormData({ ...formData, client: e.target.value })} disabled={isReadOnly} />
+          <SeletorCliente valor={formData.client || ''} omId={formData.omId} disabled={isReadOnly}
+            onTexto={t => setFormData({ ...formData, client: t, omId: editingId && formData.omId !== undefined ? null : undefined })}
+            onEscolher={c => setFormData({ ...formData, client: c.client, ug: c.ug, sector: c.sector, command: c.command, omId: c.omId })} />
 
           <Select label="Tipo de Fatura" required options={services} value={formData.type || ''} onChange={handleTypeChange} disabled={isReadOnly} />
 

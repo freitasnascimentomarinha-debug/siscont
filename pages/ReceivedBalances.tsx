@@ -1,4 +1,5 @@
 
+import { SeletorCliente } from '../components/ui/SeletorCliente';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
@@ -786,7 +787,9 @@ export const ReceivedBalances: React.FC = () => {
 
           <Input label="UG (Unidade Gestora)" value={docFormData.ug || ''} onChange={handleUgChange} placeholder="Ex: 789000 (Auto-preenchimento)" />
 
-          <Input label="Cliente" required value={docFormData.client || ''} onChange={e => setDocFormData({ ...docFormData, client: e.target.value })} />
+          <SeletorCliente valor={docFormData.client || ''}
+            onTexto={t => setDocFormData({ ...docFormData, client: t })}
+            onEscolher={c => setDocFormData({ ...docFormData, client: c.client, ug: c.ug, sector: c.sector, command: c.command, ...(c.comandoId ? { comandoId: c.comandoId } : {}) })} />
           <Input label="Setor" required value={docFormData.sector || ''} onChange={e => setDocFormData({ ...docFormData, sector: e.target.value })} />
           <Input label="Comando" required value={docFormData.command || ''} onChange={e => setDocFormData({ ...docFormData, command: e.target.value })} />
 

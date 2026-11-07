@@ -91,6 +91,20 @@ export function lerMatriz(linhas: Linhas): LinhaMatriz[] {
   return out;
 }
 
+/** Linha "NAVIOS" da Matriz_NOVO: rubricas de que o grupo dos navios participa. */
+export function lerMatrizNavios(linhas: Linhas): number[] {
+  let h = -1, c0 = -1;
+  for (let i = 0; i < Math.min(linhas.length, 30) && h < 0; i++) {
+    const l = linhas[i];
+    for (let j = 0; j < l.length - 1; j++) if (num(l[j]) === 1 && num(l[j + 1]) === 2) { h = i; c0 = j; break; }
+  }
+  if (h < 0) return [];
+  const numeros: { col: number; n: number }[] = [];
+  for (let j = c0; j < linhas[h].length; j++) { const n = num(linhas[h][j]); if (n === null || !Number.isInteger(n)) break; numeros.push({ col: j, n }); }
+  const l = linhas.slice(h + 1).find(x => /^NAVIOS?$/.test(normalizar(String(x.slice(0, c0).reverse().find(c => String(c ?? '').trim()) ?? ''))));
+  return l ? numeros.filter(x => /^X$/i.test(String(l[x.col] ?? '').trim())).map(x => x.n) : [];
+}
+
 // ------------------------------------------------------------------ Lotação (aba de rateio)
 export interface LotacaoLida { nome: string; lotacao: number; lotacaoAnterior: number | null; dias: number | null; navio: boolean }
 
@@ -219,6 +233,7 @@ export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
   return {
     rubricas: desp ? tentar(() => lerDespesas(desp.linhas), desp.nome) : [],
     matriz: mat ? tentar(() => lerMatriz(mat.linhas), mat.nome) : [],
+    matrizNavios: mat ? lerMatrizNavios(mat.linhas) : [],
     lotacoes: rat ? tentar(() => lerLotacoes(rat.linhas), rat.nome) : [],
     descontos: prop ? tentar(() => lerDescontosOM(prop.linhas), prop.nome) : [],
     fechados: prop ? [...lerValoresFechados(prop.linhas).map(f => ({ ...f, tipo: 'TC' as const })), ...lerDiariasFechadas(prop.linhas)] : [],
