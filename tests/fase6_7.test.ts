@@ -265,7 +265,7 @@ describe('critério de rateio por rubrica', () => {
   });
 });
 
-import { compararNavios, lerListaNavios } from '../utils/listaNavios';
+import { compararNavios, lerListaNavios, lerQtdTrienal, resumoPorClasse } from '../utils/listaNavios';
 describe('lista de navios do Histórico Trienal × cadastro', () => {
   const abas = [{ nome: 'LISTA DE NAVIOS', linhas: [
     ['CLASSE NAVIO', 'NAVIO'], ['Corvetas Classe Barroso', 'Corveta Barroso'], ['Navios-Patrulha (Classe Grajaú)', 'Gurupi'], ['', 'Gurupá'],
@@ -299,5 +299,14 @@ describe('lista de navios do Histórico Trienal × cadastro', () => {
     expect(c.desativadosNaLista.map(x => x.navio.id)).toEqual(['1']);
     expect(c.desativadosForaDaLista.map(x => x.id)).toEqual(['5']);
     expect(c.foraDaLista).toEqual([]);
+  });
+  it('resumo por classe: lista, quantidade da média trienal e cadastro', () => {
+    const abas2 = [...abas, { nome: 'MEDIA TRIENAL', linhas: [['t'], [''], ['CLASSE NAVIO', 'QTDE NAVIOS 2022', 'QTDE NAVIOS 2023', 'QTDE NAVIOS 2024'], ['Corvetas Classe Barroso', 2, 1, 1], ['TOTAL', '', '', '']] }];
+    expect(lerQtdTrienal(abas2)).toEqual([{ classe: 'Corvetas Classe Barroso', porAno: { '2022': 2, '2023': 1, '2024': 1 } }]);
+    const oms = [{ id: '1', nome: 'Corveta Barroso', tipo: 'NAVIO', ativo: false, classeId: 'cb' }, { id: '6', nome: 'Outra', tipo: 'NAVIO', ativo: true, classeId: 'cb' }];
+    const cls = [{ id: 'cb', nome: 'Corvetas Classe Barroso', ativo: true }];
+    const l = lerListaNavios(abas2);
+    const r = resumoPorClasse(l, lerQtdTrienal(abas2), compararNavios(l, oms, cls), oms, cls).find(x => x.classeId === 'cb')!;
+    expect(r).toMatchObject({ naLista: 1, ativos: 1, desativados: 1, reativar: 1, trienal: { '2022': 2, '2023': 1, '2024': 1 } });
   });
 });

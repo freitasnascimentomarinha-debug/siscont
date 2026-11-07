@@ -4,7 +4,7 @@ import { Button } from '../ui/Button';
 import { cadastroService } from '../../services/cadastroService';
 import { notify } from '../../utils/notify';
 import { lerAbas } from '../../utils/taxaCondominialImport';
-import { NavioLista, compararNavios, lerListaNavios } from '../../utils/listaNavios';
+import { NavioLista, QtdTrienal, compararNavios, lerListaNavios, lerQtdTrienal, resumoPorClasse } from '../../utils/listaNavios';
 import { ClienteModal } from '../taxa/ClienteModal';
 import { DadosCadastro } from './useCadastros';
 
@@ -17,19 +17,22 @@ const ler = (f: File) => new Promise<ArrayBuffer>((ok, erro) => { const r = new 
  */
 export const ListaNaviosTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recarregar: () => Promise<void> | void }> = ({ dados, podeEditar, recarregar }) => {
   const [lista, setLista] = useState<NavioLista[] | null>(null);
+  const [qtd, setQtd] = useState<QtdTrienal[]>([]);
   const [arquivo, setArquivo] = useState('');
   const [ligar, setLigar] = useState<NavioLista | null>(null);
   const [trabalhando, setTrabalhando] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const cmp = useMemo(() => (lista ? compararNavios(lista, dados.oms, dados.classes) : null), [lista, dados.oms, dados.classes]);
+  const resumo = useMemo(() => (lista && cmp ? resumoPorClasse(lista, qtd, cmp, dados.oms, dados.classes) : []), [lista, qtd, cmp, dados.oms, dados.classes]);
   const classePorNome = (nome: string) => dados.classes.find(c => c.nome.trim().toLowerCase() === nome.trim().toLowerCase());
 
   const abrir = async (f?: File) => {
     if (!f) return;
     try {
-      const l = lerListaNavios(lerAbas(await ler(f)));
+      const abas = lerAbas(await ler(f));
+      const l = lerListaNavios(abas);
       if (!l.length) { notify.error('Não encontrei a aba LISTA DE NAVIOS (colunas CLASSE NAVIO e NAVIO).'); return; }
-      setLista(l); setArquivo(f.name);
+      setLista(l); setQtd(lerQtdTrienal(abas)); setArquivo(f.name);
     } catch (e) { notify.fail('Erro ao ler a planilha', e); }
     if (ref.current) ref.current.value = '';
   };
@@ -79,6 +82,23 @@ export const ListaNaviosTab: React.FC<{ dados: DadosCadastro; podeEditar: boolea
       {cmp && lista && <>
         <div className="text-sm text-slate-700"><b>{arquivo}</b>: {lista.filter(x => x.navio).length} navios em {new Set(lista.map(x => x.classe)).size} classes.
           {' '}<span className="text-emerald-700">{cmp.conferem.length} conferem</span> · {cmp.classesNovas.length} classe(s) a criar · {cmp.naviosNovos.length} navio(s) fora do cadastro · {cmp.classeDiferente.length} com classe diferente · {cmp.foraDaLista.length} ativo(s) no cadastro fora da lista · <span className="text-amber-700">{cmp.desativadosNaLista.length} desativado(s) que estão na lista</span> · {cmp.desativadosForaDaLista.length} desativado(s) fora da lista.</div>
+
+        <section className="border border-slate-200 rounded-xl p-3">
+          <h4 className="font-semibold mb-1">Navios por classe: lista, média trienal e cadastro</h4>
+          <p className="text-xs text-slate-500 mb-2">A média trienal divide os dias atracados pelo número de navios da classe em cada ano. <b>Lista</b> = navios na aba LISTA DE NAVIOS (hoje); <b>Trienal</b> = "QTDE NAVIOS" da aba MEDIA TRIENAL (2022/2023/2024); <b>Após reativar</b> = ativos no cadastro mais os desativados que estão na lista. Linhas em amarelo: após reativar ≠ lista.</p>
+          <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="text-slate-500"><tr><th className="text-left">Classe</th><th className="text-right">Lista</th><th className="text-right">Trienal</th><th className="text-right">Ativos</th><th className="text-right">Desativ.</th><th className="text-right">A reativar</th><th className="text-right">Após reativar</th></tr></thead>
+            <tbody>{resumo.map(r => {
+              const apos = r.ativos + r.reativar, dif = apos !== r.naLista;
+              return (
+                <tr key={r.classe} className={`border-t border-slate-100 ${dif ? 'bg-amber-50' : ''}`}>
+                  <td className="py-1">{r.classe}{!r.classeId && <span className="text-amber-700"> (classe não cadastrada)</span>}</td>
+                  <td className="text-right">{r.naLista}</td>
+                  <td className="text-right">{r.trienal ? Object.keys(r.trienal).sort().map(a => r.trienal![a]).join(' / ') : '—'}</td>
+                  <td className="text-right">{r.ativos}</td><td className="text-right">{r.desativados}</td><td className="text-right">{r.reativar}</td><td className="text-right font-semibold">{apos}</td>
+                </tr>);
+            })}</tbody>
+          </table></div>
+        </section>
 
         {cmp.desativadosNaLista.length > 0 && (
           <section className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-3">

@@ -70,3 +70,49 @@ export function compararNavios(lista: NavioLista[], oms: NavioCad[], classes: Cl
   r.desativadosForaDaLista = navios.filter(o => !o.ativo && !vistos.has(o.id));
   return r;
 }
+
+/** Quantidade de navios por classe e ano, da aba MEDIA TRIENAL (colunas "QTDE NAVIOS 2022" etc.). */
+export interface QtdTrienal { classe: string; porAno: Record<string, number> }
+export function lerQtdTrienal(abas: { nome: string; linhas: any[][] }[]): QtdTrienal[] {
+  const a = abas.find(x => /^MEDIA TRIENAL/.test(normalizar(x.nome)));
+  if (!a) return [];
+  const h = a.linhas.findIndex(l => l.some(c => normalizar(c) === 'CLASSE NAVIO'));
+  if (h < 0) return [];
+  const cab = a.linhas[h].map(normalizar);
+  const cC = cab.indexOf('CLASSE NAVIO');
+  const anos = cab.map((c, i) => ({ i, m: /^QTDE NAVIOS (\d{4})/.exec(c) })).filter(x => x.m).map(x => ({ i: x.i, ano: x.m![1] }));
+  const out: QtdTrienal[] = [];
+  for (const l of a.linhas.slice(h + 1)) {
+    const classe = String(l[cC] ?? '').trim();
+    if (!classe || normalizar(classe) === 'TOTAL') continue;
+    out.push({ classe, porAno: Object.fromEntries(anos.map(x => [x.ano, Number(l[x.i]) || 0])) });
+  }
+  return out;
+}
+
+export interface ResumoClasse {
+  classe: string; classeId: string | null;
+  naLista: number; trienal: Record<string, number> | null;
+  ativos: number; desativados: number; reativar: number;
+}
+/** Por classe: navios na lista hoje, quantidade nos anos da média trienal e no cadastro (ativos/desativados/a reativar). */
+export function resumoPorClasse(lista: NavioLista[], qtd: QtdTrienal[], cmp: Comparacao, oms: NavioCad[], classes: ClasseCad[]): ResumoClasse[] {
+  const reativarIds = new Set(cmp.desativadosNaLista.map(x => x.navio.id));
+  const mapa = new Map<string, ResumoClasse>();
+  const pegar = (nome: string): ResumoClasse => {
+    const cl = acharPorNome(nome, classes);
+    const chave = cl ? cl.id : 'N:' + normalizar(nome);
+    let r = mapa.get(chave);
+    if (!r) {
+      const navios = cl ? oms.filter(o => o.tipo === 'NAVIO' && o.classeId === cl.id) : [];
+      r = { classe: cl?.nome ?? nome, classeId: cl?.id ?? null, naLista: 0, trienal: null,
+        ativos: navios.filter(o => o.ativo).length, desativados: navios.filter(o => !o.ativo).length,
+        reativar: navios.filter(o => reativarIds.has(o.id)).length };
+      mapa.set(chave, r);
+    }
+    return r;
+  };
+  lista.forEach(l => { const r = pegar(l.classe); if (l.navio) r.naLista++; });
+  qtd.forEach(q => { const r = pegar(q.classe); r.trienal = { ...(r.trienal || {}), ...q.porAno }; });
+  return [...mapa.values()].sort((a, b) => a.classe.localeCompare(b.classe, 'pt-BR'));
+}
