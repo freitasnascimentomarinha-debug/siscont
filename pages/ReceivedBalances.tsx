@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
@@ -66,12 +66,14 @@ export const ReceivedBalances: React.FC = () => {
 
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'doc' | 'alloc', id: string } | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(true);
 
   // Clients for Autofill
   const [clients, setClients] = useState<any[]>([]);
 
   const refresh = async () => {
     let docs, invs, allocs, clist;
+    setCarregando(true);
     try {
       [docs, invs, allocs, clist] = await Promise.all([
         db.getDocuments(),
@@ -81,8 +83,10 @@ export const ReceivedBalances: React.FC = () => {
       ]);
     } catch (err) {
       notify.fail('Erro ao carregar saldos', err);
+      setCarregando(false);
       return;
     }
+    setCarregando(false);
     setDocuments(docs);
     setInvoices(invs);
     setAllocations(allocs);
@@ -298,14 +302,21 @@ export const ReceivedBalances: React.FC = () => {
     }
   };
 
+  const invoicesById = useMemo(() => new Map(invoices.map(i => [i.id, i])), [invoices]);
+  const alocadoPorFatura = useMemo(() => {
+    const m = new Map<string, number>();
+    allocations.forEach(a => m.set(a.invoiceId, (m.get(a.invoiceId) || 0) + a.amount));
+    return m;
+  }, [allocations]);
+
   const getDocAllocations = (docId: string) => {
     return allocations.filter(a => a.documentId === docId).map(a => {
-      const inv = invoices.find(i => i.id === a.invoiceId);
+      const inv = invoicesById.get(a.invoiceId);
       return { ...a, invoiceNumber: inv?.invoiceNumber, invoiceValue: inv?.value, invoiceClient: inv?.client };
     });
   };
 
-  const openInvoices = invoices.filter(i => i.status !== InvoiceStatus.PAID);
+  const openInvoices = useMemo(() => invoices.filter(i => i.status !== InvoiceStatus.PAID && i.status !== InvoiceStatus.CANCELLED), [invoices]);
 
   // --- Import/Export ---
   const exportPDF = () => {
@@ -334,7 +345,7 @@ export const ReceivedBalances: React.FC = () => {
       const docAllocs = allocations.filter(a => a.documentId === d.id);
       if (docAllocs.length > 0) {
         docAllocs.forEach(a => {
-          const inv = invoices.find(i => i.id === a.invoiceId);
+          const inv = invoicesById.get(a.invoiceId);
           bodyRows.push([
             { content: `-> Pgto Fatura: ${inv?.invoiceNumber || '?'} (${inv?.competence}) | Vl Pago: R$ ${a.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, colSpan: 8, styles: { fillColor: [248, 250, 252], textColor: [100, 116, 139], fontStyle: 'italic' } }
           ]);
@@ -387,7 +398,7 @@ export const ReceivedBalances: React.FC = () => {
       } else {
         // Rows for each allocation
         docAllocs.forEach(a => {
-          const inv = invoices.find(i => i.id === a.invoiceId);
+          const inv = invoicesById.get(a.invoiceId);
           csvRows.push([
             ...docBase,
             `"Fat: ${inv?.invoiceNumber || 'N/A'}"`,
@@ -696,7 +707,10 @@ export const ReceivedBalances: React.FC = () => {
           </div>
         ))}
 
-        {Object.keys(groupedDocs).length === 0 && (
+        {carregando && documents.length === 0 && (
+          <div className="p-8 text-center text-slate-500 text-sm bg-white rounded-lg border border-slate-200">Carregando documentos...</div>
+        )}
+        {!carregando && Object.keys(groupedDocs).length === 0 && (
           <div className="text-center py-12 bg-white rounded-lg border border-slate-200 text-slate-500">
             <Search size={48} className="mx-auto mb-4 text-slate-300" />
             <p>Nenhum documento encontrado para os filtros selecionados.</p>
@@ -773,8 +787,7 @@ export const ReceivedBalances: React.FC = () => {
               })
               .map(inv => {
                 // Determine Real Debt: (Total Invoice Value) - (All Allocations related to this invoice)
-                const invAllocations = allocations.filter(a => a.invoiceId === inv.id);
-                const totalAllocated = invAllocations.reduce((sum, a) => sum + a.amount, 0);
+                const totalAllocated = alocadoPorFatura.get(inv.id) || 0;
                 const target = inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0);
                 const debt = Math.max(0, target - totalAllocated);
 

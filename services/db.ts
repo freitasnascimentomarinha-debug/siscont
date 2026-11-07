@@ -4,7 +4,8 @@ import { supabaseService } from './supabaseService';
 import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
 
 // --- Simple In-Memory Cache ---
-const CACHE_TTL = 30_000; // 30 seconds
+// Gravações feitas por este navegador limpam o cache na hora; o prazo só vale para mudanças de outros usuários
+const CACHE_TTL = 120_000; // 2 minutos
 
 interface CacheEntry<T> {
   data: T;

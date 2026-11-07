@@ -32,7 +32,7 @@ function handler(db, log) {
   return async route => {
     const req = route.request();
     const url = new URL(req.url());
-    const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: body === undefined ? '' : JSON.stringify(body) });
+    const json = (status, body, headers) => route.fulfill({ status, contentType: 'application/json', headers, body: body === undefined ? '' : JSON.stringify(body) });
     if (url.pathname === '/auth/v1/token') {
       return json(200, { access_token: 't', token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'r', user: { id: 'a1', aud: 'authenticated', email: 'admin@mb.br', app_metadata: {}, user_metadata: {} } });
     }
@@ -46,7 +46,7 @@ function handler(db, log) {
     if (!m) return json(404, {});
     const t = m[1];
     if (!db[t]) return json(200, []);
-    const filtros = [...url.searchParams.entries()].filter(([k]) => !['select', 'order', 'columns', 'on_conflict'].includes(k));
+    const filtros = [...url.searchParams.entries()].filter(([k]) => !['select', 'order', 'columns', 'on_conflict', 'offset', 'limit'].includes(k));
     const casa = r => filtros.every(([k, v]) => {
       if (v.startsWith('eq.')) return String(r[k]) === v.slice(3);
       if (v.startsWith('in.(')) return v.slice(4, -1).split(',').map(x => x.replace(/^"|"$/g, '')).includes(String(r[k]));
@@ -57,7 +57,14 @@ function handler(db, log) {
     if (metodo === 'GET') {
       const rows = db[t].filter(casa);
       if ((req.headers()['accept'] || '').includes('vnd.pgrst.object')) return rows[0] ? json(200, rows[0]) : json(406, { code: 'PGRST116' });
-      return json(200, rows);
+      // paginação do PostgREST (offset/limit) e total pedido com Prefer: count=exact
+      const off = Number(url.searchParams.get('offset') || 0);
+      const lim = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : rows.length;
+      const pag = rows.slice(off, off + lim);
+      const headers = (req.headers()['prefer'] || '').includes('count=exact')
+        ? { 'Content-Range': `${off}-${off + pag.length - 1}/${rows.length}`, 'Access-Control-Expose-Headers': 'Content-Range' } : undefined;
+      log.push(`GET ${t} offset=${off}`);
+      return json(200, pag, headers);
     }
     if (metodo === 'POST') {
       const body = JSON.parse(req.postData() || '[]');
@@ -149,7 +156,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       await page.getByRole('button', { name: 'Entrar no Sistema' }).click();
       await page.getByRole('button', { name: 'Cadastros' }).click();
       await page.getByRole('heading', { name: 'Cadastros' }).waitFor();
-      await fn(page, db, arquivos);
+      await fn(page, db, arquivos, log);
       ok(erros.length === 0, `sem erros de JavaScript ${erros.join(' | ')}`);
       resultados.push([nome, 'OK']);
     } catch (e) {
@@ -305,6 +312,50 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Sim, remover' }).click();
     await page.getByText('Migração desfeita').waitFor();
     ok(db.invoices.length === 1 && db.invoices[0].id === 'i1' && !db.received_documents.length && !db.payment_allocations.length, 'desfazer remove só o que a migração gravou');
+  });
+
+  await cenario('Faturas com 7.000 registros: abre rápido, pagina e mostra a ALTCRED da quitada', [], async (page, db, _a, log) => {
+    const doc = { id: uid(), document_number: 'G424.2026.AC.00343', document_type: 'ALTCRED', total_value: 5000000, date: '2026-02-01', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030' };
+    db.received_documents.push(doc);
+    db.invoices = [];
+    for (let i = 0; i < 7000; i++) {
+      const hist = i >= 1500;
+      db.invoices.push({
+        id: uid(), ug: '40030', sector: 'DGMM', command: '40030 - DIM', client: 'Diretoria Industrial da Marinha',
+        invoice_number: `40030-EL-${String((i % 12) + 1).padStart(2, '0')}-${hist ? 2024 : 2026}-${String(i).padStart(4, '0')}-0`,
+        value: 100 + i, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-02-15', due_date: '2026-03-02',
+        month_competence: (i % 12) + 1, year_competence: hist ? 2024 : 2026, competence: '', type: 'Eletricidade', service_acronym: 'EL',
+        is_canceled: false, siplad_settled: false, om_id: null, origem: 'Planilha', quitacao_externa: hist ? 'Quitada antes do SISCONT' : null, quitada_em: null, contestada: false, pontos_atencao: [],
+      });
+      if (i < 1200) db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: db.invoices[i].id, amount: 100 + i, date: '2026-03-01', service_type: 'EL', siscont_settled: false });
+    }
+    await page.reload(); // o painel inicial já tinha lido (e guardado em cache) o banco antes da carga
+    await page.getByRole('button', { name: 'Faturas' }).first().waitFor();
+    const t0 = Date.now();
+    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByText(/de 7\.000 faturas/).waitFor({ timeout: 30000 });
+    const ms = Date.now() - t0;
+    ok(ms < 8000, `lista de 7.000 faturas aberta em ${(ms / 1000).toFixed(1)} s`);
+    ok(await page.locator('tbody > tr').count() <= 60, 'só a página atual é desenhada (50 linhas)');
+    ok(log.filter(l => l.startsWith('GET invoices offset=')).length >= 7, 'leitura paginada do banco (7 páginas)');
+    const t1 = Date.now();
+    await page.getByRole('button', { name: 'Próxima' }).click();
+    await page.getByText('Página 2 de 140').waitFor();
+    ok(Date.now() - t1 < 1500, `troca de página em ${Date.now() - t1} ms`);
+    // quitada com baixa: mostra a ALTCRED
+    await page.getByLabel('Busca').fill('40030-EL-01-2026-0000-0');
+    const linha = page.getByRole('row').filter({ hasText: '40030-EL-01-2026-0000-0' });
+    await linha.getByRole('button').first().click();
+    await page.getByRole('cell', { name: 'G424.2026.AC.00343' }).first().waitFor();
+    ok(true, 'fatura quitada mostra a ALTCRED vinculada');
+    // histórico: explica por que não há ALTCRED e não mostra saldo
+    await page.getByLabel('Busca').fill('40030-EL-01-2024-1500-0');
+    const hist = page.getByRole('row').filter({ hasText: '40030-EL-01-2024-1500-0' });
+    ok(await hist.getByText('Quitada').isVisible(), 'histórico aparece como quitada');
+    await hist.getByRole('button').first().click();
+    await page.getByText(/não informa a ALTCRED\/GRU usada/).waitFor();
+    ok(true, 'histórico explica que a planilha não informa a ALTCRED');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-volume.png'), fullPage: false });
   });
 
   if (extras.length) {

@@ -27,6 +27,13 @@ type AnalyticalNode = {
   data?: any; // Invoice or Document
 };
 
+/** Por que a fatura não tem ALTCRED/GRU vinculada (evita parecer erro quando não é). */
+function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
+  if (inv.quitacaoExterna) return 'Quitada antes do SISCONT: a planilha de histórico (Faturas Pagas) não informa a ALTCRED/GRU usada.';
+  if (calc && Math.abs(calc.valInvoice) < 0.01 && !inv.isCanceled) return 'Sem valor a pagar (valor final zero: coberta por desconto ou adiantamento não identificado na planilha).';
+  return 'Nenhum crédito vinculado.';
+}
+
 export const Invoices: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = user?.role === UserRole.READ_ONLY;
@@ -70,6 +77,9 @@ export const Invoices: React.FC = () => {
   const [filterSiplad, setFilterSiplad] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [pagina, setPagina] = useState(0);
+  const [porPagina, setPorPagina] = useState(50);
 
   // Master Data
   const [services, setServices] = useState<{ label: string, value: string, acronym: string, unit: string }[]>([]);
@@ -77,6 +87,7 @@ export const Invoices: React.FC = () => {
 
   const refresh = async () => {
     let invs, allocs, docs, svcs, clist;
+    setCarregando(true);
     try {
       [invs, allocs, docs, svcs, clist] = await Promise.all([
         db.getInvoices(),
@@ -87,8 +98,10 @@ export const Invoices: React.FC = () => {
       ]);
     } catch (err) {
       notify.fail('Erro ao carregar faturas', err);
+      setCarregando(false);
       return;
     }
+    setCarregando(false);
 
     setInvoices(invs);
     setAllocations(allocs);
@@ -317,18 +330,22 @@ export const Invoices: React.FC = () => {
     }
   };
 
-  const getInvoiceCalculations = (inv: Invoice) => {
-    const invAllocations = allocations.filter(a => a.invoiceId === inv.id);
+  // Índices: com milhares de faturas, procurar baixa/documento por lista a cada linha travava a tela
+  const docsById = useMemo(() => new Map(allDocs.map(d => [d.id, d])), [allDocs]);
+  const allocsByInvoice = useMemo(() => {
+    const m = new Map<string, PaymentAllocation[]>();
+    allocations.forEach(a => { const l = m.get(a.invoiceId); if (l) l.push(a); else m.set(a.invoiceId, [a]); });
+    return m;
+  }, [allocations]);
+
+  const calcularFatura = (inv: Invoice) => {
     let totalAdvanceUsed = 0;
     let totalPaymentUsed = 0;
-    invAllocations.forEach(alloc => {
-      const doc = allDocs.find(d => d.id === alloc.documentId);
+    (allocsByInvoice.get(inv.id) || []).forEach(alloc => {
+      const doc = docsById.get(alloc.documentId);
       if (doc) {
-        if (doc.operation === OperationType.ADIANTAMENTO) {
-          totalAdvanceUsed += alloc.amount;
-        } else {
-          totalPaymentUsed += alloc.amount;
-        }
+        if (doc.operation === OperationType.ADIANTAMENTO) totalAdvanceUsed += alloc.amount;
+        else totalPaymentUsed += alloc.amount;
       }
     });
     const valService = inv.value;
@@ -336,10 +353,13 @@ export const Invoices: React.FC = () => {
     const ded = inv.adjustmentDeduction || 0;
     const baseAdjusted = Number((valService + add - ded).toFixed(2));
     const valInvoice = Number((baseAdjusted - totalAdvanceUsed).toFixed(2));
-    const rawBalance = valInvoice - totalPaymentUsed;
+    // Quitada antes do SISCONT (histórico sem ALTCRED): não tem saldo a pagar
+    const rawBalance = inv.quitacaoExterna && !inv.isCanceled ? 0 : valInvoice - totalPaymentUsed;
     const finalBalance = Math.abs(rawBalance) < 0.009 ? 0 : Number(rawBalance.toFixed(2));
     return { valService, add, ded, totalAdvanceUsed, totalPaymentUsed, valInvoice, finalBalance };
   };
+  const calcPorFatura = useMemo(() => new Map(invoices.map(inv => [inv.id, calcularFatura(inv)])), [invoices, allocsByInvoice, docsById]);
+  const getInvoiceCalculations = (inv: Invoice) => calcPorFatura.get(inv.id) || calcularFatura(inv);
 
   const calculateAdvanceDistribution = () => {
     const base = Number(formData.value) || 0;
@@ -582,7 +602,12 @@ export const Invoices: React.FC = () => {
     }, { valService: 0, add: 0, ded: 0, totalAdvanceUsed: 0, valInvoice: 0, finalBalance: 0 });
   };
 
-  const totals = useMemo(() => calculateTotals(filteredInvoices), [filteredInvoices, allocations, allDocs]);
+  const totals = useMemo(() => calculateTotals(filteredInvoices), [filteredInvoices, calcPorFatura]);
+  // volta para a 1ª página quando os filtros mudam
+  useEffect(() => { setPagina(0); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(filteredInvoices.length / porPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas - 1);
+  const faturasDaPagina = filteredInvoices.slice(paginaAtual * porPagina, (paginaAtual + 1) * porPagina);
   const totalServiceSum = totals.valService;
 
   const exportListPDF = () => {
@@ -926,7 +951,13 @@ export const Invoices: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredInvoices.map((inv) => {
+                  {carregando && invoices.length === 0 && (
+                    <tr><td colSpan={15} className="px-4 py-10 text-center text-slate-500 text-sm">Carregando faturas...</td></tr>
+                  )}
+                  {!carregando && filteredInvoices.length === 0 && (
+                    <tr><td colSpan={15} className="px-4 py-10 text-center text-slate-400 text-sm">Nenhuma fatura com esses filtros.</td></tr>
+                  )}
+                  {faturasDaPagina.map((inv) => {
                     const calc = getInvoiceCalculations(inv);
                     const isExpanded = expandedRowId === inv.id;
 
@@ -985,8 +1016,8 @@ export const Invoices: React.FC = () => {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {allocations.filter(a => a.invoiceId === inv.id).map(a => {
-                                      const doc = allDocs.find(d => d.id === a.documentId);
+                                    {(allocsByInvoice.get(inv.id) || []).map(a => {
+                                      const doc = docsById.get(a.documentId);
                                       if (!doc) return null;
                                       const isAdvance = doc.operation === OperationType.ADIANTAMENTO;
                                       return (
@@ -1003,8 +1034,8 @@ export const Invoices: React.FC = () => {
                                         </tr>
                                       );
                                     })}
-                                    {allocations.filter(a => a.invoiceId === inv.id).length === 0 && (
-                                      <tr><td colSpan={5} className="px-3 py-2 text-center text-slate-400 italic">Nenhum crédito vinculado.</td></tr>
+                                    {!(allocsByInvoice.get(inv.id) || []).length && (
+                                      <tr><td colSpan={5} className="px-3 py-2 text-center text-slate-500 italic">{semCreditoTexto(inv, calcPorFatura.get(inv.id))}</td></tr>
                                     )}
                                   </tbody>
                                 </table>
@@ -1036,6 +1067,25 @@ export const Invoices: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            {filteredInvoices.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 text-sm text-slate-600">
+                <span>
+                  Mostrando <b>{(paginaAtual * porPagina + 1).toLocaleString('pt-BR')}</b>–<b>{Math.min((paginaAtual + 1) * porPagina, filteredInvoices.length).toLocaleString('pt-BR')}</b> de <b>{filteredInvoices.length.toLocaleString('pt-BR')}</b> faturas
+                </span>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1">Por página
+                    <select aria-label="Faturas por página" value={porPagina} onChange={e => setPorPagina(Number(e.target.value))} className="border border-slate-300 rounded px-1 py-0.5 bg-white">
+                      {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                  <Button size="sm" variant="secondary" onClick={() => setPagina(0)} disabled={paginaAtual === 0}>«</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setPagina(paginaAtual - 1)} disabled={paginaAtual === 0}>Anterior</Button>
+                  <span className="tabular-nums">Página {paginaAtual + 1} de {totalPaginas}</span>
+                  <Button size="sm" variant="secondary" onClick={() => setPagina(paginaAtual + 1)} disabled={paginaAtual >= totalPaginas - 1}>Próxima</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setPagina(totalPaginas - 1)} disabled={paginaAtual >= totalPaginas - 1}>»</Button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

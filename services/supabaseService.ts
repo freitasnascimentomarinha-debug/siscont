@@ -15,12 +15,30 @@ import {
 // passam de 6.000 faturas, então todas as leituras de tabela inteira são feitas em páginas.
 const PAGINA = 1000;
 async function selectAll(tabela: string): Promise<{ data: any[]; error: any }> {
-    const todas: any[] = [];
-    for (let de = 0; ; de += PAGINA) {
-        const { data, error } = await supabase.from(tabela).select('*').order('id', { ascending: true }).range(de, de + PAGINA - 1);
-        if (error) return { data: [], error };
-        todas.push(...(data || []));
-        if (!data || data.length < PAGINA) break;
+    // 1ª página já traz o total; as demais são pedidas em paralelo (6.700 faturas = 7 páginas de uma vez)
+    const pagina = (de: number, contar = false) => supabase.from(tabela)
+        .select('*', contar ? { count: 'exact' } : undefined)
+        .order('id', { ascending: true }).range(de, de + PAGINA - 1);
+    const primeira = await pagina(0, true);
+    if (primeira.error) return { data: [], error: primeira.error };
+    const todas: any[] = [...(primeira.data || [])];
+    const total = primeira.count ?? todas.length;
+    if (todas.length < PAGINA || total <= PAGINA) return { data: todas, error: null };
+    const resto = await Promise.all(
+        Array.from({ length: Math.ceil(total / PAGINA) - 1 }, (_, i) => pagina((i + 1) * PAGINA)),
+    );
+    for (const r of resto) {
+        if (r.error) return { data: [], error: r.error };
+        todas.push(...(r.data || []));
+    }
+    // linhas incluídas durante a leitura: busca o que passou do total contado
+    if (resto.length && (resto[resto.length - 1].data || []).length === PAGINA) {
+        for (let de = Math.ceil(total / PAGINA) * PAGINA; ; de += PAGINA) {
+            const r = await pagina(de);
+            if (r.error) return { data: [], error: r.error };
+            todas.push(...(r.data || []));
+            if (!r.data || r.data.length < PAGINA) break;
+        }
     }
     return { data: todas, error: null };
 }
