@@ -47,3 +47,9 @@ OM com fatura ligada por `om_id` (mesmo com nome diferente) e exclusão dessa OM
 
 Com 001–004 aplicados: `psql -d sb -f tests/sql/fase1b_005_tests.sql`. Esperado: coluna `pontos_atencao` (padrão
 `[]`) em `invoices` e `received_documents`; consulta por tipo com `@>` retorna 1; nulo recusado.
+
+## Script 006 (Fase 2 - recebimentos)
+
+Com 001–005 aplicados: `psql -d sb -f tests/sql/fase2_006_tests.sql`. Esperado: exercício 2026 tirado do número da
+ALTCRED, autenticação da GRU tirada de "GRU ABC123", sobra da ALTCRED marcada como adiantamento, baixas classificadas
+(LANÇAMENTOS = PAGAMENTO; RESUMO ADIANTAMENTO e documento de adiantamento = ADIANTAMENTO) e tipo inválido recusado.

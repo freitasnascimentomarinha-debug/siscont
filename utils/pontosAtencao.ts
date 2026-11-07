@@ -64,6 +64,8 @@ export const TIPOS_PONTO: Record<string, DefTipo> = {
   ALTCRED_ESTOURADA: { alvo: 'documento', gravidade: 'alta', titulo: 'Crédito usado a mais', comoCorrigir: 'As baixas somam mais que o valor do documento. Confira a ALTCRED no SIPLAD e remova ou mude de documento as baixas excedentes.' },
   DOC_NUMERO_REPETIDO: { alvo: 'documento', gravidade: 'alta', titulo: 'Número repetido', comoCorrigir: 'Dois documentos com o mesmo número. Junte as baixas em um deles e exclua o outro.' },
   DOC_VALOR_INVALIDO: { alvo: 'documento', gravidade: 'media', titulo: 'Valor zerado ou negativo', comoCorrigir: 'Edite o documento e informe o valor recebido.' },
+  BAIXA_FORA_DESTINACAO: { alvo: 'documento', gravidade: 'media', titulo: 'Baixa fora da destinação', comoCorrigir: 'O cliente indicou faturas/OM para este crédito, mas houve baixa em outras. Confirme com a OM ou mude a baixa (OI: o crédito é usado conforme a destinação).' },
+  BAIXA_SEM_DOCUMENTO: { alvo: 'fatura', gravidade: 'alta', titulo: 'Baixa sem documento', comoCorrigir: 'Há baixa ligada a uma ALTCRED/GRU que não existe mais. Exclua a baixa e lance de novo com o documento correto.' },
   // ---- documentos: anotados pela migração
   BAIXA_SEM_FATURA: { alvo: 'documento', gravidade: 'alta', titulo: 'Baixa para fatura inexistente', comoCorrigir: 'A planilha baixava, com este documento, uma fatura que não existe em nenhuma lista. Descubra o número correto e lance a baixa manualmente.' },
   ALTCRED_DIVERGENTE: { alvo: 'documento', gravidade: 'alta', titulo: 'Utilizado diferente da planilha', comoCorrigir: 'O valor baixado no sistema difere do VALOR UTILIZADO da aba ALTCRED. Confira as baixas deste documento.' },
@@ -81,8 +83,9 @@ export interface FaturaParaPontos {
 export interface DocumentoParaPontos {
   id: string; documentNumber: string; documentType: string; totalValue: number; operation: string;
   comandoId?: string | null; pontosRegistro?: RegistroPonto[];
+  destinacao?: { tipo: 'FATURA' | 'OM'; valor: string }[];
 }
-export interface BaixaParaPontos { documentId: string; invoiceId: string; amount: number }
+export interface BaixaParaPontos { documentId: string; invoiceId: string; amount: number; tipoBaixa?: 'PAGAMENTO' | 'ADIANTAMENTO' | null }
 
 function montar(tipo: string, mensagem: string, automatico: boolean, origem: RegistroPonto['origem'], registro?: RegistroPonto): PontoAtencao {
   const d = TIPOS_PONTO[tipo] || { titulo: tipo, gravidade: 'media' as Gravidade, comoCorrigir: '' };
@@ -112,7 +115,7 @@ function combinar(automaticos: [string, string][], registros: RegistroPonto[] = 
 const TIPOS_AUTOMATICOS: Record<string, true> = {
   PAGO_A_MAIOR: true, ADIANTAMENTO_MAIOR: true, CANCELADA_COM_BAIXA: true, VENCIMENTO_INVALIDO: true, NUMERO_REPETIDO: true,
   VALOR_NEGATIVO: true, SEM_CADASTRO: true, COMPETENCIA_DIVERGENTE: true, SERVICO_DIVERGENTE: true, NUMERO_FORA_PADRAO: true,
-  ALTCRED_ESTOURADA: true, DOC_NUMERO_REPETIDO: true, DOC_VALOR_INVALIDO: true,
+  ALTCRED_ESTOURADA: true, DOC_NUMERO_REPETIDO: true, DOC_VALOR_INVALIDO: true, BAIXA_FORA_DESTINACAO: true, BAIXA_SEM_DOCUMENTO: true,
 };
 export const ehAutomatico = (tipo: string) => !!TIPOS_AUTOMATICOS[tipo];
 
@@ -124,9 +127,13 @@ export function avaliarPontos(
   const existe = new Set(faturas.map(f => f.id));
   const porFatura = new Map<string, { adiant: number; pago: number; n: number }>();
   const usoDoc = new Map<string, number>();
+  const semDoc = new Map<string, number>();
+  const faturasDoDoc = new Map<string, string[]>();
   baixas.forEach(b => {
+    if (!opDoc.has(b.documentId)) { semDoc.set(b.invoiceId, (semDoc.get(b.invoiceId) || 0) + b.amount); return; }
+    const l = faturasDoDoc.get(b.documentId); if (l) l.push(b.invoiceId); else faturasDoDoc.set(b.documentId, [b.invoiceId]);
     const s = porFatura.get(b.invoiceId) || { adiant: 0, pago: 0, n: 0 };
-    if (opDoc.get(b.documentId) === 'ADIANTAMENTO') s.adiant += b.amount; else s.pago += b.amount;
+    if (b.tipoBaixa ? b.tipoBaixa === 'ADIANTAMENTO' : opDoc.get(b.documentId) === 'ADIANTAMENTO') s.adiant += b.amount; else s.pago += b.amount;
     s.n++;
     porFatura.set(b.invoiceId, s);
     if (existe.has(b.invoiceId) && !canceladas.has(b.invoiceId)) usoDoc.set(b.documentId, (usoDoc.get(b.documentId) || 0) + b.amount);
@@ -141,6 +148,7 @@ export function avaliarPontos(
     const num = (f.invoiceNumber || '').trim().toUpperCase();
     const s = porFatura.get(f.id) || { adiant: 0, pago: 0, n: 0 };
     const total = r2(f.value + (f.adjustmentAddition || 0) - (f.adjustmentDeduction || 0));
+    if (semDoc.has(f.id)) a.push(['BAIXA_SEM_DOCUMENTO', `Baixa(s) de ${brl(semDoc.get(f.id)!)} ligada(s) a documento inexistente.`]);
     if (f.isCanceled) {
       if (s.n > 0) a.push(['CANCELADA_COM_BAIXA', `Fatura cancelada com ${s.n} baixa(s) somando ${brl(s.adiant + s.pago)}.`]);
     } else {
@@ -168,6 +176,7 @@ export function avaliarPontos(
   });
 
   const pd = new Map<string, PontoAtencao[]>();
+  const fatPorId = new Map(faturas.map(f => [f.id, f]));
   documentos.forEach(d => {
     const a: [string, string][] = [];
     const num = (d.documentNumber || '').trim().toUpperCase();
@@ -175,6 +184,13 @@ export function avaliarPontos(
     if (usado > d.totalValue + 0.01) a.push(['ALTCRED_ESTOURADA', `Valor ${brl(d.totalValue)}; baixado ${brl(usado)} (${brl(usado - d.totalValue)} a mais).`]);
     if (num && (numDoc.get(num) || 0) > 1) a.push(['DOC_NUMERO_REPETIDO', `O número ${num} aparece em ${numDoc.get(num)} documentos.`]);
     if (!(d.totalValue > 0)) a.push(['DOC_VALOR_INVALIDO', `Valor do documento ${brl(d.totalValue || 0)}.`]);
+    if (d.destinacao?.length) {
+      const destFat = new Set(d.destinacao.filter(x => x.tipo === 'FATURA').map(x => x.valor.trim().toUpperCase()));
+      const destOm = new Set(d.destinacao.filter(x => x.tipo === 'OM').map(x => x.valor));
+      const fora = [...new Set(faturasDoDoc.get(d.id) || [])].map(id => fatPorId.get(id)).filter(f => f
+        && !destFat.has((f.invoiceNumber || '').trim().toUpperCase()) && !(f.omId && destOm.has(f.omId))) as FaturaParaPontos[];
+      if (fora.length) a.push(['BAIXA_FORA_DESTINACAO', `Baixa em ${fora.length} fatura(s) fora da destinação: ${fora.slice(0, 5).map(f => f.invoiceNumber).join(', ')}${fora.length > 5 ? '…' : ''}.`]);
+    }
     const pontos = combinar(a, d.pontosRegistro);
     if (pontos.length) pd.set(d.id, pontos);
   });

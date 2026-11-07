@@ -4,12 +4,17 @@ import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
+import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
+import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
+import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
+import { carregarCadastro } from '../services/recebimentosService';
 import { notify, friendlyError } from '../utils/notify';
-import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole } from '../types';
+import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole, OM, CAMPOS_DOC_FASE2 } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Plus, Trash2, DollarSign, FileCheck, ChevronDown, ChevronUp, CheckCircle, Search, Edit2, Upload, FileSpreadsheet, FileText, Filter, X, Layers, Save, AlertOctagon, CheckSquare, Square } from 'lucide-react';
+import { FileUp, Wand2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -42,6 +47,9 @@ export const ReceivedBalances: React.FC = () => {
 
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [activeDoc, setActiveDoc] = useState<ReceivedDocument | null>(null);
+  const [sipladAberto, setSipladAberto] = useState(false);
+  const [baixaDoc, setBaixaDoc] = useState<ReceivedDocument | null>(null);
+  const [oms, setOms] = useState<OM[]>([]);
 
   // Edit Allocation Modal
   const [isEditAllocModalOpen, setIsEditAllocModalOpen] = useState(false);
@@ -81,6 +89,7 @@ export const ReceivedBalances: React.FC = () => {
         db.getAllocations(),
         db.getClients()
       ]);
+      carregarCadastro().then(c => setOms(c.oms));
     } catch (err) {
       notify.fail('Erro ao carregar saldos', err);
       setCarregando(false);
@@ -215,7 +224,9 @@ export const ReceivedBalances: React.FC = () => {
       date: docFormData.date || new Date().toISOString().split('T')[0],
       informedAdvance: false,
       operation: (docFormData.operation as OperationType) || OperationType.PAGAMENTO,
-      observation: docFormData.observation || ''
+      observation: docFormData.observation || '',
+      // campos da Fase 2 (ALTCRED do SIPLAD, destinação, GRU): só os que existem no formulário/registro
+      ...Object.fromEntries(CAMPOS_DOC_FASE2.map(([k]) => [k, docFormData[k]]).filter(([, v]) => v !== undefined)),
     };
 
     try {
@@ -261,7 +272,8 @@ export const ReceivedBalances: React.FC = () => {
           siscontSettled: paymentMeta.siscontSettled,
           siscontDueDate: paymentMeta.siscontDueDate,
           observation: paymentMeta.observation,
-          serviceType: paymentMeta.serviceType
+          serviceType: paymentMeta.serviceType,
+          tipoBaixa: activeDoc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO',
         });
         currentBalance -= payment;
         created++;
@@ -482,6 +494,11 @@ export const ReceivedBalances: React.FC = () => {
               </Button>
             </>
           )}
+          {!isReadOnly && (
+            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)}>
+              <FileUp className="w-4 h-4 mr-2" /> PDF do SIPLAD
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={exportExcel}>
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
           </Button>
@@ -590,6 +607,10 @@ export const ReceivedBalances: React.FC = () => {
                                     <PontoIcone pontos={doc.pontos} onClick={() => setPontosAlvo({ alvo: 'documento', id: doc.id, titulo: doc.documentNumber, subtitulo: `${doc.documentType} · ${doc.client}`, pontos: doc.pontos || [] })} />
                                     <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-600">{doc.documentType}</span>
                                     {doc.ug && <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700">UG: {doc.ug}</span>}
+                                    {doc.aguardando && doc.availableValue > 0.005 && <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800" title="O cliente ainda não indicou as faturas">Aguardando destinação</span>}
+                                    {doc.sobraAdiantamento && <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800" title="A sobra desta ALTCRED de pagamento é usada como adiantamento">Sobra em adiantamento</span>}
+                                    {!!doc.valorEstornado && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">Estorno R$ {doc.valorEstornado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
+                                    {doc.situacaoSiplad && !/processad/i.test(doc.situacaoSiplad) && <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700">SIPLAD: {doc.situacaoSiplad}</span>}
                                   </div>
                                   <p className="text-sm text-slate-500">{new Date(doc.date).toLocaleDateString()} - {doc.client}</p>
                                 </div>
@@ -638,6 +659,11 @@ export const ReceivedBalances: React.FC = () => {
                                       <Button size="sm" variant="danger" onClick={() => setConfirmDelete({ type: 'doc', id: doc.id })}>
                                         <Trash2 className="w-3 h-3 mr-1" /> Excluir
                                       </Button>
+                                      {doc.availableValue > 0.005 && (
+                                        <Button size="sm" variant="secondary" onClick={() => setBaixaDoc(doc)}>
+                                          <Wand2 className="w-3 h-3 mr-1" /> Baixa assistida
+                                        </Button>
+                                      )}
                                       {activeTab === OperationType.PAGAMENTO && doc.availableValue > 0 && (
                                         <Button size="sm" onClick={() => { setActiveDoc(doc); setIsPayModalOpen(true); setSelectedInvoiceIds([]); setInvoiceSearch(''); }}>
                                           <DollarSign className="w-3 h-3 mr-1" /> Pagar Faturas
@@ -647,6 +673,7 @@ export const ReceivedBalances: React.FC = () => {
                                   )}
                                 </div>
 
+                                <DadosSiplad doc={doc} />
                                 {doc.observation && (
                                   <div className="mb-4 text-sm text-slate-600 bg-slate-50 p-2 rounded border border-slate-100">
                                     <strong>Obs:</strong> {doc.observation}
@@ -761,6 +788,7 @@ export const ReceivedBalances: React.FC = () => {
 
           <Input label="Observação" className="md:col-span-2" value={docFormData.observation || ''} onChange={e => setDocFormData({ ...docFormData, observation: e.target.value })} />
         </div>
+        <CamposFase2 dados={docFormData} onChange={d => setDocFormData({ ...docFormData, ...d })} />
       </Modal>
 
       {/* Pay Modal */}
@@ -865,6 +893,8 @@ export const ReceivedBalances: React.FC = () => {
         title="Confirmação de Segurança"
         message="Tem certeza que deseja continuar? Esta ação afetará saldos e status das faturas permanentemente."
       />
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} />
+      <BaixaAssistidaModal doc={baixaDoc} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
         onAlterado={async () => {
           await refresh();

@@ -14,7 +14,12 @@ const erroColuna = (msg: string) => /om_id|origem|quitacao_externa|quitada_em|co
 
 async function inserir(tabela: string, linhas: any[], onProgresso?: (m: string) => void, rotulo?: string) {
   for (let i = 0; i < linhas.length; i += LOTE) {
-    const { error } = await supabase.from(tabela).insert(linhas.slice(i, i + LOTE));
+    let lote = linhas.slice(i, i + LOTE);
+    let { error } = await supabase.from(tabela).insert(lote);
+    if (error && /tipo_baixa|sobra_adiantamento/.test(error.message || '')) { // antes do script 006
+      lote = lote.map(({ tipo_baixa, sobra_adiantamento, ...resto }) => resto);
+      ({ error } = await supabase.from(tabela).insert(lote));
+    }
     if (error && /pontos_atencao/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase antes de migrar.');
     if (error && erroColuna(error.message || '')) throw new Error('Falta executar o script supabase/migrations/004_migracao_faturas.sql no Supabase antes de migrar.');
     if (error) throw new Error(`Erro ao gravar ${rotulo || tabela} (lote ${i / LOTE + 1}): ${error.message}`);
@@ -68,6 +73,7 @@ export async function aplicarMigracao(plano: PlanoMigracao, onProgresso?: (m: st
     id: d.id, ug: d.ug, sector: d.setor, command: d.comando, client: d.cliente, document_number: d.numero,
     document_type: d.tipoDocumento, total_value: d.valor, date: d.data, operation: d.operacao,
     observation: d.observacao, comando_id: d.comandoId, origem: d.origem, pontos_atencao: d.pontos,
+    sobra_adiantamento: !!d.sobraAdiantamento,
   })), onProgresso, 'Documentos (ALTCRED/GRU)');
 
   await inserir('invoices', plano.faturas.map(f => ({
@@ -81,10 +87,12 @@ export async function aplicarMigracao(plano: PlanoMigracao, onProgresso?: (m: st
   })), onProgresso, 'Faturas');
 
   const fat = new Map(plano.faturas.map(f => [f.id, f]));
+  const documentoAdiant = new Set(plano.documentos.filter(d => d.operacao === 'ADIANTAMENTO').map(d => d.id));
   await inserir('payment_allocations', plano.baixas.map(b => ({
     id: b.id, document_id: b.documentoId, invoice_id: b.faturaId, amount: b.valor, date: b.data,
     service_type: fat.get(b.faturaId)?.tipo ?? b.sigla, siscont_settled: fat.get(b.faturaId)?.siplad ?? false,
     observation: b.origem, origem: PREFIXO_ORIGEM_BAIXA + b.origem,
+    tipo_baixa: b.origem.startsWith('RESUMO') || documentoAdiant.has(b.documentoId) ? 'ADIANTAMENTO' : 'PAGAMENTO',
   })), onProgresso, 'Baixas');
 
   db.invalidateCache();

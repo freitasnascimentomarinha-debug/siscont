@@ -1,6 +1,7 @@
 
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition } from '../types';
 import { supabaseService } from './supabaseService';
+import { ehAdiantamento } from '../utils/baixas';
 import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
 
 // --- Simple In-Memory Cache ---
@@ -124,13 +125,13 @@ export const db = {
     ]);
 
     // Índices para não varrer listas grandes a cada fatura (milhares de faturas após a migração)
-    const opPorDoc = new Map(documents.map(d => [d.id, d.operation]));
+    const docPorId = new Map(documents.map(d => [d.id, d]));
     const porFatura = new Map<string, { adiant: number; pago: number }>();
     allocations.forEach(a => {
-      const op = opPorDoc.get(a.documentId);
-      if (!op) return;
+      const doc = docPorId.get(a.documentId);
+      if (!doc) return;
       const t = porFatura.get(a.invoiceId) || { adiant: 0, pago: 0 };
-      if (op === OperationType.ADIANTAMENTO) t.adiant += a.amount; else t.pago += a.amount;
+      if (ehAdiantamento(a, doc)) t.adiant += a.amount; else t.pago += a.amount;
       porFatura.set(a.invoiceId, t);
     });
     const today = new Date().toISOString().split('T')[0];

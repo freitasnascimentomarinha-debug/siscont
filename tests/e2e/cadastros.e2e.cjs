@@ -72,6 +72,8 @@ function handler(db, log) {
       for (const l of linhas) {
         if (t === 'oms' && db.oms.some(o => o.codigo === l.codigo && o.nome.toLowerCase() === l.nome.toLowerCase())) return json(409, { code: '23505', message: 'duplicate key value violates unique constraint "oms_codigo_nome_uk"' });
         if (t === 'feriados') { db.feriados = db.feriados.filter(f => f.data !== l.data); }
+        const ja = l.id && db[t].find(r => r.id === l.id);
+        if (ja && (req.headers()['prefer'] || '').includes('merge-duplicates')) { Object.assign(ja, l); continue; } // upsert
         db[t].push({ id: l.id || uid(), ativo: true, ...l });
       }
       return json(201);
@@ -133,6 +135,40 @@ function planilhaPagamento() {
   ]), 'LANÇAMENTOS');
   const f = path.join(os.tmpdir(), `siscont-e2e-pag-${Date.now()}.xlsx`);
   XLSX.writeFile(wb, f);
+  return f;
+}
+
+/** PDF fictício no leiaute da "Solicitação de Alteração de Crédito" do SIPLAD (posições como no original). */
+function pdfSiplad() {
+  const { jsPDF } = require(path.join(__dirname, '../../node_modules/jspdf/dist/jspdf.node.min.js'));
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  doc.setFontSize(8);
+  const t = (s, x, y) => doc.text(s, x, 842 - y);
+  [['Solicitações de Alteração de', 180, 794], ['Crédito', 271, 773],
+   ['N° da Solicitação', 22, 712], ['Dt. de Criação', 196, 712], ['Tipo Alteração', 396, 712],
+   ['Z999.2026.AC.00001', 22, 698], ['10/03/2026', 196, 697], ['Indenização Serviços Prestados', 396, 697],
+   ['ID do Usuário', 22, 669], ['Setor de Criação', 196, 669], ['ALTCRED de Origem', 396, 668],
+   ['00.0000.00 - FULANO', 22, 654], ['12345 - ComTeste', 196, 654], ['--', 396, 654],
+   ['UG Cliente', 196, 626], ['Tipo Tramitação', 23, 625], ['Origem Suplementação', 396, 625],
+   ['--', 396, 610], ['Normal', 23, 607], ['12345 - ComTeste', 196, 607],
+   ['Destino Destaque', 23, 532], ['UO Favorecida', 196, 532], ['Situação', 398, 532],
+   ['--', 23, 517], ['--', 196, 517], ['Processada', 398, 517],
+   ['Observação do Solicitante', 23, 495], ['Quitação das faturas 12346-EL-08-2026-010-0 e 12346-AE-08-2026-004-0.', 23, 480],
+   ['Célula de Débito (CDD)', 245, 444],
+   ['Moeda', 24, 427], ['PTRES', 63, 427], ['UO', 114, 427], ['Esfera', 147, 427], ['FR', 201, 427], ['ND', 255, 427], ['Plano Interno', 305, 427], ['UGR', 389, 427], ['UGE', 439, 427], ['Valor a Debitar', 494, 427],
+   ['12345 -', 384, 410], ['1000000000', 181, 405], ['99999 -', 434, 405],
+   ['R$', 32, 399], ['111111', 63, 399], ['22222', 108, 399], ['1', 158, 399], ['33903900', 241, 399], ['X.1.TESTE.0', 294, 399], ['ComTeste', 375, 399], ['1.000,00', 502, 399], ['UGETESTE', 434, 394],
+   ['Células de Crédito (CDC)', 241, 364],
+   ['Moeda', 24, 347], ['PTRES', 63, 347], ['UO', 114, 347], ['Esfera', 147, 347], ['FR', 201, 347], ['ND', 255, 347], ['Plano Interno', 305, 347], ['UGR', 389, 347], ['UGE', 439, 347], ['Valor a Creditar', 493, 347],
+   ['1000000000', 181, 330], ['40015 -', 384, 330], ['40015 -', 434, 330],
+   ['R$', 32, 325], ['111111', 63, 325], ['22222', 108, 325], ['1', 158, 325], ['33903900', 241, 325], ['R.TESTE.0', 296, 325], ['1.000,00', 502, 325], ['BNIC', 388, 320], ['BNIC', 438, 320],
+   ['Valor Total a Creditar', 383, 305], ['1.000,00', 501, 305],
+   ['Histórico Trâmite', 260, 272],
+   ['OM', 48, 215], ['FULANO', 227, 215], ['10/03/2026', 300, 215],
+   ['DGOM 20', 35, 195], ['Processamento em Batch', 100, 195], ['10/03/2026', 300, 195],
+   ['DGOM 20', 35, 175], ['Processada', 128, 175], ['12/03/2026', 300, 175]].forEach(([s, x, y]) => t(s, x, y));
+  const f = path.join(os.tmpdir(), `siscont-e2e-siplad-${Date.now()}.pdf`);
+  fs.writeFileSync(f, Buffer.from(doc.output('arraybuffer')));
   return f;
 }
 
@@ -356,6 +392,62 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/não informa a ALTCRED\/GRU usada/).waitFor();
     ok(true, 'histórico explica que a planilha não informa a ALTCRED');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-volume.png'), fullPage: false });
+  });
+
+  await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '12346', nome: 'Navio Teste', tipo: 'NAVIO', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const nova = (n, v, venc) => ({ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] });
+    db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
+    await page.reload();
+    await page.getByRole('button', { name: 'Saldos Recebidos' }).first().click();
+    await page.getByRole('button', { name: 'PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
+    ok(await page.getByLabel('Ação para Z999.2026.AC.00001').inputValue() === 'NOVA', 'PDF lido: ALTCRED nova reconhecida');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-siplad.png') });
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
+    const d = db.received_documents.find(x => x.document_number === 'Z999.2026.AC.00001');
+    ok(d && Number(d.total_value) === 1000 && d.date === '2026-03-12', 'valor e data de situação (processada) gravados');
+    ok(d.comando_id === cmd.id && d.ug === '12345', 'ligada ao comando pela UG cliente');
+    ok(d.celulas.length === 2 && d.celulas[0].pi === 'X.1.TESTE.0' && d.celulas[1].ugr === '40015 - BNIC', 'células de débito e crédito (PI, UGR) gravadas');
+    ok(d.destinacao.map(x => x.valor).join() === '12346-EL-08-2026-010-0,12346-AE-08-2026-004-0', 'faturas citadas na observação viram destinação');
+
+    // baixa assistida
+    await page.getByRole('heading', { name: 'Z999.2026.AC.00001' }).waitFor();
+    const card = page.locator('div.border').filter({ has: page.getByRole('heading', { name: 'Z999.2026.AC.00001' }) }).last();
+    await card.getByTitle('Ver Detalhes').click();
+    await page.getByTestId('dados-siplad').waitFor();
+    await page.getByRole('button', { name: 'Baixa assistida' }).click();
+    await page.getByRole('heading', { name: /Baixa assistida/ }).waitFor();
+    ok(await page.getByLabel('Valor para 12346-EL-08-2026-010-0').inputValue() === '400', 'fatura indicada recebe o saldo dela');
+    ok(await page.getByLabel('Valor para 12346-TL-07-2026-001-0').inputValue() === '', 'fatura fora da destinação fica zerada (mesmo mais antiga)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-baixa.png') });
+    await page.getByLabel('Valor para 12346-EL-08-2026-010-0').fill('500');
+    ok(await page.getByText(/passa do saldo da fatura/).isVisible(), 'não deixa passar do saldo da fatura');
+    await page.getByLabel('Valor para 12346-EL-08-2026-010-0').fill('400');
+    await page.getByRole('button', { name: 'Gravar baixas' }).click();
+    await page.getByText(/baixa\(s\) gravada\(s\); sobra de R\$ 250,00 enviada para adiantamento/).waitFor();
+    const bx = db.payment_allocations.filter(b => b.document_id === d.id);
+    ok(bx.length === 2 && bx.every(b => b.tipo_baixa === 'PAGAMENTO'), '2 baixas de pagamento gravadas');
+    ok(db.received_documents.find(x => x.id === d.id).sobra_adiantamento === true, 'sobra de R$ 250,00 marcada como adiantamento');
+
+    // extrato de conciliação
+    await page.getByRole('button', { name: 'Extrato de Conciliação' }).click();
+    await page.getByPlaceholder(/Digite o código/).fill('12345');
+    await page.getByRole('button', { name: /12345 - Comando Teste/ }).click();
+    await page.getByRole('heading', { name: 'Faturas pagas (por data de situação)' }).waitFor();
+    ok(await page.getByRole('cell', { name: 'ADIANTAMENTO' }).isVisible(), 'extrato mostra a sobra enviada para adiantamento');
+    ok(await page.getByRole('cell', { name: '12346-TL-07-2026-001-0' }).isVisible(), 'fatura em aberto da OM subordinada aparece');
+    ok(await page.getByText('R$ 90,00').first().isVisible(), 'total em aberto R$ 90,00');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-extrato.png'), fullPage: true });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    ok(/extrato_12345_\d{4}\.xlsx/.test(dl.suggestedFilename()), `Excel gerado (${dl.suggestedFilename()})`);
+    const [dl2] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
+    ok(dl2.suggestedFilename().endsWith('.pdf'), 'PDF gerado');
   });
 
   if (extras.length) {

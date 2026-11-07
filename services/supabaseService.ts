@@ -7,7 +7,8 @@ import {
     CashFlowExit,
     Client,
     ServiceDefinition,
-    User
+    User,
+    CAMPOS_DOC_FASE2
 } from '../types';
 
 // --- Leitura paginada ---
@@ -41,6 +42,23 @@ async function selectAll(tabela: string): Promise<{ data: any[]; error: any }> {
         }
     }
     return { data: todas, error: null };
+}
+
+// Campos da Fase 2 (script 006): lidos só se a coluna existe e enviados só se preenchidos,
+// para o sistema continuar funcionando antes do script.
+const NUMERICOS = new Set(['valor_original', 'valor_estornado']);
+function doFase2(d: any): Partial<ReceivedDocument> {
+    const out: any = {};
+    CAMPOS_DOC_FASE2.forEach(([k, col]) => {
+        if (!(col in d)) return;
+        out[k] = NUMERICOS.has(col) && d[col] !== null ? Number(d[col]) : d[col];
+    });
+    return out;
+}
+function paraFase2(doc: ReceivedDocument): Record<string, any> {
+    const out: Record<string, any> = {};
+    CAMPOS_DOC_FASE2.forEach(([k, col]) => { if (doc[k] !== undefined) out[col] = doc[k]; });
+    return out;
 }
 
 // --- Retry wrapper for write operations ---
@@ -239,6 +257,7 @@ export const supabaseService = {
                 comandoId: 'comando_id' in d ? d.comando_id : undefined,
                 pontosRegistro: Array.isArray(d.pontos_atencao) ? d.pontos_atencao : undefined,
                 origem: d.origem ?? null,
+                ...doFase2(d),
                 availableValue: 0,
                 informedAdvance: false
             })) as ReceivedDocument[];
@@ -258,8 +277,13 @@ export const supabaseService = {
                 total_value: doc.totalValue,
                 date: doc.date,
                 operation: doc.operation,
-                observation: doc.observation
+                observation: doc.observation,
+                ...(doc.comandoId !== undefined ? { comando_id: doc.comandoId } : {}),
+                ...paraFase2(doc),
             });
+            if (error && /column/i.test(error.message) && CAMPOS_DOC_FASE2.some(([, c]) => error.message.includes(c))) {
+                throw new Error('Falta executar o script supabase/migrations/006_recebimentos_fase2.sql no Supabase para gravar os dados do SIPLAD, destinação e GRU.');
+            }
             if (error) throw error;
         }, 'saveDocument');
     },
@@ -286,6 +310,7 @@ export const supabaseService = {
                 siscontSettled: a.siscont_settled,
                 siscontDueDate: a.siscont_due_date,
                 origem: 'origem' in a ? a.origem ?? undefined : undefined,
+                tipoBaixa: 'tipo_baixa' in a ? a.tipo_baixa : undefined,
                 observation: a.observation
             })) as PaymentAllocation[];
         }, 'getAllocations');
@@ -293,7 +318,7 @@ export const supabaseService = {
 
     async saveAllocation(alloc: PaymentAllocation) {
         await withRetry(async () => {
-            const { error } = await supabase.from('payment_allocations').upsert({
+            const linha: Record<string, any> = {
                 id: alloc.id,
                 document_id: alloc.documentId,
                 invoice_id: alloc.invoiceId,
@@ -302,8 +327,15 @@ export const supabaseService = {
                 service_type: alloc.serviceType,
                 siscont_settled: alloc.siscontSettled,
                 siscont_due_date: alloc.siscontDueDate,
-                observation: alloc.observation
-            });
+                observation: alloc.observation,
+                ...(alloc.tipoBaixa ? { tipo_baixa: alloc.tipoBaixa } : {}),
+            };
+            let { error } = await supabase.from('payment_allocations').upsert(linha);
+            // antes do script 006 não existe a coluna tipo_baixa: grava sem ela
+            if (error && /tipo_baixa/.test(error.message)) {
+                delete linha.tipo_baixa;
+                ({ error } = await supabase.from('payment_allocations').upsert(linha));
+            }
             if (error) throw error;
         }, 'saveAllocation');
     },

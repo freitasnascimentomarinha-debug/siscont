@@ -88,6 +88,26 @@ com filtros, exportação em CSV e o botão para marcar como resolvido/ciente co
 Se a migração já tinha sido gravada antes do 005: em **Migrar faturas**, selecione de novo as planilhas e clique
 em **Gravar pontos nos já migrados**.
 
+### 1-F. Recebimentos e conciliação — Fase 2 (script 006)
+
+Execute [`supabase/migrations/006_recebimentos_fase2.sql`](../supabase/migrations/006_recebimentos_fase2.sql). Ele
+acrescenta à ALTCRED os dados da Solicitação de Alteração de Crédito do SIPLAD (exercício, criação, tipo, situação, UG
+cliente, ALTCRED de origem, observação do solicitante, células de débito/crédito com PTRES, FR, ND, PI, UGR e UGE,
+valor original × estornado), a **destinação** indicada pelo cliente, "aguardando destinação", a **sobra enviada para
+adiantamento**, os dados da **GRU** (autenticação e data de pagamento) e o **tipo de cada baixa** (pagamento ou
+adiantamento). Os dados já migrados são completados: exercício, autenticação das GRU, tipo das baixas (RESUMO
+ADIANTAMENTO = adiantamento) e as ALTCRED cuja sobra já foi usada como adiantamento.
+
+No sistema:
+- **Saldos Recebidos → PDF do SIPLAD**: lê o relatório "Solicitações de Alteração de Crédito" (uma por página) e
+  cadastra as ALTCRED novas, **completa** as que já existem (ex.: migradas) e trata estornos pela ALTCRED de origem.
+- **Baixa assistida** (no detalhe do documento): propõe as baixas — faturas indicadas pelo cliente primeiro, depois
+  as do comando, mais antigas primeiro —, não deixa passar do saldo da ALTCRED nem da fatura e envia a sobra para
+  adiantamento.
+- **Extrato de Conciliação** (menu): por comando ou OM, os 4 quadros — Saldo ALTCRED, Adiantamentos utilizados,
+  Faturas pagas (por data de situação) e Faturas em aberto — com PDF e Excel.
+- **Pontos de Atenção**: passa a acusar baixa fora da destinação e baixa sem documento.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

@@ -152,6 +152,8 @@ export interface DocumentoPlano {
   valor: number; data: string; ug: string; setor: string; comando: string; cliente: string; comandoId: string | null;
   observacao: string; origem: string; utilizadoPlanilha: number | null;
   pontos: RegistroPonto[];
+  /** A planilha mandou a sobra desta ALTCRED para adiantamento (linha "ADIANTAMENTO" nos LANÇAMENTOS). */
+  sobraAdiantamento?: boolean;
 }
 export interface BaixaPlano { id: string; documentoId: string; faturaId: string; valor: number; data: string; origem: string; sigla: string }
 
@@ -206,10 +208,11 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   // 2. Baixas (pagamentos e adiantamentos) por fatura e por ALTCRED
   type B = { altcred: string; fatura: string; valor: number; data: string | null; setor: Celula; cliente: Celula; origem: string };
   const baixasBrutas: B[] = [];
+  const sobraParaAdiant = new Set<string>();
   const lerBaixas = (ms: Matriz[], origem: string) => ms.forEach(m => linhasPorCabecalho(m, C_BAIXA, ['altcred', 'fatura', 'valor'], 40).forEach(l => {
     const alt = norm(l.altcred), fat = norm(l.fatura), v = numero(l.valor);
     if (!alt || !fat || v === null || v === 0) return;
-    if (fat === 'ADIANTAMENTO') return; // sobra da ALTCRED enviada para adiantamento: fica como saldo do documento
+    if (fat === 'ADIANTAMENTO') { sobraParaAdiant.add(alt); return; } // sobra da ALTCRED enviada para adiantamento: fica como saldo do documento
     baixasBrutas.push({ altcred: alt, fatura: fat, valor: v, data: data(l.data), setor: l.setor, cliente: l.cliente, origem });
   }));
   lerBaixas(p.lancamentos, 'LANÇAMENTOS (pagamento)');
@@ -393,6 +396,9 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
     });
   });
 
+  documentos.forEach((d, n) => { if (sobraParaAdiant.has(n) && d.operacao !== 'ADIANTAMENTO') d.sobraAdiantamento = true; });
+  usoPorAltcredAdiant(baixasBrutas).forEach(n => { const d = documentos.get(n); if (d && d.operacao !== 'ADIANTAMENTO') d.sobraAdiantamento = true; });
+
   // 6. Baixas
   const baixas: BaixaPlano[] = [];
   const semFatura: string[] = [], semDocumento: string[] = [];
@@ -498,6 +504,11 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
 }
 
 /** Índice para resolver o cliente do cadastro de cada fatura (usa o índice da análise do cadastro). */
+/** ALTCRED de pagamento usadas no RESUMO ADIANTAMENTO: a sobra delas virou adiantamento. */
+function usoPorAltcredAdiant(bs: { altcred: string; origem: string }[]) {
+  return new Set(bs.filter(b => b.origem.startsWith('RESUMO')).map(b => b.altcred));
+}
+
 export function criarResolverOM(
   indice: Record<string, string>,
   propostas: { chave: string; codigo: string; nome: string; tipo: string }[],

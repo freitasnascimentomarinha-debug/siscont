@@ -4,6 +4,7 @@ import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
+import { aceitaAdiantamento, ehAdiantamento } from '../utils/baixas';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
@@ -106,7 +107,7 @@ export const Invoices: React.FC = () => {
     setInvoices(invs);
     setAllocations(allocs);
     setAllDocs(docs);
-    setAdvanceDocs(docs.filter(d => d.operation === OperationType.ADIANTAMENTO));
+    setAdvanceDocs(docs.filter(aceitaAdiantamento));
     setServices(svcs.map(s => ({
       label: s.name,
       value: s.name,
@@ -344,7 +345,7 @@ export const Invoices: React.FC = () => {
     (allocsByInvoice.get(inv.id) || []).forEach(alloc => {
       const doc = docsById.get(alloc.documentId);
       if (doc) {
-        if (doc.operation === OperationType.ADIANTAMENTO) totalAdvanceUsed += alloc.amount;
+        if (ehAdiantamento(alloc, doc)) totalAdvanceUsed += alloc.amount;
         else totalPaymentUsed += alloc.amount;
       }
     });
@@ -470,7 +471,7 @@ export const Invoices: React.FC = () => {
       const currentInvoiceAllocations = allocations.filter(a => a.invoiceId === invoiceId);
       const advanceAllocationIds = currentInvoiceAllocations.filter(a => {
         const doc = allDocs.find(d => d.id === a.documentId);
-        return doc && doc.operation === OperationType.ADIANTAMENTO;
+        return !!doc && ehAdiantamento(a, doc);
       }).map(a => a.id);
 
       for (const aid of advanceAllocationIds) {
@@ -489,7 +490,8 @@ export const Invoices: React.FC = () => {
             date: new Date().toISOString().split('T')[0],
             siscontSettled: true,
             observation: 'Abatimento automático de Adiantamento',
-            serviceType: payload.type
+            serviceType: payload.type,
+            tipoBaixa: 'ADIANTAMENTO',
           });
         }
       }
@@ -781,7 +783,7 @@ export const Invoices: React.FC = () => {
     const invAllocations = allocations.filter(a => a.invoiceId === inv.id);
     const advanceAllocs = invAllocations.filter(a => {
       const d = allDocs.find(doc => doc.id === a.documentId);
-      return d?.operation === OperationType.ADIANTAMENTO;
+      return ehAdiantamento(a, d);
     });
 
     if (advanceAllocs.length > 0) {
@@ -801,7 +803,7 @@ export const Invoices: React.FC = () => {
 
     const paymentAllocs = invAllocations.filter(a => {
       const d = allDocs.find(doc => doc.id === a.documentId);
-      return d?.operation !== OperationType.ADIANTAMENTO;
+      return !ehAdiantamento(a, d);
     });
 
     if (paymentAllocs.length > 0) {
@@ -1019,12 +1021,12 @@ export const Invoices: React.FC = () => {
                                     {(allocsByInvoice.get(inv.id) || []).map(a => {
                                       const doc = docsById.get(a.documentId);
                                       if (!doc) return null;
-                                      const isAdvance = doc.operation === OperationType.ADIANTAMENTO;
+                                      const isAdvance = ehAdiantamento(a, doc);
                                       return (
                                         <tr key={a.id} className="border-t border-slate-100">
                                           <td className="px-3 py-2">
                                             <span className={`text-xs font-semibold px-2 py-1 rounded ${isAdvance ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                                              {doc.operation}
+                                              {isAdvance ? 'ADIANTAMENTO' : 'PAGAMENTO'}
                                             </span>
                                           </td>
                                           <td className="px-3 py-2 text-slate-700">{doc.client}</td>

@@ -134,7 +134,41 @@ export interface ReceivedDocument {
   origem?: string | null;
   pontosRegistro?: RegistroPonto[];
   pontos?: PontoAtencao[];
+  // Fase 2 (script 006): ALTCRED completa, destinação, GRU
+  exercicio?: number | null;
+  dataCriacao?: string | null;
+  tipoAlteracao?: string | null; // ex.: Indenização Serviços Prestados
+  situacaoSiplad?: string | null; // ex.: Processada
+  ugCliente?: string | null; // "91600 - ComForSup"
+  altcredOrigem?: string | null;
+  observacaoSolicitante?: string | null;
+  celulas?: CelulaCredito[];
+  valorOriginal?: number | null;
+  valorEstornado?: number;
+  destinacao?: Destinacao[];
+  aguardando?: boolean; // recebida, aguardando o cliente indicar as faturas
+  sobraAdiantamento?: boolean; // sobra da ALTCRED de pagamento vira adiantamento
+  gruAutenticacao?: string | null;
+  gruDataPagamento?: string | null;
 }
+
+/** Linha da Célula de Débito (CDD) ou de Crédito (CDC) da ALTCRED. */
+export interface CelulaCredito {
+  tipo: 'DEBITO' | 'CREDITO';
+  ptres?: string; uo?: string; esfera?: string; fr?: string; nd?: string; pi?: string; ugr?: string; uge?: string; valor: number;
+}
+
+/** Para onde o cliente mandou o crédito: faturas específicas ou uma OM. */
+export interface Destinacao { tipo: 'FATURA' | 'OM'; valor: string }
+
+/** Campos da Fase 2 gravados em received_documents (nome no banco ↔ no sistema). */
+export const CAMPOS_DOC_FASE2: [keyof ReceivedDocument, string][] = [
+  ['exercicio', 'exercicio'], ['dataCriacao', 'data_criacao'], ['tipoAlteracao', 'tipo_alteracao'],
+  ['situacaoSiplad', 'situacao_siplad'], ['ugCliente', 'ug_cliente'], ['altcredOrigem', 'altcred_origem'],
+  ['observacaoSolicitante', 'observacao_solicitante'], ['celulas', 'celulas'], ['valorOriginal', 'valor_original'],
+  ['valorEstornado', 'valor_estornado'], ['destinacao', 'destinacao'], ['aguardando', 'aguardando'],
+  ['sobraAdiantamento', 'sobra_adiantamento'], ['gruAutenticacao', 'gru_autenticacao'], ['gruDataPagamento', 'gru_data_pagamento'],
+]
 
 // This represents a link between a Document and an Invoice (Payment)
 export interface PaymentAllocation {
@@ -148,6 +182,7 @@ export interface PaymentAllocation {
   siscontDueDate?: string;
   observation?: string;
   origem?: string; // preenchido quando a baixa veio da migração das planilhas
+  tipoBaixa?: 'PAGAMENTO' | 'ADIANTAMENTO' | null; // script 006; sem ele, vale a operação do documento
 }
 
 // Manually registered Exits (Saídas) for Cash Flow

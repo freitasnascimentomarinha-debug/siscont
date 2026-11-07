@@ -276,6 +276,13 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
 
 ### Fase 2 — Recebimentos e conciliação (maior ganho imediato)
 
+> **Situação (07/11/2026)**: **Fase 2 concluída** (script 006). 2.1 ALTCRED completa com os dados do SIPLAD,
+> destinação, estorno e exercício; 2.2 importação do PDF "Solicitações de Alteração de Crédito" (cadastra, completa
+> as migradas ou estorna pela ALTCRED de origem); 2.3 baixa assistida com sobra para adiantamento e alerta fora da
+> destinação; 2.4 GRU com autenticação e data; 2.5 extrato de conciliação por comando/OM (4 quadros, PDF/Excel),
+> conferido com os PDFs enviados à DIM; 2.6 auditoria nos Pontos de Atenção (baixa fora da destinação, baixa sem
+> documento, além dos já existentes). O tipo da baixa (pagamento × adiantamento) passou a ser da baixa, não do documento.
+
 2.1 **ALTCRED completa**: nº, datas (criação/situação), tipo SIPLAD, classificação
 (PAGAMENTO/ADIANTAMENTO/AGUARDANDO), UG cliente, comando pagador, valor, PI, ND, PTRES, FR,
 **observação do solicitante**, **destinação** (OM e/ou faturas), estornos (valor original × estornado),
