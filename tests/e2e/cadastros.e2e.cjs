@@ -677,7 +677,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /registrar/ }).click();
     await page.getByText('Cobrança registrada.').waitFor();
     ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');
-    await page.getByRole('button', { name: 'Painel do Encarregado' }).last().click(); // aba (o primeiro é o item do menu)
+    await page.getByRole('button', { name: 'Painel do Encarregado' }).first().click(); // item do menu (tela própria)
+    await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     await page.getByText('Dívida por condômino e idade').waitFor();
     ok(await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'painel do Encarregado com dívida por idade e saldos parados');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });

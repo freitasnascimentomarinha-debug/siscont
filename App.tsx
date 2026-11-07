@@ -36,7 +36,7 @@ const AuthenticatedApp = () => {
       case 'received': return <ReceivedBalances />;
       case 'cashflow': return <CashFlow />;
       case 'cobranca': return <Cobranca key="cobranca" />;
-      case 'painel': return <Cobranca key="painel" abaInicial="painel" />;
+      case 'painel': return <Cobranca key="painel" modo="painel" />;
       case 'taxa': return <TaxaCondominial />;
       case 'auditoria': return <PontosAtencaoPage key="historico" abaInicial="historico" />;
       case 'conciliacao': return <Conciliacao />;

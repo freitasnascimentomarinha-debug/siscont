@@ -42,10 +42,12 @@ const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = (
   </section>
 );
 
-export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro' }) => {
+/** modo 'cobranca': faturas em aberto e mensagens. modo 'painel': só o Painel do Encarregado (indicadores, dívida por idade, saldos parados). */
+export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'cobranca' }) => {
+  const soPainel = modo === 'painel';
   const { user } = useAuth();
   const podeEditar = user?.role !== UserRole.READ_ONLY;
-  const [aba, setAba] = useState<Aba>(abaInicial);
+  const [aba, setAba] = useState<Aba>(soPainel ? 'painel' : 'quadro');
   const [base, setBase] = useState<Base | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');
@@ -143,16 +145,16 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
     <div className="space-y-5">
       <div className="flex justify-between items-start gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Cobrança</h2>
-          <p className="text-slate-500 text-sm">Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando; painel do Encarregado. {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
+          <h2 className="text-2xl font-bold text-slate-800">{soPainel ? 'Painel do Encarregado' : 'Cobrança'}</h2>
+          <p className="text-slate-500 text-sm">{soPainel ? 'Indicadores de cobrança, dívida de cada OM por faixa de atraso, saldos parados e adiantamentos.' : 'Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando.'} {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
         </div>
         <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
       </div>
-      <div className="flex space-x-1 border-b border-slate-200">
-        {([['quadro', 'Faturas em aberto'], ['mensagens', 'Mensagens de cobrança'], ['painel', 'Painel do Encarregado']] as const).map(([k, l]) => (
+      {!soPainel && <div className="flex space-x-1 border-b border-slate-200">
+        {([['quadro', 'Faturas em aberto'], ['mensagens', 'Mensagens de cobrança']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 ${aba === k ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500'}`}>{l}</button>
         ))}
-      </div>
+      </div>}
       {!base && carregando && <p className="text-sm text-slate-500">Carregando...</p>}
 
       {base && (aba === 'quadro' || aba === 'painel') && (

@@ -10,8 +10,6 @@ import {
   Menu,
   X,
   Users,
-  Maximize,
-  Minimize,
   UserCog,
   Building2,
   AlertTriangle,
@@ -38,22 +36,7 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageChange }) => {
   const { user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((err) => {
-        console.warn(`Erro ao tentar ativar fullscreen: ${err.message}`);
-      });
-      setIsFullscreen(true);
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    }
-  };
 
   /**
    * Menu por FUNÇÃO, na ordem em que o trabalho acontece. Cada item diz o que faz (dica ao passar o mouse).
@@ -109,9 +92,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           <p className="text-[10px] text-slate-500 uppercase tracking-tighter font-semibold">BNIC</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={toggleFullscreen} className="p-2 text-slate-500 hover:bg-slate-100 rounded-md" title="Alternar Tela Cheia">
-            {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-          </button>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-md">
             {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -179,15 +159,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
                 ))}
               </div>
             ))}
-
-            {/* Fullscreen Toggle Button in Nav for Desktop */}
-            <button
-              onClick={toggleFullscreen}
-              className="w-full hidden md:flex items-center gap-3 px-4 py-1.5 rounded-xl transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white"
-            >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-              <span className="text-sm">{isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}</span>
-            </button>
           </nav>
 
           {/* Footer Actions */}
