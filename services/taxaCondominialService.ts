@@ -19,11 +19,15 @@ const checar = (error: any) => {
 
 export type StatusProposta = 'PROPOSTA' | 'APROVADA' | 'DIVULGADA';
 export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null }
-export type Destino = 'TC' | 'DA';
+export type Destino = 'TC' | 'DA' | 'PAR';
 export interface RubricaProposta extends RubricaTC {
   contaContabil?: string | null; gastoAnterior?: number | null; justificativa?: string | null;
-  /** TC = taxa condominial (OM de terra); DA = valor que custeia as diárias de atracação dos navios */
+  /** TC = taxa condominial (OM de terra); DA = linha "Navios" (diárias de atracação); PAR = fora da taxa, só para o PAR */
   destino: Destino;
+  /** parte desta rubrica paga pelos navios (aba NAVIOS); a soma de todas é o valor rateado entre os navios */
+  parcelaNavios?: number | null;
+  /** por que este valor (memória para conferência) */
+  justificativaValor?: string | null;
   /** coluna DESCONTOS da planilha importada (conferência) */
   descontoPlanilha?: number | null;
 }
@@ -33,11 +37,16 @@ export interface Pendente {
   rubricas: number[]; descontos: { rubrica: number; valor: number }[];
 }
 export const destinoPadrao = (descricao: string): Destino => (/\bNAVIOS?\b/i.test(descricao) ? 'DA' : 'TC');
+export interface Subsidio { id: string; ano: number; rubrica: number; descricao: string; documento: string | null; valor: number; observacao: string | null; criadoPor?: string | null }
+export interface Anexo { id: string; ano: number; rubrica: number; nomeArquivo: string; caminho: string; tamanho: number | null; tipo: string | null; descricao: string | null; enviadoPor: string | null; createdAt: string }
+export interface Fechado { tipo?: 'TC' | 'DA'; nome: string; omId: string | null; anteriorAnual: number | null; anteriorMensal: number | null; proposta: number | null; descontos: number | null; atualizada: number | null; mensal: number | null }
+export interface ExtratoPlanilha { nome: string; omId: string | null; rubrica: number; bruto: number; desconto: number; liquido: number }
 export interface Lotacao { omId: string; lotacao: number; lotacaoAnterior: number | null; /** dias/mês informados (navio); vazio = média trienal da classe */ dias: number | null }
 
 export interface DadosProposta {
   proposta: Proposta; rubricas: RubricaProposta[]; lotacoes: Lotacao[]; matriz: Set<string>; descontos: Desconto[];
   atracacaoAnual: AnoClasse[]; oms: OM[]; classes: ClasseNavio[]; pendentes: Pendente[];
+  subsidios: Subsidio[]; anexos: Anexo[]; fechados: Fechado[]; extratos: ExtratoPlanilha[];
 }
 
 export async function carregarProposta(ano: number): Promise<DadosProposta> {
@@ -51,14 +60,19 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     cadastroService.listOMs(), cadastroService.listClasses(),
   ]);
   const pend = await supabase.from('pendentes_tc').select('*').eq('ano', ano); // ausente antes do script 012
+  // tabelas do script 013 (vazias se ainda não executado)
+  const [sub, anx, fec, ext] = await Promise.all(['subsidios_tc', 'anexos_tc', 'fechados_tc', 'extratos_tc'].map(t => supabase.from(t).select('*').eq('ano', ano)));
+  const ok = (x: any) => (x.error ? [] : x.data || []);
+  const N = (v: any) => (v == null ? null : Number(v));
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
   return {
     proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao } : { ano, status: 'PROPOSTA' },
     rubricas: (rub.data || []).map(r => ({
       numero: r.numero, descricao: r.descricao, contaContabil: r.conta_contabil, valorPrevisto: Number(r.valor_previsto ?? r.valor_anual ?? 0),
       descontoGeral: Number(r.desconto_geral ?? 0), gastoAnterior: r.gasto_anterior === null || r.gasto_anterior === undefined ? null : Number(r.gasto_anterior), justificativa: r.justificativa_desconto,
-      destino: (r.destino === 'DA' || r.destino === 'TC' ? r.destino : destinoPadrao(r.descricao || '')) as Destino,
+      destino: (['TC', 'DA', 'PAR'].includes(r.destino) ? r.destino : destinoPadrao(r.descricao || '')) as Destino,
       descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
+      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null,
     })),
     lotacoes: (lot.data || []).map(l => ({ omId: l.om_id, lotacao: Number(l.lotacao), lotacaoAnterior: l.lotacao_anterior == null ? null : Number(l.lotacao_anterior), dias: l.dias === null || l.dias === undefined ? null : Number(l.dias) })),
     matriz: new Set((mat.data || []).map(m => `${m.rubrica}|${m.om_id}`)),
@@ -69,6 +83,10 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
       id: x.id, ano: x.ano, nome: x.nome, tipo: x.tipo, lotacao: x.lotacao == null ? null : Number(x.lotacao), lotacaoAnterior: x.lotacao_anterior == null ? null : Number(x.lotacao_anterior),
       dias: x.dias == null ? null : Number(x.dias), rubricas: x.rubricas || [], descontos: x.descontos || [],
     })),
+    subsidios: ok(sub).map((x: any) => ({ id: x.id, ano: x.ano, rubrica: x.rubrica, descricao: x.descricao, documento: x.documento, valor: Number(x.valor), observacao: x.observacao, criadoPor: x.criado_por })),
+    anexos: ok(anx).map((x: any) => ({ id: x.id, ano: x.ano, rubrica: x.rubrica, nomeArquivo: x.nome_arquivo, caminho: x.caminho, tamanho: N(x.tamanho), tipo: x.tipo, descricao: x.descricao, enviadoPor: x.enviado_por, createdAt: x.created_at })),
+    fechados: ok(fec).map((x: any) => ({ tipo: x.tipo === 'DA' ? 'DA' : 'TC', nome: x.nome, omId: x.om_id, anteriorAnual: N(x.anterior_anual), anteriorMensal: N(x.anterior_mensal), proposta: N(x.proposta), descontos: N(x.descontos), atualizada: N(x.atualizada), mensal: N(x.mensal) })),
+    extratos: ok(ext).map((x: any) => ({ nome: x.nome, omId: x.om_id, rubrica: x.rubrica, bruto: Number(x.bruto || 0), desconto: Number(x.desconto || 0), liquido: Number(x.liquido || 0) })),
   };
 }
 
@@ -82,7 +100,11 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
   await salvarRubricas(rs.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil ?? null, valorAnual: Math.max(0, r.valorPrevisto - r.descontoGeral), percentual: null })));
   for (const r of rs) {
     const base = { valor_previsto: r.valorPrevisto, desconto_geral: r.descontoGeral, gasto_anterior: r.gastoAnterior ?? null, justificativa_desconto: r.justificativa ?? null };
-    let { error } = await supabase.from('rubricas').update({ ...base, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null }).eq('ano', ano).eq('numero', r.numero);
+    let { error } = await supabase.from('rubricas').update({ ...base, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null, parcela_navios: r.parcelaNavios ?? null, justificativa_valor: r.justificativaValor ?? null }).eq('ano', ano).eq('numero', r.numero);
+    if (error && /parcela_navios|justificativa_valor|rubricas_destino_ck/.test(error.message || '')) {
+      if (r.destino === 'PAR' || r.parcelaNavios || r.justificativaValor) throw new Error('Falta executar o script supabase/migrations/013_subsidios_conferencia.sql no Supabase (destino PAR, parcela dos navios e justificativa do valor).');
+      ({ error } = await supabase.from('rubricas').update({ ...base, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null }).eq('ano', ano).eq('numero', r.numero)); // antes do 013
+    }
     if (error && /destino|desconto_planilha/.test(error.message || '')) ({ error } = await supabase.from('rubricas').update(base).eq('ano', ano).eq('numero', r.numero)); // antes do 012
     checar(error);
   }
@@ -180,3 +202,51 @@ export async function tcAnterior(ano: number, sigla: 'TC' | 'DA' = 'TC') {
 }
 
 export { listarRubricas };
+
+// ------------------------------------------------------------------ subsídios, contratos e conferência (script 013)
+const falta013 = (e: any) => { if (e && /subsidios_tc|anexos_tc|fechados_tc|extratos_tc|bucket/i.test(e.message || '')) throw new Error('Falta executar o script supabase/migrations/013_subsidios_conferencia.sql no Supabase.'); checar(e); };
+
+export async function salvarSubsidio(s: Omit<Subsidio, 'id'> & { id?: string }) {
+  const { error } = await supabase.from('subsidios_tc').upsert({ id: s.id || uuidv4(), ano: s.ano, rubrica: s.rubrica, descricao: s.descricao.trim(), documento: s.documento?.trim() || null, valor: s.valor, observacao: s.observacao?.trim() || null, criado_por: s.criadoPor ?? null });
+  falta013(error);
+}
+export async function excluirSubsidio(id: string) { const { error } = await supabase.from('subsidios_tc').delete().eq('id', id); falta013(error); }
+export async function importarSubsidios(ano: number, linhas: Omit<Subsidio, 'id' | 'ano'>[]) {
+  if (!linhas.length) return;
+  const { error } = await supabase.from('subsidios_tc').insert(linhas.map(l => ({ id: uuidv4(), ano, rubrica: l.rubrica, descricao: l.descricao, documento: l.documento, valor: l.valor, observacao: l.observacao, criado_por: l.criadoPor ?? null })));
+  falta013(error);
+}
+
+const BUCKET = 'contratos-tc';
+const nomeSeguro = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_').slice(-120);
+/** Envia o arquivo para o Storage privado e registra o anexo da rubrica. */
+export async function enviarAnexo(ano: number, rubrica: number, arquivo: File, descricao: string, usuario: string) {
+  const caminho = `${ano}/${rubrica}/${uuidv4()}-${nomeSeguro(arquivo.name)}`;
+  const up = await supabase.storage.from(BUCKET).upload(caminho, arquivo, { contentType: arquivo.type || undefined, upsert: false });
+  if (up.error) falta013(up.error);
+  const { error } = await supabase.from('anexos_tc').insert({ id: uuidv4(), ano, rubrica, nome_arquivo: arquivo.name, caminho, tamanho: arquivo.size, tipo: arquivo.type || null, descricao: descricao.trim() || null, enviado_por: usuario });
+  if (error) { await supabase.storage.from(BUCKET).remove([caminho]); falta013(error); }
+}
+export async function linkAnexo(caminho: string) {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(caminho, 300);
+  falta013(error);
+  return data!.signedUrl;
+}
+export async function excluirAnexo(a: Anexo) {
+  await supabase.storage.from(BUCKET).remove([a.caminho]);
+  const { error } = await supabase.from('anexos_tc').delete().eq('id', a.id);
+  falta013(error);
+}
+
+/** Guarda os valores fechados e os extratos da planilha importada (substitui os do ano). */
+export async function salvarConferencia(ano: number, fechados: Fechado[], extratos: ExtratoPlanilha[]) {
+  const d1 = await supabase.from('fechados_tc').delete().eq('ano', ano);
+  if (d1.error && /fechados_tc/.test(d1.error.message)) return false; // sem o 013: a conferência só não fica guardada
+  await supabase.from('extratos_tc').delete().eq('ano', ano);
+  if (fechados.length) falta013((await supabase.from('fechados_tc').insert(fechados.map(f => ({ ano, tipo: f.tipo || 'TC', nome: f.nome, om_id: f.omId, anterior_anual: f.anteriorAnual, anterior_mensal: f.anteriorMensal, proposta: f.proposta, descontos: f.descontos, atualizada: f.atualizada, mensal: f.mensal })))).error);
+  for (let i = 0; i < extratos.length; i += 500) {
+    falta013((await supabase.from('extratos_tc').insert(extratos.slice(i, i + 500).map(e => ({ ano, nome: e.nome, om_id: e.omId, rubrica: e.rubrica, bruto: e.bruto, desconto: e.desconto, liquido: e.liquido })))).error);
+  }
+  return true;
+}
+

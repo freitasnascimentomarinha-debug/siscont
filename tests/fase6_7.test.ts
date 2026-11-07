@@ -188,3 +188,40 @@ describe('Fase 7 — auditoria e backup', () => {
     expect(backupAtrasado(8)).toBe(true);
   });
 });
+
+import { lerExtrato, lerValoresFechados, lerDiariasFechadas, lerSubsidios } from '../utils/taxaCondominialImport';
+describe('planilha da proposta — conferência e subsídios', () => {
+  it('extrato do cliente: ignora "TOTAL MÊS (ANO / 12)" e lê parcela, desconto e atualizado', () => {
+    const e = lerExtrato('SecNSNQ', [
+      ['', 'EXTRATO DEMONSTRATIVO DA TAXA CONDOMINIAL – 2026'],
+      ['', 'Nº DE ORDEM', 'DESPESAS – SecNSNQ', 'VALOR ANUAL APROVADO EM REAIS', 'VALOR MENSAL', 'ANUAL 2025', 'MENSAL 2025', '%RUB', 'VALOR DESCONTO', 'VALOR ATUALIZADO'],
+      ['', 1, 'Manutenção de Telhados', 4712.22, 392.68, 2846.3, 237.19, 0.03, 1107.37, 3604.85],
+      ['', 2, 'Recuperação de Marquises', '-', 0, null, 0, 0, 0, 0],
+      ['', 'TOTAL ANO', '', 157762.56, 0, 87449.45, 7287.45, 1, 37074.2, 120688.36],
+      ['', 'TOTAL MÊS (ANO / 12)', '', 13146.88, 13146.88],
+    ])!;
+    expect(e.nome).toBe('SecNSNQ');
+    expect(e.linhas).toEqual([{ numero: 1, descricao: 'Manutenção de Telhados', bruto: 4712.22, desconto: 1107.37, liquido: 3604.85 }, { numero: 2, descricao: 'Recuperação de Marquises', bruto: 0, desconto: 0, liquido: 0 }]);
+    expect(e.totalAnual).toBe(157762.56);
+  });
+  it('aba PROPOSTA: valor fechado das OM e diária dos navios', () => {
+    const l = [
+      ['OM', 'TAXA 2025', 'MENSAL', 'PROPOSTA 2026 (A)', 'MENSAL', '% (A)', '', 'DESCONTOS\nANUAL', 'DESCONTOS\nMENSAL', 'PROPOSTA ATUALIZADA', 'MENSAL'],
+      ['SecNSNQ (Ed.23)', 87449.45, 7287.45, 157762.56, 13146.88, 0.8, 0.23, 37074.2, 3089.52, 120688.36, 10057.36],
+      ['SUB-TOTAL', 1, 1],
+      ['NAVIOS', 'DIÁRIA 2025\n', 'PROPOSTA DIÁRIA 2026 (A)', '% (A)', 'N° DIAS  MÉDIO', 'VALOR ESTIMADO MÊS'],
+      ['CORVETA CLASSE BARROSO', 426.57, 403.86, -0.05, 28, 11308.21],
+      ['SUB-TOTAL'],
+    ];
+    expect(lerValoresFechados(l)).toEqual([{ nome: 'SecNSNQ (Ed.23)', anteriorAnual: 87449.45, anteriorMensal: 7287.45, proposta: 157762.56, descontos: 37074.2, atualizada: 120688.36, mensal: 10057.36 }]);
+    expect(lerDiariasFechadas(l)[0]).toMatchObject({ tipo: 'DA', nome: 'CORVETA CLASSE BARROSO', anteriorMensal: 426.57, atualizada: 403.86, mensal: 11308.21 });
+  });
+  it('subsídios e justificativas da planilha modelo (linhas de exemplo ignoradas)', () => {
+    const r = lerSubsidios([
+      { nome: 'SUBSÍDIOS', linhas: [['RUBRICA', 'DESCRIÇÃO', 'DOCUMENTO', 'VALOR', 'OBSERVAÇÃO'], [1, 'EXEMPLO — x', '', 1, ''], [1, 'Contrato de telhados', 'Contrato 12/2026', '150.000,00', '12 meses'], [3, 'Pesquisa de preços', null, 50000, null]] },
+      { nome: 'JUSTIFICATIVAS', linhas: [['RUBRICA', 'DESPESA', 'JUSTIFICATIVA DO VALOR'], [1, 'Telhados', 'Contrato vigente + reajuste'], [2, 'Marquises', '']] },
+    ]);
+    expect(r.subsidios).toEqual([{ rubrica: 1, descricao: 'Contrato de telhados', documento: 'Contrato 12/2026', valor: 150000, observacao: '12 meses' }, { rubrica: 3, descricao: 'Pesquisa de preços', documento: null, valor: 50000, observacao: null }]);
+    expect(r.justificativas).toEqual([{ rubrica: 1, texto: 'Contrato vigente + reajuste' }]);
+  });
+});

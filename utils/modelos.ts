@@ -147,3 +147,21 @@ export function modeloPlanilhaPagamento(): Modelo {
     ],
   };
 }
+
+/** Subsídios da proposta: composição do valor de cada rubrica e a justificativa do valor. */
+export function modeloSubsidios(ano: number, rubricas: { numero: number; descricao: string }[] = []): Modelo {
+  const rs = rubricas.length ? rubricas : [{ numero: 1, descricao: 'EXEMPLO — Manutenção de Telhados' }];
+  return {
+    arquivo: `MODELO_subsidios_taxa_condominial_${ano}.xlsx`, titulo: `Subsídios da proposta da taxa condominial ${ano}`,
+    instrucoes: [
+      'Aba SUBSÍDIOS: uma linha para cada parte que forma o valor da rubrica (contrato, aditivo, pesquisa de preços, estimativa...). Repita o nº da rubrica em quantas linhas precisar.',
+      'DOCUMENTO: nº do contrato, processo, NE ou outra referência. VALOR em reais (ano).',
+      'Aba JUSTIFICATIVAS: por que o valor da rubrica é esse (uma linha por rubrica). Deixe em branco o que não mudar.',
+      'Os contratos em PDF são anexados pela tela (ficha da rubrica › Contratos e documentos).',
+    ],
+    abas: [
+      { nome: 'SUBSÍDIOS', larguras: [10, 45, 28, 16, 40], linhas: [['RUBRICA', 'DESCRIÇÃO', 'DOCUMENTO', 'VALOR', 'OBSERVAÇÃO'], [rs[0].numero, 'EXEMPLO — Contrato de manutenção predial (12 meses)', 'Contrato nº 00/2026', 150000, 'Valor mensal R$ 12.500,00']] },
+      { nome: 'JUSTIFICATIVAS', larguras: [10, 45, 90], linhas: [['RUBRICA', 'DESPESA', 'JUSTIFICATIVA DO VALOR'], ...rs.map(r => [r.numero, r.descricao, ''])] },
+    ],
+  };
+}

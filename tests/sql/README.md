@@ -96,3 +96,10 @@ unifica; Operador grava nome alternativo pela função; Consulta não inclui cli
 para a OM que fica, lotação repetida é descartada, duplicada desativada com motivo e nome guardado como alternativo);
 unificar a OM com ela mesma recusado; pendência e par "não são a mesma" gravados; unificação registrada na auditoria.
 
+## Script 013 (subsídios, contratos e conferência)
+
+Com 001–012 aplicados: `psql -d sb -f tests/sql/subsidios_013_tests.sql` (simula o esquema `storage` do Supabase e aplica o
+013 duas vezes). Esperado: destino PAR aceito; parte dos navios e justificativa do valor gravadas; parte negativa recusada;
+bucket privado `contratos-tc`; Operador inclui subsídio, anexo e arquivo; subsídio sem descrição recusado; Consulta lê mas
+não inclui; valores fechados (OM e navio) e extrato gravados; subsídio registrado na auditoria.
+

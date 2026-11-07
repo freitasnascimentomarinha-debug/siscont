@@ -43,3 +43,16 @@ describe('planilhas modelo são lidas pelos próprios importadores', () => {
     expect(r.navios[0].dias).toHaveLength(28);
   });
 });
+
+import { modeloSubsidios } from '../utils/modelos';
+import { lerSubsidios } from '../utils/taxaCondominialImport';
+describe('modelo de subsídios', () => {
+  it('vem com as rubricas na aba JUSTIFICATIVAS e é lido de volta', () => {
+    const m = modeloSubsidios(2026, [{ numero: 1, descricao: 'Telhados' }, { numero: 2, descricao: 'Marquises' }]);
+    const j = m.abas.find(a => a.nome === 'JUSTIFICATIVAS')!.linhas as any[][];
+    j[1][2] = 'Contrato vigente';
+    const r = lerSubsidios(m.abas.map(a => ({ nome: a.nome, linhas: a.linhas as any[][] })));
+    expect(r.justificativas).toEqual([{ rubrica: 1, texto: 'Contrato vigente' }]);
+    expect(r.subsidios).toEqual([]); // linha EXEMPLO ignorada
+  });
+});

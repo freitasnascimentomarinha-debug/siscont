@@ -8,7 +8,7 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
-import { DadosProposta, importarDescontos, salvarLotacoes, salvarMatriz, salvarPendentes, salvarRubricasProposta } from '../../services/taxaCondominialService';
+import { DadosProposta, importarDescontos, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarRubricasProposta } from '../../services/taxaCondominialService';
 import { ClienteModal } from './ClienteModal';
 import { ResultadoRateio } from '../../utils/taxaCondominial';
 import { lerAbas, lerProposta, ligarOMs } from '../../utils/taxaCondominialImport';
@@ -28,7 +28,14 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
   const sel = resultado.oms.find(o => o.omId === omExtrato);
   // comparativo com o ano anterior: TC mensal (Anexo B) ou diária
   const atual = (o: ResultadoRateio['oms'][number]) => (da ? o.diaria ?? 0 : o.mensal);
-  const variacao = (o: ResultadoRateio['oms'][number]) => { const a = anterior.get(o.omId); return a ? Math.round(((atual(o) - a) / a) * 10000) / 100 : null; };
+  // conferência com a planilha importada (valor fechado da aba PROPOSTA e extratos por cliente)
+  const fechados = new Map(dados.fechados.filter(f => (f.tipo || 'TC') === modo && f.omId).map(f => [f.omId!, f]));
+  const planilha = (o: ResultadoRateio['oms'][number]) => { const f = fechados.get(o.omId); return f ? (da ? f.atualizada : f.mensal) : null; };
+  const confere = (o: ResultadoRateio['oms'][number]) => { const p = planilha(o); return p == null ? null : Math.abs(p - atual(o)) < 0.02; };
+  const conferidos = resultado.oms.filter(o => confere(o) !== null), divergem = conferidos.filter(o => confere(o) === false);
+  const antDe = (o: ResultadoRateio['oms'][number]) => anterior.get(o.omId) ?? fechados.get(o.omId)?.anteriorMensal ?? undefined;
+  const variacao = (o: ResultadoRateio['oms'][number]) => { const a = antDe(o); return a ? Math.round(((atual(o) - a) / a) * 10000) / 100 : null; };
+  const extratoPlanilha = (omId: string, rub: number) => dados.extratos.find(e => e.omId === omId && e.rubrica === rub);
 
   const exportar = () => {
     const wb = XLSX.utils.book_new();
@@ -55,6 +62,9 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {cartoes.map(([t, v]) => (<div key={t} className="p-3 rounded-lg border border-slate-200 bg-slate-50"><div className="text-xs text-slate-500">{t}</div><div className="font-bold text-slate-800">{v}</div></div>))}
       </div>
+      {conferidos.length > 0 && (divergem.length
+        ? <Aviso><b>Conferência com a planilha:</b> {conferidos.length - divergem.length} de {conferidos.length} conferem. Diferentes: {divergem.map(o => `${o.nome} (sistema ${brl(atual(o))} × planilha ${brl(planilha(o) || 0)})`).join('; ')}.</Aviso>
+        : <Aviso tom="emerald"><b>Conferência com a planilha:</b> os {conferidos.length} valores {da ? 'de diária' : 'mensais'} conferem com a aba PROPOSTA da planilha importada.</Aviso>)}
       {semPart.length > 0 && <Aviso tom="red"><b>Rubricas com valor e sem participante</b> (não rateadas): {semPart.map(r => `${r.numero} – ${rub.get(r.numero)?.descricao} (${brl(r.valor)})`).join('; ')}. {da ? 'Inclua os navios na aba Navios.' : 'Marque as OM na aba Clientes e matriz ou zere o valor.'}</Aviso>}
       {da && !totalVig && <Aviso>Nenhuma rubrica com destino "Diária de atracação" e valor. Defina o destino na aba Rubricas.</Aviso>}
       {semHist.length > 0 && <Aviso>
@@ -69,6 +79,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
             {!da && <><th className="px-2 text-right">Anual bruto</th><th className="px-2 text-right">Descontos</th></>}
             <th className="px-2 text-right">{da ? 'Valor anual estimado' : 'Anual'}</th><th className="px-2 text-right">{da ? 'Valor estimado mês' : 'Mensal (TC)'}</th><th className="px-2 text-right">%</th>
             {da && <th className="px-2 text-right">Diária {ano}</th>}
+            <th className="px-2 text-right" title="valor da aba PROPOSTA da planilha importada">Planilha</th>
             <th className="px-2 text-right">{da ? `Diária ${ano - 1}` : `Mensal ${ano - 1}`}</th><th className="px-2 text-right">Variação</th>
           </tr></thead>
           <tbody>
@@ -81,7 +92,8 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
                   {!da && <><td className="px-2 text-right">{brl(o.parcelas.reduce((s, p) => s + p.bruto, 0))}</td><td className="px-2 text-right text-emerald-700">{o.descontos ? `− ${brl(o.descontos)}` : ''}</td></>}
                   <td className="px-2 text-right font-semibold">{brl(o.anual)}</td><td className="px-2 text-right font-semibold">{brl(o.mensal)}</td><td className="px-2 text-right">{o.percentual}</td>
                   {da && <td className="px-2 text-right font-semibold" title={o.regraDiaria === 'SEM_HISTORICO' ? 'sem histórico: diária pela lotação' : undefined}>{o.diaria !== undefined ? `${brl(o.diaria)}${o.regraDiaria === 'SEM_HISTORICO' ? ' *' : ''}` : '—'}</td>}
-                  <td className="px-2 text-right text-slate-500">{anterior.get(o.omId) ? brl(anterior.get(o.omId)!) : '—'}</td>
+                  <td className="px-2 text-right whitespace-nowrap">{planilha(o) == null ? <span className="text-slate-300">—</span> : <>{brl(planilha(o)!)} {confere(o) ? <span className="text-emerald-700" title="confere">✓</span> : <span className="text-amber-700" title={`diferença ${brl(Math.round((atual(o) - planilha(o)!) * 100) / 100)}`}>⚠</span>}</>}</td>
+                  <td className="px-2 text-right text-slate-500">{antDe(o) ? brl(antDe(o)!) : '—'}</td>
                   <td className={`px-2 text-right ${v && v > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(v)}</td>
                 </tr>
               );
@@ -97,17 +109,18 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
         </Campo>
         {sel && (
           <table className="w-full text-xs border border-slate-200 rounded-lg">
-            <thead className="bg-slate-50 text-slate-600"><tr><th className="px-2 py-1.5 text-left">Rubrica</th><th className="px-2 text-right">Valor da rubrica</th><th className="px-2 text-right">Participação</th><th className="px-2 text-right">Parcela</th><th className="px-2 text-right">Desconto</th><th className="px-2 text-right">Líquido</th></tr></thead>
+            <thead className="bg-slate-50 text-slate-600"><tr><th className="px-2 py-1.5 text-left">Rubrica</th><th className="px-2 text-right">Valor da rubrica</th><th className="px-2 text-right">Participação</th><th className="px-2 text-right">Parcela</th><th className="px-2 text-right">Desconto</th><th className="px-2 text-right">Líquido</th><th className="px-2 text-right" title="extrato do cliente na planilha importada">Extrato da planilha</th></tr></thead>
             <tbody>
               {sel.parcelas.map(p => { const v = resultado.valorRubricas.find(x => x.numero === p.rubrica); return (
                 <tr key={p.rubrica} className="border-t border-slate-100">
                   <td className="px-2 py-1">{p.rubrica} – {rub.get(p.rubrica)?.descricao}</td><td className="px-2 text-right">{brl(v?.valor || 0)}</td>
                   <td className="px-2 text-right">{v?.valor ? pct(Math.round((p.bruto / v.valor) * 1000000) / 10000) : '—'}</td>
                   <td className="px-2 text-right">{brl(p.bruto)}</td><td className="px-2 text-right text-emerald-700">{p.desconto ? `− ${brl(p.desconto)}` : ''}</td><td className="px-2 text-right font-semibold">{brl(p.liquido)}</td>
+                  <td className="px-2 text-right whitespace-nowrap">{(() => { const e = extratoPlanilha(sel.omId, p.rubrica); if (!e) return <span className="text-slate-300">—</span>; const ok = Math.abs(e.bruto - p.bruto) < 0.02 && Math.abs(e.desconto - p.desconto) < 0.02; return <>{brl(e.liquido)} {ok ? <span className="text-emerald-700" title="confere">✓</span> : <span className="text-amber-700" title={`planilha: parcela ${brl(e.bruto)}, desconto ${brl(e.desconto)}`}>⚠</span>}</>; })()}</td>
                 </tr>
               ); })}
             </tbody>
-            <tfoot className="bg-slate-50 font-semibold"><tr><td className="px-2 py-1.5" colSpan={5}>Anual {sel.anualBruto !== sel.anual ? `(após desconto no total: − ${brl(sel.anualBruto - sel.anual)})` : ''} · mensal {brl(sel.mensal)}</td><td className="px-2 text-right">{brl(sel.anual)}</td></tr></tfoot>
+            <tfoot className="bg-slate-50 font-semibold"><tr><td className="px-2 py-1.5" colSpan={6}>Anual {sel.anualBruto !== sel.anual ? `(após desconto no total: − ${brl(sel.anualBruto - sel.anual)})` : ''} · mensal {brl(sel.mensal)}</td><td className="px-2 text-right">{brl(sel.anual)}</td></tr></tfoot>
           </table>
         )}
       </div>}
@@ -155,6 +168,9 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
       const idDe = (nome: string) => { const e = esc.get(nome); return e?.tipo === 'OM' ? e.omId : null; };
       const depois = (nome: string) => esc.get(nome)?.tipo === 'DEPOIS';
       const rubDA = new Set(lido.rubricas.filter(r => r.destino === 'DA').map(r => r.numero));
+      // rubricas depois da última da matriz (34 a 37) servem só para o PAR; "Navios" é a linha das diárias
+      const ultimaMatriz = Math.max(0, ...lido.matriz.flatMap(m => m.rubricas));
+      const parcela = new Map(lido.navios.map(n => [n.numero, n.valor]));
       // descontos por OM: os de OM ligadas viram descontos; os de pendentes ficam na pendência
       const descLig = lido.descontos.filter(d => idDe(d.nome)).map(d => ({ omId: idDe(d.nome)!, rubrica: d.rubrica, valor: d.valor }));
       const porRub = new Map<number, number>(); lido.descontos.forEach(d => porRub.set(d.rubrica, (porRub.get(d.rubrica) || 0) + d.valor));
@@ -163,9 +179,12 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
         await salvarRubricasProposta(ano, lido.rubricas.map(r => {
           // desconto geral = coluna DESCONTOS − soma dos descontos por OM daquela rubrica (ex.: rubrica 5, R$ 180.000)
           const geral = r.descontoPlanilha != null ? Math.max(0, Math.round((r.descontoPlanilha - (porRub.get(r.numero) || 0)) * 100) / 100) : atuais.get(r.numero)?.descontoGeral ?? 0;
-          return { numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorPrevisto: r.valorPrevisto, gastoAnterior: r.gastoAnterior, destino: r.destino,
-            descontoPlanilha: r.descontoPlanilha, descontoGeral: geral,
-            justificativa: geral > 0 ? (atuais.get(r.numero)?.justificativa || 'Desconto geral da planilha (coluna DESCONTOS da Despesas_NOVO)') : atuais.get(r.numero)?.justificativa ?? null };
+          const destino = r.destino === 'TC' && ultimaMatriz > 0 && r.numero > ultimaMatriz ? 'PAR' as const : r.destino;
+          const pn = destino === 'TC' ? parcela.get(r.numero) ?? null : null;
+          const just = geral > 0 && pn && Math.abs(pn - geral) < 0.01 ? 'Rubrica paga pelos navios (aba NAVIOS da planilha)' : 'Desconto geral da planilha (coluna DESCONTOS da Despesas_NOVO)';
+          return { numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorPrevisto: r.valorPrevisto, gastoAnterior: r.gastoAnterior, destino,
+            descontoPlanilha: r.descontoPlanilha, descontoGeral: geral, parcelaNavios: pn, justificativaValor: atuais.get(r.numero)?.justificativaValor ?? null,
+            justificativa: geral > 0 ? (atuais.get(r.numero)?.justificativa || just) : atuais.get(r.numero)?.justificativa ?? null };
         }));
       }
       if (lido.lotacoes.length) {
@@ -179,6 +198,14 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
         await salvarMatriz(ano, m);
       }
       if (lido.descontos.length) await importarDescontos(ano, descLig);
+      // conferência: valores fechados (PROPOSTA CONDOMINIO) e extratos por cliente
+      if (lido.fechados.length || lido.extratos.length) {
+        const comApelidos = oms.flatMap(o => [o, ...(o.nomesAlternativos || []).map(a => ({ ...o, nome: a }))]);
+        const idPorNome = (n: string) => idDe(n) || ligarOMs([{ nome: n, navio: false }], comApelidos, acharNavio).get(n) || ligarOMs([{ nome: n, navio: true }], comApelidos, acharNavio).get(n) || null;
+        await salvarConferencia(ano,
+          lido.fechados.map(f => ({ ...f, omId: idPorNome(f.nome) })),
+          lido.extratos.flatMap(e => { const id = idPorNome(e.aba.replace(/_/g, ' ')) || idPorNome(e.nome); return e.linhas.map(l => ({ nome: e.aba, omId: id, rubrica: l.numero, bruto: l.bruto, desconto: l.desconto, liquido: l.liquido })); }));
+      }
       const nomesDepois = [...esc.keys()].filter(depois);
       await salvarPendentes(ano, nomesDepois.map(nome => {
         const l = lido.lotacoes.find(x => x.nome === nome);
@@ -192,7 +219,7 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
   return (
     <Modal isOpen={aberto} onClose={() => { setLido(null); fechar(); }} title={`Importar proposta da planilha (${ano})`} maxWidth="max-w-3xl">
       <div className="space-y-3 text-sm">
-        <p className="text-slate-600">Lê as abas <b>Despesas_NOVO</b> (rubricas, valor do ano anterior, descontos), <b>Matriz_NOVO</b>, <b>RATEIO MODELO TÉCNICO</b> (ou <b>(1)</b>) e <b>PROPOSTA CONDOMINIO</b> (descontos de cada OM por rubrica). A diferença entre a coluna DESCONTOS e os descontos por OM vira desconto geral da rubrica.</p>
+        <p className="text-slate-600">Lê as abas <b>Despesas_NOVO</b> (rubricas, valor do ano anterior, descontos), <b>Matriz_NOVO</b>, <b>RATEIO MODELO TÉCNICO</b> (ou <b>(1)</b>), <b>PROPOSTA CONDOMINIO</b> (descontos de cada OM por rubrica e valor fechado de cada OM), <b>NAVIOS</b> (parte de cada rubrica paga pelos navios) e os <b>extratos de cada cliente</b> (para conferência). Rubricas depois da 33 (34 a 37) ficam como <b>só PAR</b>, fora da taxa. A diferença entre a coluna DESCONTOS e os descontos por OM vira desconto geral da rubrica.</p>
         <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" aria-label="Arquivo da proposta" onChange={e => ler(e.target.files?.[0])} />
         <div className="flex items-center gap-4"><Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-1" />Escolher arquivo</Button><BaixarModelo modelo={() => modeloProposta(ano)} /></div>
         {lido && <>

@@ -1,18 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BaixarModelo } from '../ui/BaixarModelo';
-import { modeloHistorico } from '../../utils/modelos';
-import { FileUp, Plus, Save, Trash2 } from 'lucide-react';
+import { modeloHistorico, modeloSubsidios } from '../../utils/modelos';
+import { Download, FileUp, Plus, Save, Trash2 } from 'lucide-react';
+// @ts-ignore - pacote xlsx sem tipos completos no build
+import * as XLSX from 'xlsx';
+import { FichaRubrica } from './FichaRubrica';
 import { Button } from '../ui/Button';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
 import {
-  DadosProposta, Lotacao, Pendente, RubricaProposta, diasDoBnic35, excluirDesconto, excluirPendente, resolverPendente, salvarAtracacaoAnual, salvarDesconto,
+  DadosProposta, Lotacao, Pendente, RubricaProposta, diasDoBnic35, excluirDesconto, importarSubsidios, linkAnexo, excluirPendente, resolverPendente, salvarAtracacaoAnual, salvarDesconto,
   salvarLotacoes, salvarMatriz, salvarRubricasProposta,
 } from '../../services/taxaCondominialService';
 import { OM } from '../../types';
 import { ClienteModal } from './ClienteModal';
 import { AnoClasse, Desconto, MediaClasse, ResultadoRateio, mediaTrienal, naviosAtivos, valorVigente } from '../../utils/taxaCondominial';
-import { acharPorNome, lerAbas, lerHistorico } from '../../utils/taxaCondominialImport';
+import { acharPorNome, lerAbas, lerHistorico, lerSubsidios } from '../../utils/taxaCondominialImport';
 
 const n2 = (v: string) => (v.trim() === '' ? null : Number(v.replace(/\./g, '').replace(',', '.')));
 const fmt = (v: number | null | undefined, casas = 2) => (v === null || v === undefined ? '' : String(Math.round(v * 10 ** casas) / 10 ** casas));
@@ -21,10 +24,19 @@ const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-
 interface AbaProps { ano: number; dados: DadosProposta; podeEditar: boolean; recarregar: () => void }
 
 // ================================================================== Rubricas
-export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, number> }> = ({ ano, dados, podeEditar, recarregar, descontosPorOM }) => {
+const TITULO_GRUPO: Record<'TC' | 'DA' | 'PAR', { titulo: string; ajuda: string }> = {
+  TC: { titulo: 'Taxa condominial', ajuda: 'Despesas rateadas entre as OM (na planilha, rubricas 1 a 33). "Navios pagam" é a parte da despesa cobrada dos navios (aba NAVIOS).' },
+  DA: { titulo: 'Navios — diárias de atracação', ajuda: 'Valor rateado entre os navios = soma do que os navios pagam em cada rubrica.' },
+  PAR: { titulo: 'Fora da taxa — só para o cálculo do PAR', ajuda: 'Não entram na taxa condominial nem nas diárias (na planilha, rubricas 34 a 37).' },
+};
+
+export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, number>; usuario: string }> = ({ ano, dados, podeEditar, recarregar, descontosPorOM, usuario }) => {
   const [linhas, setLinhas] = useState<RubricaProposta[]>(dados.rubricas);
   const [sujo, setSujo] = useState(false);
   const [gravando, setGravando] = useState(false);
+  const [ficha, setFicha] = useState<number | null>(null);
+  const [importando, setImportando] = useState(false);
+  const refSub = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!sujo) setLinhas(dados.rubricas); }, [dados]);
   const mudar = (i: number, p: Partial<RubricaProposta>) => { setSujo(true); setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l))); };
   const erros = useMemo(() => {
@@ -34,75 +46,189 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     linhas.forEach(l => {
       if (!l.descricao.trim()) e.push(`Rubrica ${l.numero}: falta a descrição.`);
       if (l.descontoGeral > l.valorPrevisto) e.push(`Rubrica ${l.numero}: o desconto geral é maior que o valor previsto.`);
-      if (l.descontoGeral > 0 && !l.justificativa?.trim()) e.push(`Rubrica ${l.numero}: informe a justificativa do desconto geral.`);
+      if (l.descontoGeral > 0 && !l.justificativa?.trim()) e.push(`Rubrica ${l.numero}: informe o motivo do desconto geral (abra a ficha).`);
     });
     return e;
   }, [linhas]);
-  const totalPrev = linhas.reduce((s, l) => s + l.valorPrevisto, 0);
+  const subDe = (n: number) => dados.subsidios.filter(x => x.rubrica === n);
+  const anxDe = (n: number) => dados.anexos.filter(x => x.rubrica === n);
+  const tc = linhas.map((l, i) => ({ l, i })).filter(x => x.l.destino === 'TC').sort((a, b) => a.l.numero - b.l.numero);
+  const par = linhas.map((l, i) => ({ l, i })).filter(x => x.l.destino === 'PAR').sort((a, b) => a.l.numero - b.l.numero);
+  const da = linhas.map((l, i) => ({ l, i })).filter(x => x.l.destino === 'DA');
+  const totalTC = tc.reduce((s, x) => s + x.l.valorPrevisto, 0);
   const calc = (l: RubricaProposta) => {
     const porOM = descontosPorOM.get(l.numero) || 0;
     const descontos = Math.round((l.descontoGeral + porOM) * 100) / 100;
-    return { porOM, descontos, atualizado: Math.round((l.valorPrevisto - descontos) * 100) / 100, rub: totalPrev ? (l.valorPrevisto / totalPrev) * 100 : 0,
+    const atualizado = Math.round((l.valorPrevisto - descontos) * 100) / 100;
+    return { porOM, descontos, atualizado, rub: totalTC ? (l.valorPrevisto / totalTC) * 100 : 0,
       variacao: l.gastoAnterior ? Math.round(((l.valorPrevisto - l.gastoAnterior) / l.gastoAnterior) * 10000) / 100 : null,
-      confere: l.descontoPlanilha == null ? null : Math.abs(l.descontoPlanilha - descontos) < 0.05 };
+      confere: l.descontoPlanilha == null ? null : Math.abs(l.descontoPlanilha - descontos) < 0.05,
+      // OM + navios pagando mais do que a despesa prevista
+      excede: l.destino === 'TC' && (l.parcelaNavios || 0) > 0 && atualizado + (l.parcelaNavios || 0) > l.valorPrevisto + 0.01 };
   };
-  const totais = linhas.reduce((t, l) => { const c = calc(l); return { prev: t.prev + l.valorPrevisto, ant: t.ant + (l.gastoAnterior || 0), desc: t.desc + c.descontos, atu: t.atu + c.atualizado }; }, { prev: 0, ant: 0, desc: 0, atu: 0 });
-  const divergentes = linhas.filter(l => calc(l).confere === false);
+  const somar = (xs: { l: RubricaProposta }[]) => xs.reduce((t, { l }) => { const c = calc(l); return { prev: t.prev + l.valorPrevisto, ant: t.ant + (l.gastoAnterior || 0), desc: t.desc + c.descontos, atu: t.atu + c.atualizado, nav: t.nav + (l.parcelaNavios || 0) }; }, { prev: 0, ant: 0, desc: 0, atu: 0, nav: 0 });
+  const tTC = somar(tc), tPAR = somar(par);
+  const somaNavios = Math.round(tTC.nav * 100) / 100;
+  const linhaDA = da[0]?.l;
+  const valorDA = somaNavios > 0 ? somaNavios : linhaDA?.valorPrevisto || 0;
+  const divergentes = tc.filter(x => calc(x.l).confere === false).map(x => x.l.numero);
+  const semJust = linhas.filter(l => l.valorPrevisto > 0 && !l.justificativaValor?.trim()).length;
+
   const gravar = async () => {
     setGravando(true);
-    try { await salvarRubricasProposta(ano, linhas); setSujo(false); notify.success('Rubricas gravadas.'); recarregar(); }
-    catch (e) { notify.fail('Erro ao gravar rubricas', e); } finally { setGravando(false); }
+    try {
+      // a linha "Navios" acompanha a soma das parcelas dos navios
+      const final = linhas.map(l => (l.destino === 'DA' && somaNavios > 0 ? { ...l, valorPrevisto: somaNavios } : l));
+      await salvarRubricasProposta(ano, final); setSujo(false); notify.success('Rubricas gravadas.'); recarregar();
+    } catch (e) { notify.fail('Erro ao gravar rubricas', e); throw e; } finally { setGravando(false); }
   };
+  const importarSub = async (f?: File) => {
+    if (!f) return;
+    setImportando(true);
+    try {
+      const r = lerSubsidios(lerAbas(await lerArquivo(f)));
+      const validas = new Set(linhas.map(l => l.numero));
+      const fora = r.subsidios.filter(s => !validas.has(s.rubrica));
+      await importarSubsidios(ano, r.subsidios.filter(s => validas.has(s.rubrica)).map(s => ({ ...s, criadoPor: usuario })));
+      if (r.justificativas.length) {
+        const j = new Map(r.justificativas.map(x => [x.rubrica, x.texto]));
+        await salvarRubricasProposta(ano, linhas.filter(l => j.has(l.numero)).map(l => ({ ...l, justificativaValor: j.get(l.numero)! })));
+      }
+      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados.${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''}`);
+      r.avisos.forEach(a => notify.error(a));
+      setSujo(false); recarregar();
+    } catch (e) { notify.fail('Erro ao importar subsídios', e); } finally { setImportando(false); if (refSub.current) refSub.current.value = ''; }
+  };
+
   const th = 'px-2 py-2 font-semibold';
+  const situacao = (l: RubricaProposta) => {
+    const sb = subDe(l.numero), ax = anxDe(l.numero);
+    const soma = sb.reduce((s, x) => s + x.valor, 0);
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
+        <span title={l.justificativaValor || 'sem justificativa do valor'} className={l.justificativaValor?.trim() ? 'text-emerald-700' : l.valorPrevisto > 0 ? 'text-amber-700' : 'text-slate-300'}>{l.justificativaValor?.trim() ? '✍ ok' : '✍ falta'}</span>
+        <span title={`${sb.length} subsídio(s), soma ${brl(soma)}`} className={sb.length ? (Math.abs(soma - l.valorPrevisto) < 0.01 ? 'text-emerald-700' : 'text-amber-700') : 'text-slate-300'}>Σ {sb.length}</span>
+        <span title={`${ax.length} documento(s)`} className={ax.length ? 'text-emerald-700' : 'text-slate-300'}>📎 {ax.length}</span>
+      </span>
+    );
+  };
+  const linhaTabela = ({ l, i }: { l: RubricaProposta; i: number }, mostrarNavios: boolean) => {
+    const c = calc(l);
+    return (
+      <tr key={i} className="border-t border-slate-100 hover:bg-slate-50/60">
+        <td className="px-2 text-center text-slate-600">{l.numero}</td>
+        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} /></td>
+        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
+        <td className="px-2 text-right text-slate-600">{mostrarNavios ? pct(Math.round(c.rub * 100) / 100) : ''}</td>
+        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.gastoAnterior)} onChange={e => mudar(i, { gastoAnterior: n2(e.target.value) })} aria-label={`Gasto anterior da rubrica ${l.numero}`} /></td>
+        <td className={`px-2 text-right ${c.variacao !== null && c.variacao > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(c.variacao)}</td>
+        <td className="px-2 text-right whitespace-nowrap" title={c.porOM ? `geral ${brl(l.descontoGeral)} + por OM ${brl(c.porOM)}` : l.justificativa || undefined}>{mostrarNavios ? (c.descontos ? brl(c.descontos) : '—') : ''}{mostrarNavios && c.confere !== null && (c.confere ? <span className="text-emerald-700 ml-1" title="confere com a planilha">✓</span> : <span className="text-amber-700 ml-1 cursor-help" title={`Planilha: ${brl(l.descontoPlanilha || 0)}`}>⚠</span>)}</td>
+        <td className="px-2 text-right font-semibold whitespace-nowrap">{mostrarNavios ? brl(c.atualizado) : brl(l.valorPrevisto)}</td>
+        <td className="px-1">{mostrarNavios && <span className="flex items-center gap-1"><input disabled={!podeEditar} className={`${entrada} w-24 text-xs text-right`} inputMode="decimal" placeholder="—" value={fmt(l.parcelaNavios)} onChange={e => mudar(i, { parcelaNavios: n2(e.target.value) })} aria-label={`Parte dos navios na rubrica ${l.numero}`} />{c.excede && <span className="text-amber-700 cursor-help" title={`OM (${brl(c.atualizado)}) + navios (${brl(l.parcelaNavios || 0)}) pagam ${brl(c.atualizado + (l.parcelaNavios || 0))}, acima do valor previsto ${brl(l.valorPrevisto)}`}>⚠</span>}</span>}</td>
+        <td className="px-2">{situacao(l)}</td>
+        <td className="px-1 whitespace-nowrap">
+          <Button size="sm" variant="secondary" onClick={() => setFicha(i)} aria-label={`Ficha da rubrica ${l.numero}`}>Ficha</Button>
+          {podeEditar && <button aria-label={`Excluir rubrica ${l.numero}`} className="text-slate-400 hover:text-red-600 ml-1" onClick={() => { if (window.confirm(`Excluir a rubrica ${l.numero}?`)) { setSujo(true); setLinhas(ls => ls.filter((_, k) => k !== i)); } }}><Trash2 size={14} /></button>}
+        </td>
+      </tr>
+    );
+  };
+  const cabecalho = (navios: boolean) => (
+    <thead className="bg-slate-50 text-slate-600"><tr>
+      <th className={th}>Nº</th><th className={`${th} text-left`}>Despesa</th><th className={`${th} text-right`}>Valor {ano} (R$)</th><th className={`${th} text-right`}>{navios ? '%RUB' : ''}</th>
+      <th className={`${th} text-right`}>Valor {ano - 1} (R$)</th><th className={`${th} text-right`}>Variação</th><th className={`${th} text-right`}>{navios ? 'Descontos' : ''}</th>
+      <th className={`${th} text-right`}>{navios ? 'Valor atualizado' : 'Valor'}</th><th className={`${th} text-left`}>{navios ? 'Navios pagam' : ''}</th><th className={`${th} text-left`} title="✍ justificativa do valor · Σ subsídios · 📎 documentos">Situação</th><th></th>
+    </tr></thead>
+  );
+  const rodape = (rot: string, t: ReturnType<typeof somar>, navios: boolean) => (
+    <tfoot className="bg-slate-100 font-bold text-slate-800"><tr>
+      <td colSpan={2} className="px-2 py-2">{rot}</td><td className="px-2 text-right">{brl(t.prev)}</td><td className="px-2 text-right">{navios ? '100%' : ''}</td>
+      <td className="px-2 text-right">{brl(t.ant)}</td><td className="px-2 text-right">{t.ant ? pct(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '—'}</td>
+      <td className="px-2 text-right">{navios ? brl(t.desc) : ''}</td><td className="px-2 text-right">{navios ? brl(t.atu) : brl(t.prev)}</td><td className="px-2">{navios ? brl(t.nav) : ''}</td><td colSpan={2}></td>
+    </tr></tfoot>
+  );
+  const bloco = (g: 'TC' | 'DA' | 'PAR', children: React.ReactNode) => (
+    <section className="space-y-1">
+      <h4 className="font-bold text-slate-800">{TITULO_GRUPO[g].titulo}</h4>
+      <p className="text-xs text-slate-500">{TITULO_GRUPO[g].ajuda}</p>
+      <div className="overflow-x-auto border border-slate-200 rounded-lg">{children}</div>
+    </section>
+  );
+  const fi = ficha !== null ? linhas[ficha] : null;
+
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-500">Mesmas colunas da aba <b>Despesas_NOVO</b>. <b>Destino</b>: "Taxa condominial" é rateada entre as OM; "Diária de atracação" é o valor que custeia as diárias dos navios. <b>Descontos</b> = desconto geral (vale para todas as OM, com justificativa) + descontos por OM (aba Descontos). <b>Valor atualizado</b> = previsto − descontos.</p>
-      {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
-      {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.map(l => l.numero).join(', ')} (passe o mouse no ⚠ para ver a diferença).</Aviso>}
-      <div className="overflow-x-auto border border-slate-200 rounded-lg">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-slate-600"><tr>
-            <th className={th}>Nº</th><th className={`${th} text-left`}>Despesas</th><th className={`${th} text-left`}>Destino</th><th className={`${th} text-right`}>Valor para {ano} (R$)</th><th className={`${th} text-right`}>%RUB</th>
-            <th className={`${th} text-right`}>Valor {ano - 1} (R$)</th><th className={`${th} text-right`}>Variação % ({ano}/{ano - 1})</th><th className={`${th} text-right`}>Desconto geral</th><th className={`${th} text-left`}>Justificativa</th>
-            <th className={`${th} text-right`}>Descontos (geral + OM)</th><th className={`${th} text-right`}>Valor rubrica atualizado</th><th className={th} title="Confere com a coluna DESCONTOS da planilha importada">Planilha</th><th></th>
-          </tr></thead>
-          <tbody>
-            {linhas.map((l, i) => {
-              const c = calc(l);
-              return (
-                <tr key={i} className="border-t border-slate-100">
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-12 text-xs`} type="number" value={l.numero} onChange={e => mudar(i, { numero: Number(e.target.value) })} aria-label={`Número da rubrica ${i + 1}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} /></td>
-                  <td className="px-1"><select disabled={!podeEditar} className={`${entrada} text-xs`} value={l.destino} onChange={e => mudar(i, { destino: e.target.value as any })} aria-label={`Destino da rubrica ${l.numero}`}><option value="TC">Taxa condominial</option><option value="DA">Diária de atracação</option></select></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
-                  <td className="px-2 text-right text-slate-600">{pct(Math.round(c.rub * 100) / 100)}</td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.gastoAnterior)} onChange={e => mudar(i, { gastoAnterior: n2(e.target.value) })} aria-label={`Gasto anterior da rubrica ${l.numero}`} /></td>
-                  <td className={`px-2 text-right ${c.variacao !== null && c.variacao > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(c.variacao)}</td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-24 text-xs text-right`} inputMode="decimal" value={fmt(l.descontoGeral) === '0' ? '' : fmt(l.descontoGeral)} placeholder="0" onChange={e => mudar(i, { descontoGeral: n2(e.target.value) ?? 0 })} aria-label={`Desconto geral da rubrica ${l.numero}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-40 text-xs`} value={l.justificativa || ''} onChange={e => mudar(i, { justificativa: e.target.value })} aria-label={`Justificativa do desconto da rubrica ${l.numero}`} /></td>
-                  <td className="px-2 text-right whitespace-nowrap" title={c.porOM ? `geral ${brl(l.descontoGeral)} + por OM ${brl(c.porOM)}` : undefined}>{c.descontos ? brl(c.descontos) : '—'}</td>
-                  <td className="px-2 text-right font-semibold whitespace-nowrap">{brl(c.atualizado)}</td>
-                  <td className="px-2 text-center">{c.confere === null ? '' : c.confere ? <span className="text-emerald-700" title="Descontos conferem com a planilha">✓</span> : <span className="text-amber-700 cursor-help" title={`Planilha: ${brl(l.descontoPlanilha || 0)} · sistema: ${brl(c.descontos)}`}>⚠</span>}</td>
-                  <td className="px-1">{podeEditar && <button aria-label={`Excluir rubrica ${l.numero}`} className="text-slate-400 hover:text-red-600" onClick={() => { setSujo(true); setLinhas(ls => ls.filter((_, k) => k !== i)); }}><Trash2 size={14} /></button>}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot className="bg-slate-50 font-semibold"><tr>
-            <td colSpan={3} className="px-2 py-2">{linhas.length} rubricas</td><td className="px-2 text-right">{brl(totais.prev)}</td><td className="px-2 text-right">100%</td>
-            <td className="px-2 text-right">{brl(totais.ant)}</td><td className="px-2 text-right">{totais.ant ? pct(Math.round(((totais.prev - totais.ant) / totais.ant) * 10000) / 100) : '—'}</td><td colSpan={2}></td>
-            <td className="px-2 text-right">{brl(totais.desc)}</td><td className="px-2 text-right">{brl(totais.atu)}</td><td colSpan={2}></td>
-          </tr></tfoot>
-        </table>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+        <span className="flex-1 min-w-[260px]">Clique em <b>Ficha</b> para registrar <b>por que</b> o valor é esse, <b>como foi formado</b> (subsídios) e <b>anexar os contratos</b>. Os valores podem ser digitados direto na tabela.</span>
+        {podeEditar && <>
+          <input ref={refSub} type="file" accept=".xlsx,.xls,.ods" className="hidden" aria-label="Planilha de subsídios" onChange={e => importarSub(e.target.files?.[0])} />
+          <Button size="sm" variant="secondary" isLoading={importando} onClick={() => refSub.current?.click()}><FileUp size={14} className="mr-1" />Importar subsídios</Button>
+          <BaixarModelo modelo={() => modeloSubsidios(ano, linhas.filter(l => l.destino !== 'DA').map(l => ({ numero: l.numero, descricao: l.descricao })))} />
+        </>}
+        <Button size="sm" variant="secondary" onClick={() => exportarSubsidios(ano, linhas, dados, descontosPorOM).catch(e => notify.fail('Erro ao exportar', e))}><Download size={14} className="mr-1" />Pacote de subsídios (ZIP)</Button>
       </div>
+      {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
+      {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.join(', ')} (passe o mouse no ⚠).</Aviso>}
+      {semJust > 0 && <p className="text-xs text-amber-700">{semJust} rubrica(s) com valor e sem justificativa do valor (✍ falta).</p>}
+
+      {bloco('TC', <table className="w-full text-xs">{cabecalho(true)}<tbody>{tc.map(x => linhaTabela(x, true))}</tbody>{rodape(`SOMA DAS ${tc.length} RUBRICAS DA TAXA`, tTC, true)}</table>)}
+
+      {bloco('DA', <table className="w-full text-xs"><tbody>
+          <tr>
+            <td className="px-3 py-2">{linhaDA ? <>Rubrica {linhaDA.numero} — {linhaDA.descricao}</> : 'Linha "Navios"'}</td>
+            <td className="px-3 text-right">Soma do que os navios pagam nas rubricas: <b>{brl(somaNavios)}</b></td>
+            <td className="px-3 text-right">Valor rateado entre os navios: <b className="text-base">{brl(valorDA)}</b>
+              {linhaDA && somaNavios > 0 && (Math.abs(linhaDA.valorPrevisto - somaNavios) < 0.01 ? <span className="text-emerald-700 ml-1" title="confere com a linha Navios da planilha">✓</span> : <span className="text-amber-700 ml-1" title={`Linha "Navios" gravada: ${brl(linhaDA.valorPrevisto)} (será atualizada ao gravar)`}>⚠</span>)}
+            </td>
+            <td className="px-3">{linhaDA && somaNavios === 0 && podeEditar && <input className={`${entrada} w-32 text-xs text-right`} inputMode="decimal" value={fmt(linhaDA.valorPrevisto)} onChange={e => mudar(da[0].i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label="Valor da linha Navios" />}</td>
+          </tr>
+        </tbody></table>)}
+
+      {par.length > 0 && bloco('PAR', <table className="w-full text-xs">{cabecalho(false)}<tbody>{par.map(x => linhaTabela(x, false))}</tbody>{rodape('SOMA PAR (fora da taxa)', tPAR, false)}</table>)}
+
+      <div className="flex flex-wrap items-center gap-4 p-3 rounded-xl border border-slate-300 bg-white text-sm">
+        <span>Taxa condominial: <b>{brl(tTC.atu)}</b> <span className="text-slate-500 text-xs">(atualizado)</span></span>
+        <span>Navios: <b>{brl(valorDA)}</b></span>
+        {par.length > 0 && <span>PAR: <b>{brl(tPAR.prev)}</b></span>}
+        <span className="ml-auto">Total previsto: <b>{brl(tTC.prev + valorDA + tPAR.prev)}</b></span>
+      </div>
+
       {podeEditar && <div className="flex gap-2">
-        <Button variant="secondary" onClick={() => { setSujo(true); setLinhas(ls => [...ls, { numero: Math.max(0, ...ls.map(l => l.numero)) + 1, descricao: '', valorPrevisto: 0, descontoGeral: 0, destino: 'TC' }]); }}><Plus size={16} className="mr-1" />Rubrica</Button>
-        <Button onClick={gravar} isLoading={gravando} disabled={!sujo || erros.length > 0}><Save size={16} className="mr-1" />Gravar rubricas</Button>
+        <Button variant="secondary" onClick={() => { setSujo(true); setLinhas(ls => [...ls, { numero: Math.max(0, ...ls.filter(l => l.destino === 'TC').map(l => l.numero)) + 1, descricao: '', valorPrevisto: 0, descontoGeral: 0, destino: 'TC' }]); }}><Plus size={16} className="mr-1" />Rubrica</Button>
+        <Button onClick={() => gravar().catch(() => undefined)} isLoading={gravando} disabled={!sujo || erros.length > 0}><Save size={16} className="mr-1" />Gravar rubricas</Button>
         {sujo && <span className="text-xs text-amber-700 self-center">Alterações não gravadas.</span>}
       </div>}
+      <FichaRubrica ano={ano} rubrica={fi} subsidios={fi ? subDe(fi.numero) : []} anexos={fi ? anxDe(fi.numero) : []} usuario={usuario} podeEditar={podeEditar}
+        onMudar={p => mudar(ficha!, p)} onGravar={gravar} onFechar={() => setFicha(null)} recarregar={recarregar} />
     </div>
   );
 };
+
+/** Pacote para envio dos subsídios: planilha (rubricas, justificativas, composição, documentos) + os arquivos anexados. */
+async function exportarSubsidios(ano: number, linhas: RubricaProposta[], dados: DadosProposta, descontosPorOM: Map<number, number>) {
+  const JSZip = (await import('jszip')).default;
+  const wb = XLSX.utils.book_new();
+  const destino = { TC: 'Taxa condominial', DA: 'Navios (diárias)', PAR: 'Só PAR' } as const;
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Nº', 'DESPESA', 'ONDE ENTRA', `VALOR ${ano}`, `VALOR ${ano - 1}`, 'DESCONTOS', 'VALOR ATUALIZADO', 'NAVIOS PAGAM', 'JUSTIFICATIVA DO VALOR', 'SUBSÍDIOS (SOMA)', 'Nº DOCUMENTOS'],
+    ...linhas.slice().sort((a, b) => a.numero - b.numero).map(l => {
+      const desc = l.descontoGeral + (descontosPorOM.get(l.numero) || 0);
+      return [l.numero, l.descricao, destino[l.destino], l.valorPrevisto, l.gastoAnterior ?? '', desc, l.valorPrevisto - desc, l.parcelaNavios ?? '', l.justificativaValor || '',
+        dados.subsidios.filter(s => s.rubrica === l.numero).reduce((s, x) => s + x.valor, 0), dados.anexos.filter(a => a.rubrica === l.numero).length];
+    }),
+  ]), 'RUBRICAS');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['RUBRICA', 'DESCRIÇÃO', 'DOCUMENTO', 'VALOR', 'OBSERVAÇÃO'], ...dados.subsidios.slice().sort((a, b) => a.rubrica - b.rubrica).map(s => [s.rubrica, s.descricao, s.documento || '', s.valor, s.observacao || ''])]), 'SUBSÍDIOS');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['RUBRICA', 'ARQUIVO', 'DESCRIÇÃO', 'ENVIADO POR', 'EM'], ...dados.anexos.map(a => [a.rubrica, a.nomeArquivo, a.descricao || '', a.enviadoPor || '', a.createdAt.slice(0, 10)])]), 'DOCUMENTOS');
+  const zip = new JSZip();
+  zip.file(`subsidios_taxa_condominial_${ano}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+  for (const a of dados.anexos) {
+    try { const r = await fetch(await linkAnexo(a.caminho)); zip.file(`documentos/rubrica_${String(a.rubrica).padStart(2, '0')}/${a.nomeArquivo}`, await r.blob()); } catch { /* arquivo indisponível: fica só na lista */ }
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const el = document.createElement('a'); el.href = url; el.download = `subsidios_taxa_condominial_${ano}.zip`; el.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
 
 // ================================================================== Clientes (taxa condominial) e navios (diárias)
 export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias: Map<string, number> }> = ({ ano, dados, podeEditar, recarregar, medias, modo }) => {

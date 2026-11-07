@@ -26,7 +26,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], oms_nao_duplicadas: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -39,6 +39,8 @@ function handler(db, log) {
       return json(200, { access_token: 't', token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'r', user: { id: 'a1', aud: 'authenticated', email: 'admin@mb.br', app_metadata: {}, user_metadata: {} } });
     }
     if (url.pathname.startsWith('/auth/v1/')) return json(200, {});
+    if (url.pathname.startsWith('/storage/v1/object/sign/')) return json(200, { signedURL: '/object/sign/arquivo?token=t' });
+    if (url.pathname.startsWith('/storage/v1/')) { (db.storage = db.storage || []).push(`${req.method()} ${url.pathname}`); return json(200, { Key: url.pathname, Id: 'x' }); }
     if (url.pathname === '/rest/v1/rpc/om_adicionar_nome_alternativo') {
       const { p_om, p_nome } = JSON.parse(req.postData() || '{}');
       const o = db.oms.find(x => x.id === p_om); if (o && !(o.nomes_alternativos || []).includes(p_nome)) o.nomes_alternativos = [...(o.nomes_alternativos || []), p_nome];
@@ -737,9 +739,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const arq = path.join(pasta, 'proposta.xlsx');
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025( R$)', 'VARIAÇÃO % (2026/2025)', 'DESCONTOS', 'VALOR RUBRICA ATUALIZADO'],
-      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64, '', 1500, 198500], [2, '', '', 'Navios', 1236100, '', 1151786.23]]), 'Despesas_NOVO');
+      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64, '', 1500, 198500], [2, '', '', 'Navios', 1236100, '', 1151786.23], [3, '', '', 'Recompletamento de Estoque', 5000, '', 0]]), 'Despesas_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'EXTRATO DEMONSTRATIVO DA TAXA CONDOMINIAL – 2026'], ['', 'Nº DE ORDEM', 'DESPESAS –   NAVIOS', 'VALOR ANUAL APROVADO EM REAIS', 'VALOR MENSAL', '', '%RUB', 'VALOR DESCONTO', 'VALOR ATUALIZADO'],
+      ['', 1, 'Manutenção de Telhados', 1236100, 103008.33, '', 1, 0, 1236100], ['', 'TOTAL ANO', '', 1236100]]), 'NAVIOS');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'EXTRATO DEMONSTRATIVO DA TAXA CONDOMINIAL – 2026'], ['', 'Nº DE ORDEM', 'DESPESAS – AMRJ', 'VALOR ANUAL APROVADO EM REAIS', 'VALOR MENSAL', '', '%RUB', 'VALOR DESCONTO', 'VALOR ATUALIZADO'],
+      ['', 1, 'Manutenção de Telhados', 167912.5, 13992.71, '', 1, 1000, 166912.5], ['', 'TOTAL ANO', '', 167912.5], ['', 'TOTAL MÊS (ANO / 12)', '', 13992.71]]), 'AMRJ');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'CLIENTES'], ['', '', 1, 2], ['', 'SecNSNQ (Ed.23)', 'x', ''], ['', 'AMRJ', 'X', ''], ['', 'OM NOVA FORA DA ILHA', 'X', ''], ['', 'NAVIOS', '', 'X']]), 'Matriz_NOVO');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['OM', 'TAXA 2025', 'MENSAL', 'PROPOSTA', 'MENSAL', '%', '', 'DESCONTOS', '', '', '', '', '', 1, 2], ['SecNSNQ (Ed.23)'], ['AMRJ', '', '', '', '', '', '', 1000, '', '', '', '', '', 1000, 0], ['SUB-TOTAL']]), 'PROPOSTA CONDOMINIO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['OM', 'TAXA 2025', 'MENSAL', 'PROPOSTA 2026 (A)', 'MENSAL', '%', '', 'DESCONTOS ANUAL', '', 'PROPOSTA ATUALIZADA', 'MENSAL', '', '', 1, 2],
+      ['SecNSNQ (Ed.23)', 17000, 1416.67, 23275, 1939.58, '', '', 5469.62, '', 17805.38, 1483.78], ['AMRJ', 160000, 13333.33, 167912.5, 13992.71, '', '', 1000, '', 166912.5, 13909.00, '', '', 1000, 0], ['SUB-TOTAL'],
+      ['NAVIOS', 'DIÁRIA 2025', 'PROPOSTA DIÁRIA 2026 (A)', '% (A)', 'N° DIAS MÉDIO', 'VALOR ESTIMADO MÊS'], ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 3500, 3678.87, 0.05, 28, 103008.33], ['SUB-TOTAL']]), 'PROPOSTA CONDOMINIO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['CLIENTES'], ['OM DE TERRA', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'DIAS'],
       ['SecNSNQ (Ed.23)', 140, 76, 30], ['AMRJ', 1010, 1422, 30], ['OM NOVA FORA DA ILHA', 50, 40, 30], ['SUB TOTAL'], ['NAVIOS', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'Nº MÉDIO DIAS'],
       ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 148, 125, 28], ['TOTAL GERAL']]), 'RATEIO MODELO TÉCNICO_2026');
@@ -757,12 +765,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Importar proposta (planilha)' }).click();
     await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(arq);
     if (process.env.DEBUG_E2E) { await page.waitForTimeout(3000); console.log((await page.locator('body').innerText()).slice(0, 3000)); }
-    await page.getByText(/2 rubricas/).waitFor();
+    await page.getByText(/3 rubricas/).waitFor();
     ok(await page.getByText('1 nome(s) sem correspondente automático.').isVisible() && (await page.getByLabel('O que fazer com OM NOVA FORA DA ILHA').inputValue()) === 'DEPOIS', 'nome sem correspondente: padrão "decidir depois" (não é perdido)');
     await page.getByRole('button', { name: 'Gravar importação' }).click();
     await page.getByText(/Proposta importada\. 1 nome\(s\) ficaram pendentes/).waitFor();
     const r1 = db.rubricas.find(r => r.numero === 1), r2 = db.rubricas.find(r => r.numero === 2);
-    ok(db.rubricas.length === 2 && Number(r1.gasto_anterior) === 391421.64 && r2.destino === 'DA' && r1.destino === 'TC', 'rubricas com valor do ano anterior; "Navios" vai para as diárias');
+    ok(db.rubricas.length === 3 && Number(r1.gasto_anterior) === 391421.64 && r2.destino === 'DA' && r1.destino === 'TC', 'rubricas com valor do ano anterior; "Navios" vai para as diárias');
+    ok(db.rubricas.find(r => r.numero === 3).destino === 'PAR', 'rubrica depois da última da matriz fica "só PAR" (fora da taxa)');
+    ok(Number(r1.parcela_navios) === 1236100, 'parte da rubrica 1 paga pelos navios importada da aba NAVIOS');
+    ok(db.fechados_tc.length === 3 && db.fechados_tc.find(f => f.tipo === 'DA').om_id === bar.id && db.extratos_tc.some(e => e.om_id === amrj.id && e.rubrica === 1), 'valores fechados (OM e navios) e extrato da AMRJ guardados para conferência');
     ok(Number(r1.desconto_geral) === 500 && Number(r1.desconto_planilha) === 1500, 'DESCONTOS 1.500 = AMRJ 1.000 (por OM) + 500 de desconto geral');
     ok(db.descontos_tc.length === 1 && db.descontos_tc[0].om_id === amrj.id && Number(db.descontos_tc[0].valor) === 1000, 'desconto da AMRJ na rubrica 1 importado da PROPOSTA CONDOMINIO');
     ok(db.lotacoes_tc.length === 3 && Number(db.lotacoes_tc.find(l => l.om_id === bar.id).dias) === 28, 'lotação de 2 OM + navio (28 dias/mês)');
@@ -771,6 +782,26 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // rubricas: colunas da planilha e conferência dos descontos
     const linhaR1 = (await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).replace(/\s+/g, ' ');
     ok(linhaR1.includes('R$ 1.500,00') && linhaR1.includes('R$ 198.500,00') && linhaR1.includes('✓'), `rubrica 1: descontos R$ 1.500,00, atualizado R$ 198.500,00 e confere com a planilha (${linhaR1})`);
+    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Fora da taxa — só para o cálculo do PAR').isVisible(), 'blocos: soma das rubricas da taxa, navios e PAR');
+    // ficha da rubrica 1: justificativa, subsídio e contrato
+    await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
+    await page.getByLabel('Justificativa do valor').fill('Contrato 12/2026 de 12 meses + reajuste');
+    await page.getByLabel('Descrição do subsídio').fill('Contrato de manutenção de telhados');
+    await page.getByLabel('Documento do subsídio').fill('Contrato 12/2026');
+    await page.getByLabel('Valor do subsídio').fill('200000');
+    await page.getByRole('button', { name: 'Incluir subsídio' }).click();
+    await page.getByText('fecha com o valor previsto').waitFor();
+    ok(db.subsidios_tc.length === 1 && Number(db.subsidios_tc[0].valor) === 200000 && db.subsidios_tc[0].documento === 'Contrato 12/2026', 'subsídio gravado e soma fecha com o valor previsto');
+    const contrato = path.join(pasta, 'contrato_12_2026.pdf'); fs.writeFileSync(contrato, '%PDF-1.4 teste');
+    await page.getByLabel('Descrição do documento').fill('Contrato 12/2026');
+    await page.locator('input[aria-label="Arquivo do contrato"]').setInputFiles(contrato);
+    await page.getByText('1 arquivo(s) anexado(s).').waitFor();
+    ok(db.anexos_tc.length === 1 && db.anexos_tc[0].nome_arquivo === 'contrato_12_2026.pdf' && db.storage.some(x => x.includes('/contratos-tc/2026/1/')), 'contrato enviado ao armazenamento e registrado na rubrica');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ficha-rubrica.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Gravar e fechar' }).click();
+    await page.getByText('Rubricas gravadas.').waitFor();
+    ok(db.rubricas.find(r => r.numero === 1).justificativa_valor === 'Contrato 12/2026 de 12 meses + reajuste', 'justificativa do valor gravada');
+    ok((await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).includes('📎 1'), 'situação da rubrica mostra o documento anexado');
     // resolver a pendência criando um cliente novo, fora da Ilha
     await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
     await page.getByRole('button', { name: 'Escolher correspondente' }).click();
@@ -810,10 +841,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(linhaSec.includes('R$ 17.805,38') && linhaSec.includes('R$ 1.483,78'), `SecNSNQ anual R$ 17.805,38 e mensal R$ 1.483,78 (${linhaSec.replace(/\s+/g, ' ')})`);
     ok((await page.getByRole('row').filter({ hasText: 'AMRJ' }).first().innerText()).includes('R$ 166.912,50'), 'AMRJ com o desconto de R$ 1.000 da planilha: R$ 166.912,50');
     ok(!(await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).count()), 'resultado da taxa não mistura navios');
+    ok(await page.getByText(/1 de 2 conferem/).isVisible() && (await page.getByText(/1 de 2 conferem/).innerText()).includes('AMRJ'), 'conferência com o valor fechado da planilha aponta a OM diferente (AMRJ)');
+    await page.getByRole('row').filter({ hasText: 'AMRJ' }).first().click();
+    ok((await page.locator('table').last().innerText()).includes('R$ 166.912,50 ✓'), 'extrato da AMRJ confere rubrica a rubrica com a aba do cliente');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-resultado.png'), fullPage: true });
     // diárias, separadas: 1.236.100 ÷ (148×28×12) × 148 = 3.678,87/dia
     await page.getByRole('button', { name: '7. Resultado das diárias' }).click();
     ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 3.678,87'), 'diária da Corveta Barroso R$ 3.678,87 (custo militar-dia × lotação)');
+    ok(await page.getByText(/valores de diária conferem/).isVisible(), 'diárias conferem com a aba PROPOSTA');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-diarias.png'), fullPage: true });
     // aprovar e publicar
     await page.getByRole('button', { name: 'Aprovar proposta' }).click();

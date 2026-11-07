@@ -137,6 +137,76 @@ export function lerDescontosOM(linhas: Linhas): DescontoLido[] {
   return out;
 }
 
+// ------------------------------------------------------------------ extratos e valores fechados (conferência)
+export interface LinhaExtrato { numero: number; descricao: string; bruto: number; desconto: number; liquido: number }
+export interface ExtratoLido { aba: string; nome: string; linhas: LinhaExtrato[]; totalAnual: number | null; diaria: number | null }
+
+/** Aba "EXTRATO DEMONSTRATIVO" de um cliente (ou a aba NAVIOS): valor de cada rubrica, desconto e valor atualizado. */
+export function lerExtrato(aba: string, linhas: Linhas): ExtratoLido | null {
+  const h = linhas.findIndex(l => l.some(c => /DE ORDEM/.test(normalizar(c))) && l.some(c => /^DESPESAS/.test(normalizar(c))));
+  if (h < 0) return null;
+  const cab = linhas[h].map(normalizar);
+  const cOrd = cab.findIndex(c => /DE ORDEM/.test(c)), cDesp = cab.findIndex(c => /^DESPESAS/.test(c));
+  const cBruto = cab.findIndex(c => /^VALOR ANUAL APROVADO/.test(c));
+  const cDesc = cab.findIndex(c => /^VALOR DESCONTO/.test(c)), cLiq = cab.findIndex(c => /^VALOR ATUALIZADO/.test(c));
+  if (cBruto < 0) return null;
+  const nomeCab = String(linhas[h][cDesp] ?? '').replace(/^\s*DESPESAS\s*[–-]\s*/i, '').trim();
+  const out: LinhaExtrato[] = [];
+  let totalAnual: number | null = null, diaria: number | null = null;
+  for (const l of linhas.slice(h + 1)) {
+    const rot = normalizar(l[cOrd]);
+    if (/^TOTAL ANO/.test(rot)) { totalAnual = num(l[cBruto]); continue; }
+    if (/^TOTAL DIARIA/.test(rot)) { diaria = num(l[cBruto]); continue; }
+    // nº de ordem tem de ser número (o "12" de "TOTAL MÊS (ANO / 12)" não conta)
+    if (typeof l[cOrd] === 'string' && /[A-Za-z]/.test(l[cOrd])) continue;
+    const n = num(l[cOrd]);
+    if (n === null || !Number.isInteger(n) || n < 1 || n > 99) continue;
+    const bruto = num(l[cBruto]) ?? 0, desconto = cDesc >= 0 ? num(l[cDesc]) ?? 0 : 0;
+    out.push({ numero: n, descricao: String(l[cDesp] ?? '').trim(), bruto, desconto, liquido: cLiq >= 0 ? num(l[cLiq]) ?? bruto - desconto : bruto - desconto });
+  }
+  return { aba, nome: nomeCab || aba.replace(/_/g, ' '), linhas: out, totalAnual, diaria };
+}
+
+/** Valor "fechado" de cada OM na aba PROPOSTA CONDOMINIO (Anexo B): taxa anterior, proposta, descontos e proposta atualizada. */
+export interface FechadoLido { tipo?: 'TC' | 'DA'; nome: string; anteriorAnual: number | null; anteriorMensal: number | null; proposta: number | null; descontos: number | null; atualizada: number | null; mensal: number | null }
+/** Bloco NAVIOS da aba PROPOSTA CONDOMINIO: diária anterior, diária proposta e valor estimado por mês de cada navio. */
+export function lerDiariasFechadas(linhas: Linhas): FechadoLido[] {
+  const h = linhas.findIndex(l => /^NAVIOS?$/.test(normalizar(l[0])) && l.some(c => /^PROPOSTA DIARIA/.test(normalizar(c))));
+  if (h < 0) return [];
+  const cab = linhas[h].map(normalizar);
+  const cAnt = cab.findIndex(c => /^DIARIA \d{4}/.test(c)), cProp = cab.findIndex(c => /^PROPOSTA DIARIA/.test(c)), cMes = cab.findIndex(c => /^VALOR ESTIMADO MES/.test(c));
+  const out: FechadoLido[] = [];
+  for (const l of linhas.slice(h + 1)) {
+    const nome = String(l[0] ?? '').trim();
+    if (!nome) continue;
+    if (/^SUB-?\s?TOTAL|^TOTAL|^DIARIA A SER/.test(normalizar(nome))) break;
+    const diaria = num(l[cProp]);
+    if (diaria === null) continue;
+    out.push({ tipo: 'DA', nome, anteriorAnual: null, anteriorMensal: cAnt >= 0 ? num(l[cAnt]) : null, proposta: diaria, descontos: null, atualizada: diaria, mensal: cMes >= 0 ? num(l[cMes]) : null });
+  }
+  return out;
+}
+
+export function lerValoresFechados(linhas: Linhas): FechadoLido[] {
+  const h = linhas.findIndex(l => normalizar(l[0]) === 'OM' && l.some(c => /^PROPOSTA ATUALIZADA/.test(normalizar(c))));
+  if (h < 0) return [];
+  const cab = linhas[h].map(normalizar);
+  const cAnt = cab.findIndex(c => /^TAXA \d{4}/.test(c)), cProp = cab.findIndex(c => /^PROPOSTA \d{4}/.test(c));
+  const cDesc = cab.findIndex(c => /^DESCONTOS/.test(c)), cAtu = cab.findIndex(c => /^PROPOSTA ATUALIZADA/.test(c));
+  const out: FechadoLido[] = [];
+  for (const l of linhas.slice(h + 1)) {
+    const nome = String(l[0] ?? '').trim();
+    if (!nome) continue;
+    if (/^SUB-?\s?TOTAL|^TOTAL|^NAVIOS?$/.test(normalizar(nome))) break;
+    out.push({
+      nome, anteriorAnual: cAnt >= 0 ? num(l[cAnt]) : null, anteriorMensal: cAnt >= 0 ? num(l[cAnt + 1]) : null,
+      proposta: cProp >= 0 ? num(l[cProp]) : null, descontos: cDesc >= 0 ? num(l[cDesc]) : null,
+      atualizada: cAtu >= 0 ? num(l[cAtu]) : null, mensal: cAtu >= 0 ? num(l[cAtu + 1]) : null,
+    });
+  }
+  return out;
+}
+
 /** Lê o arquivo da proposta inteiro (abas reconhecidas pelo nome). */
 export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
   const achar = (re: RegExp) => abas.find(a => re.test(normalizar(a.nome)));
@@ -151,6 +221,11 @@ export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
     matriz: mat ? tentar(() => lerMatriz(mat.linhas), mat.nome) : [],
     lotacoes: rat ? tentar(() => lerLotacoes(rat.linhas), rat.nome) : [],
     descontos: prop ? tentar(() => lerDescontosOM(prop.linhas), prop.nome) : [],
+    fechados: prop ? [...lerValoresFechados(prop.linhas).map(f => ({ ...f, tipo: 'TC' as const })), ...lerDiariasFechadas(prop.linhas)] : [],
+    // aba NAVIOS: parcela de cada rubrica paga pelos navios (soma = rubrica "Navios")
+    navios: (() => { const a = achar(/^NAVIOS$/); const e = a ? lerExtrato(a.nome, a.linhas) : null; return e ? e.linhas.filter(l => l.bruto > 0).map(l => ({ numero: l.numero, valor: l.bruto })) : []; })(),
+    // abas "EXTRATO DEMONSTRATIVO" de cada cliente (exceto NAVIOS e simulações terminadas em _2)
+    extratos: abas.filter(a => !/^NAVIOS$/.test(normalizar(a.nome)) && !/_\d+$/.test(a.nome.trim())).map(a => lerExtrato(a.nome, a.linhas)).filter((e): e is ExtratoLido => !!e && e.linhas.length > 0),
     avisos,
   };
 }
@@ -198,9 +273,15 @@ export function lerHistorico(abas: { nome: string; linhas: Linhas }[]): Historic
 /** Liga um nome lido da planilha a um item do cadastro (nome exato, prefixo — a planilha corta em 50 caracteres — ou sigla). */
 export function acharPorNome<T extends { id: string; nome: string; sigla?: string | null }>(nome: string, lista: T[]): T | undefined {
   const n = normalizar(nome), semParen = normalizar(nome.replace(/\(.*?\)/g, ''));
+  const compacto = (t: string) => normalizar(t).replace(/[^A-Z0-9]/g, '');
+  const tiraParen = (t: string) => normalizar(t.replace(/\(.*?\)/g, ''));
   return lista.find(x => normalizar(x.nome) === n)
+    || lista.find(x => compacto(x.nome) === compacto(nome))
+    || (semParen.length >= 3 ? lista.filter(x => tiraParen(x.nome) === semParen).length === 1 ? lista.find(x => tiraParen(x.nome) === semParen) : undefined : undefined)
     || lista.find(x => normalizar(x.nome) === semParen || (x.sigla && normalizar(x.sigla) === semParen))
-    || (n.length >= 12 ? lista.find(x => normalizar(x.nome).startsWith(n) || n.startsWith(normalizar(x.nome))) : undefined);
+    || (n.length >= 12 ? lista.find(x => normalizar(x.nome).startsWith(n) || n.startsWith(normalizar(x.nome))) : undefined)
+    // nome curto de aba ("CCSM", "DGDNTM-RIO"): começo do nome, desde que só um cliente combine
+    || (() => { const c = compacto(nome); if (c.length < 3) return undefined; const m = lista.filter(x => compacto(x.nome).startsWith(c)); return m.length === 1 ? m[0] : undefined; })();
 }
 
 /** Liga cada nome de OM/navio da planilha ao cadastro. Nome de navio vem como "CLASSE – NAVIO": usa a parte após o travessão. */
@@ -218,4 +299,30 @@ export function ligarOMs<T extends { id: string; nome: string; sigla?: string | 
     m.set(nome, om?.id ?? null);
   }
   return m;
+}
+
+// ------------------------------------------------------------------ subsídios (planilha modelo)
+export interface SubsidioLido { rubrica: number; descricao: string; documento: string | null; valor: number; observacao: string | null }
+export function lerSubsidios(abas: { nome: string; linhas: Linhas }[]): { subsidios: SubsidioLido[]; justificativas: { rubrica: number; texto: string }[]; avisos: string[] } {
+  const avisos: string[] = [], subsidios: SubsidioLido[] = [], justificativas: { rubrica: number; texto: string }[] = [];
+  for (const a of abas) {
+    const h = a.linhas.findIndex(l => l.some(c => normalizar(c) === 'RUBRICA'));
+    if (h < 0) continue;
+    const cab = a.linhas[h].map(normalizar);
+    const c = (re: RegExp) => cab.findIndex(x => re.test(x));
+    const cRub = cab.indexOf('RUBRICA'), cJust = c(/^JUSTIFICATIVA/), cDesc = c(/^DESCRICAO/), cDoc = c(/^DOCUMENTO/), cVal = c(/^VALOR/), cObs = c(/^OBSERVAC/);
+    a.linhas.slice(h + 1).forEach((l, i) => {
+      const n = num(l[cRub]);
+      if (n === null || !Number.isInteger(n)) return;
+      if (cJust >= 0) { const t = String(l[cJust] ?? '').trim(); if (t) justificativas.push({ rubrica: n, texto: t }); return; }
+      const descricao = String(l[cDesc] ?? '').trim();
+      if (!descricao) return;
+      if (/^EXEMPLO/i.test(descricao)) return;
+      const valor = num(l[cVal]);
+      if (valor === null) { avisos.push(`${a.nome}, linha ${h + i + 2}: sem valor.`); return; }
+      subsidios.push({ rubrica: n, descricao, documento: cDoc >= 0 ? String(l[cDoc] ?? '').trim() || null : null, valor: Math.round(valor * 100) / 100, observacao: cObs >= 0 ? String(l[cObs] ?? '').trim() || null : null });
+    });
+  }
+  if (!subsidios.length && !justificativas.length) avisos.push('Nenhum subsídio nem justificativa encontrado (use a planilha modelo).');
+  return { subsidios, justificativas, avisos };
 }

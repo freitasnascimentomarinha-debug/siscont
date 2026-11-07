@@ -263,6 +263,25 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   em *Cadastros › Serviços*).
 - **Pontos de Atenção** reúne as inconsistências e o **histórico de alterações** (auditoria) — um só item no menu.
 
+### 1-M. Rubricas, subsídios, contratos e conferência (script 013)
+
+Execute [`supabase/migrations/013_subsidios_conferencia.sql`](../supabase/migrations/013_subsidios_conferencia.sql) depois
+do 012 (idempotente). Cria o armazenamento privado **contratos-tc** (Storage) para os arquivos.
+
+- **Rubricas em três blocos**: *Taxa condominial* (rubricas 1 a 33, com a **soma das rubricas da taxa**), *Navios — diárias
+  de atracação* e *Fora da taxa — só para o cálculo do PAR* (34 a 37). Na importação, as rubricas depois da última
+  marcada na matriz ficam como "só PAR".
+- **Navios pagam**: parte de cada rubrica cobrada dos navios (aba NAVIOS da planilha). A soma é o valor rateado entre os
+  navios (linha 38 "Navios"); ⚠ indica rubrica em que OM + navios pagam mais do que o valor previsto.
+- **Ficha da rubrica** (botão *Ficha*), em 4 passos: (1) valor previsto e **por que** esse valor; (2) **composição do
+  valor** (subsídios: contrato, aditivo, pesquisa de preços...), com a soma comparada ao valor previsto; (3) **contratos
+  e documentos** anexados (PDF, imagem, Excel, Word; até 50 MB); (4) onde entra, desconto geral e parte dos navios.
+  A coluna *Situação* mostra ✍ justificativa, Σ subsídios e 📎 documentos de cada rubrica.
+- **Importar subsídios** (planilha modelo com as abas SUBSÍDIOS e JUSTIFICATIVAS) e **Pacote de subsídios (ZIP)**:
+  planilha com rubricas, justificativas, composição e lista de documentos + os arquivos anexados, por rubrica.
+- **Conferência com a planilha importada**: valor fechado de cada OM e diária de cada navio (aba PROPOSTA CONDOMINIO) e
+  extrato de cada cliente (abas por OM), com ✓/⚠ no *Resultado da taxa*, no extrato da OM e no *Resultado das diárias*.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

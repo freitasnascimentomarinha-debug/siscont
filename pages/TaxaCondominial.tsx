@@ -60,7 +60,13 @@ export const TaxaCondominial: React.FC = () => {
   const { resultado, resultadoDA, descontosPorOM } = useMemo(() => {
     if (!dados) return { resultado: null, resultadoDA: null, descontosPorOM: new Map<number, number>() };
     const part = montarParticipantes(dados.oms, dados.lotacoes, medias);
-    const rubTC = dados.rubricas.filter(r => r.destino === 'TC'), rubDA = dados.rubricas.filter(r => r.destino === 'DA');
+    const rubTC = dados.rubricas.filter(r => r.destino === 'TC');
+    // valor das diárias = soma das parcelas dos navios nas rubricas (aba NAVIOS); sem parcelas, o valor da linha "Navios"
+    const somaParcelas = Math.round(rubTC.reduce((s, r) => s + (r.parcelaNavios || 0), 0) * 100) / 100;
+    const linhaNavios = dados.rubricas.find(r => r.destino === 'DA');
+    const rubDA = somaParcelas > 0
+      ? [{ numero: linhaNavios?.numero ?? 38, descricao: 'Navios (soma das parcelas das rubricas)', valorPrevisto: somaParcelas, descontoGeral: 0 }]
+      : dados.rubricas.filter(r => r.destino === 'DA');
     const terra = part.filter(p => p.tipo === 'TERRA'), navios = part.filter(p => p.tipo === 'NAVIO');
     const tc = ratear(rubTC, terra, dados.matriz, dados.descontos);
     const da = ratear(rubDA, navios, new Set(rubDA.flatMap(r => navios.map(n => `${r.numero}|${n.omId}`))), dados.descontos);
@@ -145,7 +151,7 @@ export const TaxaCondominial: React.FC = () => {
           ))}
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-          {aba === 'rubricas' && <AbaRubricas ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} descontosPorOM={descontosPorOM} />}
+          {aba === 'rubricas' && <AbaRubricas ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} descontosPorOM={descontosPorOM} usuario={user?.name || user?.email || ''} />}
           {aba === 'clientes' && <AbaClientes ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} medias={medias} modo="TERRA" />}
           {aba === 'descontos' && <AbaDescontos ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} resultado={resultado} />}
           {aba === 'resultado' && <AbaResultado ano={ano} dados={dados} resultado={resultado} anterior={anterior} modo="TC" />}
