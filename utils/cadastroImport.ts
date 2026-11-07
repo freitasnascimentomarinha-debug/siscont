@@ -21,7 +21,7 @@ export interface AvisoSaneamento {
   tipo:
     | 'GRAFIA_UNIFICADA' | 'MESMO_CODIGO_VARIOS_CLIENTES' | 'SETOR_DESCONHECIDO' | 'COMANDO_SEM_CODIGO'
     | 'FATURA_FORA_DO_PADRAO' | 'CODIGO_COMPLETADO' | 'SEM_FATURA_RECENTE' | 'COMANDO_VARIOS_NOMES'
-    | 'NAVIO_SEM_OM' | 'NAVIO_AMBIGUO' | 'OM_MUDOU_DE_COMANDO' | 'CODIGO_SUSPEITO';
+    | 'NAVIO_SEM_OM' | 'NAVIO_AMBIGUO' | 'OM_MUDOU_DE_COMANDO' | 'CODIGO_CORRIGIDO' | 'SETOR_CONVERTIDO' | 'USA_CODIGO_DO_COMANDO';
   mensagem: string;
   exemplos?: string[];
 }
@@ -39,8 +39,8 @@ export interface PropostaOM {
   ultimaCompetencia: number; // AAAAMM (0 se desconhecida)
   variantes: string[];
   classe: string | null;
-  /** Motivo para desconfiar do registro (ex.: código digitado errado); a tela sugere não importar. */
-  suspeita: string | null;
+  /** false = não tem código próprio: usa o do comando (OM/navio) ou o da BNIC, 40015 (extra-MB). */
+  codigoProprio: boolean;
 }
 export interface PropostaClasse { nome: string; navios: string[] }
 
@@ -52,6 +52,9 @@ export interface PropostaCadastro {
   avisos: AvisoSaneamento[];
   estatisticas: { linhasLidas: number; abasLidas: string[]; competenciaMaisRecente: number };
 }
+
+/** Código da BNIC (OMPS-E), usado nas faturas de clientes extra-MB sem código próprio. */
+export const CODIGO_BNIC = '40015';
 
 export const SETORES_CONHECIDOS = ['COMOPNAV', 'DGMM', 'SGM', 'DGPM', 'DGN', 'DGDNTM', 'CGCFN', 'SecNSNQ', 'CCEM-RIO', 'CM', 'EXTRA-MB'];
 
@@ -94,19 +97,34 @@ export function lerFatura(n: string): { codigo: string; sigla: string; competenc
   return { codigo, sigla: p[2], competencia, padrao: !!m, completado };
 }
 
-export function normalizarSetor(v: Celula): { sigla: string | null; conhecido: boolean } {
+/**
+ * Siglas antigas ou usadas por engano na coluna Setor (informado pela Divisão de Contabilidade):
+ * CON = COMOPNAV; CCSM e CCSM-RIO passaram a CCEM-RIO; AMAZUL é o cliente Amazônia Azul (não é setor:
+ * a linha é ignorada e vale o setor das demais faturas do cliente).
+ */
+export const SETORES_ALIAS: Record<string, string | null> = {
+  CON: 'COMOPNAV',
+  CCSM: 'CCEM-RIO',
+  'CCSM-RIO': 'CCEM-RIO',
+  CCEM: 'CCEM-RIO',
+  AMAZUL: null,
+};
+
+export function normalizarSetor(v: Celula): { sigla: string | null; conhecido: boolean; convertidoDe?: string } {
   const t = limpar(v);
   if (!t) return { sigla: null, conhecido: true };
   if (/extra/i.test(t)) return { sigla: 'EXTRA-MB', conhecido: true };
-  const k = SETORES_CONHECIDOS.find(s => s.toUpperCase() === t.toUpperCase());
-  return k ? { sigla: k, conhecido: true } : { sigla: t.toUpperCase(), conhecido: false };
+  const up = t.toUpperCase();
+  if (up in SETORES_ALIAS) return { sigla: SETORES_ALIAS[up], conhecido: true, convertidoDe: up };
+  const k = SETORES_CONHECIDOS.find(s => s.toUpperCase() === up);
+  return k ? { sigla: k, conhecido: true } : { sigla: up, conhecido: false };
 }
 
 export function lerComando(v: Celula): { codigo: string | null; nome: string } | null {
   const t = limpar(v);
   if (!t || /^extra/i.test(t)) return null;
   // valor que é número de fatura ou sigla de setor não é comando (coluna deslocada na planilha)
-  if (FATURA_PREFIXO.test(t.toUpperCase()) || /^[A-Z]{2}-\d{2}-\d{4}/.test(t) || normalizarSetor(t).conhecido && SETORES_CONHECIDOS.some(s => s.toUpperCase() === t.toUpperCase())) return null;
+  if (FATURA_PREFIXO.test(t.toUpperCase()) || /^[A-Z]{2}-\d{2}-\d{4}/.test(t) || SETORES_CONHECIDOS.some(s => s.toUpperCase() === t.toUpperCase()) || t.toUpperCase() in SETORES_ALIAS) return null;
   const m = t.match(/^(\d{4,6})\s*-?\s*(.+)$/);
   if (m) return { codigo: m[1], nome: limpar(m[2].replace(/^-\s*/, '')) };
   return { codigo: null, nome: t };
@@ -114,6 +132,40 @@ export function lerComando(v: Celula): { codigo: string | null; nome: string } |
 
 const NAVIO_RE = /^(navio|fragata|corveta|submarino|aviso|avipa|rebocador|n\.?\s?pa\b|npa|napoc|nap\b|ndcc|ndm|nam\b|edcg|nt\b|nho|nhi|nhof|npo|nss|nae|nda|chata|dique|embarca|cv\b|f\.\s|s\.\s|corv|ex-s)/i;
 export const pareceNavio = (nome: string) => NAVIO_RE.test(limpar(nome)) || /\bnavio\b/i.test(nome);
+
+const PREPOSICOES = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o']);
+/** Iniciais das palavras significativas: "Diretoria Industrial da Marinha" → "DIM". */
+export const iniciais = (nome: string) =>
+  limpar(nome).normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[\s-]+/)
+    .filter(w => w && !PREPOSICOES.has(w.toLowerCase()) && /^[A-Za-z]/.test(w)).map(w => w[0].toUpperCase()).join('');
+
+/**
+ * Mesmo cliente escrito com a sigla no final: "Diretoria Industrial da Marinha - DIM",
+ * "Empresa Gerencial de Projetos Navais(EMGEPRON)". Vale para sigla entre parênteses ou, após " - ",
+ * para sigla igual às iniciais do nome (assim "AMRJ - SKM", empresa faturada no código do AMRJ, não casa).
+ */
+export function mesmaEntidadeComSigla(a: string, b: string): boolean {
+  const separar = (n: string): { base: string; sigla: string | null; parenteses: boolean } => {
+    const t = limpar(n);
+    const p = t.match(/^(.*?)\s*\(([A-Za-z0-9ºª.\- ]{2,12})\)\.?$/);
+    if (p) return { base: p[1], sigla: p[2].replace(/[\s.]/g, '').toUpperCase(), parenteses: true };
+    const h = t.match(/^(.*\S)\s+-\s+([A-Za-z0-9ºª]{2,10})$/);
+    if (h) return { base: h[1], sigla: h[2].toUpperCase(), parenteses: false };
+    return { base: t, sigla: null, parenteses: false };
+  };
+  const x = separar(a), y = separar(b);
+  if (!x.sigla && !y.sigla) return false;
+  if (chave(x.base) !== chave(y.base)) return false;
+  if (x.sigla && y.sigla) return x.sigla === y.sigla;
+  const s = (x.sigla || y.sigla)!, par = x.sigla ? x.parenteses : y.parenteses;
+  return par || s === iniciais(x.base);
+}
+
+/** Órgãos que mudaram de nome: a grafia antiga é unificada com a nova. */
+const RENOMEADOS: [RegExp, string][] = [
+  [/comunica[cç][aã]o social/i, 'Comunicação Estratégica'],
+];
+export const nomeAtual = (nome: string) => RENOMEADOS.reduce((n, [re, novo]) => n.replace(re, novo), nome);
 
 /** "Arsenal de Marinha do Rio de Janeiro - SKM" × "Arsenal de Marinha do Rio de Janeiro": clientes diferentes. */
 export function ehSufixado(a: string, b: string): boolean {
@@ -211,7 +263,17 @@ const escolheNome = (ocs: Ocorrencia[]): string => {
     c.n++; c.rec = Math.max(c.rec, o.competencia); c.ordem = Math.max(c.ordem, o.ordem);
     cont.set(o.nome, c);
   });
-  return [...cont.entries()].sort((a, b) => b[1].n - a[1].n || b[1].rec - a[1].rec || b[1].ordem - a[1].ordem)[0][0];
+  let lista = [...cont.entries()];
+  // Preferências de exibição: nome sem a sigla repetida no final ("… - DIM") e sem tudo em maiúsculas
+  const semSigla = lista.filter(([n]) => !lista.some(([m]) => m !== n && m.length < n.length && mesmaEntidadeComSigla(m, n)));
+  if (semSigla.length) lista = semSigla;
+  const caixaMista = lista.filter(([n]) => n !== n.toUpperCase());
+  if (caixaMista.length) lista = caixaMista;
+  // grafia usada nas faturas mais recentes, se aparecer ao menos 3 vezes (acompanha mudanças de nome);
+  // senão, a mais frequente
+  const recente = [...lista].sort((a, b) => b[1].rec - a[1].rec || b[1].n - a[1].n)[0];
+  if (recente[1].n >= 3 && recente[1].rec > 0) return recente[0];
+  return lista.sort((a, b) => b[1].n - a[1].n || b[1].rec - a[1].rec || b[1].ordem - a[1].ordem)[0][0];
 };
 
 const fmtComp = (c: number) => (c ? `${String(c % 100).padStart(2, '0')}/${Math.floor(c / 100)}` : '—');
@@ -231,6 +293,7 @@ export function analisarCadastro(
   const mesesSem = opcoes.mesesSemFatura ?? 12;
   const avisos: AvisoSaneamento[] = [];
   const foraPadrao: string[] = [], completados = new Set<string>(), setoresDesc = new Map<string, Set<string>>();
+  const convertidos = new Map<string, number>();
 
   // 1. Comandos (por código; sem código por chave do nome)
   type CmdAcc = { codigo: string | null; ocs: Ocorrencia[]; setores: Map<string, number> };
@@ -250,6 +313,7 @@ export function analisarCadastro(
     maxComp = Math.max(maxComp, f.competencia);
 
     const st = normalizarSetor(l.setor);
+    if (st.convertidoDe) convertidos.set(st.convertidoDe, (convertidos.get(st.convertidoDe) || 0) + 1);
     if (st.sigla && !st.conhecido) {
       const s = setoresDesc.get(st.sigla) || new Set<string>();
       s.add(l.origem); setoresDesc.set(st.sigla, s);
@@ -329,6 +393,7 @@ export function analisarCadastro(
       const nomeO = escolheNome(o.ocs);
       const alvo = finais.find(f => {
         const nf = escolheNome(f.ocs);
+        if (mesmaEntidadeComSigla(nf, nomeO) || chave(nomeAtual(nf)) === chave(nomeAtual(nomeO))) return true;
         if (ehSufixado(nf, nomeO) || complementosDiferentes(nf, nomeO)) return false;
         return similaridade(nf, nomeO) >= limiar || mesmoNavio(nf, nomeO);
       });
@@ -342,13 +407,12 @@ export function analisarCadastro(
     grupos.push(...finais);
   });
   if (unificadas.length) avisos.push({ tipo: 'GRAFIA_UNIFICADA', mensagem: `${unificadas.length} grafia(s) do mesmo cliente foram unificadas (mesmo código, nome quase igual).`, exemplos: unificadas.slice(0, 10) });
-  if (variosClientes.length) avisos.push({ tipo: 'MESMO_CODIGO_VARIOS_CLIENTES', mensagem: `${variosClientes.length} código(s) com mais de um cliente, mantidos separados (ex.: AMRJ e empresas faturadas no código 41000). Confira se não são grafias do mesmo cliente.`, exemplos: variosClientes.slice(0, 10) });
 
   // 4. Monta OM finais
   const resolveCmd = (k: string) => redirect.get(k) || k;
-  const mudouComando: string[] = [], semRecente: string[] = [];
+  const mudouComando: string[] = [];
   const limiteRecente = maxComp ? (() => { let y = Math.floor(maxComp / 100), m = maxComp % 100 - mesesSem; while (m <= 0) { m += 12; y--; } return y * 100 + m; })() : 0;
-  const omsProp: PropostaOM[] = grupos.map(g => {
+  let omsProp: PropostaOM[] = grupos.map(g => {
     const nome = escolheNome(g.ocs);
     const recentes = [...g.setores].sort((a, b) => b.competencia - a.competencia || b.ordem - a.ordem);
     const setor = recentes[0]?.nome ?? null;
@@ -360,28 +424,56 @@ export function analisarCadastro(
       mudouComando.push(`${g.codigo} ${nome}: ${nomes.slice(0, 3).join(' → ')}`);
     }
     const ultima = Math.max(0, ...g.ocs.map(o => o.competencia));
-    if (limiteRecente && ultima && ultima < limiteRecente) semRecente.push(`${g.codigo} ${nome} (última: ${fmtComp(ultima)})`);
     const tipo: TipoOM = setor === 'EXTRA-MB' ? 'EXTRA_MB' : pareceNavio(nome) ? 'NAVIO' : 'TERRA';
     return {
       chave: `${g.codigo}|${chave(nome)}`, codigo: g.codigo, nome, tipo, setor, comandoChave,
       qtdFaturas: g.ocs.length, ultimaCompetencia: ultima,
-      variantes: [...new Set(g.ocs.map(o => o.nome))].filter(n => n !== nome), classe: null, suspeita: null,
+      variantes: [...new Set(g.ocs.map(o => o.nome))].filter(n => n !== nome), classe: null, codigoProprio: true,
     };
-  }).sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome, 'pt-BR'));
-
-  // Mesmo cliente com poucas faturas num código e muitas em outro → provável erro de digitação do código
-  const suspeitos: string[] = [];
-  omsProp.forEach(o => {
-    if (o.qtdFaturas > 3) return;
-    const principal = omsProp
-      .filter(x => x !== o && x.codigo !== o.codigo && x.qtdFaturas >= Math.max(5, o.qtdFaturas * 5) && similaridade(x.nome, o.nome) >= limiar)
-      .sort((a, b) => b.qtdFaturas - a.qtdFaturas)[0];
-    if (principal) {
-      o.suspeita = `Provável código digitado errado: "${principal.nome}" tem ${principal.qtdFaturas} faturas no código ${principal.codigo} e só ${o.qtdFaturas} no ${o.codigo}.`;
-      suspeitos.push(`${o.codigo} ${o.nome} (${o.qtdFaturas} fatura${o.qtdFaturas > 1 ? 's' : ''}) × ${principal.codigo} (${principal.qtdFaturas})`);
-    }
   });
-  if (suspeitos.length) avisos.push({ tipo: 'CODIGO_SUSPEITO', mensagem: `${suspeitos.length} cliente(s) com código provavelmente digitado errado em poucas faturas. Vêm desmarcados na importação; confira e corrija as faturas de origem.`, exemplos: suspeitos.slice(0, 10) });
+
+  // Mesmo cliente com poucas faturas num código e muitas em outro → código digitado errado:
+  // as faturas são somadas ao cliente com o código correto (ex.: Batalhão Naval 01050 → 31050).
+  const corrigidos: string[] = [];
+  const removidos = new Set<PropostaOM>();
+  [...omsProp].sort((a, b) => a.qtdFaturas - b.qtdFaturas).forEach(o => {
+    if (o.qtdFaturas > 3 || removidos.has(o)) return;
+    const principal = omsProp
+      .filter(x => x !== o && !removidos.has(x) && x.codigo !== o.codigo && x.qtdFaturas >= Math.max(5, o.qtdFaturas * 5) && similaridade(x.nome, o.nome) >= limiar)
+      .sort((a, b) => b.qtdFaturas - a.qtdFaturas)[0];
+    if (!principal) return;
+    corrigidos.push(`${o.codigo} → ${principal.codigo}: "${o.nome}" (${o.qtdFaturas} fatura${o.qtdFaturas > 1 ? 's' : ''} somada${o.qtdFaturas > 1 ? 's' : ''} às ${principal.qtdFaturas} de "${principal.nome}")`);
+    principal.qtdFaturas += o.qtdFaturas;
+    principal.ultimaCompetencia = Math.max(principal.ultimaCompetencia, o.ultimaCompetencia);
+    if (o.nome !== principal.nome && !principal.variantes.includes(o.nome)) principal.variantes.push(o.nome);
+    removidos.add(o);
+  });
+  omsProp = omsProp.filter(o => !removidos.has(o)).sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  if (corrigidos.length) avisos.push({ tipo: 'CODIGO_CORRIGIDO', mensagem: `${corrigidos.length} cliente(s) com o código digitado errado em poucas faturas foram corrigidos para o código usado nas demais. Vale corrigir também as faturas de origem.`, exemplos: corrigidos.slice(0, 12) });
+
+  // OM/navio sem código próprio usa o código do comando; extra-MB sem código usa o da BNIC (40015)
+  const cmdPorChave = new Map(comandos.map(c => [c.chave, c]));
+  const emprestados: string[] = [];
+  omsProp.forEach(o => {
+    if (o.tipo === 'EXTRA_MB') {
+      o.codigoProprio = o.codigo !== CODIGO_BNIC;
+    } else {
+      const c = o.comandoChave ? cmdPorChave.get(o.comandoChave) : undefined;
+      const mesmoNome = c ? (similaridade(c.nome, o.nome) >= 0.7 || chave(o.nome).includes(chave(c.nome)) || chave(c.nome).includes(chave(o.nome))) : false;
+      o.codigoProprio = !(c?.codigo && c.codigo === o.codigo && !mesmoNome);
+    }
+    if (!o.codigoProprio) emprestados.push(`${o.codigo} ${o.nome}${o.tipo === 'EXTRA_MB' ? ' (código da BNIC)' : ' (código do comando)'}`);
+  });
+  if (emprestados.length) avisos.push({ tipo: 'USA_CODIGO_DO_COMANDO', mensagem: `${emprestados.length} cliente(s) sem código próprio: usam o código do comando (OM e navios) ou o da BNIC, ${CODIGO_BNIC} (extra-MB). Serão cadastrados assim.`, exemplos: emprestados.slice(0, 12) });
+
+  // Mesmo código com mais de um cliente que tenha código PRÓPRIO = conflito real a conferir
+  const porCod = new Map<string, PropostaOM[]>();
+  omsProp.filter(o => o.codigoProprio).forEach(o => { const l = porCod.get(o.codigo) || []; l.push(o); porCod.set(o.codigo, l); });
+  const conflitos = [...porCod.entries()].filter(([, l]) => l.length > 1).map(([c, l]) => `${c}: ${l.map(o => `"${o.nome}"`).join(', ')}`);
+  if (conflitos.length) avisos.push({ tipo: 'MESMO_CODIGO_VARIOS_CLIENTES', mensagem: `${conflitos.length} código(s) usados por mais de um cliente que parece ter código próprio. Confira se são grafias do mesmo cliente ou se algum deles usa o código do comando.`, exemplos: conflitos.slice(0, 10) });
+
+  const semRecente = omsProp.filter(o => limiteRecente && o.ultimaCompetencia && o.ultimaCompetencia < limiteRecente)
+    .map(o => `${o.codigo} ${o.nome} (última: ${fmtComp(o.ultimaCompetencia)})`);
   if (mudouComando.length) avisos.push({ tipo: 'OM_MUDOU_DE_COMANDO', mensagem: `${mudouComando.length} OM aparecem sob mais de um comando ao longo do tempo; foi adotado o mais recente.`, exemplos: mudouComando.slice(0, 8) });
   if (semRecente.length) avisos.push({ tipo: 'SEM_FATURA_RECENTE', mensagem: `${semRecente.length} OM sem fatura nos últimos ${mesesSem} meses (antes de ${fmtComp(limiteRecente)}). Podem ser navios/OM desativados — é possível importá-las já desativadas.`, exemplos: semRecente.slice(0, 10) });
 
@@ -391,7 +483,7 @@ export function analisarCadastro(
     const s = classesMap.get(p.classe) || new Set<string>();
     s.add(p.navio); classesMap.set(p.classe, s);
   });
-  const naviosOM = omsProp.filter(o => o.tipo === 'NAVIO' && !o.suspeita);
+  const naviosOM = omsProp.filter(o => o.tipo === 'NAVIO');
   const semOM: string[] = [], ambiguos: string[] = [];
   classesMap.forEach((navios, classe) => {
     navios.forEach(n => {
@@ -412,6 +504,7 @@ export function analisarCadastro(
 
   if (foraPadrao.length) avisos.push({ tipo: 'FATURA_FORA_DO_PADRAO', mensagem: `${foraPadrao.length} número(s) de fatura fora do padrão OM-SS-MM-AAAA-SEQ-V (o código da OM foi aproveitado).`, exemplos: [...new Set(foraPadrao)].slice(0, 8) });
   if (completados.size) avisos.push({ tipo: 'CODIGO_COMPLETADO', mensagem: `${completados.size} número(s) de fatura com código de 4 dígitos; foi completado com zero à esquerda.`, exemplos: [...completados].slice(0, 8) });
+  if (convertidos.size) avisos.push({ tipo: 'SETOR_CONVERTIDO', mensagem: 'Siglas antigas de setor convertidas: CON → COMOPNAV; CCSM e CCSM-RIO → CCEM-RIO; AMAZUL (é o cliente Amazônia Azul, não setor) ignorada.', exemplos: [...convertidos.entries()].map(([s, n]) => `${s}: ${n} linha(s)`) });
   setoresDesc.forEach((origens, sigla) => avisos.push({ tipo: 'SETOR_DESCONHECIDO', mensagem: `Setor "${sigla}" não está na lista de setores conhecidos; será criado. Confira se é sigla antiga de outro setor.`, exemplos: [...origens].slice(0, 5) }));
 
   const setoresUsados = new Set<string>([...omsProp.map(o => o.setor), ...comandos.map(c => c.setor)].filter(Boolean) as string[]);

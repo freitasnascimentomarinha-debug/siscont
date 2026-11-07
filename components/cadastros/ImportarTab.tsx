@@ -12,8 +12,10 @@ import { Filtro, Td, Th } from './comum';
 import { DadosCadastro } from './useCadastros';
 
 const ROTULO_AVISO: Record<AvisoSaneamento['tipo'], { titulo: string; grave: boolean }> = {
-  CODIGO_SUSPEITO: { titulo: 'Código provavelmente digitado errado', grave: true },
   MESMO_CODIGO_VARIOS_CLIENTES: { titulo: 'Mesmo código com mais de um cliente', grave: true },
+  CODIGO_CORRIGIDO: { titulo: 'Códigos digitados errado, corrigidos', grave: false },
+  USA_CODIGO_DO_COMANDO: { titulo: 'Clientes sem código próprio', grave: false },
+  SETOR_CONVERTIDO: { titulo: 'Siglas de setor convertidas', grave: false },
   NAVIO_AMBIGUO: { titulo: 'Navio do histórico com mais de um cliente', grave: true },
   SETOR_DESCONHECIDO: { titulo: 'Setor fora da lista', grave: true },
   COMANDO_SEM_CODIGO: { titulo: 'Comando sem código', grave: true },
@@ -66,7 +68,7 @@ export const ImportarTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; 
       const p = analisarCadastro(linhas, pares, abas);
       setProposta(p);
       setArquivos(Array.from(files).map(f => f.name));
-      setSelecionadas(new Set(p.oms.filter(o => !o.suspeita).map(o => o.chave)));
+      setSelecionadas(new Set(p.oms.map(o => o.chave)));
       setTipos({});
       setAbertos(new Set());
     } catch (e: any) {
@@ -96,7 +98,7 @@ export const ImportarTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; 
   const cmdNome = useMemo(() => new Map((proposta?.comandos || []).map(c => [c.chave, `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}`])), [proposta]);
 
   const lista = (proposta?.oms || []).filter(o => {
-    if (filtro === 'SUSPEITAS') return !!o.suspeita;
+    if (filtro === 'SEM_CODIGO') return !o.codigoProprio;
     if (filtro === 'ANTIGAS') return limiteRecente && o.ultimaCompetencia < limiteRecente;
     if (filtro === 'EXISTENTES') return existentes.has(`${o.codigo}|${chave(o.nome)}`);
     if (filtro === 'NOVAS') return !existentes.has(`${o.codigo}|${chave(o.nome)}`);
@@ -192,7 +194,7 @@ export const ImportarTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; 
               <div className="flex flex-wrap items-center gap-2">
                 <Filtro label="Mostrar" value={filtro} onChange={setFiltro} options={[
                   { value: '', label: 'Todos' }, { value: 'NOVAS', label: 'Ainda não cadastrados' }, { value: 'EXISTENTES', label: 'Já cadastrados' },
-                  { value: 'SUSPEITAS', label: 'Código suspeito' }, { value: 'ANTIGAS', label: 'Sem fatura há 12 meses' }, { value: 'DESMARCADAS', label: 'Desmarcados' },
+                  { value: 'SEM_CODIGO', label: 'Sem código próprio' }, { value: 'ANTIGAS', label: 'Sem fatura há 12 meses' }, { value: 'DESMARCADAS', label: 'Desmarcados' },
                   { value: 'TERRA', label: 'OM de terra' }, { value: 'NAVIO', label: 'Navios' }, { value: 'EXTRA_MB', label: 'Extra-MB' },
                 ]} />
                 <Button size="sm" variant="ghost" onClick={() => marcarVisiveis(true)}>Marcar visíveis</Button>
@@ -208,13 +210,15 @@ export const ImportarTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; 
                     const antiga = limiteRecente && o.ultimaCompetencia && o.ultimaCompetencia < limiteRecente;
                     const marcado = selecionadas.has(o.chave);
                     return (
-                      <tr key={o.chave} className={!marcado ? 'bg-slate-50 text-slate-400' : o.suspeita ? 'bg-amber-50/60' : ''}>
+                      <tr key={o.chave} className={!marcado ? 'bg-slate-50 text-slate-400' : ''}>
                         <Td><input type="checkbox" checked={marcado} onChange={() => alternar(o.chave)} aria-label={`Importar ${o.nome}`} className="h-4 w-4 accent-primary-600" /></Td>
-                        <Td className="font-mono text-xs font-semibold">{o.codigo}</Td>
+                        <Td className="font-mono text-xs font-semibold">
+                          {o.codigo}
+                          {!o.codigoProprio && <div className="font-sans font-normal text-[10px] text-slate-500 whitespace-nowrap">{o.tipo === 'EXTRA_MB' ? 'código da BNIC' : 'código do comando'}</div>}
+                        </Td>
                         <Td>
                           <div className="font-medium text-slate-900">{o.nome}</div>
                           {o.variantes.length > 0 && <div className="text-[11px] text-slate-500" title={o.variantes.join('\n')}>também: {o.variantes.slice(0, 2).join('; ')}{o.variantes.length > 2 ? '…' : ''}</div>}
-                          {o.suspeita && <div className="text-[11px] text-amber-700">{o.suspeita}</div>}
                         </Td>
                         <Td>
                           <select aria-label={`Tipo de ${o.nome}`} value={tipos[o.chave] || o.tipo} onChange={e => setTipos({ ...tipos, [o.chave]: e.target.value as TipoOM })} className="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white" disabled={existe}>

@@ -33,7 +33,7 @@ export const ComandosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
     });
     return m;
   }, [dados.oms]);
-  const lista = dados.comandos.filter(c => !busca || chave(`${c.codigo || ''} ${c.nome} ${c.sigla || ''}`).includes(chave(busca)))
+  const lista = dados.comandos.filter(c => !busca || chave(`${c.codigo || ''} ${c.nome} ${c.sigla || ''} ${c.indicativoNaval || ''}`).includes(chave(busca)))
     .sort((a, b) => (a.codigo || 'zz').localeCompare(b.codigo || 'zz'));
 
   const salvar = async () => {
@@ -41,6 +41,7 @@ export const ComandosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
     setErro(null);
     if (!form.nome?.trim()) return setErro('Informe o nome.');
     if (form.codigo && !/^\d{4,6}$/.test(form.codigo)) return setErro('O código deve ter de 4 a 6 dígitos.');
+    if (form.indicativoNaval && !/^[A-Z0-9]{2,8}$/.test(form.indicativoNaval)) return setErro('O indicativo naval deve ter de 2 a 8 letras ou números, sem espaços (ex.: AMRJRJ).');
     if (!form.setorId) return setErro('Selecione o setor.');
     setSalvando(true);
     try {
@@ -59,17 +60,18 @@ export const ComandosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 justify-between">
-        <Busca value={busca} onChange={setBusca} placeholder="Código ou nome do comando" />
+        <Busca value={busca} onChange={setBusca} placeholder="Código, nome ou indicativo" />
         {podeEditar && <Button size="sm" onClick={() => { setErro(null); setForm({ ativo: true }); }}><Plus size={14} className="mr-1" /> Novo comando</Button>}
       </div>
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Comando / ComImSup</Th><Th>Setor</Th><Th>OM vinculadas</Th><Th>Situação</Th>{podeEditar && <Th right>Ações</Th>}</tr></thead>
+          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Comando / ComImSup</Th><Th>Indicativo</Th><Th>Setor</Th><Th>OM vinculadas</Th><Th>Situação</Th>{podeEditar && <Th right>Ações</Th>}</tr></thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {lista.map(c => (
               <tr key={c.id} className={c.ativo ? 'hover:bg-slate-50' : 'bg-slate-50/60 text-slate-500'}>
                 <Td className="font-mono font-semibold">{c.codigo || <span className="text-amber-600 text-xs font-sans">sem código</span>}</Td>
                 <Td><span className="font-medium text-slate-900">{c.nome}</span>{c.sigla && <span className="text-xs text-slate-500"> · {c.sigla}</span>}</Td>
+                <Td className="font-mono text-xs">{c.indicativoNaval || <span className="text-slate-300">—</span>}</Td>
                 <Td className="text-xs font-semibold">{(c.setorId && set.get(c.setorId)?.sigla) || '—'}</Td>
                 <Td className="text-xs tabular-nums">{qtd.get(c.id)?.ativas || 0} ativas / {qtd.get(c.id)?.total || 0}</Td>
                 <Td><Situacao ativo={c.ativo} desde={c.desativadoEm} motivo={c.motivoDesativacao} /></Td>
@@ -84,7 +86,7 @@ export const ComandosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
                 )}
               </tr>
             ))}
-            {lista.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-sm text-slate-400 italic">Nenhum comando cadastrado.</td></tr>}
+            {lista.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-sm text-slate-400 italic">Nenhum comando cadastrado.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -94,7 +96,8 @@ export const ComandosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
             <ErroForm erro={erro} />
             <div className="grid grid-cols-3 gap-3">
               <Input label="Código" inputMode="numeric" maxLength={6} value={form.codigo || ''} onChange={e => setForm({ ...form, codigo: e.target.value.replace(/\D/g, '') })} placeholder="91610" />
-              <div className="col-span-2"><Input label="Sigla" value={form.sigla || ''} onChange={e => setForm({ ...form, sigla: e.target.value })} placeholder="ComEsqE1" /></div>
+              <Input label="Sigla" value={form.sigla || ''} onChange={e => setForm({ ...form, sigla: e.target.value })} placeholder="ComEsqE1" />
+              <Input label="Indicativo naval" maxLength={12} value={form.indicativoNaval || ''} onChange={e => setForm({ ...form, indicativoNaval: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) })} placeholder="COMESQE" />
             </div>
             <Input label="Nome" value={form.nome || ''} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Comando do 1º Esquadrão de Escolta" />
             <Select label="Setor" options={dados.setores.map(s => ({ value: s.id, label: `${s.sigla}${s.nome ? ' – ' + s.nome : ''}` }))} value={form.setorId || ''} onChange={e => setForm({ ...form, setorId: e.target.value || null })} />

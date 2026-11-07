@@ -18,6 +18,10 @@ const isMissingTable = (error: any) => {
 const check = (error: any) => {
   if (!error) return;
   if (isMissingTable(error)) throw new CadastroNaoInstaladoError();
+  const msg = String(error?.message || '');
+  if (error?.code === 'PGRST204' || (/codigo_proprio|indicativo_naval/.test(msg) && /column/i.test(msg))) {
+    throw new Error('Falta executar o script supabase/migrations/003_codigo_proprio_indicativo.sql no Supabase (campos "código próprio" e "indicativo naval").');
+  }
   throw error;
 };
 
@@ -26,12 +30,12 @@ const nn = <T,>(v: T | undefined): T | null => (v === undefined || v === '' ? nu
 // --- mapeamentos banco (snake_case) <-> app (camelCase) ---
 const toSetor = (r: any): Setor => ({ id: r.id, sigla: r.sigla, nome: r.nome, ordem: r.ordem ?? 100, ativo: r.ativo !== false });
 const toComando = (r: any): Comando => ({
-  id: r.id, codigo: r.codigo, nome: r.nome, sigla: r.sigla, setorId: r.setor_id,
+  id: r.id, codigo: r.codigo, nome: r.nome, sigla: r.sigla, indicativoNaval: r.indicativo_naval, setorId: r.setor_id,
   ativo: r.ativo !== false, desativadoEm: r.desativado_em, motivoDesativacao: r.motivo_desativacao,
 });
 const toClasse = (r: any): ClasseNavio => ({ id: r.id, nome: r.nome, ativo: r.ativo !== false, desativadoEm: r.desativado_em });
 const toOM = (r: any): OM => ({
-  id: r.id, codigo: r.codigo, nome: r.nome, sigla: r.sigla, indicativoNaval: r.indicativo_naval,
+  id: r.id, codigo: r.codigo, codigoProprio: r.codigo_proprio !== false, nome: r.nome, sigla: r.sigla, indicativoNaval: r.indicativo_naval,
   tipo: (r.tipo || 'TERRA') as TipoOM, comandoId: r.comando_id, setorId: r.setor_id, areaCnic: r.area_cnic,
   lotacao: r.lotacao, classeId: r.classe_id, cnpj: r.cnpj, endereco: r.endereco, emails: r.emails,
   telefone: r.telefone, observacao: r.observacao, ativo: r.ativo !== false, ativadoEm: r.ativado_em,
@@ -46,12 +50,14 @@ const toServico = (r: any): ServicoCatalogo => ({
 
 const fromSetor = (s: Partial<Setor>) => ({ sigla: s.sigla?.trim(), nome: nn(s.nome?.trim()), ordem: s.ordem ?? 100, ativo: s.ativo ?? true });
 const fromComando = (c: Partial<Comando>) => ({
-  codigo: nn(c.codigo?.trim()), nome: c.nome?.trim(), sigla: nn(c.sigla?.trim()), setor_id: nn(c.setorId),
+  codigo: nn(c.codigo?.trim()), nome: c.nome?.trim(), sigla: nn(c.sigla?.trim()),
+  ...(c.indicativoNaval !== undefined ? { indicativo_naval: nn(c.indicativoNaval?.trim().toUpperCase()) } : {}),
+  setor_id: nn(c.setorId),
   ativo: c.ativo ?? true, desativado_em: nn(c.desativadoEm), motivo_desativacao: nn(c.motivoDesativacao),
 });
 const fromClasse = (c: Partial<ClasseNavio>) => ({ nome: c.nome?.trim(), ativo: c.ativo ?? true, desativado_em: nn(c.desativadoEm) });
 const fromOM = (o: Partial<OM>) => ({
-  codigo: o.codigo?.trim(), nome: o.nome?.trim(), sigla: nn(o.sigla?.trim()), indicativo_naval: nn(o.indicativoNaval?.trim()?.toUpperCase()),
+  codigo: o.codigo?.trim(), ...(o.codigoProprio !== undefined ? { codigo_proprio: o.codigoProprio } : {}), nome: o.nome?.trim(), sigla: nn(o.sigla?.trim()), indicativo_naval: nn(o.indicativoNaval?.trim()?.toUpperCase()),
   tipo: o.tipo || 'TERRA', comando_id: nn(o.comandoId), setor_id: nn(o.setorId), area_cnic: o.areaCnic ?? null,
   lotacao: o.lotacao ?? null, classe_id: o.tipo === 'NAVIO' ? nn(o.classeId) : null, cnpj: nn(o.cnpj?.trim()),
   endereco: nn(o.endereco?.trim()), emails: nn(o.emails?.trim()), telefone: nn(o.telefone?.trim()),

@@ -29,3 +29,9 @@ psql -d sb -f tests/sql/fase1_cadastros_tests.sql
 
 Esperado: mesmo código com nomes diferentes aceito; duplicidade e código inválido recusados; desativação exige
 data; OM com faturas não pode ser excluída; Operador só lê; usuário pendente não lê.
+
+## Script 003 (código próprio e indicativo)
+
+Com o 002 aplicado: rode as 4 inserções do início de `tests/sql/fase1_003_tests.sql`, aplique o
+`003_codigo_proprio_indicativo.sql` (duas vezes) e rode o restante do arquivo. Esperado: setores CON, CCSM-RIO e
+AMAZUL fundidos e removidos; indicativos inválidos recusados.

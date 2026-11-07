@@ -7,6 +7,9 @@ const LOTE = 200;
 async function inserir(tabela: string, linhas: any[]) {
   for (let i = 0; i < linhas.length; i += LOTE) {
     const { error } = await supabase.from(tabela).insert(linhas.slice(i, i + LOTE));
+    if (error && /codigo_proprio|indicativo_naval/.test(error.message || '')) {
+      throw new Error('Falta executar o script supabase/migrations/003_codigo_proprio_indicativo.sql no Supabase antes de importar.');
+    }
     if (error) throw new Error(`Erro ao gravar ${tabela}: ${error.message}`);
   }
 }
@@ -33,6 +36,7 @@ export async function aplicarImportacao(plano: PlanoImportacao, onProgresso?: (m
   onProgresso?.(`Gravando ${plano.oms.length} OM...`);
   await inserir('oms', plano.oms.map(o => ({
     codigo: o.codigo,
+    codigo_proprio: o.codigoProprio,
     nome: o.nome,
     tipo: o.tipo,
     comando_id: o.comandoChave ? cmdId.get(o.comandoChave) ?? null : null,

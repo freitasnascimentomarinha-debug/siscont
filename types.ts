@@ -188,6 +188,8 @@ export interface Comando {
   codigo?: string | null;
   nome: string;
   sigla?: string | null;
+  /** Indicativo naval do comando (destino das mensagens de envio e cobrança das faturas). */
+  indicativoNaval?: string | null;
   setorId?: string | null;
   ativo: boolean;
   desativadoEm?: string | null;
@@ -203,7 +205,10 @@ export interface ClasseNavio {
 
 export interface OM {
   id: string;
+  /** Código usado no número da fatura. */
   codigo: string;
+  /** false = não tem código próprio: usa o do comando (OM/navio) ou o da BNIC, 40015 (extra-MB). */
+  codigoProprio?: boolean;
   nome: string;
   sigla?: string | null;
   indicativoNaval?: string | null;

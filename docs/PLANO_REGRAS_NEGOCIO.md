@@ -223,6 +223,12 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
 > de navio; 1.2 catálogo de serviços; 1.3 parâmetros e feriados (data-limite por dias úteis); importação do
 > **cadastro** das planilhas com relatório de saneamento (tela Cadastros → Importar planilhas). **1-B pendente**:
 > migração das faturas, ALTCRED e baixas (item 1.4) e ligação das faturas ao cadastro (`om_id`).
+>
+> Regras de cadastro confirmadas pelo usuário (07/11/2026): **OM ou navio sem código próprio usa o código do
+> comando; cliente extra-MB sem código usa o da BNIC (40015)**; código digitado errado em poucas faturas é
+> corrigido para o usado nas demais (ex.: Batalhão Naval 01050 → **31050**); siglas antigas de setor: **CON =
+> COMOPNAV**, **CCSM e CCSM-RIO → CCEM-RIO**, **AMAZUL** = cliente Amazônia Azul (não é setor); **TM**: a
+> confirmar. Comando e OM têm **indicativo naval** (destino das mensagens).
 
 1.1 **Cadastro hierárquico de clientes**
 - Tabelas `setores`, `comandos` (código, nome, sigla, setor), `oms` (código 5 dígitos, nome, sigla,

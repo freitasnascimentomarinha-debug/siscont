@@ -133,8 +133,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Importar planilhas' }).click();
     await page.locator('input[type=file]').setInputFiles(arquivos);
     await page.getByText('Relatório de saneamento').waitFor({ timeout: 20000 });
-    ok(await page.getByText('Código provavelmente digitado errado').first().isVisible(), 'aviso de código suspeito (40031) exibido');
-    ok(!(await page.getByLabel('Importar Diretoria Industrial da Marinha').nth(1).isChecked()), 'cliente com código suspeito vem desmarcado');
+    ok(await page.getByText('Códigos digitados errado, corrigidos').isVisible(), 'código digitado errado (40031) corrigido para 40030');
+    ok(await page.getByLabel('Importar Diretoria Industrial da Marinha').count() === 1, 'Diretoria Industrial aparece uma vez só');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-importar.png'), fullPage: true });
     await page.getByRole('button', { name: 'Gravar no cadastro' }).click();
     await page.getByRole('button', { name: 'Sim, gravar' }).click();
@@ -146,6 +146,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const polar = db.oms.find(o => o.codigo === '51215');
     ok(polar && polar.ativo === false && polar.desativado_em === '2024-08-31', 'navio sem fatura recente entrou desativado com data');
     ok(db.oms.find(o => o.codigo === '00994').tipo === 'EXTRA_MB', 'banco gravado como extra-MB');
+    ok(db.oms.find(o => o.codigo === '40030').codigo_proprio === true, 'OM gravada com o campo código próprio');
     await page.getByRole('button', { name: 'OM / Clientes' }).click();
     await page.getByRole('cell', { name: /Corveta Barroso/ }).first().waitFor();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-oms.png'), fullPage: true });
@@ -175,6 +176,32 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Excluir', exact: true }).click();
     await page.waitForTimeout(500);
     ok(!db.oms.some(o => o.codigo === '91646'), 'OM sem faturas pode ser excluída');
+  });
+
+  await cenario('OM sem código próprio e indicativo naval', [], async (page, db) => {
+    const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', setor_id: db.setores[1].id, ativo: true };
+    db.comandos.push(cmd);
+    await page.getByRole('button', { name: 'Recarregar' }).click();
+    await page.getByRole('button', { name: /Nova OM/ }).click();
+    await page.getByLabel('Nome', { exact: true }).fill('PRESTNAV');
+    await page.getByLabel('Comando (ComImSup)').selectOption(cmd.id);
+    await page.getByLabel(/Não possui código próprio/).check();
+    ok(await page.getByLabel('Código (5 dígitos)').inputValue() === '41000', 'código preenchido com o do comando (41000)');
+    ok(await page.getByLabel('Código (5 dígitos)').isDisabled(), 'campo de código travado');
+    await page.getByLabel('Indicativo naval').fill('prest nav');
+    ok(await page.getByLabel('Indicativo naval').inputValue() === 'PRESTNAV', 'indicativo em maiúsculas, sem espaço');
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'PRESTNAV' }).first().waitFor();
+    const o = db.oms.find(x => x.nome === 'PRESTNAV');
+    ok(o && o.codigo === '41000' && o.codigo_proprio === false && o.indicativo_naval === 'PRESTNAV', 'gravado com código do comando, sem código próprio e com indicativo');
+    ok(await page.getByText('código do comando').first().isVisible(), 'lista mostra "código do comando"');
+    await page.getByRole('button', { name: 'Comandos' }).click();
+    await page.getByRole('row', { name: /Arsenal de Marinha/ }).getByTitle('Editar').click();
+    await page.getByLabel('Indicativo naval').fill('AMRJRJ');
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'AMRJRJ' }).waitFor();
+    ok(db.comandos.find(c => c.codigo === '41000').indicativo_naval === 'AMRJRJ', 'indicativo naval do comando gravado');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-comandos.png'), fullPage: true });
   });
 
   await cenario('Calculadora da data-limite (10 dias úteis com feriado)', [], async (page) => {

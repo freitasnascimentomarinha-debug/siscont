@@ -8,7 +8,7 @@ import { Input, Select } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Busca, DesativarModal, Filtro, Situacao, Td, Th } from './comum';
 import { DadosCadastro } from './useCadastros';
-import { chave } from '../../utils/cadastroImport';
+import { chave, CODIGO_BNIC } from '../../utils/cadastroImport';
 
 const TIPO_COR: Record<TipoOM, string> = {
   TERRA: 'bg-sky-100 text-sky-800',
@@ -16,7 +16,8 @@ const TIPO_COR: Record<TipoOM, string> = {
   EXTRA_MB: 'bg-amber-100 text-amber-800',
 };
 
-const vazio = (): Partial<OM> => ({ tipo: 'TERRA', ativo: true });
+const vazio = (): Partial<OM> => ({ tipo: 'TERRA', ativo: true, codigoProprio: true });
+const INDICATIVO_RE = /^[A-Z0-9]{2,8}$/;
 
 export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recarregar: () => Promise<void> }> = ({ dados, podeEditar, recarregar }) => {
   const [busca, setBusca] = useState('');
@@ -51,14 +52,27 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dados.oms, busca, fTipo, fSetor, fSituacao, cmd]);
 
+  /** Código a usar quando a OM não tem código próprio: o do comando, ou o da BNIC para extra-MB. */
+  const codigoEmprestado = (f: Partial<OM>) =>
+    f.tipo === 'EXTRA_MB' ? CODIGO_BNIC : (f.comandoId ? cmd.get(f.comandoId)?.codigo || '' : '');
+  const atualizar = (patch: Partial<OM>) => setForm(prev => {
+    const n = { ...prev!, ...patch };
+    if (n.codigoProprio === false) n.codigo = codigoEmprestado(n);
+    return n;
+  });
+
   const salvar = async () => {
     if (!form) return;
     setErro(null);
     if (!form.nome?.trim()) return setErro('Informe o nome.');
+    if (form.indicativoNaval && !INDICATIVO_RE.test(form.indicativoNaval)) return setErro('O indicativo naval deve ter de 2 a 8 letras ou números, sem espaços (ex.: COMEST).');
+    if (form.codigoProprio === false && !form.codigo) return setErro('O comando selecionado não tem código cadastrado. Cadastre o código do comando ou informe um código próprio.');
     if (!/^\d{4,6}$/.test(form.codigo?.trim() || '')) return setErro('O código deve ter de 4 a 6 dígitos (normalmente 5, ex.: 40002).');
     if (form.tipo !== 'EXTRA_MB' && !form.comandoId) return setErro('Selecione o comando (ComImSup).');
     if (form.tipo === 'EXTRA_MB' && !form.setorId) form.setorId = dados.setores.find(s => s.sigla === 'EXTRA-MB')?.id;
     const dup = dados.oms.find(o => o.id !== form.id && o.codigo === form.codigo?.trim() && chave(o.nome) === chave(form.nome));
+    const mesmoCodigo = form.codigoProprio !== false && dados.oms.find(o => o.id !== form.id && o.codigo === form.codigo?.trim() && o.codigoProprio !== false && o.ativo);
+    if (mesmoCodigo && !dup && !window.confirm(`O código ${form.codigo} já é o código próprio de "${mesmoCodigo.nome}". Se esta OM não tem código próprio, marque "Não possui código próprio". Salvar mesmo assim?`)) return;
     if (dup) return setErro(`Já existe "${dup.nome}" com o código ${dup.codigo}.`);
     setSalvando(true);
     try {
@@ -113,17 +127,21 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
 
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Nome</Th><Th>Tipo</Th><Th>Comando</Th><Th>Setor</Th><Th>Classe / lotação</Th><Th>Situação</Th>{podeEditar && <Th right>Ações</Th>}</tr></thead>
+          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Nome</Th><Th>Indicativo</Th><Th>Tipo</Th><Th>Comando</Th><Th>Setor</Th><Th>Classe / lotação</Th><Th>Situação</Th>{podeEditar && <Th right>Ações</Th>}</tr></thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {lista.map(o => {
               const c = o.comandoId ? cmd.get(o.comandoId) : undefined;
               return (
                 <tr key={o.id} className={o.ativo ? 'hover:bg-slate-50' : 'bg-slate-50/60 text-slate-500'}>
-                  <Td className="font-mono font-semibold">{o.codigo}</Td>
+                  <Td className="font-mono font-semibold">
+                    {o.codigo}
+                    {o.codigoProprio === false && <div className="font-sans font-normal text-[10px] text-slate-500 whitespace-nowrap">{o.tipo === 'EXTRA_MB' ? 'código da BNIC' : 'código do comando'}</div>}
+                  </Td>
                   <Td>
                     <div className="font-medium text-slate-900">{o.nome}</div>
-                    {(o.sigla || o.indicativoNaval) && <div className="text-xs text-slate-500">{[o.sigla, o.indicativoNaval && `Ind. ${o.indicativoNaval}`].filter(Boolean).join(' · ')}</div>}
+                    {o.sigla && <div className="text-xs text-slate-500">{o.sigla}</div>}
                   </Td>
+                  <Td className="font-mono text-xs">{o.indicativoNaval || <span className="text-slate-300">—</span>}</Td>
                   <Td><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${TIPO_COR[o.tipo]}`}>{TIPO_OM_LABELS[o.tipo]}</span></Td>
                   <Td className="text-xs">{c ? `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}` : '—'}</Td>
                   <Td className="text-xs font-semibold">{setorDe(o) || '—'}</Td>
@@ -141,7 +159,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
                 </tr>
               );
             })}
-            {lista.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-sm text-slate-400 italic">Nenhuma OM encontrada. {dados.oms.length === 0 && 'Use a aba "Importar planilhas" para trazer o cadastro das suas planilhas.'}</td></tr>}
+            {lista.length === 0 && <tr><td colSpan={9} className="p-8 text-center text-sm text-slate-400 italic">Nenhuma OM encontrada. {dados.oms.length === 0 && 'Use a aba "Importar planilhas" para trazer o cadastro das suas planilhas.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -151,16 +169,20 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
           <div className="space-y-4">
             {erro && <div className="p-2 text-xs rounded bg-red-50 text-red-700 border border-red-100" role="alert">{erro}</div>}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Input label="Código (5 dígitos)" inputMode="numeric" maxLength={6} value={form.codigo || ''} onChange={e => setForm({ ...form, codigo: e.target.value.replace(/\D/g, '') })} placeholder="40002" />
+              <Input label="Código (5 dígitos)" inputMode="numeric" maxLength={6} value={form.codigo || ''} onChange={e => setForm({ ...form, codigo: e.target.value.replace(/\D/g, '') })} placeholder="40002" disabled={form.codigoProprio === false} />
               <div className="sm:col-span-2"><Input label="Nome" value={form.nome || ''} onChange={e => setForm({ ...form, nome: e.target.value })} placeholder="Ex.: Corveta Barroso" /></div>
             </div>
+            <label className="flex items-start gap-2 text-sm text-slate-700 -mt-1">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary-600" checked={form.codigoProprio === false} onChange={e => atualizar({ codigoProprio: !e.target.checked })} />
+              <span>Não possui código próprio — usa o código {form.tipo === 'EXTRA_MB' ? `da BNIC (${CODIGO_BNIC})` : 'do comando'} no número da fatura</span>
+            </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Select label="Tipo" options={Object.entries(TIPO_OM_LABELS).map(([v, l]) => ({ value: v, label: l }))} value={form.tipo || 'TERRA'} onChange={e => setForm({ ...form, tipo: e.target.value as TipoOM })} />
+              <Select label="Tipo" options={Object.entries(TIPO_OM_LABELS).map(([v, l]) => ({ value: v, label: l }))} value={form.tipo || 'TERRA'} onChange={e => atualizar({ tipo: e.target.value as TipoOM })} />
               <Input label="Sigla" value={form.sigla || ''} onChange={e => setForm({ ...form, sigla: e.target.value })} placeholder="Ex.: CvBarroso" />
-              <Input label="Indicativo naval" value={form.indicativoNaval || ''} onChange={e => setForm({ ...form, indicativoNaval: e.target.value.toUpperCase() })} placeholder="Ex.: COMEST" />
+              <Input label="Indicativo naval" maxLength={12} value={form.indicativoNaval || ''} onChange={e => setForm({ ...form, indicativoNaval: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) })} placeholder="Ex.: COMEST" />
             </div>
             {form.tipo !== 'EXTRA_MB' ? (
-              <Select label="Comando (ComImSup)" options={comandosOrdenados.map(c => ({ value: c.id, label: `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}` }))} value={form.comandoId || ''} onChange={e => setForm({ ...form, comandoId: e.target.value || null })} />
+              <Select label="Comando (ComImSup)" options={comandosOrdenados.map(c => ({ value: c.id, label: `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}` }))} value={form.comandoId || ''} onChange={e => atualizar({ comandoId: e.target.value || null })} />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input label="CNPJ" value={form.cnpj || ''} onChange={e => setForm({ ...form, cnpj: e.target.value })} placeholder="00.000.000/0000-00" />

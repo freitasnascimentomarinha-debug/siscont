@@ -50,6 +50,13 @@ Regras garantidas pelo banco: só ADMIN altera cadastros; desativar exige data; 
 excluída (só desativada). Depois de executar, use **Cadastros → Importar planilhas** para trazer o cadastro das
 planilhas atuais.
 
+### 1-C. Código próprio e indicativo naval (script 003)
+
+Depois do 002, execute [`supabase/migrations/003_codigo_proprio_indicativo.sql`](../supabase/migrations/003_codigo_proprio_indicativo.sql):
+marca as OM/navios **sem código próprio** (usam o código do comando; extra-MB usa o da BNIC, 40015), inclui o
+**indicativo naval** no comando e funde setores antigos que tenham sido criados (CON → COMOPNAV; CCSM e
+CCSM-RIO → CCEM-RIO; AMAZUL → CM).
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |
