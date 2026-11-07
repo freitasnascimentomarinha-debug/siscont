@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { obterNormas } from '../../utils/normas';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloTabelaTC } from '../../utils/modelos';
 import { Copy, FileUp, Save } from 'lucide-react';
@@ -112,7 +113,7 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
         </>}
       </div>
       <Aviso tom="slate"><b>De onde vêm os preços de TC e diária:</b> são calculados na página <b>Taxa condominial e diárias</b> e gravados aqui quando você clica em <b>Publicar</b> lá. Esta aba serve para conferir, ajustar valor de uma OM, importar a tabela da TC ou copiar do ano anterior; o lote usa sempre o que está gravado aqui.</Aviso>
-      {porOm && <Aviso tom="slate">{sigla === 'TC' ? `Soma mensal: ${brl(total)} · anual: ${brl(total * 12)}.` : 'Diária de cada navio no ano (Anexo L: lotação × média trienal da classe).'} OM sem valor não recebe fatura deste serviço.</Aviso>}
+      {porOm && <Aviso tom="slate">{sigla === 'TC' ? `Soma mensal: ${brl(total)} · anual: ${brl(total * 12)}.` : `Diária de cada navio no ano (${obterNormas().anexoDiaria}: lotação × média trienal da classe).`} OM sem valor não recebe fatura deste serviço.</Aviso>}
       {!porOm && (
         <div className="p-3 rounded-lg border border-slate-200 bg-white flex items-center gap-3 text-sm">
           <span className="font-semibold">Valor geral do serviço {sigla} em {ano}:</span>

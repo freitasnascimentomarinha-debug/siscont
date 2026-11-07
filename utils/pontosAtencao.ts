@@ -10,6 +10,7 @@
  * Um ponto automático também pode ser marcado como "ciente" com justificativa (ex.: crédito realmente
  * devolvido). Se o valor mudar, a mensagem muda e o ponto volta a aparecer.
  */
+import { citarPrazo, obterNormas } from './normas';
 import { lerFatura } from './cadastroImport';
 
 export type Gravidade = 'alta' | 'media' | 'baixa';
@@ -46,13 +47,13 @@ export const TIPOS_PONTO: Record<string, DefTipo> = {
   PAGO_A_MAIOR: { alvo: 'fatura', gravidade: 'alta', titulo: 'Pago a maior', comoCorrigir: 'Confira as baixas da fatura: remova a baixa em duplicidade ou ajuste o valor. Se o excedente for real, registre a devolução ou o crédito para a OM.' },
   ADIANTAMENTO_MAIOR: { alvo: 'fatura', gravidade: 'alta', titulo: 'Adiantamento maior que o serviço', comoCorrigir: 'O adiantamento usado passou do valor do serviço; provável lançamento em duplicidade no RESUMO ADIANTAMENTO. Remova a baixa repetida.' },
   CANCELADA_COM_BAIXA: { alvo: 'fatura', gravidade: 'alta', titulo: 'Cancelada com baixa', comoCorrigir: 'Fatura cancelada não deve ter baixa: desfaça as baixas para devolver o saldo à ALTCRED ou transfira-as para a fatura substituta (-1).' },
-  VENCIMENTO_INVALIDO: { alvo: 'fatura', gravidade: 'alta', titulo: 'Vencimento inválido', comoCorrigir: 'Edite a fatura e informe o vencimento: emissão + 10 dias úteis (OI 40-04, 6.1).' },
+  VENCIMENTO_INVALIDO: { alvo: 'fatura', gravidade: 'alta', titulo: 'Vencimento inválido', get comoCorrigir() { return `Edite a fatura e informe o vencimento: emissão + 10 dias úteis (${citarPrazo()}).`; } },
   NUMERO_REPETIDO: { alvo: 'fatura', gravidade: 'alta', titulo: 'Número repetido', comoCorrigir: 'Duas faturas com o mesmo número. Exclua a duplicada ou corrija a versão (último dígito: -1 cancela e substitui).' },
   VALOR_NEGATIVO: { alvo: 'fatura', gravidade: 'media', titulo: 'Valor negativo', comoCorrigir: 'Crédito deve ser lançado como débito (linha 04) numa fatura de acerto, não como fatura negativa.' },
   SEM_CADASTRO: { alvo: 'fatura', gravidade: 'media', titulo: 'Sem OM do cadastro', comoCorrigir: 'Edite a fatura e escolha o cliente na lista do cadastro (ou cadastre a OM em Cadastros).' },
   COMPETENCIA_DIVERGENTE: { alvo: 'fatura', gravidade: 'media', titulo: 'Competência diferente do número', comoCorrigir: 'O mês/ano do número (OM-SS-MM-AAAA-SEQ-V) não bate com a competência da fatura. Corrija um dos dois.' },
   SERVICO_DIVERGENTE: { alvo: 'fatura', gravidade: 'media', titulo: 'Serviço diferente do número', comoCorrigir: 'A sigla do serviço no número não bate com a sigla da fatura. Corrija um dos dois.' },
-  NUMERO_FORA_PADRAO: { alvo: 'fatura', gravidade: 'baixa', titulo: 'Número fora do padrão', comoCorrigir: 'Padrão da OI 40-04: OM-SIGLA-MM-AAAA-SEQ-V (ex.: 40030-EL-08-2026-010-0).' },
+  NUMERO_FORA_PADRAO: { alvo: 'fatura', gravidade: 'baixa', titulo: 'Número fora do padrão', get comoCorrigir() { return `Padrão da ${obterNormas().nome}: OM-SIGLA-MM-AAAA-SEQ-V (ex.: 40030-EL-08-2026-010-0).`; } },
   // ---- faturas: anotados pela migração
   STATUS_DIVERGENTE: { alvo: 'fatura', gravidade: 'alta', titulo: 'Situação diferente da planilha', comoCorrigir: 'A situação calculada pelas baixas difere do STATUS da planilha. Confira as baixas desta fatura na planilha original.' },
   FATURA_DO_LIVRO: { alvo: 'fatura', gravidade: 'media', titulo: 'Fatura só no livro de emissão', comoCorrigir: 'Não constava nas listas da planilha de pagamento. Confirme no SIPLAD se a fatura existe e está correta.' },

@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { obterNormas } from '../../utils/normas';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloProposta } from '../../utils/modelos';
 import { Download, FileUp } from 'lucide-react';
@@ -71,7 +72,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
         <b>Navios sem dias de atracação no histórico:</b> {semHist.map(o => o.nome).join(', ')}. Recebem a diária pela lotação = custo por militar-dia × lotação (como a "diária a ser considerada com base na lotação" da planilha).
       </Aviso>}
       {!resultado.oms.length && <Aviso>{da ? 'Nenhum navio com lotação no ano. Preencha a aba Navios ou importe a proposta.' : 'Nenhuma OM com lotação no ano. Preencha a aba Clientes e matriz ou importe a proposta.'}</Aviso>}
-      <div className="flex flex-wrap gap-2 justify-end"><Button variant="secondary" onClick={exportar} disabled={!resultado.oms.length}><Download size={16} className="mr-1" />{da ? 'Exportar Excel (diárias)' : 'Exportar Excel (taxa, Anexo B, extrato)'}</Button></div>
+      <div className="flex flex-wrap gap-2 justify-end"><Button variant="secondary" onClick={exportar} disabled={!resultado.oms.length}><Download size={16} className="mr-1" />{da ? 'Exportar Excel (diárias)' : `Exportar Excel (taxa, ${obterNormas().anexoTC}, extrato)`}</Button></div>
       <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>

@@ -17,6 +17,8 @@ import { Admin } from './pages/Admin';
 import { Cadastros } from './pages/Cadastros';
 import { ResetPassword } from './pages/ResetPassword';
 import { UserRole } from './types';
+import { cadastroService } from './services/cadastroService';
+import { definirNormas, normasDe } from './utils/normas';
 import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -27,6 +29,8 @@ export type PageID = 'dashboard' | 'painel' | 'invoices' | 'faturamento' | 'rece
 const AuthenticatedApp = () => {
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
+  // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
+  useEffect(() => { cadastroService.listParametros().then(p => definirNormas(normasDe(p))).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
 
   const renderPage = () => {
     switch (currentPage) {

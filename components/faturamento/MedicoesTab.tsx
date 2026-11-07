@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { obterNormas } from '../../utils/normas';
 import { FileUp, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ContextoFaturamento, listarMedicoes, salvarMedicoes } from '../../services/faturamentoService';
@@ -74,7 +75,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     const ult = historico.filter(h => h.omId === id).sort((a, b) => b.competencia.localeCompare(a.competencia)).slice(0, 3);
     if (!ult.length) return;
     const media = (k: 'quantidade' | 'quantidade2' | 'valor') => { const v = ult.map(h => h[k]).filter(x => x != null) as number[]; return v.length ? r2(v.reduce((s, x) => s + x, 0) / v.length) : null; };
-    setLinhas(p => ({ ...p, [id]: { quantidade: txt(media('quantidade')), quantidade2: txt(media('quantidade2')), valor: txt(media('valor')), estimada: true, origem: `Média de ${ult.length} medição(ões) anteriores (Anexo J)` } }));
+    setLinhas(p => ({ ...p, [id]: { quantidade: txt(media('quantidade')), quantidade2: txt(media('quantidade2')), valor: txt(media('valor')), estimada: true, origem: `Média de ${ult.length} medição(ões) anteriores (${obterNormas().anexoEstimativa})` } }));
   };
 
   const importar = async (files: FileList | null) => {
@@ -183,7 +184,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
           Conta da concessionária (R$): <input className={`${entrada} w-36`} value={contaConcess} onChange={e => setContaConcess(e.target.value)} placeholder="1.942.777,19" />
           {conta !== null && <span className={Math.abs(conta - soma) < 0.05 ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-semibold'}>{Math.abs(conta - soma) < 0.05 ? 'Confere' : `Diferença ${brl(r2(soma - conta))}`}</span>}
         </div>
-        {semLeitura.length > 0 && <Aviso>{semLeitura.length} OM com leitura nos meses anteriores e sem leitura agora. Use "estimar" (média das 3 últimas, Anexo J 1.2/1.4) ou confirme com a divisão.</Aviso>}
+        {semLeitura.length > 0 && <Aviso>{semLeitura.length} OM com leitura nos meses anteriores e sem leitura agora. Use "estimar" (média das 3 últimas, {obterNormas().anexoEstimativa}) ou confirme com a divisão.</Aviso>}
       </div>
       <ImportarAguaModal planilha={agua?.planilha ?? null} regras={agua?.regras ?? []} avisos={agua?.avisos ?? []} arquivo={agua?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp}
         onFechar={() => setAgua(null)} onLancar={lancarAgua} />

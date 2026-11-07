@@ -601,10 +601,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Norma (nome)').waitFor();
     await page.getByLabel('Norma (nome)').fill('OI 41-02');
     await page.getByLabel('Item da correção por atraso').fill('7.3');
+    await page.getByLabel('Anexo da diária de atracação').fill('Anexo M');
     await page.getByRole('button', { name: 'Gravar norma' }).click();
     await page.getByText('Norma gravada.').waitFor();
     await page.waitForTimeout(500);
     ok(db.parametros.find(p => p.chave === 'norma_nome')?.valor === 'OI 41-02' && db.parametros.find(p => p.chave === 'norma_item_correcao')?.valor === '7.3', 'norma gravada nos parâmetros');
+    ok(db.parametros.find(p => p.chave === 'norma_anexo_diaria')?.valor === 'Anexo M', 'anexo da diária gravado nos parâmetros');
     await page.reload();
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
     await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();

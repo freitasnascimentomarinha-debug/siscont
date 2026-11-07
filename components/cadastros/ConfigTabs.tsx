@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { PARAM_NORMAS, normasDe } from '../../utils/normas';
+import { PARAM_NORMAS, definirNormas, normasDe } from '../../utils/normas';
 import { Edit, Plus, Save, Trash2 } from 'lucide-react';
 import { Feriado, OM, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
 import { PARAM_EMISSORA, PARAM_EMISSORA_RATEIO, resolverEmissora } from '../../utils/emissora';
@@ -100,7 +100,7 @@ const NormaCard: React.FC<{ params: Parametro[]; podeEditar: boolean; gravado: (
   const [digitou, setDigitou] = useState(false);
   useEffect(() => { if (!digitou) setN(normasDe(params)); }, [params, digitou]);
   const edita = (p: Partial<typeof n>) => { setDigitou(true); setN(x => ({ ...x, ...p })); };
-  const mudou = n.nome !== atual.nome || n.itemPrazo !== atual.itemPrazo || n.itemCorrecao !== atual.itemCorrecao;
+  const mudou = (Object.keys(atual) as (keyof typeof atual)[]).some(k => n[k] !== atual[k]);
   const gravar = async () => {
     if (!n.nome.trim()) return notify.error('Informe o nome da norma.');
     setSalvando(true);
@@ -108,17 +108,24 @@ const NormaCard: React.FC<{ params: Parametro[]; podeEditar: boolean; gravado: (
       await cadastroService.saveParametro({ chave: PARAM_NORMAS.nome, valor: n.nome.trim(), descricao: 'Norma (OI) citada nos textos do faturamento' });
       await cadastroService.saveParametro({ chave: PARAM_NORMAS.itemPrazo, valor: n.itemPrazo.trim(), descricao: 'Item da norma sobre o prazo de certificação' });
       await cadastroService.saveParametro({ chave: PARAM_NORMAS.itemCorrecao, valor: n.itemCorrecao.trim(), descricao: 'Item da norma sobre a correção por atraso' });
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.anexoEstimativa, valor: n.anexoEstimativa.trim(), descricao: 'Anexo da norma sobre consumo estimado pela média' });
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.anexoTC, valor: n.anexoTC.trim(), descricao: 'Anexo da norma da taxa condominial' });
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.anexoDiaria, valor: n.anexoDiaria.trim(), descricao: 'Anexo da norma da diária de atracação' });
+      definirNormas({ ...n, nome: n.nome.trim() });
       notify.success('Norma gravada.'); setDigitou(false); gravado();
     } catch (e) { notify.fail('Erro ao gravar a norma', e); } finally { setSalvando(false); }
   };
   return (
     <div className="p-4 rounded-lg border border-slate-200 bg-white">
       <h4 className="text-sm font-semibold text-slate-800 mb-1">Norma citada nas faturas e no faturamento</h4>
-      <p className="text-xs text-slate-500 mb-3">A norma (OI) e seus itens mudam; aqui você atualiza o nome e os itens citados nos textos das faturas, no PDF e nas telas. O setor responsável de cada lançamento é cadastrado em <b>Serviços</b> (ou direto na aba de medições e de atracação).</p>
+      <p className="text-xs text-slate-500 mb-3">A norma (OI) e seus itens e anexos mudam; aqui você atualiza o que é citado nos textos das faturas, no PDF e nas telas. O setor responsável de cada lançamento é cadastrado em <b>Serviços</b> (ou direto na aba de medições e de atracação).</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <Input label="Norma (nome)" value={n.nome} onChange={e => edita({ nome: e.target.value })} disabled={!podeEditar} placeholder="OI 40-04" />
         <Input label="Item do prazo de certificação" value={n.itemPrazo} onChange={e => edita({ itemPrazo: e.target.value })} disabled={!podeEditar} placeholder="6.1" />
         <Input label="Item da correção por atraso" value={n.itemCorrecao} onChange={e => edita({ itemCorrecao: e.target.value })} disabled={!podeEditar} placeholder="6.2" />
+        <Input label="Anexo do consumo estimado" value={n.anexoEstimativa} onChange={e => edita({ anexoEstimativa: e.target.value })} disabled={!podeEditar} placeholder="Anexo J" />
+        <Input label="Anexo da taxa condominial" value={n.anexoTC} onChange={e => edita({ anexoTC: e.target.value })} disabled={!podeEditar} placeholder="Anexo B" />
+        <Input label="Anexo da diária de atracação" value={n.anexoDiaria} onChange={e => edita({ anexoDiaria: e.target.value })} disabled={!podeEditar} placeholder="Anexo L" />
       </div>
       {podeEditar && <div className="mt-3 flex justify-end"><Button size="sm" onClick={gravar} isLoading={salvando} disabled={!mudou}>Gravar norma</Button></div>}
     </div>

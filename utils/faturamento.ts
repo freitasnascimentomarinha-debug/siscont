@@ -10,7 +10,9 @@
  *  - OND (competência OUT): OM da Marinha = 3 × média mensal JAN–AGO de cada serviço; DA = diária × dias
  *    previstos de OUT–DEZ; extra-MB segue o mensal.
  *  - Acerto do OND (ano seguinte): real (OUT+NOV+DEZ) − estimado → acréscimo (linha 03) ou débito (linha 04).
+
  */
+import { obterNormas } from './normas';
 export interface OMFat {
   id: string; codigo: string; nome: string; tipo: 'TERRA' | 'NAVIO' | 'EXTRA_MB'; comandoId?: string | null;
   setor: string; comando: string; ativo: boolean; desativadoEm?: string | null; ativadoEm?: string | null;
@@ -138,7 +140,7 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
     if (m.valor != null) { valor = m.valor; base = { regra: 'Valor do rateio enviado pela divisão', quantidade: m.quantidade, quantidade2: m.quantidade2 }; }
     else if (p && m.quantidade != null) { valor = p.valor * m.quantidade; base = { regra: 'Quantidade × valor unitário ' + ano, valorUnitario: p.valor, quantidade: m.quantidade }; }
     else { valor = 0; base = { regra: 'Sem valor' }; avisos.push(`Medição de ${m.sigla} sem valor em R$ e sem valor unitário ${ano} cadastrado.`); }
-    if (m.estimada) avisos.push('Consumo não mensurável: estimado pela média das 3 últimas medições (Anexo J).');
+    if (m.estimada) avisos.push('Consumo não mensurável: estimado pela média das 3 últimas medições (' + obterNormas().anexoEstimativa + ').');
     if (valor <= 0 && !avisos.length) return;
     itens.push(item(om, m.sigla, { quantidade: m.quantidade ?? null, quantidade2: m.quantidade2 ?? null, valor, base, avisos }));
   });

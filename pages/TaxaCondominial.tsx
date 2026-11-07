@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { obterNormas } from '../utils/normas';
 import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Parametro, UserRole } from '../types';
@@ -19,7 +20,7 @@ const GRUPOS: { titulo: string; abas: { id: Aba; label: string; dica: string }[]
     { id: 'rubricas', label: '1. Rubricas', dica: 'Despesas do ano (aba Despesas_NOVO): previsto, valor anterior, descontos e valor atualizado' },
     { id: 'clientes', label: '2. Clientes e matriz', dica: 'OM que pagam a taxa: lotação e de quais despesas participam' },
     { id: 'descontos', label: '3. Descontos por OM', dica: 'Descontos concedidos a uma OM' },
-    { id: 'resultado', label: '4. Resultado da taxa', dica: 'Taxa por OM, Anexo B e extrato' },
+    { id: 'resultado', label: '4. Resultado da taxa', dica: `Taxa por OM, ${obterNormas().anexoTC} e extrato` },
   ] },
   { titulo: 'Diária de atracação', abas: [
     { id: 'navios', label: '5. Navios', dica: 'Navios que pagam diária: lotação e dias atracados' },
