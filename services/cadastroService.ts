@@ -128,7 +128,7 @@ export const cadastroService = {
     const { error } = await supabase.from('oms_nao_duplicadas').upsert(pares.map(par => ({ par })), { onConflict: 'par' });
     check(error);
   },
-  /** Unifica duas OM duplicadas (script 012): referências passam para a que fica; a outra é desativada. */
+  /** Unifica duas OM duplicadas (scripts 012/015): referências passam para a que fica; a outra é excluída (sem o 015, desativada). */
   unificarOMs: async (manter: string, remover: string) => {
     const { data, error } = await supabase.rpc('unificar_om', { p_manter: manter, p_remover: remover });
     check(error);

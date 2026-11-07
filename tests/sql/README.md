@@ -110,3 +110,10 @@ navios em R$ vira percentual (Defensas 56%); rubrica paga só pelos navios fica 
 do grupo Navios guardado na proposta; critério, percentuais e modo inválidos recusados; área e peso na lotação; área
 negativa recusada.
 
+
+## Script 015 (unificar exclui o duplicado)
+
+Com 001–014 aplicados: `psql -d sb -f tests/sql/unificar_015_tests.sql` (aplica o 015 duas vezes). Esperado: o já
+unificado ("Unificada com ...") é excluído e as faturas, inclusive as antigas sem ligação, ficam na OM que ficou;
+Operador não unifica nem chama a rotina interna; Admin unifica e o duplicado some, com o nome corrigido na fatura e
+guardado como alternativo; OM com fatura continua sem poder ser excluída.
