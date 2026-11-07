@@ -41,6 +41,8 @@ export interface PropostaOM {
   classe: string | null;
   /** false = não tem código próprio: usa o do comando (OM/navio) ou o da BNIC, 40015 (extra-MB). */
   codigoProprio: boolean;
+  /** Chaves brutas (código + nome como aparece nas faturas) que caem neste cliente; ver chaveDaLinha(). */
+  chavesOrigem: string[];
 }
 export interface PropostaClasse { nome: string; navios: string[] }
 
@@ -51,6 +53,8 @@ export interface PropostaCadastro {
   classes: PropostaClasse[];
   avisos: AvisoSaneamento[];
   estatisticas: { linhasLidas: number; abasLidas: string[]; competenciaMaisRecente: number };
+  /** chave bruta da linha de fatura → chave do cliente proposto (já com unificações e correções). */
+  indice: Record<string, string>;
 }
 
 /** Código da BNIC (OMPS-E), usado nas faturas de clientes extra-MB sem código próprio. */
@@ -108,6 +112,8 @@ export const SETORES_ALIAS: Record<string, string | null> = {
   'CCSM-RIO': 'CCEM-RIO',
   CCEM: 'CCEM-RIO',
   AMAZUL: null,
+  // Tribunal Marítimo é OM cliente, não setor
+  TM: null,
 };
 
 export function normalizarSetor(v: Celula): { sigla: string | null; conhecido: boolean; convertidoDe?: string } {
@@ -301,7 +307,7 @@ export function analisarCadastro(
   const cmdKeyOf = (c: { codigo: string | null; nome: string }) => (c.codigo ? `#${c.codigo}` : `@${chave(c.nome)}`);
 
   // 2. OM brutas por (código, chave do nome)
-  type OmAcc = { codigo: string; ocs: Ocorrencia[]; setores: Ocorrencia[]; comandos: { key: string; competencia: number; ordem: number }[]; codigos: Map<string, number> };
+  type OmAcc = { codigo: string; ocs: Ocorrencia[]; setores: Ocorrencia[]; comandos: { key: string; competencia: number; ordem: number }[]; codigos: Map<string, number>; chaves: string[] };
   const oms = new Map<string, OmAcc>();
   let maxComp = 0;
 
@@ -330,9 +336,8 @@ export function analisarCadastro(
     }
 
     const nome = limpar(l.cliente).replace(/^\d{4,6}\s*-?\s*(?=\D)/, '');
-    // Extra-MB: o código da fatura nem sempre identifica o cliente (aluguel sai com o código da BNIC, 40015)
-    const k = st.sigla === 'EXTRA-MB' ? `X|${chave(nome)}` : `${f.codigo}|${chave(nome)}`;
-    const acc = oms.get(k) || { codigo: f.codigo, ocs: [], setores: [], comandos: [], codigos: new Map() };
+    const k = chaveDaLinha(l)!;
+    const acc = oms.get(k) || { codigo: f.codigo, ocs: [], setores: [], comandos: [], codigos: new Map(), chaves: [k] };
     acc.codigos.set(f.codigo, (acc.codigos.get(f.codigo) || 0) + 1);
     acc.ocs.push({ nome, competencia: f.competencia, ordem });
     if (st.sigla) acc.setores.push({ nome: st.sigla, competencia: f.competencia, ordem });
@@ -401,6 +406,7 @@ export function analisarCadastro(
         unificadas.push(`${o.codigo}: "${nomeO}" → "${escolheNome(alvo.ocs)}"`);
         alvo.ocs.push(...o.ocs); alvo.setores.push(...o.setores); alvo.comandos.push(...o.comandos);
         o.codigos.forEach((n, c) => alvo.codigos.set(c, (alvo.codigos.get(c) || 0) + n));
+        alvo.chaves.push(...o.chaves);
       } else finais.push(o);
     });
     if (finais.length > 1) variosClientes.push(`${finais[0].codigo}: ${finais.map(f => `"${escolheNome(f.ocs)}"`).join(', ')}`);
@@ -426,7 +432,7 @@ export function analisarCadastro(
     const ultima = Math.max(0, ...g.ocs.map(o => o.competencia));
     const tipo: TipoOM = setor === 'EXTRA-MB' ? 'EXTRA_MB' : pareceNavio(nome) ? 'NAVIO' : 'TERRA';
     return {
-      chave: `${g.codigo}|${chave(nome)}`, codigo: g.codigo, nome, tipo, setor, comandoChave,
+      chave: `${g.codigo}|${chave(nome)}`, codigo: g.codigo, nome, tipo, setor, comandoChave, chavesOrigem: [...g.chaves],
       qtdFaturas: g.ocs.length, ultimaCompetencia: ultima,
       variantes: [...new Set(g.ocs.map(o => o.nome))].filter(n => n !== nome), classe: null, codigoProprio: true,
     };
@@ -446,6 +452,7 @@ export function analisarCadastro(
     principal.qtdFaturas += o.qtdFaturas;
     principal.ultimaCompetencia = Math.max(principal.ultimaCompetencia, o.ultimaCompetencia);
     if (o.nome !== principal.nome && !principal.variantes.includes(o.nome)) principal.variantes.push(o.nome);
+    principal.chavesOrigem.push(...o.chavesOrigem);
     removidos.add(o);
   });
   omsProp = omsProp.filter(o => !removidos.has(o)).sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -504,7 +511,7 @@ export function analisarCadastro(
 
   if (foraPadrao.length) avisos.push({ tipo: 'FATURA_FORA_DO_PADRAO', mensagem: `${foraPadrao.length} número(s) de fatura fora do padrão OM-SS-MM-AAAA-SEQ-V (o código da OM foi aproveitado).`, exemplos: [...new Set(foraPadrao)].slice(0, 8) });
   if (completados.size) avisos.push({ tipo: 'CODIGO_COMPLETADO', mensagem: `${completados.size} número(s) de fatura com código de 4 dígitos; foi completado com zero à esquerda.`, exemplos: [...completados].slice(0, 8) });
-  if (convertidos.size) avisos.push({ tipo: 'SETOR_CONVERTIDO', mensagem: 'Siglas antigas de setor convertidas: CON → COMOPNAV; CCSM e CCSM-RIO → CCEM-RIO; AMAZUL (é o cliente Amazônia Azul, não setor) ignorada.', exemplos: [...convertidos.entries()].map(([s, n]) => `${s}: ${n} linha(s)`) });
+  if (convertidos.size) avisos.push({ tipo: 'SETOR_CONVERTIDO', mensagem: 'Siglas antigas de setor convertidas: CON → COMOPNAV; CCSM e CCSM-RIO → CCEM-RIO; AMAZUL (cliente Amazônia Azul) e TM (Tribunal Marítimo) não são setores e foram ignoradas.', exemplos: [...convertidos.entries()].map(([s, n]) => `${s}: ${n} linha(s)`) });
   setoresDesc.forEach((origens, sigla) => avisos.push({ tipo: 'SETOR_DESCONHECIDO', mensagem: `Setor "${sigla}" não está na lista de setores conhecidos; será criado. Confira se é sigla antiga de outro setor.`, exemplos: [...origens].slice(0, 5) }));
 
   const setoresUsados = new Set<string>([...omsProp.map(o => o.setor), ...comandos.map(c => c.setor)].filter(Boolean) as string[]);
@@ -515,7 +522,20 @@ export function analisarCadastro(
     classes: [...classesMap.entries()].map(([nome, n]) => ({ nome, navios: [...n] })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
     avisos,
     estatisticas: { linhasLidas: linhas.length, abasLidas, competenciaMaisRecente: maxComp },
+    indice: Object.fromEntries(omsProp.flatMap(o => o.chavesOrigem.map(k => [k, o.chave]))),
   };
+}
+
+/**
+ * Chave bruta de uma linha de fatura: código do número da fatura + nome do cliente normalizado
+ * (extra-MB só pelo nome, porque o aluguel sai com o código da BNIC). Usada para achar o cliente
+ * do cadastro de cada fatura na migração.
+ */
+export function chaveDaLinha(l: { setor: Celula; cliente: Celula; fatura: Celula }): string | null {
+  const f = lerFatura(String(l.fatura ?? ''));
+  if (!f) return null;
+  const nome = limpar(l.cliente).replace(/^\d{4,6}\s*-?\s*(?=\D)/, '');
+  return normalizarSetor(l.setor).sigla === 'EXTRA-MB' ? `X|${chave(nome)}` : `${f.codigo}|${chave(nome)}`;
 }
 
 export const formatarCompetencia = fmtComp;

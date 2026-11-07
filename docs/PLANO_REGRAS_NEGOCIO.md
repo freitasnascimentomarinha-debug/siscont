@@ -219,16 +219,26 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
 
 ### Fase 1 — Fundação de dados (pré-requisito de todo o resto)
 
-> **Situação (07/11/2026)**: **1-A concluída** — 1.1 cadastro hierárquico com desativação sem exclusão e classes
-> de navio; 1.2 catálogo de serviços; 1.3 parâmetros e feriados (data-limite por dias úteis); importação do
-> **cadastro** das planilhas com relatório de saneamento (tela Cadastros → Importar planilhas). **1-B pendente**:
-> migração das faturas, ALTCRED e baixas (item 1.4) e ligação das faturas ao cadastro (`om_id`).
+> **Situação (07/11/2026)**: **Fase 1 concluída.** **1-A** — 1.1 cadastro hierárquico com desativação sem
+> exclusão e classes de navio; 1.2 catálogo de serviços; 1.3 parâmetros e feriados (data-limite por dias úteis);
+> importação do **cadastro** das planilhas com relatório de saneamento (Cadastros → Importar planilhas).
+> **1-B** — 1.4 migração das faturas, ALTCRED/GRU e baixas (Cadastros → Migrar faturas, script 004), cada
+> fatura ligada à OM do cadastro (`om_id`), com conferência automática contra a planilha (em aberto da aba
+> FATURAS = R$ 8.083.843,53, igual ao da planilha; saldo de 1.590 de 1.590 faturas e utilizado de 397 de 401
+> ALTCRED conferidos) e opção de desfazer.
 >
+> Regras da migração: valor da fatura = coluna *Valor* da planilha vigente (valor final, linha 05 do FR-172)
+> somado ao adiantamento usado; o livro de emissão (Faturamento) só completa serviço/adiantamento/acréscimo/débito
+> quando confere com esse total; histórico de *Faturas Pagas* entra como **pago fora do sistema** (sem
+> ALTCRED); extra-MB paga entra com uma **GRU** por autenticação bancária; a sobra de ALTCRED lançada como
+> "ADIANTAMENTO" fica como saldo do documento; vencimento ausente ou anterior à emissão é recalculado
+> (emissão + 10 dias úteis, OI 6.1).
+
 > Regras de cadastro confirmadas pelo usuário (07/11/2026): **OM ou navio sem código próprio usa o código do
 > comando; cliente extra-MB sem código usa o da BNIC (40015)**; código digitado errado em poucas faturas é
 > corrigido para o usado nas demais (ex.: Batalhão Naval 01050 → **31050**); siglas antigas de setor: **CON =
-> COMOPNAV**, **CCSM e CCSM-RIO → CCEM-RIO**, **AMAZUL** = cliente Amazônia Azul (não é setor); **TM**: a
-> confirmar. Comando e OM têm **indicativo naval** (destino das mensagens).
+> COMOPNAV**, **CCSM e CCSM-RIO → CCEM-RIO**, **AMAZUL** = cliente Amazônia Azul (não é setor); **TM** =
+> Tribunal Marítimo, cliente (não é setor; setor a definir). Comando e OM têm **indicativo naval** (destino das mensagens).
 
 1.1 **Cadastro hierárquico de clientes**
 - Tabelas `setores`, `comandos` (código, nome, sigla, setor), `oms` (código 5 dígitos, nome, sigla,

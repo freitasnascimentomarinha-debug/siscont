@@ -8,8 +8,9 @@ import { OmsTab } from '../components/cadastros/OmsTab';
 import { ClassesTab, ComandosTab, SetoresTab } from '../components/cadastros/EstruturaTabs';
 import { ParametrosTab, ServicosTab } from '../components/cadastros/ConfigTabs';
 import { ImportarTab } from '../components/cadastros/ImportarTab';
+import { MigrarFaturasTab } from '../components/cadastros/MigrarFaturasTab';
 
-type Aba = 'oms' | 'comandos' | 'setores' | 'classes' | 'servicos' | 'parametros' | 'importar';
+type Aba = 'oms' | 'comandos' | 'setores' | 'classes' | 'servicos' | 'parametros' | 'importar' | 'migrar';
 
 const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
   { id: 'oms', label: 'OM / Clientes' },
@@ -19,6 +20,7 @@ const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
   { id: 'servicos', label: 'Serviços' },
   { id: 'parametros', label: 'Parâmetros e feriados' },
   { id: 'importar', label: 'Importar planilhas', admin: true },
+  { id: 'migrar', label: 'Migrar faturas', admin: true },
 ];
 
 export const Cadastros: React.FC = () => {
@@ -71,6 +73,7 @@ export const Cadastros: React.FC = () => {
             {aba === 'servicos' && <ServicosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'parametros' && <ParametrosTab podeEditar={admin} />}
             {aba === 'importar' && admin && <ImportarTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
+            {aba === 'migrar' && admin && <MigrarFaturasTab dados={dados} podeEditar={admin} />}
           </div>
         </>
       )}

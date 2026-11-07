@@ -10,6 +10,21 @@ import {
     User
 } from '../types';
 
+// --- Leitura paginada ---
+// O Supabase (PostgREST) devolve no máximo 1.000 linhas por consulta. Com a migração das planilhas
+// passam de 6.000 faturas, então todas as leituras de tabela inteira são feitas em páginas.
+const PAGINA = 1000;
+async function selectAll(tabela: string): Promise<{ data: any[]; error: any }> {
+    const todas: any[] = [];
+    for (let de = 0; ; de += PAGINA) {
+        const { data, error } = await supabase.from(tabela).select('*').order('id', { ascending: true }).range(de, de + PAGINA - 1);
+        if (error) return { data: [], error };
+        todas.push(...(data || []));
+        if (!data || data.length < PAGINA) break;
+    }
+    return { data: todas, error: null };
+}
+
 // --- Retry wrapper for write operations ---
 const MAX_RETRIES = 3;
 const BASE_DELAY = 300; // ms
@@ -38,7 +53,7 @@ export const supabaseService = {
     // --- USERS ---
     async getUsers(): Promise<User[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('profiles').select('*');
+            const { data, error } = await selectAll('profiles');
             if (error) throw error;
             return data as User[];
         }, 'getUsers');
@@ -47,7 +62,7 @@ export const supabaseService = {
     // --- CLIENTS ---
     async getClients(): Promise<Client[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('clients').select('*');
+            const { data, error } = await selectAll('clients');
             if (error) throw error;
             return data as Client[];
         }, 'getClients');
@@ -76,7 +91,7 @@ export const supabaseService = {
     // --- SERVICES ---
     async getServices(): Promise<ServiceDefinition[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('service_definitions').select('*');
+            const { data, error } = await selectAll('service_definitions');
             if (error) throw error;
             return (data || []).map(s => ({
                 id: s.id,
@@ -109,7 +124,7 @@ export const supabaseService = {
     // --- INVOICES ---
     async getInvoices(): Promise<Invoice[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('invoices').select('*');
+            const { data, error } = await selectAll('invoices');
             if (error) throw error;
             return (data || []).map(i => ({
                 id: i.id,
@@ -133,6 +148,12 @@ export const supabaseService = {
                 isCanceled: i.is_canceled,
                 observation: i.observation,
                 sipladSettled: i.siplad_settled,
+                // colunas do script 004 (ausentes antes dele: ficam undefined e não são reenviadas)
+                omId: 'om_id' in i ? i.om_id : undefined,
+                origem: 'origem' in i ? i.origem : undefined,
+                quitacaoExterna: 'quitacao_externa' in i ? i.quitacao_externa : undefined,
+                quitadaEm: 'quitada_em' in i ? i.quitada_em : undefined,
+                contestada: 'contestada' in i ? i.contestada === true : undefined,
                 paidAmount: 0,
                 status: 'OPEN' as any
             })) as Invoice[];
@@ -162,7 +183,11 @@ export const supabaseService = {
                 type: invoice.type,
                 is_canceled: invoice.isCanceled,
                 observation: invoice.observation,
-                siplad_settled: invoice.sipladSettled
+                siplad_settled: invoice.sipladSettled,
+                // campos do script 004: só enviados quando preenchidos (funciona antes do script)
+                ...(invoice.omId !== undefined ? { om_id: invoice.omId } : {}),
+                ...(invoice.contestada !== undefined ? { contestada: invoice.contestada } : {}),
+                ...(invoice.quitacaoExterna !== undefined ? { quitacao_externa: invoice.quitacaoExterna, quitada_em: invoice.quitadaEm ?? null } : {}),
             });
             if (error) throw error;
         }, 'saveInvoice');
@@ -178,7 +203,7 @@ export const supabaseService = {
     // --- DOCUMENTS ---
     async getDocuments(): Promise<ReceivedDocument[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('received_documents').select('*');
+            const { data, error } = await selectAll('received_documents');
             if (error) throw error;
             return (data || []).map(d => ({
                 id: d.id,
@@ -192,6 +217,8 @@ export const supabaseService = {
                 date: d.date,
                 operation: d.operation,
                 observation: d.observation,
+                comandoId: d.comando_id ?? null,
+                origem: d.origem ?? null,
                 availableValue: 0,
                 informedAdvance: false
             })) as ReceivedDocument[];
@@ -227,7 +254,7 @@ export const supabaseService = {
     // --- ALLOCATIONS ---
     async getAllocations(): Promise<PaymentAllocation[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('payment_allocations').select('*');
+            const { data, error } = await selectAll('payment_allocations');
             if (error) throw error;
             return (data || []).map(a => ({
                 id: a.id,
@@ -238,6 +265,7 @@ export const supabaseService = {
                 serviceType: a.service_type,
                 siscontSettled: a.siscont_settled,
                 siscontDueDate: a.siscont_due_date,
+                origem: 'origem' in a ? a.origem ?? undefined : undefined,
                 observation: a.observation
             })) as PaymentAllocation[];
         }, 'getAllocations');
@@ -270,7 +298,7 @@ export const supabaseService = {
     // --- CASH FLOW EXITS ---
     async getExits(): Promise<CashFlowExit[]> {
         return await withRetry(async () => {
-            const { data, error } = await supabase.from('cash_flow_exits').select('*');
+            const { data, error } = await selectAll('cash_flow_exits');
             if (error) throw error;
             return (data || []).map(e => ({
                 id: e.id,

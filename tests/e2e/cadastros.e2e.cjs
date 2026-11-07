@@ -24,6 +24,7 @@ function novoBanco() {
     feriados: [{ data: '2026-11-02', descricao: 'Finados', tipo: 'NACIONAL' }],
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
+    received_documents: [], payment_allocations: [],
   };
 }
 
@@ -46,7 +47,11 @@ function handler(db, log) {
     const t = m[1];
     if (!db[t]) return json(200, []);
     const filtros = [...url.searchParams.entries()].filter(([k]) => !['select', 'order', 'columns', 'on_conflict'].includes(k));
-    const casa = r => filtros.every(([k, v]) => v.startsWith('eq.') ? String(r[k]) === v.slice(3) : true);
+    const casa = r => filtros.every(([k, v]) => {
+      if (v.startsWith('eq.')) return String(r[k]) === v.slice(3);
+      if (v.startsWith('in.(')) return v.slice(4, -1).split(',').map(x => x.replace(/^"|"$/g, '')).includes(String(r[k]));
+      return true;
+    });
     const metodo = req.method();
     log.push(`${metodo} ${t}`);
     if (metodo === 'GET') {
@@ -94,6 +99,31 @@ function planilhaSintetica() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'FATURAS');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hist), '2025');
   const f = path.join(os.tmpdir(), `siscont-e2e-${Date.now()}.xlsx`);
+  XLSX.writeFile(wb, f);
+  return f;
+}
+
+function planilhaPagamento() {
+  const cab = ['SETOR', 'COMANDO', 'Cliente', 'Fatura', 'Valor', 'Data Emis.', 'Data Venc.', 'Mês', 'Ano', 'Competência', 'TIPO', 'VALOR PAGO', 'SALDO', 'STATUS', 'QUITADA SIPLAD?', 'OBSERVAÇÕES'];
+  const DIM = '40030 - Diretoria Industrial da Marinha';
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab,
+    ['DGMM', DIM, 'Diretoria Industrial da Marinha', '40030-EL-08-2026-010-0', 10134.19, 46280, 46295, '', '', '', '', 10134.19, 0, 'PAGO', true, ''],
+    ['DGMM', DIM, 'Navio-Patrulha Mangaratiba', '40032-DA-08-2026-010-0', 2960.81, 46280, 46295, '', '', '', '', 0, 2960.81, 'VENCIDA', false, ''],
+    ['DGMM', DIM, 'Diretoria Industrial da Marinha', '40030-AE-08-2026-004-0', 8656.28, 46280, 46295, '', '', '', '', 0, 8656.28, 'A VENCER', false, ''],
+  ]), 'FATURAS');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab.slice(0, 11),
+    ['DGMM', DIM, 'Diretoria Industrial da Marinha', '40030-TC-01-2025-014-0', 19615.73, 45700, 45716],
+  ]), 'Faturas Pagas');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Data de situação', 'COMANDO', 'Cliente', 'NºALTCRED', 'TIPO', 'Valor ALTCRED', 'VALOR UTILIZADO', 'SALDO', 'OBSERVAÇÃO'],
+    [46253, 'DGMM', DIM, 'G424.2026.AC.00343', 'PAGAMENTO', 10134.19, 10134.19, 0, ''],
+  ]), 'ALTCRED');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Data de situação', 'COMANDO', 'CLIENTE', 'NºALTCRED', 'NºFATURA', 'VALOR UTILIZADO', 'TIPO'],
+    [46253, 'DGMM', DIM, 'G424.2026.AC.00343', '40030-EL-08-2026-010-0', 10134.19, 'EL'],
+  ]), 'LANÇAMENTOS');
+  const f = path.join(os.tmpdir(), `siscont-e2e-pag-${Date.now()}.xlsx`);
   XLSX.writeFile(wb, f);
   return f;
 }
@@ -212,6 +242,40 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-parametros.png'), fullPage: true });
   });
 
+  await cenario('Migrar faturas, ALTCRED e baixas ligadas ao cadastro', [planilhaPagamento()], async (page, db, arquivos) => {
+    await page.getByRole('button', { name: 'Migrar faturas' }).click();
+    await page.getByText('Importe primeiro o cadastro de OM').waitFor();
+    ok(true, 'sem cadastro, a migração pede a importação do cadastro');
+    await page.getByRole('button', { name: 'Importar planilhas' }).click();
+    await page.locator('input[type=file]').setInputFiles(arquivos);
+    await page.getByRole('button', { name: 'Gravar no cadastro' }).click();
+    await page.getByRole('button', { name: 'Sim, gravar' }).click();
+    await page.getByText('Importação concluída').waitFor();
+    ok(db.oms.length === 2, `cadastro importado da mesma planilha (${db.oms.length} OM)`);
+
+    await page.getByRole('button', { name: 'Migrar faturas' }).click();
+    await page.locator('input[type=file]').setInputFiles(arquivos);
+    await page.getByRole('heading', { name: 'Conferência com a planilha' }).waitFor({ timeout: 30000 });
+    ok(await page.getByRole('cell', { name: 'Confere' }).isVisible(), 'em aberto da aba FATURAS confere com a planilha');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-migrar.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Gravar migração' }).click();
+    await page.getByRole('button', { name: 'Sim, gravar' }).click();
+    await page.getByText('Migração concluída:').first().waitFor();
+    const novas = db.invoices.filter(i => i.origem);
+    const dim = db.oms.find(o => o.codigo === '40030');
+    ok(novas.length === 4, `4 faturas gravadas (${novas.length})`);
+    ok(novas.every(i => i.om_id), 'todas ligadas a uma OM do cadastro (om_id)');
+    ok(novas.find(i => i.invoice_number === '40030-EL-08-2026-010-0').om_id === dim.id, 'fatura da DIM ligada à OM 40030');
+    ok(novas.find(i => i.invoice_number === '40030-TC-01-2025-014-0').quitacao_externa, 'histórico entra como quitado fora do sistema');
+    ok(db.received_documents.length === 1 && db.received_documents[0].document_number === 'G424.2026.AC.00343', 'ALTCRED gravada');
+    ok(db.payment_allocations.length === 1 && Number(db.payment_allocations[0].amount) === 10134.19, 'baixa ligando ALTCRED e fatura');
+
+    await page.getByRole('button', { name: 'Desfazer migração' }).click();
+    await page.getByRole('button', { name: 'Sim, remover' }).click();
+    await page.getByText('Migração desfeita').waitFor();
+    ok(db.invoices.length === 1 && db.invoices[0].id === 'i1' && !db.received_documents.length && !db.payment_allocations.length, 'desfazer remove só o que a migração gravou');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();
@@ -223,6 +287,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       const resumo = await page.locator('text=/Serão criados:/').innerText();
       console.log('    ' + resumo.replace(/\s+/g, ' '));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-importar-real.png'), fullPage: false });
+      // grava o cadastro no banco simulado e analisa a migração das faturas (sem gravar)
+      await page.getByRole('button', { name: 'Gravar no cadastro' }).click();
+      await page.getByRole('button', { name: 'Sim, gravar' }).click();
+      await page.getByText('Importação concluída').waitFor({ timeout: 120000 });
+      await page.getByRole('button', { name: 'Migrar faturas' }).click();
+      const t1 = Date.now();
+      await page.locator('input[type=file]').setInputFiles(arquivos);
+      await page.getByRole('heading', { name: 'Conferência com a planilha' }).waitFor({ timeout: 180000 });
+      ok(true, `migração analisada em ${((Date.now() - t1) / 1000).toFixed(1)} s`);
+      console.log('    ' + (await page.locator('text=/Serão gravados/').innerText()).replace(/\s+/g, ' '));
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-migrar-real.png'), fullPage: true });
     });
   }
 

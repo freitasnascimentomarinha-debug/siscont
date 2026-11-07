@@ -104,30 +104,33 @@ export const db = {
       cachedFetch('raw_documents', () => supabaseService.getDocuments())
     ]);
 
+    // Índices para não varrer listas grandes a cada fatura (milhares de faturas após a migração)
+    const opPorDoc = new Map(documents.map(d => [d.id, d.operation]));
+    const porFatura = new Map<string, { adiant: number; pago: number }>();
+    allocations.forEach(a => {
+      const op = opPorDoc.get(a.documentId);
+      if (!op) return;
+      const t = porFatura.get(a.invoiceId) || { adiant: 0, pago: 0 };
+      if (op === OperationType.ADIANTAMENTO) t.adiant += a.amount; else t.pago += a.amount;
+      porFatura.set(a.invoiceId, t);
+    });
+    const today = new Date().toISOString().split('T')[0];
+
     return invoices.map(inv => {
-      const invAllocations = allocations.filter(a => a.invoiceId === inv.id);
-      let advancesTotal = 0;
-      let paymentsTotal = 0;
-
-      invAllocations.forEach(alloc => {
-        const doc = documents.find(d => d.id === alloc.documentId);
-        if (doc) {
-          if (doc.operation === OperationType.ADIANTAMENTO) advancesTotal += alloc.amount;
-          else paymentsTotal += alloc.amount;
-        }
-      });
-
-      let status = InvoiceStatus.OPEN;
-      const today = new Date().toISOString().split('T')[0];
+      const { adiant: advancesTotal, pago: paymentsTotal } = porFatura.get(inv.id) || { adiant: 0, pago: 0 };
       const baseValue = inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0);
       const payableAmount = Math.max(0, baseValue - advancesTotal);
 
+      let status = InvoiceStatus.OPEN;
       if (inv.isCanceled) status = InvoiceStatus.CANCELLED;
+      // Quitada antes do SISCONT (histórico migrado sem o detalhe da ALTCRED/GRU)
+      else if (inv.quitacaoExterna) status = InvoiceStatus.PAID;
       else if (paymentsTotal >= payableAmount - 0.01) status = InvoiceStatus.PAID;
       else if (inv.dueDate < today) status = InvoiceStatus.OVERDUE;
       else status = InvoiceStatus.OPEN;
 
-      return { ...inv, paidAmount: paymentsTotal, status };
+      const paidAmount = inv.quitacaoExterna && !inv.isCanceled ? Math.max(paymentsTotal, payableAmount) : paymentsTotal;
+      return { ...inv, paidAmount, status };
     });
   },
 
@@ -148,16 +151,14 @@ export const db = {
       cachedFetch('raw_invoices', () => supabaseService.getInvoices())
     ]);
 
-    return docs.map(doc => {
-      const used = allocations
-        .filter(a => {
-          if (a.documentId !== doc.id) return false;
-          const inv = invoices.find(i => i.id === a.invoiceId);
-          return inv && !inv.isCanceled;
-        })
-        .reduce((sum, a) => sum + a.amount, 0);
-      return { ...doc, availableValue: doc.totalValue - used };
+    const canceladas = new Set(invoices.filter(i => i.isCanceled).map(i => i.id));
+    const existentes = new Set(invoices.map(i => i.id));
+    const usado = new Map<string, number>();
+    allocations.forEach(a => {
+      if (!existentes.has(a.invoiceId) || canceladas.has(a.invoiceId)) return;
+      usado.set(a.documentId, (usado.get(a.documentId) || 0) + a.amount);
     });
+    return docs.map(doc => ({ ...doc, availableValue: doc.totalValue - (usado.get(doc.id) || 0) }));
   },
 
   saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },

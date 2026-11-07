@@ -103,6 +103,12 @@ export interface Invoice {
   isCanceled?: boolean; // Added field
   observation?: string; // Added field
   sipladSettled?: boolean; // New field: Status Siplad (Lançado/Pendente)
+  // Fase 1-B (script 004)
+  omId?: string | null; // OM do cadastro
+  origem?: string | null; // de onde veio o registro (ex.: migração da planilha)
+  quitacaoExterna?: string | null; // quitada antes do SISCONT, sem o detalhe da ALTCRED/GRU
+  quitadaEm?: string | null;
+  contestada?: boolean;
 }
 
 export interface ReceivedDocument {
@@ -119,6 +125,8 @@ export interface ReceivedDocument {
   informedAdvance: boolean; // Legacy flag, now handled by OperationType
   operation: OperationType;
   observation?: string;
+  comandoId?: string | null; // comando pagador (cadastro)
+  origem?: string | null;
 }
 
 // This represents a link between a Document and an Invoice (Payment)
@@ -132,6 +140,7 @@ export interface PaymentAllocation {
   siscontSettled: boolean;
   siscontDueDate?: string;
   observation?: string;
+  origem?: string; // preenchido quando a baixa veio da migração das planilhas
 }
 
 // Manually registered Exits (Saídas) for Cash Flow

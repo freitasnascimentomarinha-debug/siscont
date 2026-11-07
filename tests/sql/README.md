@@ -35,3 +35,10 @@ data; OM com faturas não pode ser excluída; Operador só lê; usuário pendent
 Com o 002 aplicado: rode as 4 inserções do início de `tests/sql/fase1_003_tests.sql`, aplique o
 `003_codigo_proprio_indicativo.sql` (duas vezes) e rode o restante do arquivo. Esperado: setores CON, CCSM-RIO e
 AMAZUL fundidos e removidos; indicativos inválidos recusados.
+
+## Script 004 (migração de faturas)
+
+Com 001–003 aplicados: `psql -d sb -f tests/sql/fase1b_004_tests.sql` (o arquivo prepara o banco, aplica o 004
+duas vezes e verifica). Esperado: setor TM removido e o Tribunal Marítimo mantido como OM sem setor; as cinco
+colunas novas em `invoices`; número de fatura repetido (mesmo com espaços) recusado; `om_tem_movimento` = t para
+OM com fatura ligada por `om_id` (mesmo com nome diferente) e exclusão dessa OM recusada.

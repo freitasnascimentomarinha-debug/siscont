@@ -57,6 +57,19 @@ marca as OM/navios **sem código próprio** (usam o código do comando; extra-MB
 **indicativo naval** no comando e funde setores antigos que tenham sido criados (CON → COMOPNAV; CCSM e
 CCSM-RIO → CCEM-RIO; AMAZUL → CM).
 
+### 1-D. Migração de faturas, ALTCRED e baixas (script 004)
+
+Depois do 003 e **depois de importar o cadastro**, execute
+[`supabase/migrations/004_migracao_faturas.sql`](../supabase/migrations/004_migracao_faturas.sql): liga a fatura à
+OM (`om_id`), registra a origem de cada registro migrado, a quitação feita fora do sistema (histórico pago) e a
+marcação de contestada, liga a ALTCRED ao comando, torna o número da fatura único (se ainda não houver
+repetidos) e remove o "setor" TM (Tribunal Marítimo é cliente).
+
+Em seguida: **Cadastros → Migrar faturas → Selecionar planilhas** (Pagamento 2026 e, opcionalmente, o
+Faturamento). Confira o quadro *Conferência com a planilha* e os pontos de atenção e clique em **Gravar
+migração**. Uma nova leitura só acrescenta o que ainda não existe; **Desfazer migração** remove tudo o que a
+migração gravou (recusa se já houver baixa lançada à mão sobre esses registros).
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |
