@@ -263,6 +263,10 @@ export interface Comando {
   ativo: boolean;
   desativadoEm?: string | null;
   motivoDesativacao?: string | null;
+  /** OM localizada fora da Ilha das Cobras (cliente de serviços sem estar no complexo). */
+  foraDaIlha?: boolean;
+  /** Outros nomes/abreviações já usados para esta OM (ajudam a reconhecer planilhas). */
+  nomesAlternativos?: string[];
 }
 
 export interface ClasseNavio {
@@ -296,6 +300,10 @@ export interface OM {
   ativadoEm?: string | null;
   desativadoEm?: string | null;
   motivoDesativacao?: string | null;
+  /** OM localizada fora da Ilha das Cobras (cliente de serviços sem estar no complexo). */
+  foraDaIlha?: boolean;
+  /** Outros nomes/abreviações já usados para esta OM (ajudam a reconhecer planilhas). */
+  nomesAlternativos?: string[];
 }
 
 /** Tipo de serviço com os campos do catálogo da OI 40-04. */

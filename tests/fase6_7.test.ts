@@ -110,8 +110,8 @@ describe('Fase 6 — leitura das planilhas', () => {
       ['TOTAL', '', '', '', 200000],
     ]);
     expect(r).toEqual([
-      { numero: 1, descricao: 'Manutenção de Telhados', contaContabil: '8.9.9.1.1.08.02', valorPrevisto: 200000, gastoAnterior: 391421.64 },
-      { numero: 2, descricao: 'Recuperação de Marquises', contaContabil: '8.9.9.1.1.08.02', valorPrevisto: 0, gastoAnterior: 0 },
+      { numero: 1, descricao: 'Manutenção de Telhados', contaContabil: '8.9.9.1.1.08.02', valorPrevisto: 200000, gastoAnterior: 391421.64, descontoPlanilha: 53903.07, atualizadoPlanilha: null, destino: 'TC' },
+      { numero: 2, descricao: 'Recuperação de Marquises', contaContabil: '8.9.9.1.1.08.02', valorPrevisto: 0, gastoAnterior: 0, descontoPlanilha: null, atualizadoPlanilha: null, destino: 'TC' },
     ]);
   });
   it('Matriz_NOVO: X (maiúsculo ou minúsculo) por rubrica; ignora título de grupo', () => {

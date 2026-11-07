@@ -15,7 +15,7 @@ export interface OMFat {
   id: string; codigo: string; nome: string; tipo: 'TERRA' | 'NAVIO' | 'EXTRA_MB'; comandoId?: string | null;
   setor: string; comando: string; ativo: boolean; desativadoEm?: string | null; ativadoEm?: string | null;
 }
-export interface ServicoFat { sigla: string; nome: string; unidade: string; ordem?: number }
+export interface ServicoFat { sigla: string; nome: string; unidade: string; ordem?: number; /** divisão responsável pelos dados (editável em Cadastros › Serviços) */ responsavel?: string | null; telefone?: string | null }
 export interface PrecoFat { ano: number; sigla: string; omId: string | null; valor: number; unidade?: string | null }
 export interface MedicaoFat { competencia: string; sigla: string; omId: string; quantidade?: number | null; quantidade2?: number | null; valor?: number | null; estimada?: boolean }
 export interface AtracacaoFat { competencia: string; omId: string; previsao: boolean; diasAtracado: number; diasDocado: number }

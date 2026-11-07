@@ -87,3 +87,12 @@ Com 001–010 aplicados: `psql -d sb -f tests/sql/vencimento_011_tests.sql` (apl
 em aberto vence em emissão + 30 corridos no próximo dia útil (02/10 → 03/11, pulando domingo e Finados); paga,
 cancelada, quitada fora e OND (estimado ou "OND" na observação) não mudam; pagamento parcial muda; certificação =
 emissão + 10 dias úteis; vencimento anterior guardado para desfazer.
+
+## Script 012 (clientes e taxas)
+
+Com 001–011 aplicados: `psql -d sb -f tests/sql/clientes_012_tests.sql` (aplica o 012 duas vezes). Esperado: destino da
+rubrica pela descrição ("Navios" → DA) e destino inválido recusado; Operador inclui cliente novo mas não altera nem
+unifica; Operador grava nome alternativo pela função; Consulta não inclui cliente; Administrador unifica (preço passa
+para a OM que fica, lotação repetida é descartada, duplicada desativada com motivo e nome guardado como alternativo);
+unificar a OM com ela mesma recusado; pendência e par "não são a mesma" gravados; unificação registrada na auditoria.
+

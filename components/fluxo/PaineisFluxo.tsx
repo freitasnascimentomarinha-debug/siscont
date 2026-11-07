@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloProposta } from '../../utils/modelos';
 import { FileSpreadsheet, FileUp, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -206,6 +208,7 @@ export const Rubricas: React.FC<{ podeEditar: boolean }> = ({ podeEditar }) => {
         {podeEditar && <>
           <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
           <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-1" />Importar proposta (Despesas)</Button>
+          <BaixarModelo modelo={() => modeloProposta(ano)} />
           <Button variant="secondary" onClick={() => setLista([...lista, { ano, numero: (Math.max(0, ...lista.map(r => r.numero)) + 1), descricao: '', valorAnual: 0, percentual: null }])}>Nova rubrica</Button>
           <Button onClick={gravar} isLoading={gravando} disabled={!lista.length}><Save size={16} className="mr-1" />Gravar</Button>
         </>}

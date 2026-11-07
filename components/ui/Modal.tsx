@@ -16,15 +16,22 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     else document.body.style.overflow = 'unset';
     return () => { document.body.style.overflow = 'unset'; };
   }, [isOpen]);
+  // Esc fecha a janela
+  useEffect(() => {
+    if (!isOpen) return;
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', tecla);
+    return () => document.removeEventListener('keydown', tecla);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className={`bg-white rounded-lg shadow-xl w-full ${maxWidth} flex flex-col max-h-[90vh]`}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`bg-white rounded-lg shadow-xl w-full ${maxWidth} flex flex-col max-h-[90vh]`}>
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+          <button onClick={onClose} aria-label="Fechar (Esc)" title="Fechar (Esc)" className="text-slate-400 hover:text-slate-600 transition-colors">
             <X size={20} />
           </button>
         </div>

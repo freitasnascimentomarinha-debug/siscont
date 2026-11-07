@@ -34,7 +34,13 @@ const num = (v: any): number | null => {
 };
 
 // ------------------------------------------------------------------ Despesas (rubricas)
-export interface RubricaLida { numero: number; descricao: string; contaContabil: string | null; valorPrevisto: number; gastoAnterior: number | null }
+export interface RubricaLida {
+  numero: number; descricao: string; contaContabil: string | null; valorPrevisto: number; gastoAnterior: number | null;
+  /** coluna DESCONTOS (soma dos descontos por OM + desconto geral) e VALOR RUBRICA ATUALIZADO da planilha, para conferência */
+  descontoPlanilha: number | null; atualizadoPlanilha: number | null;
+  /** DA = rubrica que custeia as diárias de atracação dos navios ("Navios"); TC = taxa condominial */
+  destino: 'TC' | 'DA';
+}
 
 export function lerDespesas(linhas: Linhas): RubricaLida[] {
   const h = linhas.findIndex(l => l.some(c => /N[ºO°]? ?DE ORDEM/.test(normalizar(c))) && l.some(c => normalizar(c) === 'DESPESAS'));
@@ -44,6 +50,7 @@ export function lerDespesas(linhas: Linhas): RubricaLida[] {
   const cOrdem = col(/DE ORDEM/), cConta = col(/^CONTA CONTABIL/), cDesc = cab.indexOf('DESPESAS');
   const cValor = col(/^VALOR PARA/);
   const cGasto = col(/^VALOR \d{4}/) >= 0 ? col(/^VALOR \d{4}/) : col(/TOTAL VALORES GASTOS/);
+  const cDescontos = cab.indexOf('DESCONTOS'), cAtualizado = col(/^VALOR RUBRICA ATUALIZADO/);
   if (cValor < 0) throw new Error('Aba de despesas sem a coluna "VALOR PARA <ano>".');
   const out: RubricaLida[] = [];
   for (const l of linhas.slice(h + 1)) {
@@ -51,7 +58,12 @@ export function lerDespesas(linhas: Linhas): RubricaLida[] {
     if (n === null || !Number.isInteger(n) || n <= 0 || n > 999) continue;
     const descricao = String(l[cDesc] ?? '').trim();
     if (!descricao) continue;
-    out.push({ numero: n, descricao, contaContabil: cConta >= 0 ? String(l[cConta] ?? '').trim() || null : null, valorPrevisto: num(l[cValor]) ?? 0, gastoAnterior: cGasto >= 0 ? num(l[cGasto]) : null });
+    out.push({
+      numero: n, descricao, contaContabil: cConta >= 0 ? String(l[cConta] ?? '').trim() || null : null, valorPrevisto: num(l[cValor]) ?? 0,
+      gastoAnterior: cGasto >= 0 ? num(l[cGasto]) : null,
+      descontoPlanilha: cDescontos >= 0 ? num(l[cDescontos]) : null, atualizadoPlanilha: cAtualizado >= 0 ? num(l[cAtualizado]) : null,
+      destino: /\bNAVIOS?\b/i.test(descricao) ? 'DA' : 'TC',
+    });
   }
   return out;
 }
@@ -101,10 +113,34 @@ export function lerLotacoes(linhas: Linhas): LotacaoLida[] {
   return out;
 }
 
+// ------------------------------------------------------------------ Descontos por OM e rubrica (aba PROPOSTA CONDOMINIO)
+export interface DescontoLido { nome: string; rubrica: number; valor: number }
+
+/** Bloco à direita da aba (colunas 1, 2, 3...): desconto anual em R$ de cada OM em cada rubrica; para no SUB-TOTAL. */
+export function lerDescontosOM(linhas: Linhas): DescontoLido[] {
+  let h = -1, c0 = -1;
+  for (let i = 0; i < Math.min(linhas.length, 30) && h < 0; i++) {
+    const l = linhas[i];
+    if (normalizar(l[0]) !== 'OM') continue;
+    for (let j = 1; j < l.length - 1; j++) if (num(l[j]) === 1 && num(l[j + 1]) === 2) { h = i; c0 = j; break; }
+  }
+  if (h < 0) throw new Error('Aba sem o cabeçalho "OM" com a numeração das rubricas (1, 2, 3...).');
+  const numeros: { col: number; n: number }[] = [];
+  for (let j = c0; j < linhas[h].length; j++) { const n = num(linhas[h][j]); if (n === null || !Number.isInteger(n)) break; numeros.push({ col: j, n }); }
+  const out: DescontoLido[] = [];
+  for (const l of linhas.slice(h + 1)) {
+    const nome = String(l[0] ?? '').trim();
+    if (!nome) continue;
+    if (/^SUB-?\s?TOTAL|^TOTAL|^NAVIOS?$/.test(normalizar(nome))) break;
+    numeros.forEach(x => { const v = num(l[x.col]); if (v && v > 0.004) out.push({ nome, rubrica: x.n, valor: Math.round(v * 100) / 100 }); });
+  }
+  return out;
+}
+
 /** Lê o arquivo da proposta inteiro (abas reconhecidas pelo nome). */
 export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
   const achar = (re: RegExp) => abas.find(a => re.test(normalizar(a.nome)));
-  const desp = achar(/^DESPESAS/), mat = achar(/^MATRIZ/), rat = achar(/^RATEIO/) || achar(/^\(1\)$/);
+  const desp = achar(/^DESPESAS/), mat = achar(/^MATRIZ/), rat = achar(/^RATEIO/) || achar(/^\(1\)$/), prop = achar(/^PROPOSTA CONDOMINIO/);
   const avisos: string[] = [];
   if (!desp) avisos.push('Aba "Despesas" não encontrada: rubricas não importadas.');
   if (!mat) avisos.push('Aba "Matriz" não encontrada: participação OM × rubrica não importada.');
@@ -114,6 +150,7 @@ export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
     rubricas: desp ? tentar(() => lerDespesas(desp.linhas), desp.nome) : [],
     matriz: mat ? tentar(() => lerMatriz(mat.linhas), mat.nome) : [],
     lotacoes: rat ? tentar(() => lerLotacoes(rat.linhas), rat.nome) : [],
+    descontos: prop ? tentar(() => lerDescontosOM(prop.linhas), prop.nome) : [],
     avisos,
   };
 }

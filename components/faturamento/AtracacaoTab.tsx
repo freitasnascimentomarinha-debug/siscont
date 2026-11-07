@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloMapaAtracacao } from '../../utils/modelos';
 import { FileUp, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ContextoFaturamento, listarAtracacoes, salvarAtracacoes } from '../../services/faturamentoService';
@@ -96,6 +98,7 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
         {podeEditar && <>
           <input ref={ref} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
           <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar mapas (G1…G6)</Button>
+          <BaixarModelo modelo={() => modeloMapaAtracacao(comp, ctx.omsFat.filter(o => o.tipo === 'NAVIO' && o.ativo).map(o => o.nome).sort())} />
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>

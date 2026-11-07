@@ -24,6 +24,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
   const [fTipo, setFTipo] = useState('');
   const [fSetor, setFSetor] = useState('');
   const [fSituacao, setFSituacao] = useState('ATIVAS');
+  const [fLocal, setFLocal] = useState('');
   const [form, setForm] = useState<Partial<OM> | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
@@ -45,12 +46,14 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
       if (fSituacao === 'DESATIVADAS' && o.ativo) return false;
       if (fTipo && o.tipo !== fTipo) return false;
       if (fSetor && setorDe(o) !== fSetor) return false;
+      if (fLocal === 'ILHA' && o.foraDaIlha) return false;
+      if (fLocal === 'FORA' && !o.foraDaIlha) return false;
       if (!q) return true;
       const c = o.comandoId ? cmd.get(o.comandoId) : undefined;
-      return chave(`${o.codigo} ${o.nome} ${o.sigla || ''} ${o.indicativoNaval || ''} ${c?.nome || ''}`).includes(q);
+      return chave(`${o.codigo} ${o.nome} ${o.sigla || ''} ${o.indicativoNaval || ''} ${c?.nome || ''} ${(o.nomesAlternativos || []).join(' ')}`).includes(q);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dados.oms, busca, fTipo, fSetor, fSituacao, cmd]);
+  }, [dados.oms, busca, fTipo, fSetor, fSituacao, fLocal, cmd]);
 
   /** Código a usar quando a OM não tem código próprio: o do comando, ou o da BNIC para extra-MB. */
   const codigoEmprestado = (f: Partial<OM>) =>
@@ -76,7 +79,8 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
     if (dup) return setErro(`Já existe "${dup.nome}" com o código ${dup.codigo}.`);
     setSalvando(true);
     try {
-      await cadastroService.saveOM(form);
+      const { _alt, ...resto } = form as any;
+      await cadastroService.saveOM(_alt === undefined ? resto : { ...resto, nomesAlternativos: String(_alt).split(';').map((x: string) => x.trim()).filter(Boolean) });
       notify.success(form.id ? 'OM atualizada.' : 'OM cadastrada.');
       setForm(null);
       await recarregar();
@@ -120,6 +124,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
           <Filtro label="Tipo" value={fTipo} onChange={setFTipo} options={[{ value: '', label: 'Todos os tipos' }, ...Object.entries(TIPO_OM_LABELS).map(([v, l]) => ({ value: v, label: l }))]} />
           <Filtro label="Setor" value={fSetor} onChange={setFSetor} options={[{ value: '', label: 'Todos os setores' }, ...dados.setores.map(s => ({ value: s.sigla, label: s.sigla }))]} />
           <Filtro label="Situação" value={fSituacao} onChange={setFSituacao} options={[{ value: 'ATIVAS', label: 'Ativas' }, { value: 'DESATIVADAS', label: 'Desativadas' }, { value: '', label: 'Todas' }]} />
+          <Filtro label="Localização" value={fLocal} onChange={setFLocal} options={[{ value: '', label: 'Na Ilha e fora' }, { value: 'ILHA', label: 'Na Ilha das Cobras' }, { value: 'FORA', label: 'Fora da Ilha' }]} />
           <span className="text-xs text-slate-500">{lista.length} de {dados.oms.length}</span>
         </div>
         {podeEditar && <Button size="sm" onClick={() => { setErro(null); setForm(vazio()); }}><Plus size={14} className="mr-1" /> Nova OM / cliente</Button>}
@@ -140,6 +145,8 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
                   <Td>
                     <div className="font-medium text-slate-900">{o.nome}</div>
                     {o.sigla && <div className="text-xs text-slate-500">{o.sigla}</div>}
+                    {o.foraDaIlha && <span className="inline-block mt-0.5 px-1.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">fora da Ilha</span>}
+                    {(o.nomesAlternativos || []).length > 0 && <div className="text-[10px] text-slate-400" title="Outros nomes usados nas planilhas">também: {o.nomesAlternativos!.join(' · ')}</div>}
                   </Td>
                   <Td className="font-mono text-xs">{o.indicativoNaval || <span className="text-slate-300">—</span>}</Td>
                   <Td><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${TIPO_COR[o.tipo]}`}>{TIPO_OM_LABELS[o.tipo]}</span></Td>
@@ -198,6 +205,11 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
               <Input label="E-mails para envio das faturas" value={form.emails || ''} onChange={e => setForm({ ...form, emails: e.target.value })} placeholder="separados por ;" />
               <Input label="Telefone" value={form.telefone || ''} onChange={e => setForm({ ...form, telefone: e.target.value })} />
             </div>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary-600" checked={!!form.foraDaIlha} onChange={e => setForm({ ...form, foraDaIlha: e.target.checked })} />
+              <span>OM fora da Ilha das Cobras <span className="text-slate-500">(cliente de serviços do complexo, localizado em outra área)</span></span>
+            </label>
+            <Input label="Outros nomes / abreviações (separados por ;)" value={(form as any)._alt ?? (form.nomesAlternativos || []).join('; ')} onChange={e => setForm({ ...form, _alt: e.target.value } as any)} placeholder="ex.: CPMM; Centro Perícias Médicas" />
             <Input label="Observação" value={form.observacao || ''} onChange={e => setForm({ ...form, observacao: e.target.value })} />
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setForm(null)} disabled={salvando}>Cancelar</Button>

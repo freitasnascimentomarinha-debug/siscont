@@ -21,7 +21,6 @@ import {
   Megaphone,
   Gauge,
   Landmark,
-  ShieldCheck,
   DatabaseBackup,
 } from 'lucide-react';
 import { ultimoBackup } from '../services/auditoriaService';
@@ -66,7 +65,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     { titulo: 'Visão geral', itens: [
       { id: 'dashboard', label: 'Painel inicial', icon: LayoutDashboard, dica: 'Resumo geral do sistema' },
       { id: 'painel', label: 'Painel do Encarregado', icon: Gauge, dica: 'Indicadores de cobrança, saldos parados e adiantamentos' },
-      { id: 'pontos', label: 'Pontos de Atenção', icon: AlertTriangle, dica: 'Inconsistências encontradas automaticamente para corrigir' },
+      { id: 'pontos', label: 'Pontos de Atenção', icon: AlertTriangle, dica: 'Inconsistências encontradas automaticamente e histórico de alterações (quem alterou o quê)' },
     ] },
     { titulo: 'Faturamento', itens: [
       { id: 'faturamento', label: 'Emitir faturas do mês', icon: Receipt, dica: 'Medições, atracação, preços, lote mensal, OND e correção por atraso' },
@@ -84,7 +83,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     ] },
     { titulo: 'Configuração', itens: [
       { id: 'cadastros', label: 'Cadastros', icon: Building2, dica: 'OM, comandos, setores, classes de navio, serviços, parâmetros e feriados' },
-      { id: 'auditoria', label: 'Auditoria', icon: ShieldCheck, dica: 'Quem alterou o quê e quando' },
       ...(user?.role === UserRole.ADMIN ? [{ id: 'admin' as PageID, label: 'Administração', icon: Users, dica: 'Usuários, backup e restauração' }] : []),
     ] },
   ];

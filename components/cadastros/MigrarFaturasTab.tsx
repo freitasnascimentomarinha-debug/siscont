@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloPlanilhaPagamento } from '../../utils/modelos';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Database, Undo2, Upload } from 'lucide-react';
 import { analisarCadastro, LinhaFatura } from '../../utils/cadastroImport';
 import { lerPlanilhaCompleta } from '../../utils/planilhaImport';
@@ -148,7 +150,10 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
           <p>Selecione a planilha <b>Pagamento 2026</b> (abas FATURAS, Faturas Pagas, Faturas Extra-MB, ALTCRED, LANÇAMENTOS, ADIANTAMENTOS e RESUMO ADIANTAMENTO) e, se quiser, os livros de <b>Faturamento</b> (abas JAN26, FEV26... e o consolidado FATURAMENTO 2026), que completam serviço, adiantamento, acréscimo e débito. Cada fatura é ligada à OM do cadastro. Nada é gravado antes da sua confirmação, e faturas ou documentos com número já existente são ignorados.</p>
         </div>
         <input ref={inputRef} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => processar(e.target.files)} />
-        <Button onClick={() => inputRef.current?.click()} isLoading={!!lendo} disabled={!!gravando || semCadastro}>{!lendo && <Upload size={16} className="mr-2" />}{lendo || 'Selecionar planilhas'}</Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button onClick={() => inputRef.current?.click()} isLoading={!!lendo} disabled={!!gravando || semCadastro}>{!lendo && <Upload size={16} className="mr-2" />}{lendo || 'Selecionar planilhas'}</Button>
+          <BaixarModelo modelo={modeloPlanilhaPagamento} />
+        </div>
       </div>
 
       {semCadastro && (

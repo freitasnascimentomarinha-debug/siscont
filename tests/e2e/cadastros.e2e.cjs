@@ -26,7 +26,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], oms_nao_duplicadas: [],
   };
 }
 
@@ -39,6 +39,20 @@ function handler(db, log) {
       return json(200, { access_token: 't', token_type: 'bearer', expires_in: 3600, expires_at: now + 3600, refresh_token: 'r', user: { id: 'a1', aud: 'authenticated', email: 'admin@mb.br', app_metadata: {}, user_metadata: {} } });
     }
     if (url.pathname.startsWith('/auth/v1/')) return json(200, {});
+    if (url.pathname === '/rest/v1/rpc/om_adicionar_nome_alternativo') {
+      const { p_om, p_nome } = JSON.parse(req.postData() || '{}');
+      const o = db.oms.find(x => x.id === p_om); if (o && !(o.nomes_alternativos || []).includes(p_nome)) o.nomes_alternativos = [...(o.nomes_alternativos || []), p_nome];
+      return json(200, null);
+    }
+    if (url.pathname === '/rest/v1/rpc/unificar_om') {
+      const { p_manter, p_remover } = JSON.parse(req.postData() || '{}');
+      let n = 0;
+      Object.values(db).forEach(t => Array.isArray(t) && t.forEach(r => { if (r && r.om_id === p_remover) { r.om_id = p_manter; n++; } }));
+      const m = db.oms.find(x => x.id === p_manter), r = db.oms.find(x => x.id === p_remover);
+      m.nomes_alternativos = [...new Set([...(m.nomes_alternativos || []), ...(r.nomes_alternativos || []), r.nome])];
+      Object.assign(r, { ativo: false, desativado_em: '2026-11-07', motivo_desativacao: `Unificada com ${m.nome}` });
+      return json(200, n);
+    }
     if (url.pathname === '/rest/v1/rpc/om_tem_movimento') {
       const { p_om_id } = JSON.parse(req.postData() || '{}');
       const o = db.oms.find(x => x.id === p_om_id);
@@ -340,8 +354,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Resolvido por CC Admin/).waitFor();
     const reg = db.invoices.find(i => i.invoice_number === '40032-DA-08-2026-010-0').pontos_atencao.find(p => p.tipo === 'VENCIMENTO_CORRIGIDO');
     ok(reg.resolvido && reg.justificativa === 'Conferido no SIPLAD' && reg.resolvidoPor === 'CC Admin', 'resolução gravada com autor e justificativa');
-    await page.keyboard.press('Escape');
-    await page.locator('.fixed.inset-0 button').first().click();
+    await page.keyboard.press('Escape'); // Esc fecha a janela
 
     // tela central
     await page.getByRole('button', { name: 'Pontos de Atenção' }).click();
@@ -601,8 +614,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const c = db.contestacoes[0];
     ok(c.status === 'ENCERRADA' && c.decisao === 'RATIFICADA' && c.historico.length === 4 && el.contestada === false, 'contestação: encaminhada → respondida → ratificada, histórico com 4 eventos');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-contestacao.png') });
-    await page.keyboard.press('Escape');
-    await page.locator('.fixed.inset-0 button').first().click();
+    await page.keyboard.press('Escape'); // Esc fecha a janela
     // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle(/Cancelar fatura/).click();
@@ -724,11 +736,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-f6-'));
     const arq = path.join(pasta, 'proposta.xlsx');
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025( R$)'],
-      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64], [2, '', '', 'Navios', 1236100, '', 1151786.23]]), 'Despesas_NOVO');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'CLIENTES'], ['', '', 1, 2], ['', 'SecNSNQ (Ed.23)', 'x', ''], ['', 'AMRJ', 'X', ''], ['', 'NAVIOS', '', 'X']]), 'Matriz_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025( R$)', 'VARIAÇÃO % (2026/2025)', 'DESCONTOS', 'VALOR RUBRICA ATUALIZADO'],
+      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64, '', 1500, 198500], [2, '', '', 'Navios', 1236100, '', 1151786.23]]), 'Despesas_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'CLIENTES'], ['', '', 1, 2], ['', 'SecNSNQ (Ed.23)', 'x', ''], ['', 'AMRJ', 'X', ''], ['', 'OM NOVA FORA DA ILHA', 'X', ''], ['', 'NAVIOS', '', 'X']]), 'Matriz_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['OM', 'TAXA 2025', 'MENSAL', 'PROPOSTA', 'MENSAL', '%', '', 'DESCONTOS', '', '', '', '', '', 1, 2], ['SecNSNQ (Ed.23)'], ['AMRJ', '', '', '', '', '', '', 1000, '', '', '', '', '', 1000, 0], ['SUB-TOTAL']]), 'PROPOSTA CONDOMINIO');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['CLIENTES'], ['OM DE TERRA', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'DIAS'],
-      ['SecNSNQ (Ed.23)', 140, 76, 30], ['AMRJ', 1010, 1422, 30], ['SUB TOTAL'], ['NAVIOS', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'Nº MÉDIO DIAS'],
+      ['SecNSNQ (Ed.23)', 140, 76, 30], ['AMRJ', 1010, 1422, 30], ['OM NOVA FORA DA ILHA', 50, 40, 30], ['SUB TOTAL'], ['NAVIOS', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'Nº MÉDIO DIAS'],
       ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 148, 125, 28], ['TOTAL GERAL']]), 'RATEIO MODELO TÉCNICO_2026');
     XLSX.writeFile(wb, arq);
     await page.reload();
@@ -745,46 +758,81 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(arq);
     if (process.env.DEBUG_E2E) { await page.waitForTimeout(3000); console.log((await page.locator('body').innerText()).slice(0, 3000)); }
     await page.getByText(/2 rubricas/).waitFor();
+    ok(await page.getByText('1 nome(s) sem correspondente automático.').isVisible() && (await page.getByLabel('O que fazer com OM NOVA FORA DA ILHA').inputValue()) === 'DEPOIS', 'nome sem correspondente: padrão "decidir depois" (não é perdido)');
     await page.getByRole('button', { name: 'Gravar importação' }).click();
-    await page.getByText('Proposta importada. Confira as abas e o resultado.').waitFor();
-    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).gasto_anterior) === 391421.64, 'rubricas com previsto e gasto do ano anterior');
+    await page.getByText(/Proposta importada\. 1 nome\(s\) ficaram pendentes/).waitFor();
+    const r1 = db.rubricas.find(r => r.numero === 1), r2 = db.rubricas.find(r => r.numero === 2);
+    ok(db.rubricas.length === 2 && Number(r1.gasto_anterior) === 391421.64 && r2.destino === 'DA' && r1.destino === 'TC', 'rubricas com valor do ano anterior; "Navios" vai para as diárias');
+    ok(Number(r1.desconto_geral) === 500 && Number(r1.desconto_planilha) === 1500, 'DESCONTOS 1.500 = AMRJ 1.000 (por OM) + 500 de desconto geral');
+    ok(db.descontos_tc.length === 1 && db.descontos_tc[0].om_id === amrj.id && Number(db.descontos_tc[0].valor) === 1000, 'desconto da AMRJ na rubrica 1 importado da PROPOSTA CONDOMINIO');
     ok(db.lotacoes_tc.length === 3 && Number(db.lotacoes_tc.find(l => l.om_id === bar.id).dias) === 28, 'lotação de 2 OM + navio (28 dias/mês)');
-    ok(db.matriz_tc.length === 3 && db.matriz_tc.some(m => m.om_id === bar.id && m.rubrica === 2) && !db.matriz_tc.some(m => m.om_id === bar.id && m.rubrica === 1), 'matriz: terra na rubrica 1, navio só na rubrica "Navios"');
+    ok(db.matriz_tc.length === 2 && !db.matriz_tc.some(m => m.om_id === bar.id), 'matriz só da taxa condominial (navio fica nas diárias)');
+    ok(db.pendentes_tc.length === 1 && db.pendentes_tc[0].nome === 'OM NOVA FORA DA ILHA' && Number(db.pendentes_tc[0].lotacao) === 50, 'pendência guardada com lotação e rubricas');
+    // rubricas: colunas da planilha e conferência dos descontos
+    const linhaR1 = (await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).replace(/\s+/g, ' ');
+    ok(linhaR1.includes('R$ 1.500,00') && linhaR1.includes('R$ 198.500,00') && linhaR1.includes('✓'), `rubrica 1: descontos R$ 1.500,00, atualizado R$ 198.500,00 e confere com a planilha (${linhaR1})`);
+    // resolver a pendência criando um cliente novo, fora da Ilha
+    await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await page.getByRole('button', { name: 'Escolher correspondente' }).click();
+    await page.getByRole('button', { name: 'Criar novo cliente' }).click();
+    await page.getByLabel('Nome do novo cliente').fill('OM Nova');
+    await page.getByText('OM fora da Ilha das Cobras').click();
+    await page.getByRole('button', { name: 'Criar e usar' }).click();
+    await page.getByText(/"OM NOVA FORA DA ILHA" ligado a OM Nova/).waitFor();
+    const nova = db.oms.find(o => o.nome === 'OM Nova');
+    ok(nova && nova.fora_da_ilha === true && nova.codigo === '40015' && db.pendentes_tc.length === 0, 'cliente novo criado no cadastro (fora da Ilha, código 40015) e pendência resolvida');
+    ok(db.lotacoes_tc.some(l => l.om_id === nova.id && Number(l.lotacao) === 50) && db.matriz_tc.some(m => m.om_id === nova.id && m.rubrica === 1), 'lotação e rubricas da linha da planilha passaram para o cliente');
+    ok((nova.nomes_alternativos || []).includes('OM NOVA FORA DA ILHA'), 'nome da planilha guardado como nome alternativo (próxima importação reconhece)');
+    // incluir cliente à mão
+    await page.getByRole('button', { name: 'Incluir cliente' }).click();
+    ok(await page.getByLabel('Buscar cliente').isVisible(), 'incluir cliente: busca no cadastro ou cria novo');
+    await page.keyboard.press('Escape');
     // desconto da OM (SecNSNQ 23,5% no total)
-    await page.getByRole('button', { name: '4. Descontos por OM' }).click();
+    await page.getByRole('button', { name: '3. Descontos por OM' }).click();
     await page.getByLabel('OM do desconto').selectOption({ label: 'SecNSNQ' });
     await page.getByLabel('Valor do desconto').fill('23,5');
     ok(await page.getByRole('button', { name: 'Adicionar' }).isDisabled(), 'desconto exige justificativa');
     await page.getByLabel('Justificativa do desconto').fill('Edifício mantido pela própria OM');
     await page.getByRole('button', { name: 'Adicionar' }).click();
     await page.getByText('Desconto gravado.').waitFor();
-    ok(db.descontos_tc.length === 1 && Number(db.descontos_tc[0].valor) === 23.5, 'desconto gravado');
+    ok(db.descontos_tc.length === 2 && db.descontos_tc.some(d => Number(d.valor) === 23.5), 'desconto gravado');
     // média trienal: digitação e gravação
-    await page.getByRole('button', { name: '3. Média trienal' }).click();
+    await page.getByRole('button', { name: '6. Média trienal' }).click();
     await page.getByLabel('Dias Corvetas Classe Barroso 2023').fill('355');
     await page.getByLabel('Dias Corvetas Classe Barroso 2024').fill('288');
     await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
     await page.getByText('2 registro(s) gravado(s).').waitFor();
     ok(db.atracacao_anual.length === 2, 'dias por classe e ano gravados');
     ok((await page.getByRole('row').filter({ hasText: 'Corvetas Classe Barroso' }).innerText()).includes('17.86'), 'média mensal da classe 17,86 (355 + 288 + 0 ÷ 3 ÷ 12)');
-    // resultado: SecNSNQ = 200.000 × 140/1150 = 24.347,83 − 23,5% = 18.626,09; navio 1.236.100 ÷ (148×28×12) × 148 = 3.678,87/dia
-    await page.getByRole('button', { name: '5. Resultado' }).click();
+    // resultado da taxa: rubrica 1 = 199.500 (200.000 − 500) entre pesos 4.200 / 30.300 / 1.500; SecNSNQ 23.275,00 − 23,5% = 17.805,38
+    await page.getByRole('button', { name: '4. Resultado da taxa' }).click();
     const linhaSec = await page.getByRole('row').filter({ hasText: 'SecNSNQ' }).first().innerText();
-    ok(linhaSec.includes('R$ 18.626,09'), `SecNSNQ anual com desconto: R$ 18.626,09 (${linhaSec.replace(/\s+/g, ' ')})`);
-    ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 3.678,87'), 'diária da Corveta Barroso R$ 3.678,87 (custo militar-dia × lotação)');
+    ok(linhaSec.includes('R$ 17.805,38') && linhaSec.includes('R$ 1.483,78'), `SecNSNQ anual R$ 17.805,38 e mensal R$ 1.483,78 (${linhaSec.replace(/\s+/g, ' ')})`);
+    ok((await page.getByRole('row').filter({ hasText: 'AMRJ' }).first().innerText()).includes('R$ 166.912,50'), 'AMRJ com o desconto de R$ 1.000 da planilha: R$ 166.912,50');
+    ok(!(await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).count()), 'resultado da taxa não mistura navios');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-resultado.png'), fullPage: true });
+    // diárias, separadas: 1.236.100 ÷ (148×28×12) × 148 = 3.678,87/dia
+    await page.getByRole('button', { name: '7. Resultado das diárias' }).click();
+    ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 3.678,87'), 'diária da Corveta Barroso R$ 3.678,87 (custo militar-dia × lotação)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-diarias.png'), fullPage: true });
     // aprovar e publicar
     await page.getByRole('button', { name: 'Aprovar proposta' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();
     await page.getByText('Proposta aprovada.').waitFor();
-    await page.getByRole('button', { name: 'Publicar tabela vigente' }).click();
+    await page.getByRole('button', { name: 'Publicar taxa condominial' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();
-    await page.getByText(/Tabela 2026 publicada: 3 preço/).waitFor();
+    await page.getByText(/Taxa condominial 2026 publicada: 3 OM/).waitFor();
+    ok(!db.precos.some(p => p.sigla === 'DA'), 'publicar a taxa não publica as diárias');
+    await page.getByRole('button', { name: 'Publicar diárias' }).click();
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText(/Diárias 2026 publicadas: 1 navio/).waitFor();
     const tcSec = db.precos.find(p => p.sigla === 'TC' && p.om_id === sec.id), da = db.precos.find(p => p.sigla === 'DA' && p.om_id === bar.id);
-    ok(tcSec && Number(tcSec.valor) === 1552.17 && da && Number(da.valor) === 3678.87, 'publicado: TC mensal SecNSNQ R$ 1.552,17 e DA da Barroso R$ 3.678,87 nos Preços de 2026');
+    ok(tcSec && Number(tcSec.valor) === 1483.78 && da && Number(da.valor) === 3678.87, 'publicado: TC mensal SecNSNQ R$ 1.483,78 e DA da Barroso R$ 3.678,87 nos Preços de 2026');
     ok(db.propostas_tc.length === 1 && db.propostas_tc[0].status === 'DIVULGADA', 'proposta DIVULGADA');
     // auditoria
-    await page.getByRole('button', { name: 'Auditoria' }).click();
+    ok(!(await page.getByRole('button', { name: 'Auditoria', exact: true }).count()), 'menu sem item "Auditoria" separado');
+    await page.getByRole('button', { name: 'Pontos de Atenção' }).click();
+    await page.getByRole('tab', { name: /Histórico de alterações/ }).click();
     await page.getByText('status: PENDENTE → PAGO').waitFor();
     await page.getByText('status: PENDENTE → PAGO').click();
     ok(await page.getByText('oper@mb.br').first().isVisible(), 'trilha mostra usuário e alteração');
@@ -837,9 +885,72 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Faturas vencidas' }).waitFor();
     ok((await page.locator('table').last().innerText()).includes('40030-TC-05-2024-001-0'), 'clicar no cartão abre a lista das faturas vencidas');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-lista.png') });
+    ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'lista ordenada por vencimento (mais antigo primeiro)');
+    const cab = page.locator('th button', { hasText: 'Em aberto' }); await cab.click(); if (!(await cab.innerText()).includes('▼')) await cab.click();
+    ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'ordenar por valor em aberto ao clicar no cabeçalho (maior primeiro)');
     await page.keyboard.press('Escape');
-    await page.getByLabel('Setor').selectOption('DGMM');
-    ok(await page.getByTitle('Remover filtro').isVisible(), 'filtro ativo aparece como etiqueta removível');
+    // filtro múltiplo: todos os clientes exceto a DIM
+    await page.getByRole('button', { name: /^Cliente \(OM\): Todos/ }).click();
+    await page.getByRole('option', { name: 'Diretoria Industrial da Marinha' }).click();
+    await page.keyboard.press('Escape'); await page.getByRole('heading', { name: 'Painel inicial' }).click();
+    ok(await page.getByTitle('Remover filtro').isVisible() && (await page.getByTitle('Remover filtro').innerText()).includes('todos exceto Diretoria Industrial da Marinha'), 'filtro "todos exceto" com etiqueta removível');
+    ok((await valorDe('Total em aberto')).includes('R$ 450,00'), 'sem a DIM: em aberto R$ 450,00 (CPMM 50 + AMRJ 400)');
+    await page.getByTitle('Remover filtro').click();
+    ok((await valorDe('Total em aberto')).includes('R$ 950,00'), 'filtro removido volta a R$ 950,00');
+  });
+
+  await cenario('Cadastro: duplicidades, unificação, OM fora da Ilha e grupo de setores da Cobrança', [], async (page, db) => {
+    page.on('dialog', d => d.accept());
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd);
+    const a = { id: uid(), codigo: '40030', codigo_proprio: true, nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', tipo: 'TERRA', comando_id: cmd.id, ativo: true, nomes_alternativos: [] };
+    const b = { id: uid(), codigo: '40031', codigo_proprio: true, nome: 'DIRETORIA INDUSTRIAL DA MARINHA', tipo: 'TERRA', comando_id: cmd.id, ativo: false, desativado_em: '2025-01-01', nomes_alternativos: [] };
+    const c = { id: uid(), codigo: '00994', nome: 'Banco do Brasil', tipo: 'EXTRA_MB', ativo: true, nomes_alternativos: [] };
+    const d = { id: uid(), codigo: '40015', codigo_proprio: false, nome: 'BANCO DO BRASIL', tipo: 'EXTRA_MB', ativo: true, nomes_alternativos: [] };
+    db.oms.push(a, b, c, d);
+    db.invoices.push({ id: uid(), ug: '40031', client: 'DIRETORIA INDUSTRIAL DA MARINHA', invoice_number: '40031-TC-08-2025-016-0', om_id: b.id, value: 1, year_competence: 2025, month_competence: 8 },
+      { id: uid(), ug: '40031', client: 'DIRETORIA INDUSTRIAL DA MARINHA', invoice_number: '40031-TC-09-2025-016-0', om_id: b.id, value: 1, year_competence: 2025, month_competence: 9 });
+    await page.getByRole('button', { name: 'Recarregar' }).click();
+    await page.getByRole('button', { name: 'Duplicidades' }).click();
+    await page.getByText(/grupo\(s\)/).waitFor();
+    const grupoDim = page.locator('div.border.rounded-xl').filter({ hasText: '40031' }).last();
+    ok(await grupoDim.getByText('mesmo nome').first().isVisible(), 'DIM × DIRETORIA INDUSTRIAL (código diferente, desativada) apontadas como duplicadas');
+    ok(await grupoDim.getByLabel('Manter Diretoria Industrial da Marinha (40030)').isChecked(), 'sugere manter a ativa');
+    await grupoDim.getByRole('button', { name: 'Unificar marcadas na que fica' }).click();
+    await page.getByText(/1 cadastro\(s\) unificado\(s\)/).waitFor();
+    ok(db.invoices.filter(i => i.om_id === a.id).length === 2 && !db.invoices.some(i => i.om_id === b.id), 'faturas da duplicada passaram para a OM que fica');
+    ok(b.ativo === false && /Unificada com/.test(b.motivo_desativacao) && a.nomes_alternativos.includes('DIRETORIA INDUSTRIAL DA MARINHA'), 'duplicada desativada; nome guardado como alternativo');
+    const grupoBanco = page.locator('div.border.rounded-xl').filter({ hasText: '00994' }).last();
+    await grupoBanco.getByRole('button', { name: 'Não são a mesma OM' }).click();
+    await page.getByText(/Não aparecerão mais aqui/).waitFor();
+    ok(db.oms_nao_duplicadas.length === 1 && !(await page.locator('div.border.rounded-xl.p-3').filter({ hasText: '00994' }).count()), '"não são a mesma" grava e some da lista');
+    // OM fora da Ilha
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('row', { name: /40030.*Diretoria Industrial da Marinha/ }).getByTitle('Editar').click();
+    await page.getByText('OM fora da Ilha das Cobras').click();
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await page.getByText('OM atualizada.').waitFor();
+    ok(a.fora_da_ilha === true, 'OM marcada como fora da Ilha');
+    await page.getByLabel('Localização').selectOption('FORA');
+    ok(await page.getByText('fora da Ilha', { exact: true }).first().isVisible(), 'filtro "Fora da Ilha" com etiqueta na lista');
+    // Cobrança: grupo de setores editável
+    db.invoices.push({ id: uid(), ug: '40030', sector: 'DGMM', command: '40030 - DIM', client: 'Diretoria Industrial da Marinha', invoice_number: '40030-AE-09-2026-001-0', value: 100, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-10-15', month_competence: 9, year_competence: 2026, type: 'Água e Esgoto', is_canceled: false },
+      { id: uid(), ug: '00994', sector: 'EXTRA-MB', command: 'EXTRA-MARINHA', client: 'Banco do Brasil', invoice_number: '00994-AE-09-2026-001-0', value: 50, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-10-15', month_competence: 9, year_competence: 2026, type: 'Água e Esgoto', is_canceled: false });
+    await page.reload();
+    await page.getByRole('button', { name: 'Cobrança' }).first().click();
+    await page.getByRole('button', { name: /^Setores: Todos/ }).waitFor();
+    await page.getByRole('button', { name: 'Exceto Setor do Material' }).click();
+    ok((await page.getByRole('button', { name: /^Setores:/ }).getAttribute('aria-label')).includes('Todos exceto DGMM'), 'atalho "Exceto Setor do Material" = todos exceto DGMM');
+    await page.getByRole('button', { name: 'definir grupo…' }).click();
+    await page.getByLabel('Nome do grupo').fill('Extra-Marinha');
+    await page.locator('label', { hasText: 'DGMM' }).last().locator('input').uncheck();
+    await page.locator('label', { hasText: 'EXTRA-MB' }).last().locator('input').check();
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText('Grupo de setores gravado.').waitFor();
+    ok(db.parametros.find(p => p.chave === 'setores_material').valor === 'EXTRA-MB' && db.parametros.find(p => p.chave === 'nome_grupo_setores').valor === 'Extra-Marinha', 'grupo de setores não é mais fixo (gravado como parâmetro)');
+    await page.getByRole('button', { name: 'Só Extra-Marinha' }).waitFor();
+    ok(true, 'atalhos passam a usar o novo grupo');
   });
 
   if (extras.length) {

@@ -40,6 +40,7 @@ const toOM = (r: any): OM => ({
   lotacao: r.lotacao, classeId: r.classe_id, cnpj: r.cnpj, endereco: r.endereco, emails: r.emails,
   telefone: r.telefone, observacao: r.observacao, ativo: r.ativo !== false, ativadoEm: r.ativado_em,
   desativadoEm: r.desativado_em, motivoDesativacao: r.motivo_desativacao,
+  foraDaIlha: r.fora_da_ilha === true, nomesAlternativos: Array.isArray(r.nomes_alternativos) ? r.nomes_alternativos : [],
 });
 const toServico = (r: any): ServicoCatalogo => ({
   id: r.id, name: r.name, unitMeasure: r.unit_measure, acronym: (r.acronym || '').trim(),
@@ -63,6 +64,9 @@ const fromOM = (o: Partial<OM>) => ({
   endereco: nn(o.endereco?.trim()), emails: nn(o.emails?.trim()), telefone: nn(o.telefone?.trim()),
   observacao: nn(o.observacao?.trim()), ativo: o.ativo ?? true, ativado_em: nn(o.ativadoEm),
   desativado_em: nn(o.desativadoEm), motivo_desativacao: nn(o.motivoDesativacao),
+  // colunas do script 012: só enviadas quando informadas (funciona antes do script)
+  ...(o.foraDaIlha !== undefined ? { fora_da_ilha: o.foraDaIlha } : {}),
+  ...(o.nomesAlternativos !== undefined ? { nomes_alternativos: o.nomesAlternativos } : {}),
 });
 
 async function list<T>(table: string, map: (r: any) => T, order: string): Promise<T[]> {
@@ -102,6 +106,34 @@ export const cadastroService = {
   listOMs: () => list('oms', toOM, 'codigo'),
   saveOM: (o: Partial<OM>) => save('oms', o.id, fromOM(o)),
   deleteOM: (id: string) => remove('oms', id),
+  /** Cria a OM e devolve o id (OM sem código próprio usa o 40015 da BNIC, como no cadastro). */
+  criarOM: async (o: Partial<OM>): Promise<string> => {
+    const id = crypto.randomUUID();
+    const payload: any = { id, ...fromOM({ codigoProprio: !!o.codigo, ...o, codigo: o.codigo || '40015' }) };
+    let { error } = await supabase.from('oms').insert(payload);
+    if (error && /fora_da_ilha|nomes_alternativos/.test(error.message || '')) {
+      delete payload.fora_da_ilha; delete payload.nomes_alternativos;
+      ({ error } = await supabase.from('oms').insert(payload));
+    }
+    check(error);
+    return id;
+  },
+  /** Pares marcados como "não são a mesma OM" (script 012). */
+  listarNaoDuplicadas: async (): Promise<Set<string>> => {
+    const { data, error } = await supabase.from('oms_nao_duplicadas').select('par');
+    if (error) return new Set();
+    return new Set((data || []).map((r: any) => r.par));
+  },
+  marcarNaoDuplicadas: async (pares: string[]) => {
+    const { error } = await supabase.from('oms_nao_duplicadas').upsert(pares.map(par => ({ par })), { onConflict: 'par' });
+    check(error);
+  },
+  /** Unifica duas OM duplicadas (script 012): referências passam para a que fica; a outra é desativada. */
+  unificarOMs: async (manter: string, remover: string) => {
+    const { data, error } = await supabase.rpc('unificar_om', { p_manter: manter, p_remover: remover });
+    check(error);
+    return data as number;
+  },
   omTemMovimento: async (id: string): Promise<boolean> => {
     const { data, error } = await supabase.rpc('om_tem_movimento', { p_om_id: id });
     check(error);
@@ -133,7 +165,8 @@ export const cadastroService = {
     return (data || []).map(r => ({ chave: r.chave, valor: r.valor ?? '', descricao: r.descricao }));
   },
   saveParametro: async (p: Parametro) => {
-    const { error } = await supabase.from('parametros').update({ valor: p.valor }).eq('chave', p.chave);
+    // upsert: cria o parâmetro se ainda não existir (ex.: grupos de setores)
+    const { error } = await supabase.from('parametros').upsert({ chave: p.chave, valor: p.valor, ...(p.descricao ? { descricao: p.descricao } : {}) }, { onConflict: 'chave' });
     check(error);
   },
   listFeriados: async (): Promise<Feriado[]> => {

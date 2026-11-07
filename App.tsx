@@ -5,7 +5,6 @@ import { Faturamento } from './pages/Faturamento';
 import { Contestacoes } from './pages/Contestacoes';
 import { Cobranca } from './pages/Cobranca';
 import { TaxaCondominial } from './pages/TaxaCondominial';
-import { Auditoria } from './pages/Auditoria';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
@@ -39,7 +38,7 @@ const AuthenticatedApp = () => {
       case 'cobranca': return <Cobranca key="cobranca" />;
       case 'painel': return <Cobranca key="painel" abaInicial="painel" />;
       case 'taxa': return <TaxaCondominial />;
-      case 'auditoria': return <Auditoria />;
+      case 'auditoria': return <PontosAtencaoPage key="historico" abaInicial="historico" />;
       case 'conciliacao': return <Conciliacao />;
       case 'contestacoes': return <Contestacoes />;
       case 'pontos': return <PontosAtencaoPage />;

@@ -9,11 +9,13 @@ import { ClassesTab, ComandosTab, SetoresTab } from '../components/cadastros/Est
 import { ParametrosTab, ServicosTab } from '../components/cadastros/ConfigTabs';
 import { ImportarTab } from '../components/cadastros/ImportarTab';
 import { MigrarFaturasTab } from '../components/cadastros/MigrarFaturasTab';
+import { DuplicidadesTab } from '../components/cadastros/DuplicidadesTab';
 
-type Aba = 'oms' | 'comandos' | 'setores' | 'classes' | 'servicos' | 'parametros' | 'importar' | 'migrar';
+type Aba = 'oms' | 'duplicidades' | 'comandos' | 'setores' | 'classes' | 'servicos' | 'parametros' | 'importar' | 'migrar';
 
 const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
   { id: 'oms', label: 'OM / Clientes' },
+  { id: 'duplicidades', label: 'Duplicidades', admin: true },
   { id: 'comandos', label: 'Comandos' },
   { id: 'setores', label: 'Setores' },
   { id: 'classes', label: 'Classes de navio' },
@@ -67,6 +69,7 @@ export const Cadastros: React.FC = () => {
           {!admin && <p className="text-xs text-slate-500">Somente administradores alteram os cadastros.</p>}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
             {aba === 'oms' && <OmsTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
+            {aba === 'duplicidades' && admin && <DuplicidadesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'comandos' && <ComandosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'setores' && <SetoresTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'classes' && <ClassesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}

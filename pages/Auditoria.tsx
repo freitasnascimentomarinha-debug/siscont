@@ -9,7 +9,7 @@ import { ACOES, RegistroAuditoria, TABELAS_AUDITADAS, resumo } from '../utils/au
 const POR = 50;
 
 /** Trilha de auditoria: quem alterou o quê e quando (gravada por gatilhos no banco, não pode ser editada pela aplicação). */
-export const Auditoria: React.FC = () => {
+export const Auditoria: React.FC<{ embutido?: boolean }> = ({ embutido }) => {
   const [f, setF] = useState<FiltroAuditoria>({});
   const [pagina, setPagina] = useState(0);
   const [dados, setDados] = useState<{ linhas: RegistroAuditoria[]; total: number } | null>(null);
@@ -32,7 +32,7 @@ export const Auditoria: React.FC = () => {
     <div className="space-y-5">
       <div className="flex justify-between items-start gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><ShieldCheck size={24} className="text-primary-600" />Auditoria</h2>
+          {!embutido && <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><ShieldCheck size={24} className="text-primary-600" />Auditoria</h2>}
           <p className="text-slate-500 text-sm max-w-3xl">Toda inclusão, alteração e exclusão em faturas, baixas, ALTCRED/GRU, saídas, contestações, lotes, preços, parâmetros, taxa condominial e usuários fica registrada aqui com usuário, data/hora e o valor anterior e o novo. O registro é feito pelo próprio banco e não pode ser apagado pela aplicação.</p>
         </div>
         <Button size="sm" variant="ghost" onClick={() => carregar()} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Recarregar</Button>

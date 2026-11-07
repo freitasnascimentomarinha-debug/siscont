@@ -1,4 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloCadastroFaturas } from '../../utils/modelos';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileSpreadsheet, Upload } from 'lucide-react';
 import { TIPO_OM_LABELS, TipoOM } from '../../types';
 import {
@@ -135,7 +137,10 @@ export const ImportarTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; 
           <p>Selecione um ou mais arquivos: <b>Pagamento 2026</b>, <b>Faturamento</b>, <b>Faturas em Aberto</b> (setor, comando, cliente e o código da OM tirado do número da fatura) e o <b>Histórico Trienal</b> (classes de navio). Nada é gravado antes da sua confirmação, e cadastros que já existem não são alterados.</p>
         </div>
         <input ref={inputRef} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => processar(e.target.files)} />
-        <Button onClick={() => inputRef.current?.click()} isLoading={!!lendo} disabled={!!gravando}>{!lendo && <Upload size={16} className="mr-2" />}{lendo || 'Selecionar planilhas'}</Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button onClick={() => inputRef.current?.click()} isLoading={!!lendo} disabled={!!gravando}>{!lendo && <Upload size={16} className="mr-2" />}{lendo || 'Selecionar planilhas'}</Button>
+          <BaixarModelo modelo={modeloCadastroFaturas} />
+        </div>
       </div>
 
       {resultado && (

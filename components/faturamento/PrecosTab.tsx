@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloTabelaTC } from '../../utils/modelos';
 import { Copy, FileUp, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ContextoFaturamento, listarPrecos, salvarPrecos } from '../../services/faturamentoService';
@@ -100,7 +102,8 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
           <Campo rotulo="Reajuste (%)"><input className={`${entrada} w-20`} value={reajuste} onChange={e => setReajuste(e.target.value)} /></Campo>
           <Button variant="secondary" onClick={copiarAnterior}><Copy size={16} className="mr-2" />Copiar de {ano - 1}</Button>
           {sigla === 'TC' && <><input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importarTc(e.target.files)} />
-            <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar tabela da TC</Button></>}
+            <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar tabela da TC</Button>
+            <BaixarModelo modelo={() => modeloTabelaTC(ano, ctx.omsFat.filter(o => o.ativo && o.tipo !== 'NAVIO').map(o => o.nome).sort())} /></>}
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>

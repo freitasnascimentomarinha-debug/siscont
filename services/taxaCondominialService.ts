@@ -13,17 +13,31 @@ export class Fase6NaoInstaladaError extends Error {
 const checar = (error: any) => {
   if (!error) return;
   if (/propostas_tc|lotacoes_tc|matriz_tc|descontos_tc|atracacao_anual|valor_previsto|desconto_geral|gasto_anterior/.test(error.message || '')) throw new Fase6NaoInstaladaError();
+  if (/pendentes_tc|destino|desconto_planilha/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/012_clientes_taxas.sql no Supabase.');
   throw new Error(error.message);
 };
 
 export type StatusProposta = 'PROPOSTA' | 'APROVADA' | 'DIVULGADA';
 export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null }
-export interface RubricaProposta extends RubricaTC { contaContabil?: string | null; gastoAnterior?: number | null; justificativa?: string | null }
+export type Destino = 'TC' | 'DA';
+export interface RubricaProposta extends RubricaTC {
+  contaContabil?: string | null; gastoAnterior?: number | null; justificativa?: string | null;
+  /** TC = taxa condominial (OM de terra); DA = valor que custeia as diárias de atracação dos navios */
+  destino: Destino;
+  /** coluna DESCONTOS da planilha importada (conferência) */
+  descontoPlanilha?: number | null;
+}
+/** Linha da planilha sem correspondente no cadastro, guardada para decidir depois. */
+export interface Pendente {
+  id: string; ano: number; nome: string; tipo: 'TERRA' | 'NAVIO'; lotacao: number | null; lotacaoAnterior: number | null; dias: number | null;
+  rubricas: number[]; descontos: { rubrica: number; valor: number }[];
+}
+export const destinoPadrao = (descricao: string): Destino => (/\bNAVIOS?\b/i.test(descricao) ? 'DA' : 'TC');
 export interface Lotacao { omId: string; lotacao: number; lotacaoAnterior: number | null; /** dias/mês informados (navio); vazio = média trienal da classe */ dias: number | null }
 
 export interface DadosProposta {
   proposta: Proposta; rubricas: RubricaProposta[]; lotacoes: Lotacao[]; matriz: Set<string>; descontos: Desconto[];
-  atracacaoAnual: AnoClasse[]; oms: OM[]; classes: ClasseNavio[];
+  atracacaoAnual: AnoClasse[]; oms: OM[]; classes: ClasseNavio[]; pendentes: Pendente[];
 }
 
 export async function carregarProposta(ano: number): Promise<DadosProposta> {
@@ -36,18 +50,25 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     supabase.from('atracacao_anual').select('*').gte('ano', ano - 3).lte('ano', ano),
     cadastroService.listOMs(), cadastroService.listClasses(),
   ]);
+  const pend = await supabase.from('pendentes_tc').select('*').eq('ano', ano); // ausente antes do script 012
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
   return {
     proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao } : { ano, status: 'PROPOSTA' },
     rubricas: (rub.data || []).map(r => ({
       numero: r.numero, descricao: r.descricao, contaContabil: r.conta_contabil, valorPrevisto: Number(r.valor_previsto ?? r.valor_anual ?? 0),
       descontoGeral: Number(r.desconto_geral ?? 0), gastoAnterior: r.gasto_anterior === null || r.gasto_anterior === undefined ? null : Number(r.gasto_anterior), justificativa: r.justificativa_desconto,
+      destino: (r.destino === 'DA' || r.destino === 'TC' ? r.destino : destinoPadrao(r.descricao || '')) as Destino,
+      descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
     })),
     lotacoes: (lot.data || []).map(l => ({ omId: l.om_id, lotacao: Number(l.lotacao), lotacaoAnterior: l.lotacao_anterior == null ? null : Number(l.lotacao_anterior), dias: l.dias === null || l.dias === undefined ? null : Number(l.dias) })),
     matriz: new Set((mat.data || []).map(m => `${m.rubrica}|${m.om_id}`)),
     descontos: (desc.data || []).map(d => ({ id: d.id, omId: d.om_id, rubrica: d.rubrica, tipo: d.tipo, valor: Number(d.valor), justificativa: d.justificativa || '' })),
     atracacaoAnual: (atr.data || []).map(a => ({ ano: a.ano, classeId: a.classe_id, dias: Number(a.dias), navios: a.navios })),
     oms, classes,
+    pendentes: pend.error ? [] : (pend.data || []).map(x => ({
+      id: x.id, ano: x.ano, nome: x.nome, tipo: x.tipo, lotacao: x.lotacao == null ? null : Number(x.lotacao), lotacaoAnterior: x.lotacao_anterior == null ? null : Number(x.lotacao_anterior),
+      dias: x.dias == null ? null : Number(x.dias), rubricas: x.rubricas || [], descontos: x.descontos || [],
+    })),
   };
 }
 
@@ -60,7 +81,9 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
   // valor vigente (usado pelo fluxo de caixa e pelo %RUB) = previsto − desconto geral
   await salvarRubricas(rs.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil ?? null, valorAnual: Math.max(0, r.valorPrevisto - r.descontoGeral), percentual: null })));
   for (const r of rs) {
-    const { error } = await supabase.from('rubricas').update({ valor_previsto: r.valorPrevisto, desconto_geral: r.descontoGeral, gasto_anterior: r.gastoAnterior ?? null, justificativa_desconto: r.justificativa ?? null }).eq('ano', ano).eq('numero', r.numero);
+    const base = { valor_previsto: r.valorPrevisto, desconto_geral: r.descontoGeral, gasto_anterior: r.gastoAnterior ?? null, justificativa_desconto: r.justificativa ?? null };
+    let { error } = await supabase.from('rubricas').update({ ...base, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null }).eq('ano', ano).eq('numero', r.numero);
+    if (error && /destino|desconto_planilha/.test(error.message || '')) ({ error } = await supabase.from('rubricas').update(base).eq('ano', ano).eq('numero', r.numero)); // antes do 012
     checar(error);
   }
 }
@@ -86,6 +109,44 @@ export async function salvarDesconto(ano: number, d: Desconto) {
   const { error } = await supabase.from('descontos_tc').upsert({ id: d.id || uuidv4(), ano, om_id: d.omId, rubrica: d.rubrica, tipo: d.tipo, valor: d.valor, justificativa: d.justificativa });
   checar(error);
 }
+/** Descontos por OM vindos da planilha: substitui os importados antes (os lançados à mão ficam). */
+export const JUSTIFICATIVA_IMPORTADA = 'Importado da planilha (aba PROPOSTA CONDOMINIO)';
+export async function importarDescontos(ano: number, ds: { omId: string; rubrica: number; valor: number }[]) {
+  const { error: e1 } = await supabase.from('descontos_tc').delete().eq('ano', ano).eq('justificativa', JUSTIFICATIVA_IMPORTADA);
+  checar(e1);
+  if (!ds.length) return;
+  const { error } = await supabase.from('descontos_tc').insert(ds.map(d => ({ id: uuidv4(), ano, om_id: d.omId, rubrica: d.rubrica, tipo: 'VALOR', valor: d.valor, justificativa: JUSTIFICATIVA_IMPORTADA })));
+  checar(error);
+}
+
+// ------------------------------------------------------------------ pendentes (nomes sem correspondente)
+export async function salvarPendentes(ano: number, ps: Omit<Pendente, 'id' | 'ano'>[]) {
+  if (!ps.length) return;
+  const { error: e1 } = await supabase.from('pendentes_tc').delete().eq('ano', ano).in('nome', ps.map(p => p.nome));
+  checar(e1);
+  const { error } = await supabase.from('pendentes_tc').insert(ps.map(p => ({
+    id: uuidv4(), ano, nome: p.nome, tipo: p.tipo, lotacao: p.lotacao, lotacao_anterior: p.lotacaoAnterior, dias: p.dias, rubricas: p.rubricas, descontos: p.descontos,
+  })));
+  checar(error);
+}
+export async function excluirPendente(id: string) { const { error } = await supabase.from('pendentes_tc').delete().eq('id', id); checar(error); }
+
+/** Liga a pendência a uma OM do cadastro: grava lotação, participação nas rubricas e descontos, e apaga a pendência. */
+export async function resolverPendente(p: Pendente, omId: string, om?: OM) {
+  if (p.lotacao) await salvarLotacoes(p.ano, [{ omId, lotacao: p.lotacao, lotacaoAnterior: p.lotacaoAnterior, dias: p.tipo === 'NAVIO' ? p.dias : null }]);
+  if (p.rubricas.length) {
+    const { error } = await supabase.from('matriz_tc').upsert(p.rubricas.map(r => ({ ano: p.ano, rubrica: r, om_id: omId })), { onConflict: 'ano,rubrica,om_id' });
+    checar(error);
+  }
+  if (p.descontos.length) {
+    const { error } = await supabase.from('descontos_tc').insert(p.descontos.map(d => ({ id: uuidv4(), ano: p.ano, om_id: omId, rubrica: d.rubrica, tipo: 'VALOR', valor: d.valor, justificativa: JUSTIFICATIVA_IMPORTADA })));
+    checar(error);
+  }
+  // o nome da planilha passa a ser reconhecido nas próximas importações
+  if (om && !(om.nomesAlternativos || []).includes(p.nome)) await supabase.rpc('om_adicionar_nome_alternativo', { p_om: omId, p_nome: p.nome }).then(() => undefined, () => undefined);
+  await excluirPendente(p.id);
+}
+
 export async function excluirDesconto(id: string) { const { error } = await supabase.from('descontos_tc').delete().eq('id', id); checar(error); }
 
 export async function salvarAtracacaoAnual(linhas: AnoClasse[], origem: string) {
@@ -103,19 +164,18 @@ export async function diasDoBnic35(ano: number, oms: OM[]): Promise<Map<string, 
 }
 
 /** Tabela vigente: TC mensal de cada OM e diária de cada navio, gravadas nos Preços do ano (usados pela emissão). */
-export async function publicar(ano: number, r: ResultadoRateio, usuario: string) {
-  const precos = [
-    ...r.oms.filter(o => o.tipo === 'TERRA' && o.mensal > 0).map(o => ({ ano, sigla: 'TC', omId: o.omId, valor: o.mensal, unidade: 'MÊS', descricao: `Proposta ${ano} publicada por ${usuario}` })),
-    ...r.oms.filter(o => o.tipo === 'NAVIO' && (o.diaria || 0) > 0).map(o => ({ ano, sigla: 'DA', omId: o.omId, valor: o.diaria!, unidade: 'DIA', descricao: `Proposta ${ano} (${o.regraDiaria === 'SEM_HISTORICO' ? 'classe sem histórico' : 'custo militar-dia × lotação'})` })),
-  ];
+export async function publicar(ano: number, r: ResultadoRateio, usuario: string, parte: 'TC' | 'DA' = 'TC') {
+  const precos = parte === 'TC'
+    ? r.oms.filter(o => o.tipo === 'TERRA' && o.mensal > 0).map(o => ({ ano, sigla: 'TC', omId: o.omId, valor: o.mensal, unidade: 'MÊS', descricao: `Proposta ${ano} publicada por ${usuario}` }))
+    : r.oms.filter(o => o.tipo === 'NAVIO' && (o.diaria || 0) > 0).map(o => ({ ano, sigla: 'DA', omId: o.omId, valor: o.diaria!, unidade: 'DIA', descricao: `Proposta ${ano} publicada por ${usuario} (${o.regraDiaria === 'SEM_HISTORICO' ? 'classe sem histórico' : 'custo militar-dia × lotação'})` }));
   await salvarPrecos(precos);
   await salvarProposta({ ano, status: 'DIVULGADA', divulgadaEm: new Date().toISOString().slice(0, 10) });
   return precos.length;
 }
 
-/** TC mensal do ano anterior (para o comparativo). */
-export async function tcAnterior(ano: number) {
-  const p = (await listarPrecos([ano - 1])).filter(x => x.sigla === 'TC' && x.omId);
+/** TC mensal e diária do ano anterior (para os comparativos). */
+export async function tcAnterior(ano: number, sigla: 'TC' | 'DA' = 'TC') {
+  const p = (await listarPrecos([ano - 1])).filter(x => x.sigla === sigla && x.omId);
   return new Map(p.map(x => [x.omId!, x.valor]));
 }
 

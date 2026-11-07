@@ -1,4 +1,6 @@
 
+import { BaixarModelo } from '../components/ui/BaixarModelo';
+import { modeloNotasEmpenho } from '../utils/modelos';
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
@@ -295,6 +297,7 @@ const Lancamentos: React.FC = () => {
               <Button variant="secondary" size="sm" onClick={() => neRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" /> Importar NE (planilha)
               </Button>
+              <BaixarModelo rotulo="Modelo NE" modelo={() => { const d = new Date(); return modeloNotasEmpenho(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }} />
               <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
               <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" /> Importar

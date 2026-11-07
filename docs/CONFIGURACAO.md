@@ -231,6 +231,38 @@ Execute [`supabase/migrations/011_vencimento_30_dias.sql`](../supabase/migration
   alterada fica em `vencimentos_anteriores_011`; o fim do script traz o comando para desfazer.
 - A calculadora em *Cadastros → Parâmetros* mostra as duas datas.
 
+### 1-L. Clientes e taxas (script 012)
+
+Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/012_clientes_taxas.sql) depois do 011
+(idempotente).
+
+- **Taxa condominial × diária de atracação separadas** (tela *Taxa condominial e diárias*): grupo *Taxa condominial*
+  (1. Rubricas, 2. Clientes e matriz, 3. Descontos por OM, 4. Resultado da taxa) e grupo *Diária de atracação*
+  (5. Navios, 6. Média trienal, 7. Resultado das diárias), cada um com o seu botão de publicar. Cada rubrica tem um
+  **destino**: taxa condominial ou diária de atracação (a rubrica "Navios" vai para as diárias).
+- **Rubricas com as colunas da Despesas_NOVO**: valor do ano, %RUB, valor do ano anterior, variação %, descontos
+  (geral + por OM), valor rubrica atualizado e conferência ✓/⚠ com a coluna DESCONTOS da planilha.
+- **Importação da proposta**: lê também a aba *PROPOSTA CONDOMINIO* (desconto de cada OM em cada rubrica); a diferença
+  para a coluna DESCONTOS vira desconto geral da rubrica. Nome sem correspondente no cadastro fica **para decidir
+  depois** (não se perde): aparece nas abas Clientes/Navios para escolher o cliente ou **criar um novo** — a lotação, as
+  rubricas e os descontos daquela linha entram automaticamente e o nome da planilha passa a ser reconhecido.
+- **Incluir cliente / Incluir navio** nas duas taxas: busca no cadastro (inclusive desativados e fora da Ilha) ou cria
+  um novo. O Operador pode incluir cliente novo; alterar e excluir cadastros continua só com o Administrador.
+- **Cadastros › OM / Clientes**: marcação **OM fora da Ilha das Cobras** (com filtro) e **outros nomes / abreviações**.
+- **Cadastros › Duplicidades** (Administrador): grupos de clientes que parecem o mesmo (mesmo nome com diferença de
+  acento/edifício, mesma sigla, sigla × nome por extenso, nome cortado, códigos diferentes). **Unificar** transfere
+  faturas, ALTCRED, preços, medições, lotação etc. para o cadastro que fica, guarda os nomes antigos como alternativos e
+  desativa os duplicados (nada é apagado; fica na auditoria). **Não são a mesma OM** tira o grupo da lista.
+- **Painel inicial**: filtros de múltipla escolha (setor, comando, cliente, serviço — ex.: todos os setores exceto
+  EXTRA-MB), lembrados no navegador; lista das faturas ordenada por vencimento e ordenável por coluna.
+- **Cobrança**: setores em múltipla escolha e o grupo destacado (antes fixo "Setor do Material = DGMM") com nome e
+  setores editáveis (*definir grupo…*, parâmetros `nome_grupo_setores` e `setores_material`).
+- **Planilhas modelo**: botão *Planilha modelo* ao lado de cada importação (proposta, histórico trienal, rateio da
+  divisão, mapa de atracação, tabela da TC, notas de empenho, cadastro, planilha de pagamento), com aba de instruções.
+  Os de rateio e de mapa já vêm com as OM e os navios; em Medições aparece a divisão responsável pelo serviço (editável
+  em *Cadastros › Serviços*).
+- **Pontos de Atenção** reúne as inconsistências e o **histórico de alterações** (auditoria) — um só item no menu.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

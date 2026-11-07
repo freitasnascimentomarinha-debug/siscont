@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Auditoria } from './Auditoria';
 import { Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
@@ -15,7 +16,7 @@ interface Linha {
 
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500';
 
-export const PontosAtencaoPage: React.FC = () => {
+const PontosLista: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = user?.role !== UserRole.READ_ONLY;
   const [linhas, setLinhas] = useState<Linha[]>([]);
@@ -214,6 +215,21 @@ export const PontosAtencaoPage: React.FC = () => {
           const novo = alvo?.alvo === 'fatura' ? r.faturas.find(f => f.id === alvo.id)?.pontos : r.docs.find(d => d.id === alvo?.id)?.pontos;
           setAlvo(a => (a ? { ...a, pontos: novo || [] } : a));
         }} />
+    </div>
+  );
+};
+
+/** Pontos de Atenção: inconsistências encontradas automaticamente + histórico de alterações (trilha de auditoria). */
+export const PontosAtencaoPage: React.FC<{ abaInicial?: 'pontos' | 'historico' }> = ({ abaInicial = 'pontos' }) => {
+  const [aba, setAba] = useState<'pontos' | 'historico'>(abaInicial);
+  return (
+    <div className="space-y-4">
+      <div className="flex space-x-1 border-b border-slate-200" role="tablist">
+        {([['pontos', 'Inconsistências a corrigir'], ['historico', 'Histórico de alterações (quem alterou o quê)']] as const).map(([k, l]) => (
+          <button key={k} role="tab" aria-selected={aba === k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === k ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{l}</button>
+        ))}
+      </div>
+      {aba === 'pontos' ? <PontosLista /> : <Auditoria embutido />}
     </div>
   );
 };

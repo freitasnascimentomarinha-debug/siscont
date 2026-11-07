@@ -2,7 +2,7 @@
 export const TABELAS_AUDITADAS: Record<string, string> = {
   invoices: 'Faturas', payment_allocations: 'Baixas', received_documents: 'ALTCRED / GRU', cash_flow_exits: 'Saídas (fluxo de caixa)',
   contestacoes: 'Contestações', lotes_faturamento: 'Lotes de faturamento', precos: 'Preços', parametros: 'Parâmetros',
-  propostas_tc: 'Proposta da taxa condominial', descontos_tc: 'Descontos da taxa', profiles: 'Usuários',
+  propostas_tc: 'Proposta da taxa condominial', descontos_tc: 'Descontos da taxa', oms: 'Cadastro de OM', profiles: 'Usuários',
 };
 export const ACOES: Record<string, string> = { INSERT: 'Inclusão', UPDATE: 'Alteração', DELETE: 'Exclusão' };
 const IGNORAR = new Set(['updated_at', 'created_at']);

@@ -119,7 +119,7 @@ export async function carregarContexto(): Promise<ContextoFaturamento> {
   const param = (k: string, d: number) => Number(parametros.find(p => p.chave === k)?.valor) || d;
   return {
     oms, omsFat, comandos, setores, invoices,
-    servicos: servicos.filter(s => s.ativo !== false).map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '', ordem: s.ordem ?? 999 })),
+    servicos: servicos.filter(s => s.ativo !== false).map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '', ordem: s.ordem ?? 999, responsavel: s.setorResponsavel ?? null, telefone: s.telefoneSetor ?? null })),
     feriados: feriados.map(f => f.data), prazo: param('prazo_certificacao_dias_uteis', 10), prazoVencimento: param('prazo_vencimento_dias_corridos', 30), diaEmissao: param('dia_emissao', 15),
   };
 }

@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloHistorico } from '../../utils/modelos';
 import { FileUp, Plus, Save, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
 import {
-  DadosProposta, Lotacao, RubricaProposta, diasDoBnic35, excluirDesconto, salvarAtracacaoAnual, salvarDesconto,
+  DadosProposta, Lotacao, Pendente, RubricaProposta, diasDoBnic35, excluirDesconto, excluirPendente, resolverPendente, salvarAtracacaoAnual, salvarDesconto,
   salvarLotacoes, salvarMatriz, salvarRubricasProposta,
 } from '../../services/taxaCondominialService';
+import { OM } from '../../types';
+import { ClienteModal } from './ClienteModal';
 import { AnoClasse, Desconto, MediaClasse, ResultadoRateio, mediaTrienal, naviosAtivos, valorVigente } from '../../utils/taxaCondominial';
 import { acharPorNome, lerAbas, lerHistorico } from '../../utils/taxaCondominialImport';
 
@@ -17,7 +21,7 @@ const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-
 interface AbaProps { ano: number; dados: DadosProposta; podeEditar: boolean; recarregar: () => void }
 
 // ================================================================== Rubricas
-export const AbaRubricas: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarregar }) => {
+export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, number> }> = ({ ano, dados, podeEditar, recarregar, descontosPorOM }) => {
   const [linhas, setLinhas] = useState<RubricaProposta[]>(dados.rubricas);
   const [sujo, setSujo] = useState(false);
   const [gravando, setGravando] = useState(false);
@@ -29,51 +33,70 @@ export const AbaRubricas: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarr
     if (new Set(nums).size !== nums.length) e.push('Há rubricas com o mesmo número.');
     linhas.forEach(l => {
       if (!l.descricao.trim()) e.push(`Rubrica ${l.numero}: falta a descrição.`);
-      if (l.descontoGeral > l.valorPrevisto) e.push(`Rubrica ${l.numero}: o desconto é maior que o valor previsto.`);
-      if (l.descontoGeral > 0 && !l.justificativa?.trim()) e.push(`Rubrica ${l.numero}: informe a justificativa do desconto.`);
+      if (l.descontoGeral > l.valorPrevisto) e.push(`Rubrica ${l.numero}: o desconto geral é maior que o valor previsto.`);
+      if (l.descontoGeral > 0 && !l.justificativa?.trim()) e.push(`Rubrica ${l.numero}: informe a justificativa do desconto geral.`);
     });
     return e;
   }, [linhas]);
-  const total = linhas.reduce((s, l) => s + l.valorPrevisto, 0), totalVig = linhas.reduce((s, l) => s + valorVigente(l), 0);
+  const totalPrev = linhas.reduce((s, l) => s + l.valorPrevisto, 0);
+  const calc = (l: RubricaProposta) => {
+    const porOM = descontosPorOM.get(l.numero) || 0;
+    const descontos = Math.round((l.descontoGeral + porOM) * 100) / 100;
+    return { porOM, descontos, atualizado: Math.round((l.valorPrevisto - descontos) * 100) / 100, rub: totalPrev ? (l.valorPrevisto / totalPrev) * 100 : 0,
+      variacao: l.gastoAnterior ? Math.round(((l.valorPrevisto - l.gastoAnterior) / l.gastoAnterior) * 10000) / 100 : null,
+      confere: l.descontoPlanilha == null ? null : Math.abs(l.descontoPlanilha - descontos) < 0.05 };
+  };
+  const totais = linhas.reduce((t, l) => { const c = calc(l); return { prev: t.prev + l.valorPrevisto, ant: t.ant + (l.gastoAnterior || 0), desc: t.desc + c.descontos, atu: t.atu + c.atualizado }; }, { prev: 0, ant: 0, desc: 0, atu: 0 });
+  const divergentes = linhas.filter(l => calc(l).confere === false);
   const gravar = async () => {
     setGravando(true);
     try { await salvarRubricasProposta(ano, linhas); setSujo(false); notify.success('Rubricas gravadas.'); recarregar(); }
     catch (e) { notify.fail('Erro ao gravar rubricas', e); } finally { setGravando(false); }
   };
+  const th = 'px-2 py-2 font-semibold';
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">Valor previsto de cada despesa para {ano}. O <b>desconto geral</b> reduz a rubrica para todas as OM (ex.: parte custeada por outra fonte) e exige justificativa. Descontos de uma OM específica ficam na aba Descontos.</p>
+      <p className="text-xs text-slate-500">Mesmas colunas da aba <b>Despesas_NOVO</b>. <b>Destino</b>: "Taxa condominial" é rateada entre as OM; "Diária de atracação" é o valor que custeia as diárias dos navios. <b>Descontos</b> = desconto geral (vale para todas as OM, com justificativa) + descontos por OM (aba Descontos). <b>Valor atualizado</b> = previsto − descontos.</p>
       {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
+      {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.map(l => l.numero).join(', ')} (passe o mouse no ⚠ para ver a diferença).</Aviso>}
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-600"><tr>
-            <th className="px-2 py-2">Nº</th><th className="px-2 text-left">Despesa</th><th className="px-2 text-left">Conta contábil</th><th className="px-2 text-right">Previsto {ano} (R$)</th>
-            <th className="px-2 text-right">Desconto geral</th><th className="px-2 text-left">Justificativa</th><th className="px-2 text-right">Gasto {ano - 1}</th><th className="px-2 text-right">Variação</th><th className="px-2 text-right">Vigente</th><th></th>
+            <th className={th}>Nº</th><th className={`${th} text-left`}>Despesas</th><th className={`${th} text-left`}>Destino</th><th className={`${th} text-right`}>Valor para {ano} (R$)</th><th className={`${th} text-right`}>%RUB</th>
+            <th className={`${th} text-right`}>Valor {ano - 1} (R$)</th><th className={`${th} text-right`}>Variação % ({ano}/{ano - 1})</th><th className={`${th} text-right`}>Desconto geral</th><th className={`${th} text-left`}>Justificativa</th>
+            <th className={`${th} text-right`}>Descontos (geral + OM)</th><th className={`${th} text-right`}>Valor rubrica atualizado</th><th className={th} title="Confere com a coluna DESCONTOS da planilha importada">Planilha</th><th></th>
           </tr></thead>
           <tbody>
             {linhas.map((l, i) => {
-              const varia = l.gastoAnterior ? Math.round(((l.valorPrevisto - l.gastoAnterior) / l.gastoAnterior) * 10000) / 100 : null;
+              const c = calc(l);
               return (
                 <tr key={i} className="border-t border-slate-100">
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-14 text-xs`} type="number" value={l.numero} onChange={e => mudar(i, { numero: Number(e.target.value) })} aria-label={`Número da rubrica ${i + 1}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-64 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-32 text-xs`} value={l.contaContabil || ''} onChange={e => mudar(i, { contaContabil: e.target.value })} aria-label={`Conta da rubrica ${l.numero}`} /></td>
+                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-12 text-xs`} type="number" value={l.numero} onChange={e => mudar(i, { numero: Number(e.target.value) })} aria-label={`Número da rubrica ${i + 1}`} /></td>
+                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} /></td>
+                  <td className="px-1"><select disabled={!podeEditar} className={`${entrada} text-xs`} value={l.destino} onChange={e => mudar(i, { destino: e.target.value as any })} aria-label={`Destino da rubrica ${l.numero}`}><option value="TC">Taxa condominial</option><option value="DA">Diária de atracação</option></select></td>
                   <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-24 text-xs text-right`} inputMode="decimal" value={fmt(l.descontoGeral) === '0' ? '' : fmt(l.descontoGeral)} placeholder="0" onChange={e => mudar(i, { descontoGeral: n2(e.target.value) ?? 0 })} aria-label={`Desconto geral da rubrica ${l.numero}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-48 text-xs`} value={l.justificativa || ''} onChange={e => mudar(i, { justificativa: e.target.value })} aria-label={`Justificativa do desconto da rubrica ${l.numero}`} /></td>
+                  <td className="px-2 text-right text-slate-600">{pct(Math.round(c.rub * 100) / 100)}</td>
                   <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.gastoAnterior)} onChange={e => mudar(i, { gastoAnterior: n2(e.target.value) })} aria-label={`Gasto anterior da rubrica ${l.numero}`} /></td>
-                  <td className={`px-2 text-right ${varia !== null && varia > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(varia)}</td>
-                  <td className="px-2 text-right font-semibold whitespace-nowrap">{brl(valorVigente(l))}</td>
+                  <td className={`px-2 text-right ${c.variacao !== null && c.variacao > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(c.variacao)}</td>
+                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-24 text-xs text-right`} inputMode="decimal" value={fmt(l.descontoGeral) === '0' ? '' : fmt(l.descontoGeral)} placeholder="0" onChange={e => mudar(i, { descontoGeral: n2(e.target.value) ?? 0 })} aria-label={`Desconto geral da rubrica ${l.numero}`} /></td>
+                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-40 text-xs`} value={l.justificativa || ''} onChange={e => mudar(i, { justificativa: e.target.value })} aria-label={`Justificativa do desconto da rubrica ${l.numero}`} /></td>
+                  <td className="px-2 text-right whitespace-nowrap" title={c.porOM ? `geral ${brl(l.descontoGeral)} + por OM ${brl(c.porOM)}` : undefined}>{c.descontos ? brl(c.descontos) : '—'}</td>
+                  <td className="px-2 text-right font-semibold whitespace-nowrap">{brl(c.atualizado)}</td>
+                  <td className="px-2 text-center">{c.confere === null ? '' : c.confere ? <span className="text-emerald-700" title="Descontos conferem com a planilha">✓</span> : <span className="text-amber-700 cursor-help" title={`Planilha: ${brl(l.descontoPlanilha || 0)} · sistema: ${brl(c.descontos)}`}>⚠</span>}</td>
                   <td className="px-1">{podeEditar && <button aria-label={`Excluir rubrica ${l.numero}`} className="text-slate-400 hover:text-red-600" onClick={() => { setSujo(true); setLinhas(ls => ls.filter((_, k) => k !== i)); }}><Trash2 size={14} /></button>}</td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot className="bg-slate-50 font-semibold"><tr><td colSpan={3} className="px-2 py-2">{linhas.length} rubricas</td><td className="px-2 text-right">{brl(total)}</td><td colSpan={4}></td><td className="px-2 text-right">{brl(totalVig)}</td><td></td></tr></tfoot>
+          <tfoot className="bg-slate-50 font-semibold"><tr>
+            <td colSpan={3} className="px-2 py-2">{linhas.length} rubricas</td><td className="px-2 text-right">{brl(totais.prev)}</td><td className="px-2 text-right">100%</td>
+            <td className="px-2 text-right">{brl(totais.ant)}</td><td className="px-2 text-right">{totais.ant ? pct(Math.round(((totais.prev - totais.ant) / totais.ant) * 10000) / 100) : '—'}</td><td colSpan={2}></td>
+            <td className="px-2 text-right">{brl(totais.desc)}</td><td className="px-2 text-right">{brl(totais.atu)}</td><td colSpan={2}></td>
+          </tr></tfoot>
         </table>
       </div>
       {podeEditar && <div className="flex gap-2">
-        <Button variant="secondary" onClick={() => { setSujo(true); setLinhas(ls => [...ls, { numero: Math.max(0, ...ls.map(l => l.numero)) + 1, descricao: '', valorPrevisto: 0, descontoGeral: 0 }]); }}><Plus size={16} className="mr-1" />Rubrica</Button>
+        <Button variant="secondary" onClick={() => { setSujo(true); setLinhas(ls => [...ls, { numero: Math.max(0, ...ls.map(l => l.numero)) + 1, descricao: '', valorPrevisto: 0, descontoGeral: 0, destino: 'TC' }]); }}><Plus size={16} className="mr-1" />Rubrica</Button>
         <Button onClick={gravar} isLoading={gravando} disabled={!sujo || erros.length > 0}><Save size={16} className="mr-1" />Gravar rubricas</Button>
         {sujo && <span className="text-xs text-amber-700 self-center">Alterações não gravadas.</span>}
       </div>}
@@ -81,9 +104,11 @@ export const AbaRubricas: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarr
   );
 };
 
-// ================================================================== Lotação e matriz
-export const AbaLotacao: React.FC<AbaProps & { medias: Map<string, number> }> = ({ ano, dados, podeEditar, recarregar, medias }) => {
+// ================================================================== Clientes (taxa condominial) e navios (diárias)
+export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias: Map<string, number> }> = ({ ano, dados, podeEditar, recarregar, medias, modo }) => {
   type L = { lotacao: string; anterior: string; dias: string };
+  const navioModo = modo === 'NAVIO';
+  const doModo = (o: OM) => (o.tipo === 'NAVIO') === navioModo;
   const inicial = () => {
     const m: Record<string, L> = {};
     dados.lotacoes.forEach(l => { m[l.omId] = { lotacao: String(l.lotacao), anterior: l.lotacaoAnterior === null ? '' : String(l.lotacaoAnterior), dias: l.dias === null ? '' : String(l.dias) }; });
@@ -95,17 +120,23 @@ export const AbaLotacao: React.FC<AbaProps & { medias: Map<string, number> }> = 
   const [busca, setBusca] = useState('');
   const [so, setSo] = useState(true);
   const [gravando, setGravando] = useState(false);
+  const [incluir, setIncluir] = useState(false);
+  const [resolver, setResolver] = useState<Pendente | null>(null);
+  const [extras, setExtras] = useState<Set<string>>(new Set());
   useEffect(() => { if (!sujo) { setLot(inicial()); setMatriz(new Set(dados.matriz)); } }, [dados]);
-  const rubs = dados.rubricas.map(r => r.numero).sort((a, b) => a - b);
-  const participa = (id: string) => rubs.some(r => matriz.has(`${r}|${id}`)) || !!lot[id]?.lotacao;
-  const linhas = dados.oms.filter(o => o.ativo || lot[o.id])
+  const rubs = dados.rubricas.filter(r => r.destino === 'TC').map(r => r.numero).sort((a, b) => a - b);
+  const rubsDA = dados.rubricas.filter(r => r.destino === 'DA');
+  const participa = (id: string) => (!navioModo && rubs.some(r => matriz.has(`${r}|${id}`))) || !!lot[id]?.lotacao || extras.has(id);
+  const linhas = dados.oms.filter(doModo).filter(o => o.ativo || lot[o.id] || extras.has(o.id))
     .filter(o => !so || participa(o.id))
     .filter(o => !busca || `${o.nome} ${o.sigla || ''}`.toLowerCase().includes(busca.toLowerCase()))
-    .sort((a, b) => Number(a.tipo === 'NAVIO') - Number(b.tipo === 'NAVIO') || a.nome.localeCompare(b.nome));
+    .sort((a, b) => Number(extras.has(b.id)) - Number(extras.has(a.id)) || a.nome.localeCompare(b.nome));
+  const pendentes = dados.pendentes.filter(p => (p.tipo === 'NAVIO') === navioModo);
   const set = (id: string, p: Partial<L>) => { setSujo(true); setLot(m => ({ ...m, [id]: { lotacao: '', anterior: '', dias: '', ...m[id], ...p } })); };
   const marcar = (r: number, id: string, v: boolean) => { setSujo(true); setMatriz(s => { const n = new Set(s); v ? n.add(`${r}|${id}`) : n.delete(`${r}|${id}`); return n; }); };
   const coluna = (r: number) => { const todos = linhas.every(o => matriz.has(`${r}|${o.id}`)); linhas.forEach(o => marcar(r, o.id, !todos)); };
-  const semLotacao = [...new Set([...matriz].map(k => k.split('|')[1]))].filter(id => !(Number(lot[id]?.lotacao) > 0));
+  const remover = (id: string) => { setSujo(true); setLot(m => { const n = { ...m }; delete n[id]; return n; }); setMatriz(s => new Set([...s].filter(k => !k.endsWith(`|${id}`)))); setExtras(e => { const n = new Set(e); n.delete(id); return n; }); };
+  const semLotacao = navioModo ? [] : [...new Set([...matriz].map(k => k.split('|')[1]))].filter(id => { const o = dados.oms.find(x => x.id === id); return o && doModo(o) && !(Number(lot[id]?.lotacao) > 0); });
   const nomeDe = (id: string) => dados.oms.find(o => o.id === id)?.nome || id;
 
   const gravar = async () => {
@@ -114,47 +145,78 @@ export const AbaLotacao: React.FC<AbaProps & { medias: Map<string, number> }> = 
       const ls: Lotacao[] = Object.entries(lot).filter(([, v]) => Number(v.lotacao) > 0).map(([omId, v]) => ({ omId, lotacao: Number(v.lotacao), lotacaoAnterior: n2(v.anterior), dias: n2(v.dias) }));
       const removidas = dados.lotacoes.map(l => l.omId).filter(id => !ls.some(l => l.omId === id));
       await salvarLotacoes(ano, ls, removidas);
-      await salvarMatriz(ano, matriz);
-      setSujo(false); notify.success(`Lotação de ${ls.length} OM e matriz gravadas.`); recarregar();
+      if (!navioModo) await salvarMatriz(ano, matriz);
+      setSujo(false); setExtras(new Set()); notify.success(navioModo ? 'Navios gravados.' : 'Clientes e matriz gravados.'); recarregar();
     } catch (e) { notify.fail('Erro ao gravar', e); } finally { setGravando(false); }
   };
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">Lotação (TLA + DLA) de cada OM e as despesas de que ela participa (X). Peso no rateio = lotação × dias: OM de terra 30 dias; navio usa a média mensal trienal da classe (aba Média trienal) ou os dias informados aqui. Navios participam só da rubrica "Navios" (valor destinado às diárias).</p>
-      {!rubs.length && <Aviso>Cadastre as rubricas primeiro (aba Rubricas ou "Importar proposta").</Aviso>}
+      {navioModo
+        ? <p className="text-xs text-slate-500">Navios que pagam diária de atracação: lotação (TLA + DLA) e dias atracados por mês. Dias em branco = média trienal da classe (aba Média trienal). O valor rateado é o das rubricas com destino "Diária de atracação" ({rubsDA.length ? rubsDA.map(r => `${r.numero} – ${r.descricao}: ${brl(valorVigente(r))}`).join('; ') : 'nenhuma — defina na aba Rubricas'}).</p>
+        : <p className="text-xs text-slate-500">OM que pagam a taxa condominial: lotação (TLA + DLA) e de quais despesas cada uma participa (X). Peso no rateio = lotação × 30 dias. Clique no número da rubrica para marcar/desmarcar a coluna inteira.</p>}
+      {!navioModo && !rubs.length && <Aviso>Cadastre as rubricas primeiro (aba Rubricas ou "Importar proposta").</Aviso>}
       {semLotacao.length > 0 && <Aviso tom="red">Marcadas na matriz mas sem lotação (ficam fora do rateio): {semLotacao.map(nomeDe).join(', ')}.</Aviso>}
+      {pendentes.length > 0 && (
+        <Aviso>
+          <b>{pendentes.length} nome(s) da planilha aguardando correspondente</b> — escolha o cliente do cadastro ou crie um novo; os dados (lotação{navioModo ? ', dias' : ', rubricas e descontos'}) entram automaticamente:
+          <div className="mt-1 space-y-1">
+            {pendentes.map(p => (
+              <div key={p.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="w-80 truncate" title={p.nome}><b>{p.nome}</b> · lotação {p.lotacao ?? '—'}{navioModo && p.dias != null ? ` · ${p.dias} dias` : ''}{!navioModo ? ` · ${p.rubricas.length} rubricas` : ''}{p.descontos.length ? ` · ${p.descontos.length} desconto(s)` : ''}</span>
+                {podeEditar && <>
+                  <Button size="sm" variant="secondary" onClick={() => setResolver(p)}>Escolher correspondente</Button>
+                  <button className="text-slate-500 underline" onClick={async () => { if (window.confirm(`Descartar "${p.nome}"? Os dados dessa linha da planilha não entrarão no cálculo.`)) { try { await excluirPendente(p.id); recarregar(); } catch (e) { notify.fail('Erro', e); } } }}>descartar</button>
+                </>}
+              </div>
+            ))}
+          </div>
+        </Aviso>
+      )}
       <div className="flex flex-wrap gap-3 items-end">
-        <Campo rotulo="Buscar OM"><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
+        <Campo rotulo={navioModo ? 'Buscar navio' : 'Buscar OM'}><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
         <label className="text-sm flex items-center gap-2 pb-1.5"><input type="checkbox" checked={so} onChange={e => setSo(e.target.checked)} /> só participantes</label>
-        {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />Gravar lotação e matriz</Button>}
+        {podeEditar && <Button variant="secondary" onClick={() => setIncluir(true)}><Plus size={16} className="mr-1" />{navioModo ? 'Incluir navio' : 'Incluir cliente'}</Button>}
+        {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
       </div>
       <div className="overflow-auto border border-slate-200 rounded-lg max-h-[62vh]">
         <table className="text-xs">
           <thead className="bg-slate-50 sticky top-0 z-10"><tr>
-            <th className="px-2 py-1 text-left sticky left-0 bg-slate-50 min-w-[220px]">OM</th><th className="px-1">Lotação</th><th className="px-1">Lot. ant.</th><th className="px-1" title="Navio: vazio = média trienal da classe">Dias/mês</th>
-            {rubs.map(r => <th key={r} className="w-6 text-center"><button disabled={!podeEditar} onClick={() => coluna(r)} title={dados.rubricas.find(x => x.numero === r)?.descricao} className="text-slate-600 hover:text-primary-700">{r}</button></th>)}
+            <th className="px-2 py-1 text-left sticky left-0 bg-slate-50 min-w-[240px]">{navioModo ? 'Navio' : 'OM'}</th><th className="px-1">Lotação</th><th className="px-1">Lot. ant.</th>
+            {navioModo && <th className="px-1" title="Vazio = média trienal da classe">Dias/mês</th>}
+            {!navioModo && rubs.map(r => <th key={r} className="w-6 text-center"><button disabled={!podeEditar} onClick={() => coluna(r)} title={dados.rubricas.find(x => x.numero === r)?.descricao} className="text-slate-600 hover:text-primary-700">{r}</button></th>)}
+            <th></th>
           </tr></thead>
           <tbody>
             {linhas.map(o => {
               const v = lot[o.id] || { lotacao: '', anterior: '', dias: '' };
-              const navio = o.tipo === 'NAVIO';
-              const media = navio && o.classeId ? medias.get(o.classeId) ?? 0 : 30;
+              const media = o.classeId ? medias.get(o.classeId) ?? 0 : 0;
               return (
-                <tr key={o.id} className="border-t border-slate-100">
-                  <td className="px-2 py-0.5 sticky left-0 bg-white truncate max-w-[220px]" title={o.nome}>{o.nome}{navio && <span className="text-slate-400"> · navio</span>}</td>
+                <tr key={o.id} className={`border-t border-slate-100 ${extras.has(o.id) ? 'bg-primary-50/50' : ''}`}>
+                  <td className="px-2 py-0.5 sticky left-0 bg-white truncate max-w-[240px]" title={o.nome}>{o.nome}{!o.ativo && <span className="text-slate-400"> · desativada</span>}{o.foraDaIlha && <span className="text-slate-400"> · fora da Ilha</span>}</td>
                   <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.lotacao} onChange={e => set(o.id, { lotacao: e.target.value })} aria-label={`Lotação de ${o.nome}`} /></td>
                   <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.anterior} onChange={e => set(o.id, { anterior: e.target.value })} aria-label={`Lotação anterior de ${o.nome}`} /></td>
-                  <td className="px-1">{navio ? <input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /> : <span className="text-slate-400 px-2">30</span>}</td>
-                  {rubs.map(r => <td key={r} className="text-center"><input type="checkbox" disabled={!podeEditar} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
+                  {navioModo && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /></td>}
+                  {!navioModo && rubs.map(r => <td key={r} className="text-center"><input type="checkbox" disabled={!podeEditar} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
+                  <td className="px-2 whitespace-nowrap">{podeEditar && <>
+                    {!navioModo && <><button className="text-primary-700 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, true))}>todas</button> <button className="text-slate-500 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, false))}>nenhuma</button> </>}
+                    {participa(o.id) && <button className="text-red-600 underline ml-1" onClick={() => remover(o.id)}>retirar</button>}
+                  </>}</td>
                 </tr>
               );
             })}
+            {!linhas.length && <tr><td colSpan={rubs.length + 5} className="px-3 py-6 text-center text-slate-400">Nenhum {navioModo ? 'navio' : 'cliente'} participante. Use "{navioModo ? 'Incluir navio' : 'Incluir cliente'}" ou importe a proposta.</td></tr>}
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-slate-500">Clique no número da rubrica para marcar/desmarcar a coluna inteira (OMs visíveis).</p>
+      <ClienteModal aberto={incluir} titulo={navioModo ? 'Incluir navio nas diárias' : 'Incluir cliente na taxa condominial'} oms={dados.oms} tipo={navioModo ? 'NAVIO' : undefined}
+        onFechar={() => setIncluir(false)}
+        onEscolher={om => { setIncluir(false); if (om.tipo === 'NAVIO' !== navioModo) { notify.error(navioModo ? 'Escolha um navio.' : 'Navio entra pela aba Navios (diárias).'); return; }
+          setExtras(e => new Set(e).add(om.id)); setSo(true); set(om.id, {}); if (!dados.oms.some(x => x.id === om.id)) { recarregar(); } notify.success(`${om.nome} incluído: informe a lotação${navioModo ? '' : ' e marque as rubricas'} e grave.`); }} />
+      <ClienteModal aberto={!!resolver} titulo="Escolher correspondente" oms={dados.oms} tipo={resolver?.tipo === 'NAVIO' ? 'NAVIO' : undefined} nomeSugerido={resolver?.nome}
+        onFechar={() => setResolver(null)}
+        onEscolher={async om => { const p = resolver!; setResolver(null); try { await resolverPendente(p, om.id, dados.oms.find(x => x.id === om.id) ?? om); notify.success(`"${p.nome}" ligado a ${om.nome}.`); recarregar(); } catch (e) { notify.fail('Erro ao gravar', e); } }} />
     </div>
   );
 };
@@ -227,6 +289,7 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
       {podeEditar && <div className="flex flex-wrap gap-3 items-end">
         <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files?.[0])} />
         <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-1" />Importar histórico trienal</Button>
+        <BaixarModelo modelo={() => modeloHistorico(ano, dados.classes.filter(c => c.ativo).map(c => c.nome))} />
         <Campo rotulo="Ano">
           <select className={entrada} value={anoBnic} onChange={e => setAnoBnic(Number(e.target.value))} aria-label="Ano a calcular pelos mapas">{anos.map(a => <option key={a}>{a}</option>)}</select>
         </Campo>

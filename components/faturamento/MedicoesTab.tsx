@@ -6,6 +6,8 @@ import { MedicaoFat, pad, partes, referencia } from '../../utils/faturamento';
 import { agruparRateio, lerRateio } from '../../utils/importMedicoes';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
+import { BaixarModelo } from '../ui/BaixarModelo';
+import { modeloRateio } from '../../utils/modelos';
 import { Aviso, Campo, brl, compAtual, entrada, lerArquivo } from './comum';
 
 type Linha = { quantidade: string; quantidade2: string; valor: string; estimada: boolean; detalhe?: any[]; origem?: string | null };
@@ -42,7 +44,8 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
       todas.filter(m => m.competencia === comp && m.sigla === sigla).forEach(m => {
         doMes[m.omId] = { quantidade: txt(m.quantidade), quantidade2: txt(m.quantidade2), valor: txt(m.valor), estimada: !!m.estimada, detalhe: m.detalhe, origem: m.origem };
       });
-      setLinhas(prev => ({ ...doMes, ...prev })); setSalvo(doMes); // preserva o que foi digitado durante a carga setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport([]);
+      // preserva o que foi digitado durante a carga
+      setLinhas(prev => ({ ...doMes, ...prev })); setSalvo(doMes); setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport([]);
     } catch (e) { notify.fail('Erro ao carregar medições', e); } finally { setCarregando(false); }
   };
   useEffect(() => { setLinhas({}); setSalvo({}); carregar(); }, [comp, sigla]);
@@ -119,9 +122,14 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         {podeEditar && <>
           <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
           <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar rateio da divisão</Button>
+          <BaixarModelo rotulo="Planilha modelo para a divisão" modelo={() => modeloRateio(sigla, comp,
+            (historico.length ? ctx.omsFat.filter(o => historico.some(h => h.omId === o.id) || linhas[o.id]) : ctx.omsFat.filter(o => o.ativo && o.tipo !== 'NAVIO'))
+              .sort((a, b) => a.codigo.localeCompare(b.codigo)).map(o => ({ codigo: o.codigo, nome: o.nome })),
+            medidos.find(s => s.sigla === sigla)?.responsavel)} />
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>
+      {(() => { const sv = medidos.find(s => s.sigla === sigla); return <p className="text-xs text-slate-500">Responsável pelos dados de <b>{sv?.nome || sigla}</b>: {sv?.responsavel ? <b>{sv.responsavel}</b> : <span className="text-amber-700">não informado</span>}{sv?.telefone ? ` · ${sv.telefone}` : ''} — altere em Cadastros › Serviços. Baixe a planilha modelo, envie à divisão e importe a devolvida.</p>; })()}
 
       <div className="grid md:grid-cols-3 gap-3">
         <Aviso tom="slate">Soma do rateio em {referencia(comp)}: <b>{brl(soma)}</b> · {Object.keys(linhas).filter(lancada).length} OM lançadas.</Aviso>

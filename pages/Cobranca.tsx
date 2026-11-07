@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { MultiFiltro, useExcluidosLembrados } from '../components/ui/MultiFiltro';
+import { cadastroService } from '../services/cadastroService';
 import { Copy, FileSpreadsheet, FileText, Mail, RefreshCw } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -48,7 +50,9 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');
   const [linhaPor, setLinhaPor] = useState<'setor' | 'comando' | 'cliente'>('setor');
-  const [grupo, setGrupo] = useState<'todos' | 'material' | 'demais'>('todos');
+  // setores: múltipla escolha (guarda os excluídos) + um grupo nomeado e editável (antes fixo em DGMM)
+  const [exSetores, setExSetores] = useExcluidosLembrados('siscont.cobranca.setores');
+  const [editarGrupo, setEditarGrupo] = useState<{ nome: string; setores: Set<string> } | null>(null);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
   const [qExtra, setQExtra] = useState(false);
   const [qContest, setQContest] = useState(false);
@@ -68,11 +72,22 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
   useEffect(() => { carregar(); }, []);
 
   const h = hoje();
-  const setoresMaterial = useMemo(() => (base?.par.setores_material || 'DGMM').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), [base]);
+  const setoresMaterial = useMemo(() => (base?.par.setores_material ?? 'DGMM').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), [base]);
+  const nomeGrupo = base?.par.nome_grupo_setores || 'Setor do Material';
+  const todosSetores = useMemo(() => (base ? [...new Set(faturasAbertas(base.invoices).map(f => f.setor).filter(Boolean))].sort() : []), [base]);
   const abertas = useMemo(() => {
     if (!base) return [];
-    return faturasAbertas(base.invoices).filter(f => grupo === 'todos' || (grupo === 'material') === setoresMaterial.includes(f.setor.toUpperCase()));
-  }, [base, grupo, setoresMaterial]);
+    return faturasAbertas(base.invoices).filter(f => !exSetores.has(f.setor));
+  }, [base, exSetores]);
+  const noGrupo = (s: string) => setoresMaterial.includes(s.toUpperCase());
+  const gravarGrupo = async () => {
+    if (!editarGrupo) return;
+    try {
+      await cadastroService.saveParametro({ chave: 'setores_material', valor: [...editarGrupo.setores].join(','), descricao: 'Setores do grupo destacado na Cobrança (separados por vírgula)' } as any);
+      await cadastroService.saveParametro({ chave: 'nome_grupo_setores', valor: editarGrupo.nome.trim() || 'Setor do Material', descricao: 'Nome do grupo de setores destacado na Cobrança' } as any);
+      notify.success('Grupo de setores gravado.'); setEditarGrupo(null); carregar();
+    } catch (e) { notify.fail('Não foi possível gravar (somente o administrador altera parâmetros)', e); }
+  };
   const q = useMemo(() => quadroAberto(abertas, h), [abertas, h]);
   // quadro como na planilha: sem extra-MB e sem contestadas (abas próprias), salvo se marcado
   const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => (qExtra || !/EXTRA/i.test(f.setor)) && (qContest || !f.contestada)), h), [abertas, h, qExtra, qContest]);
@@ -98,7 +113,7 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
     const doc = new jsPDF('l');
     doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
     doc.text(`Atualizado em: ${atualizadoEm}`, 283, 12, { align: 'right' });
-    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${grupo !== 'todos' ? ` (${grupo === 'material' ? 'Setor do Material' : 'demais setores'})` : ''}`, 14, 19);
+    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, 19);
     let y = 24;
     blocos.forEach(b => {
       doc.setFontSize(10); doc.text(b.titulo.toUpperCase(), 14, y + 4);
@@ -142,11 +157,13 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
 
       {base && (aba === 'quadro' || aba === 'painel') && (
         <div className="flex flex-wrap gap-3 items-end">
-          <label className="text-xs text-slate-600">Setores
-            <select className={`${sel} block mt-1`} value={grupo} onChange={e => setGrupo(e.target.value as any)} aria-label="Setores">
-              <option value="todos">Todos</option><option value="material">Setor do Material ({setoresMaterial.join(', ')})</option><option value="demais">Demais setores</option>
-            </select>
-          </label>
+          <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+          <div className="flex flex-wrap items-center gap-2 pb-1 text-xs">
+            <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(s => !noGrupo(s))))} title={setoresMaterial.join(', ')}>Só {nomeGrupo}</button>
+            <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(noGrupo)))}>Exceto {nomeGrupo}</button>
+            <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set())}>Todos</button>
+            {podeEditar && <button className="text-primary-700 underline" onClick={() => setEditarGrupo({ nome: nomeGrupo, setores: new Set(setoresMaterial) })}>definir grupo…</button>}
+          </div>
           {aba === 'quadro' && <>
             <label className="text-xs text-slate-600">Linhas por
               <select className={`${sel} block mt-1`} value={linhaPor} onChange={e => setLinhaPor(e.target.value as any)} aria-label="Linhas por">
@@ -250,6 +267,18 @@ export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro'
         </div>}>
         <p className="text-xs text-slate-500 mb-2">Texto pronto para o SIGAD; ajuste ao padrão de mensagens antes de enviar.</p>
         <textarea className="w-full h-80 font-mono text-xs border border-slate-300 rounded p-2" value={msg?.texto ?? ''} onChange={e => setMsg(m => (m ? { ...m, texto: e.target.value } : m))} aria-label="Texto da cobrança" />
+      </Modal>
+      <Modal isOpen={!!editarGrupo} onClose={() => setEditarGrupo(null)} title="Grupo de setores destacado">
+        {editarGrupo && <div className="space-y-3 text-sm">
+          <p className="text-slate-600">Defina quais setores formam o grupo usado nos atalhos "Só…" e "Exceto…" (antes era fixo: Setor do Material = DGMM).</p>
+          <label className="block">Nome do grupo<input className={`${sel} w-full`} value={editarGrupo.nome} onChange={e => setEditarGrupo({ ...editarGrupo, nome: e.target.value })} aria-label="Nome do grupo" /></label>
+          <div className="grid grid-cols-2 gap-1 max-h-60 overflow-y-auto border border-slate-200 rounded p-2">
+            {[...new Set([...todosSetores, ...setoresMaterial])].sort().map(s => (
+              <label key={s} className="flex items-center gap-2"><input type="checkbox" checked={editarGrupo.setores.has(s.toUpperCase())} onChange={e => { const n = new Set(editarGrupo.setores); e.target.checked ? n.add(s.toUpperCase()) : n.delete(s.toUpperCase()); setEditarGrupo({ ...editarGrupo, setores: n }); }} />{s}</label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setEditarGrupo(null)}>Cancelar</Button><Button onClick={gravarGrupo}>Gravar</Button></div>
+        </div>}
       </Modal>
     </div>
   );

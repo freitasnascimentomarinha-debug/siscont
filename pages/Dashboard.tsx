@@ -12,6 +12,7 @@ import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, ReceivedDocument } from '../types';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
+import { MultiFiltro, useExcluidosLembrados } from '../components/ui/MultiFiltro';
 import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resumoPainel, taxaCondominial } from '../utils/painel';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
@@ -30,8 +31,9 @@ const br = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/
 const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const totalDe = (i: Invoice) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
 
-const paraPainel = (i: Invoice): FaturaPainel => ({
-  id: i.id, numero: i.invoiceNumber, cliente: i.client, setor: i.sector, comando: i.command, tipo: i.type || i.serviceAcronym || '—',
+/** Cliente pelo cadastro (OM unificada aparece com um nome só); sem OM ligada, o nome escrito na fatura. */
+const paraPainel = (i: Invoice, nomeOM: Map<string, string>): FaturaPainel => ({
+  id: i.id, numero: i.invoiceNumber, cliente: (i.omId && nomeOM.get(i.omId)) || i.client, setor: i.sector, comando: i.command, tipo: i.type || i.serviceAcronym || '—',
   ano: i.yearCompetence, mes: i.monthCompetence, emissao: i.issueDate, vencimento: i.dueDate,
   total: totalDe(i), pago: i.paidAmount || 0,
   saldo: i.isCanceled || i.status === InvoiceStatus.PAID ? 0 : i.saldoAPagar ?? Math.max(0, totalDe(i) - (i.paidAmount || 0)),
@@ -95,12 +97,16 @@ export const Dashboard: React.FC = () => {
   const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
   const [precos, setPrecos] = useState<{ ano: number; sigla: string; omId?: string | null; valor: number }[]>([]);
   const [nomesOM, setNomesOM] = useState<Map<string, string>>(new Map());
+  const [nomeCompleto, setNomeCompleto] = useState<Map<string, string>>(new Map());
   const [carregando, setCarregando] = useState(true);
   const hoje = hojeIso();
   const [ano, setAno] = useState(new Date().getFullYear());
-  const [setor, setSetor] = useState('');
-  const [comando, setComando] = useState('');
-  const [cliente, setCliente] = useState('');
+  // filtros de múltipla escolha (guardam os EXCLUÍDOS; lembrados neste navegador)
+  const [exSetor, setExSetor] = useExcluidosLembrados('siscont.painel.setor');
+  const [exComando, setExComando] = useExcluidosLembrados('siscont.painel.comando');
+  const [exCliente, setExCliente] = useExcluidosLembrados('siscont.painel.cliente');
+  const [exServico, setExServico] = useExcluidosLembrados('siscont.painel.servico');
+  const [ordem, setOrdem] = useState<{ campo: 'vencimento' | 'saldo' | 'total' | 'numero' | 'cliente' | 'atraso'; asc: boolean }>({ campo: 'vencimento', asc: true });
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaPainel[] } | null>(null);
   const [buscaLista, setBuscaLista] = useState('');
   const [verTodasTc, setVerTodasTc] = useState(false);
@@ -113,20 +119,31 @@ export const Dashboard: React.FC = () => {
       const a = new Date().getFullYear();
       const [p, oms] = await Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => [])]);
       setPrecos(p); setNomesOM(new Map((oms as any[]).map(o => [o.id as string, (o.sigla || o.nome) as string] as [string, string])));
+      setNomeCompleto(new Map((oms as any[]).map(o => [o.id as string, o.nome as string] as [string, string])));
     } catch (err) { notify.fail('Erro ao carregar o painel', err); } finally { setCarregando(false); }
   };
   useEffect(() => { carregar(); }, []);
 
-  const todas = useMemo(() => invoices.map(paraPainel), [invoices]);
-  const filtradas = useMemo(() => todas.filter(f => (!setor || f.setor === setor) && (!comando || f.comando === comando) && (!cliente || f.cliente === cliente)), [todas, setor, comando, cliente]);
+  const todas = useMemo(() => invoices.map(i => paraPainel(i, nomeCompleto)), [invoices, nomeCompleto]);
+  const filtradas = useMemo(() => todas.filter(f => !exSetor.has(f.setor) && !exComando.has(f.comando) && !exCliente.has(f.cliente) && !exServico.has(f.tipo)), [todas, exSetor, exComando, exCliente, exServico]);
+  const setCliente = (c: string) => setExCliente(new Set(opcoes('cliente').filter(o => o !== c)));
   const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
   const tc = useMemo(() => taxaCondominial(precos, nomesOM, ano), [precos, nomesOM, ano]);
   const anos = useMemo(() => [...new Set([new Date().getFullYear(), ...todas.map(f => f.ano).filter(Boolean)])].sort((a, b) => b - a), [todas]);
-  const opcoes = (k: 'setor' | 'comando' | 'cliente') => [...new Set(todas.filter(f => (k === 'setor' || !setor || f.setor === setor) && (k !== 'cliente' || !comando || f.comando === comando)).map(f => f[k]).filter(Boolean))].sort();
+  const opcoes = (k: 'setor' | 'comando' | 'cliente' | 'tipo') => [...new Set(todas.map(f => f[k]).filter(Boolean))].sort();
+  const resumoFiltro = (ex: Set<string>, k: 'setor' | 'comando' | 'cliente' | 'tipo') => {
+    const o = opcoes(k), e = o.filter(v => ex.has(v));
+    return !e.length ? '' : e.length <= 2 ? `todos exceto ${e.join(', ')}` : o.length - e.length <= 2 ? o.filter(v => !ex.has(v)).join(', ') : `${o.length - e.length} de ${o.length}`;
+  };
 
   const abrir = (titulo: string, g: Grupo) => { setBuscaLista(''); setLista({ titulo, faturas: doGrupo(filtradas, g, ano, hoje) }); };
   const abrirFiltro = (titulo: string, f: (x: FaturaPainel) => boolean) => { setBuscaLista(''); setLista({ titulo, faturas: filtradas.filter(f) }); };
-  const filtrosAtivos = [setor && ['Setor', setor, () => setSetor('')], comando && ['Comando', comando, () => setComando('')], cliente && ['Cliente', cliente, () => setCliente('')]].filter(Boolean) as [string, string, () => void][];
+  const filtrosAtivos = ([
+    ['Setor', resumoFiltro(exSetor, 'setor'), () => setExSetor(new Set())],
+    ['Comando', resumoFiltro(exComando, 'comando'), () => setExComando(new Set())],
+    ['Cliente', resumoFiltro(exCliente, 'cliente'), () => setExCliente(new Set())],
+    ['Serviço', resumoFiltro(exServico, 'tipo'), () => setExServico(new Set())],
+  ] as [string, string, () => void][]).filter(f => f[1]);
 
   // composição do em aberto (barra 100%)
   const composicao = [
@@ -140,8 +157,11 @@ export const Dashboard: React.FC = () => {
   const listaFiltrada = useMemo(() => {
     if (!lista) return [];
     const b = buscaLista.trim().toLowerCase();
-    return lista.faturas.filter(f => !b || `${f.numero} ${f.cliente} ${f.setor} ${f.tipo}`.toLowerCase().includes(b)).sort((a, b2) => b2.saldo - a.saldo || b2.total - a.total);
-  }, [lista, buscaLista]);
+    const atraso = (f: FaturaPainel) => (f.saldo > 0.009 && f.vencimento && f.vencimento < hoje ? Date.parse(hoje) - Date.parse(f.vencimento.slice(0, 10)) : -1);
+    const chave = (f: FaturaPainel): string | number => ordem.campo === 'atraso' ? atraso(f) : ordem.campo === 'vencimento' ? (f.vencimento || '9999') : (f as any)[ordem.campo];
+    return lista.faturas.filter(f => !b || `${f.numero} ${f.cliente} ${f.setor} ${f.tipo}`.toLowerCase().includes(b))
+      .sort((x, y) => { const a1 = chave(x), b1 = chave(y); const c = typeof a1 === 'number' ? a1 - (b1 as number) : String(a1).localeCompare(String(b1)); return (ordem.asc ? c : -c) || y.saldo - x.saldo; });
+  }, [lista, buscaLista, ordem, hoje]);
   const exportarLista = () => {
     if (!lista) return;
     const ws = XLSX.utils.json_to_sheet(listaFiltrada.map(f => ({
@@ -177,7 +197,7 @@ export const Dashboard: React.FC = () => {
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
     doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15);
-    const docs = documents.filter(d => d.availableValue > 0 && (!setor || d.sector === setor) && (!comando || d.command === comando) && (!cliente || d.client === cliente));
+    const docs = documents.filter(d => d.availableValue > 0 && !exSetor.has(d.sector) && !exComando.has(d.command) && !exCliente.has(d.client));
     autoTable(doc, { startY: 22, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => [d.sector, d.command, d.client, d.documentNumber, d.operation, brl(d.availableValue)]), styles: { fontSize: 8 } });
     autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
     doc.save('extrato_saldos_siscont.pdf');
@@ -207,13 +227,10 @@ export const Dashboard: React.FC = () => {
             {anos.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
-        {([['Setor', setor, setSetor, 'setor'], ['Comando', comando, setComando, 'comando'], ['Cliente (OM)', cliente, setCliente, 'cliente']] as const).map(([rot, v, set, k]) => (
-          <label key={k} className="text-xs font-semibold text-slate-600">{rot}
-            <select className="block mt-1 text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white max-w-[260px]" value={v} onChange={e => (set as any)(e.target.value)} aria-label={rot}>
-              <option value="">Todos</option>{opcoes(k).map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          </label>
-        ))}
+        <MultiFiltro rotulo="Setor" opcoes={opcoes('setor')} excluidos={exSetor} onChange={setExSetor} />
+        <MultiFiltro rotulo="Comando" opcoes={opcoes('comando')} excluidos={exComando} onChange={setExComando} largura="w-96" />
+        <MultiFiltro rotulo="Cliente (OM)" opcoes={opcoes('cliente')} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
+        <MultiFiltro rotulo="Serviço" opcoes={opcoes('tipo')} excluidos={exServico} onChange={setExServico} />
         {filtrosAtivos.length > 0 && (
           <div className="flex flex-wrap gap-1 pb-1">
             {filtrosAtivos.map(([rot, v, limpar]) => (
@@ -381,8 +398,11 @@ export const Dashboard: React.FC = () => {
             <div className="max-h-[60vh] overflow-auto border border-slate-200 rounded-lg">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>
-                  <th className="px-2 py-2 text-left">Fatura</th><th className="px-2 text-left">Cliente</th><th className="px-2 text-left">Serviço</th><th className="px-2">Comp.</th>
-                  <th className="px-2">Vencimento</th><th className="px-2 text-right">Atraso</th><th className="px-2 text-right">Valor</th><th className="px-2 text-right">Em aberto</th>
+                  {([['numero', 'Fatura', 'text-left'], ['cliente', 'Cliente', 'text-left'], [null, 'Serviço', 'text-left'], [null, 'Comp.', ''], ['vencimento', 'Vencimento', ''], ['atraso', 'Atraso', 'text-right'], ['total', 'Valor', 'text-right'], ['saldo', 'Em aberto', 'text-right']] as const).map(([c, rot, al]) => (
+                    <th key={rot} className={`px-2 py-2 ${al}`} aria-sort={c && ordem.campo === c ? (ordem.asc ? 'ascending' : 'descending') : undefined}>
+                      {c ? <button type="button" className="font-semibold hover:text-primary-700" onClick={() => setOrdem(o => ({ campo: c, asc: o.campo === c ? !o.asc : c === 'vencimento' || c === 'numero' || c === 'cliente' }))} title="Clique para ordenar">{rot}{ordem.campo === c ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button> : rot}
+                    </th>
+                  ))}
                 </tr></thead>
                 <tbody>
                   {listaFiltrada.slice(0, 500).map(f => {
