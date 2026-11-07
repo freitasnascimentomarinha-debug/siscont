@@ -9,7 +9,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { br, brl } from './comum';
 
-const TIPO = { MENSAL: 'Mensal', OND: 'Estimado OND', ACERTO: 'Acerto do OND' };
+const TIPO = { MENSAL: 'Mensal', OND: 'Estimado OND', ACERTO: 'Acerto do OND', CORRECAO: 'Correção por atraso' };
 const hoje = () => new Date().toISOString().slice(0, 10);
 const totalFatura = (i: Invoice) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
 

@@ -141,6 +141,23 @@ Menu **Faturamento**:
 Preencha em **Cadastros → Parâmetros** o nome e o posto do Encarregado (impressos na fatura) e, em **Cadastros →
 Serviços**, o setor e o telefone de cada divisão (texto de dúvidas da fatura).
 
+### 1-H. Contestação, cancelamento e correção — Fase 4 (script 008)
+
+Execute [`supabase/migrations/008_contestacao_fase4.sql`](../supabase/migrations/008_contestacao_fase4.sql): cancelamento
+com motivo/data/responsável, "cancela e substitui", **contestações** (as faturas já marcadas como contestadas na planilha
+ganham uma contestação ABERTA), **taxas mensais da poupança** e o lote de correção.
+
+- **Faturas** (ações na linha): **Retificar** cria a versão seguinte (…-1), transfere as baixas e deixa a original
+  "Substituída" (o PDF da nova traz "Esta fatura cancela e substitui a de nº ..."); **Contestar** abre a contestação;
+  **Cancelar** exige o motivo e, se houver baixas, oferece devolvê-las às ALTCRED.
+- **Contestações** (menu): painel com as em andamento, valor contestado, prazo do setor vencido e paradas há mais de 30
+  dias; em cada uma, encaminhar ao setor medidor com prazo (padrão: 10 dias úteis), registrar a resposta e decidir:
+  **ratificar** (mantém), **retificar** (nova versão) ou **cancelar** — tudo no histórico, com referências a documentos
+  (OMS, e-mails).
+- **Faturamento → Correção por atraso (OI 6.2)**: cadastre a taxa mensal da poupança de cada mês; o sistema lista as
+  faturas com pagamento feito depois da data-limite (dentro dos 10 dias úteis não há correção, OI 6.1), calcula a
+  correção dia a dia pela taxa diária equivalente e emite as faturas de correção (linha 03, acréscimo).
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

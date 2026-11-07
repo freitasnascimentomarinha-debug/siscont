@@ -59,3 +59,9 @@ ALTCRED, autenticação da GRU tirada de "GRU ABC123", sobra da ALTCRED marcada 
 Com 001–006 aplicados: `psql -d sb -f tests/sql/fase3_007_tests.sql`. Esperado: um preço por ano/serviço/OM (e um
 geral por serviço), competência inválida recusada, realizado e previsão de atracação no mesmo mês, tipo de lote
 inválido recusado, fatura mantida ao excluir o lote, e preços/atracações removidos junto com a OM.
+
+## Script 008 (Fase 4 - contestação, cancelamento e correção)
+
+Com 001–007 aplicados: `psql -d sb -f tests/sql/fase4_008_tests.sql`. Esperado: uma contestação ABERTA (origem
+MIGRACAO) para a fatura já contestada, mesmo rodando o script duas vezes; decisão inválida, mês inválido e taxa absurda
+recusados; lote CORRECAO aceito; contestação removida junto com a fatura.

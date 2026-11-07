@@ -25,7 +25,7 @@ function novoBanco() {
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
-    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [],
+    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [],
   };
 }
 
@@ -544,6 +544,81 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF FR-172/ }).click()]);
     ok(/\.zip$/.test(dl.suggestedFilename()), `ZIP de PDF FR-172 gerado (${dl.suggestedFilename()})`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-lotes.png'), fullPage: true });
+  });
+
+  await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', setor_id: setor.id, ativo: true };
+    const npa = { id: uid(), codigo: '40032', nome: 'Navio-Patrulha Mangaratiba', tipo: 'NAVIO', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(npa);
+    db.service_definitions.push({ id: uid(), name: 'Diária de Atracação', unit_measure: 'DIA', acronym: 'DA', nome_oficial: 'DIÁRIA DE ATRACAÇÃO', setor_responsavel: 'o Agente de Manobras', ordem: 40, ativo: true });
+    const fat = (n, v, extra = {}) => ({ id: uid(), ug: '40032', sector: 'DGMM', command: '40030 - Diretoria Industrial da Marinha', client: 'Navio-Patrulha Mangaratiba', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-09-29', month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Diária de Atracação', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: npa.id, contestada: false, pontos_atencao: [], substituida_por: null, cancelamento_motivo: null, lote_id: null, ...extra });
+    const da = fat('40032-DA-08-2026-010-0', 2960.81), el = fat('40032-EL-08-2026-039-0', 2058.64), rb = fat('40032-RB-08-2026-004-0', 45207.21);
+    db.invoices = [da, el, rb];
+    const doc = { id: uid(), document_number: 'G424.2026.AC.00370', document_type: 'ALTCRED', total_value: 50000, date: '2026-10-29', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030', comando_id: cmd.id };
+    db.received_documents.push(doc);
+    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: da.id, amount: 1000, date: '2026-10-29', tipo_baixa: 'PAGAMENTO' },
+      { id: uid(), document_id: doc.id, invoice_id: rb.id, amount: 45207.21, date: '2026-10-29', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    // 1) retificar a DA: nova versão -1 recebe a baixa
+    await page.getByRole('row').filter({ hasText: '40032-DA-08-2026-010-0' }).getByTitle(/Retificar/).click();
+    await page.getByLabel('Novo valor do serviço').fill('2865.30');
+    await page.getByLabel('Motivo').fill('Navio atracado 30 dias, não 31 (BNIC-35 corrigido)');
+    await page.getByRole('button', { name: 'Emitir 40032-DA-08-2026-010-1' }).click();
+    await page.getByText(/cancela e substitui a 40032-DA-08-2026-010-0/).waitFor();
+    const nova = db.invoices.find(i => i.invoice_number === '40032-DA-08-2026-010-1');
+    ok(nova && Number(nova.value) === 2865.3 && nova.substitui === '40032-DA-08-2026-010-0', 'versão -1 criada com o novo valor e "substitui"');
+    ok(da.is_canceled && da.substituida_por === '40032-DA-08-2026-010-1' && /BNIC-35/.test(da.cancelamento_motivo), 'original fica substituída, com motivo');
+    ok(db.payment_allocations.find(b => b.amount === 1000).invoice_id === nova.id, 'baixa transferida para a nova versão');
+    await page.getByText('Substituída').first().waitFor();
+    // 2) contestar a EL
+    await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle('Abrir contestação').click();
+    await page.getByLabel('Motivo').fill('Navio docado em Niterói no período; não consumiu energia da BNIC');
+    await page.getByRole('button', { name: 'Abrir contestação', exact: true }).last().click();
+    await page.getByText(/Contestação da fatura 40032-EL-08-2026-039-0 aberta/).waitFor();
+    ok(el.contestada === true && db.contestacoes.length === 1, 'contestação aberta e fatura marcada como contestada');
+    await page.getByRole('button', { name: 'Contestações' }).first().click();
+    await page.getByRole('heading', { name: 'Contestações' }).waitFor();
+    await page.getByRole('button', { name: 'abrir' }).click();
+    await page.getByPlaceholder(/Divisão de Eletricidade/).fill('Divisão de Eletricidade (BNIC-34)');
+    await page.getByRole('button', { name: 'Encaminhar' }).click();
+    await page.getByText('Encaminhada ao setor.').waitFor();
+    await page.getByPlaceholder(/leitura conferida/).fill('Medidor do cais registrou consumo: navio esteve atracado até dia 20');
+    await page.getByRole('button', { name: 'Registrar', exact: true }).first().click();
+    await page.getByText('Resposta registrada.').waitFor();
+    await page.getByLabel('Fundamento da decisão').fill('Consumo confirmado pela BNIC-34');
+    await page.getByRole('button', { name: 'Ratificar (mantém)' }).click();
+    await page.getByText(/fatura ratificada/).waitFor();
+    const c = db.contestacoes[0];
+    ok(c.status === 'ENCERRADA' && c.decisao === 'RATIFICADA' && c.historico.length === 4 && el.contestada === false, 'contestação: encaminhada → respondida → ratificada, histórico com 4 eventos');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-contestacao.png') });
+    await page.keyboard.press('Escape');
+    await page.locator('.fixed.inset-0 button').first().click();
+    // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
+    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle(/Cancelar fatura/).click();
+    ok(await page.getByRole('button', { name: 'Cancelar fatura', exact: true }).last().isDisabled(), 'cancelar exige motivo');
+    await page.getByLabel('Motivo').fill('Emitida em duplicidade');
+    await page.getByRole('button', { name: 'Cancelar fatura', exact: true }).last().click();
+    await page.getByText('Fatura 40032-EL-08-2026-039-0 cancelada.').waitFor();
+    ok(el.is_canceled && el.cancelamento_motivo === 'Emitida em duplicidade' && el.cancelada_por === 'CC Admin', 'cancelamento registra motivo e responsável');
+    // 4) correção por atraso: RB paga em 29/10 com data-limite 29/09
+    await page.getByRole('button', { name: 'Faturamento' }).first().click();
+    await page.getByRole('button', { name: 'Correção por atraso (OI 6.2)' }).click();
+    await page.getByLabel('Taxa SET26').fill('0,6');
+    await page.getByLabel('Taxa OUT26').fill('0,6');
+    await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
+    await page.getByText('Taxas gravadas.').waitFor();
+    await page.getByRole('button', { name: 'Calcular correções' }).click();
+    await page.getByText('40032-RB-08-2026-004-0').waitFor();
+    ok(await page.getByText('+R$ 271,24').isVisible(), 'correção da RB: R$ 45.207,21 × 0,6% (30 dias) = R$ 271,24');
+    await page.getByLabel('Competência das faturas de correção').fill('2026-10');
+    await page.getByRole('button', { name: 'Emitir correções' }).click();
+    await page.getByText(/fatura\(s\) de correção emitida\(s\)/).waitFor({ timeout: 15000 });
+    const corr = db.invoices.find(i => i.acerto_de === '40032-RB-08-2026-004-0');
+    ok(corr && Number(corr.adjustment_addition) === 271.24 && /^40032-RB-10-2026-\d{3}-0$/.test(corr.invoice_number) && /6\.2/.test(corr.observation), `fatura de correção ${corr && corr.invoice_number} (acréscimo R$ 271,24)`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-correcao.png'), fullPage: true });
   });
 
   if (extras.length) {

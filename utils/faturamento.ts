@@ -22,7 +22,7 @@ export interface AtracacaoFat { competencia: string; omId: string; previsao: boo
 export interface FaturaHist { id: string; numero: string; omId?: string | null; sigla: string; ano: number; mes: number; valor: number; cancelada?: boolean; estimado?: boolean; acertoDe?: string | null }
 export interface DocAdiantDisp { id: string; numero: string; saldo: number; data: string; comandoId?: string | null; ug?: string | null }
 
-export type TipoLote = 'MENSAL' | 'OND' | 'ACERTO';
+export type TipoLote = 'MENSAL' | 'OND' | 'ACERTO' | 'CORRECAO';
 
 export interface Base { regra: string; [k: string]: unknown }
 export interface ItemLote {

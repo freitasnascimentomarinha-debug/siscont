@@ -8,14 +8,16 @@ import { MedicoesTab } from '../components/faturamento/MedicoesTab';
 import { AtracacaoTab } from '../components/faturamento/AtracacaoTab';
 import { PrecosTab } from '../components/faturamento/PrecosTab';
 import { LotesEmitidos } from '../components/faturamento/LotesEmitidos';
+import { CorrecaoTab } from '../components/faturamento/CorrecaoTab';
 import { Button } from '../components/ui/Button';
 
-type Aba = 'lote' | 'medicoes' | 'atracacao' | 'precos';
+type Aba = 'lote' | 'medicoes' | 'atracacao' | 'precos' | 'correcao';
 const ABAS: { id: Aba; label: string }[] = [
   { id: 'lote', label: 'Lote de faturas' },
   { id: 'medicoes', label: 'Medições do mês' },
   { id: 'atracacao', label: 'Atracação (BNIC-35)' },
   { id: 'precos', label: 'Preços do ano' },
+  { id: 'correcao', label: 'Correção por atraso (OI 6.2)' },
 ];
 
 export const Faturamento: React.FC = () => {
@@ -72,6 +74,7 @@ export const Faturamento: React.FC = () => {
             {aba === 'medicoes' && <MedicoesTab ctx={ctx} podeEditar={podeEditar} />}
             {aba === 'atracacao' && <AtracacaoTab ctx={ctx} podeEditar={podeEditar} />}
             {aba === 'precos' && <PrecosTab ctx={ctx} podeEditar={podeEditar} />}
+            {aba === 'correcao' && <CorrecaoTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} onEmitido={carregar} />}
           </div>
         </>
       )}

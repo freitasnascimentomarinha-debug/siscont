@@ -6,12 +6,13 @@ import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao
 import { pendentes } from '../utils/pontosAtencao';
 import { aceitaAdiantamento, ehAdiantamento } from '../utils/baixas';
 import { baixarPdfFr172 } from '../services/fr172Service';
+import { AcaoFatura, AcoesFaturaModais } from '../components/fase4/AcoesFaturaModais';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -79,6 +80,7 @@ export const Invoices: React.FC = () => {
   const [filterSiplad, setFilterSiplad] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
+  const [acaoFatura, setAcaoFatura] = useState<AcaoFatura>(null);
   const [carregando, setCarregando] = useState(true);
   const [pagina, setPagina] = useState(0);
   const [porPagina, setPorPagina] = useState(50);
@@ -972,7 +974,12 @@ export const Invoices: React.FC = () => {
                               {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                             </button>
                           </td>
-                          <td className="px-4 py-4 whitespace-nowrap">{getStatusBadge(inv.status)}</td>
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            {inv.substituidaPor
+                              ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700" title={`Substituída por ${inv.substituidaPor}${inv.cancelamentoMotivo ? `: ${inv.cancelamentoMotivo}` : ''}`}><RefreshCcw size={12} className="mr-1" /> Substituída</span>
+                              : <span title={inv.isCanceled && inv.cancelamentoMotivo ? `Motivo: ${inv.cancelamentoMotivo}` : undefined}>{getStatusBadge(inv.status)}</span>}
+                            {inv.contestada && !inv.isCanceled && <div className="mt-1"><span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800">Contestada</span></div>}
+                          </td>
                           <td className="px-4 py-4 text-sm text-slate-500">{inv.competence}</td>
                           <td className="px-4 py-4 text-sm text-slate-700">{inv.ug || '-'}</td>
                           <td className="px-4 py-4 text-sm font-medium text-slate-900 truncate max-w-[150px]" title={inv.client}>{inv.client}</td>
@@ -996,7 +1003,9 @@ export const Invoices: React.FC = () => {
                               {!inv.isCanceled && !isReadOnly && (
                                 <>
                                   <button onClick={() => handleEdit(inv)} className="text-indigo-600 hover:text-indigo-900"><Edit2 size={16} /></button>
-                                  <button onClick={() => { setActionId(inv.id); setIsCancelModalOpen(true); }} className="text-orange-600 hover:text-orange-900" title="Cancelar Fatura"><Ban size={16} /></button>
+                                  <button onClick={() => setAcaoFatura({ tipo: 'substituir', fatura: inv })} className="text-sky-600 hover:text-sky-900" title="Retificar: cancela e substitui (nova versão)"><RefreshCcw size={16} /></button>
+                                  {!inv.contestada && <button onClick={() => setAcaoFatura({ tipo: 'contestar', fatura: inv })} className="text-amber-600 hover:text-amber-800" title="Abrir contestação"><MessageSquareWarning size={16} /></button>}
+                                  <button onClick={() => setAcaoFatura({ tipo: 'cancelar', fatura: inv })} className="text-orange-600 hover:text-orange-900" title="Cancelar fatura (motivo obrigatório)"><Ban size={16} /></button>
                                   <button onClick={() => { setActionId(inv.id); setIsDeleteModalOpen(true); }} className="text-red-600 hover:text-red-900"><Trash2 size={16} /></button>
                                 </>
                               )}
@@ -1372,6 +1381,8 @@ export const Invoices: React.FC = () => {
         title="Cancelar Fatura"
         message="Tem certeza que deseja cancelar esta fatura? Ela será marcada como CANCELADA e qualquer saldo de adiantamento utilizado será devolvido ao documento de origem."
       />
+      <AcoesFaturaModais acao={acaoFatura} onClose={() => setAcaoFatura(null)} onFeito={refresh} usuario={user?.name || user?.email || ''}
+        numeros={invoices.map(i => i.invoiceNumber)} baixado={id => (allocsByInvoice.get(id) || []).reduce((s, a) => s + a.amount, 0)} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
         onAlterado={async () => {
           await refresh();

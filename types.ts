@@ -123,6 +123,11 @@ export interface Invoice {
   enviadaEm?: string | null;
   certificadaEm?: string | null;
   siafiEm?: string | null;
+  // Fase 4 (script 008)
+  cancelamentoMotivo?: string | null;
+  canceladaEm?: string | null;
+  canceladaPor?: string | null;
+  substituidaPor?: string | null; // número da versão que substituiu esta
   saldoAPagar?: number; // calculado: (01 − 02 + 03 − 04) − pagamentos
   adiantamentoUsado?: number; // calculado: linha 02
 }

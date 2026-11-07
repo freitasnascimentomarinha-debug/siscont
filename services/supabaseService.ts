@@ -195,6 +195,7 @@ export const supabaseService = {
                     loteId: i.lote_id, baseCalculo: i.base_calculo, estimado: !!i.estimado, acertoDe: i.acerto_de, substitui: i.substitui,
                     enviadaEm: i.enviada_em, certificadaEm: i.certificada_em, siafiEm: i.siafi_em,
                 } : {}),
+                ...('substituida_por' in i ? { cancelamentoMotivo: i.cancelamento_motivo, canceladaEm: i.cancelada_em, canceladaPor: i.cancelada_por, substituidaPor: i.substituida_por } : {}),
                 paidAmount: 0,
                 status: 'OPEN' as any
             })) as Invoice[];

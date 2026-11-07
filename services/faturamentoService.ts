@@ -17,6 +17,7 @@ export class Fase3NaoInstaladaError extends Error {
 }
 const checar = (error: any) => {
   if (!error) return;
+  if (/lotes_faturamento_tipo_check/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/008_contestacao_fase4.sql no Supabase.');
   if (/relation .*(precos|medicoes|atracacoes|lotes_faturamento)|lote_id|base_calculo|estimado|acerto_de/.test(error.message || '')) throw new Fase3NaoInstaladaError();
   throw new Error(error.message);
 };
@@ -184,7 +185,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
     const mes = lido.competencia % 100, ano = Math.floor(lido.competencia / 100);
     const obs = [
       ...(i.adiantamentos || []).map(a => `Baixa na ALTCRED ${a.numero}.`),
-      i.acertoDe ? `Acerto da fatura ${i.acertoDe} (estimado OND).` : '',
+      i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (OI 40-04, item 6.2).` : `Acerto da fatura ${i.acertoDe} (estimado OND).`) : '',
       i.estimado ? 'Faturamento estimado de fim de exercício (OND): será acertado com o consumo real.' : '',
     ].filter(Boolean).join(' ');
     return {

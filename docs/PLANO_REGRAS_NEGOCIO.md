@@ -354,6 +354,12 @@ Download individual ou **ZIP por comando**.
 
 ### Fase 4 — Contestação, cancelamento e acertos
 
+> **Situação (07/11/2026)**: **Fase 4 concluída** (script 008). 4.1 contestação com encaminhamento, prazo, resposta,
+> decisão e histórico, painel de paradas (D7) e as contestações da planilha importadas; 4.2 "cancela e substitui"
+> (versão -1, baixas transferidas, original SUBSTITUÍDA) e cancelamento com motivo obrigatório; 4.3 correção por
+> atraso pela taxa diária equivalente à poupança (OI 6.2), só para pagamentos após a data-limite (OI 6.1), com fatura
+> de correção (linha 03). Anexos ficam como referências (nº da OMS, e-mail); o envio de arquivos fica para depois.
+
 4.1 **Contestação**: abertura (data, origem SIPLAD/e-mail, justificativa da OM), encaminhamento ao
 setor medidor com **prazo**, resposta, decisão **RATIFICADA** (mantém) ou **RETIFICADA** (gera nova
 versão) ou **CANCELADA**; histórico e anexos (ex.: OMS). Painel de contestações paradas (D7).
