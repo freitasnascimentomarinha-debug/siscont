@@ -681,6 +681,22 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     await page.getByText('Dívida por condômino e idade').waitFor();
     ok(await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'painel do Encarregado com dívida por idade e saldos parados');
+    // interatividade: indicador, linha da OM, valor de faixa e gráfico abrem a lista de faturas
+    await page.getByRole('button', { name: /^Vencido/ }).click();
+    await page.getByRole('dialog').getByText('Faturas vencidas').first().waitFor();
+    const nVenc = await page.getByRole('dialog').locator('tbody tr').count();
+    ok(nVenc >= 1, `indicador "Vencido" abre a lista de faturas (${nVenc})`);
+    await page.getByLabel('Buscar na lista').fill('zzzz-nada');
+    ok(await page.getByRole('dialog').getByText('Nenhuma fatura.').isVisible(), 'busca dentro da lista filtra as faturas');
+    await page.keyboard.press('Escape');
+    await page.getByRole('cell', { name: 'Diretoria Industrial da Marinha', exact: true }).click();
+    ok(await page.getByRole('dialog').getByText(/Faturas de Diretoria Industrial da Marinha/).first().isVisible(), 'clicar na linha da OM abre as faturas dela');
+    await page.keyboard.press('Escape');
+    await page.getByLabel('Buscar na dívida').fill('mangaratiba');
+    ok(await page.getByRole('cell', { name: /Mangaratiba/ }).count() === 1 && await page.getByRole('cell', { name: 'Diretoria Industrial da Marinha', exact: true }).count() === 0, 'busca na tabela de dívida filtra as OM');
+    await page.getByLabel('Buscar na dívida').fill('');
+    ok(await page.getByText('Maiores valores vencidos por OM').isVisible() && await page.getByText('Idade da dívida', { exact: true }).isVisible(), 'gráficos de idade da dívida e maiores devedores');
+    await page.waitForTimeout(1500); // animação dos gráficos
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });
 
     // Fluxo de caixa: rubricas, NE classificada, importação de NE, condomínio e disponível

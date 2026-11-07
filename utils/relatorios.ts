@@ -163,3 +163,29 @@ export function classificarRubrica(texto: string): { rubricaNumero: number | nul
   if (/condom|diaria|viatura|rebocador/.test(k)) return { rubricaNumero: null, categoria: 'CONDOMINIO' };
   return { rubricaNumero: null, categoria: 'OUTROS' };
 }
+
+// ------------------------------------------------------------------ painel do Encarregado (interativo)
+/** Faturas de uma faixa de atraso (ex.: "31–90 dias"). */
+export const faturasDaFaixa = (fs: FaturaAberta[], faixa: string, hoje: string) => fs.filter(f => faixaDe(diasAtraso(f.vencimento, hoje)) === faixa);
+/** Chave da OM usada em dividaPorCondomino (a mesma para agrupar e para abrir as faturas). */
+export const chaveDaOM = (f: FaturaAberta) => f.omId || `${f.cliente}|${f.comando}`;
+export const faturasDaOM = (fs: FaturaAberta[], chave: string) => fs.filter(f => chaveDaOM(f) === chave);
+/** Total em aberto por faixa de atraso, na ordem das faixas (para o gráfico). */
+export function totalPorFaixa(fs: FaturaAberta[], hoje: string) {
+  return FAIXAS.map(x => ({ faixa: x.rotulo, valor: r2(faturasDaFaixa(fs, x.rotulo, hoje).reduce((s, f) => s + f.saldo, 0)), qtd: faturasDaFaixa(fs, x.rotulo, hoje).length }));
+}
+export type CampoDivida = 'cliente' | 'total' | 'maisAntiga' | 'qtd' | 'vencido';
+const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+/** Tabela de dívida: busca (OM/comando/setor), "só vencidas" e ordenação por coluna. */
+export function filtrarDivida(linhas: LinhaDivida[], o: { busca: string; soVencidas: boolean; campo: CampoDivida; asc: boolean }): LinhaDivida[] {
+  const q = norm(o.busca.trim());
+  const vencido = (l: LinhaDivida) => r2(l.total - (l.porFaixa['A vencer'] || 0));
+  const dir = o.asc ? 1 : -1;
+  return linhas
+    .filter(l => (!q || norm(`${l.cliente} ${l.comando} ${l.setor}`).includes(q)) && (!o.soVencidas || vencido(l) > 0.005))
+    .sort((a, b) => dir * (o.campo === 'cliente' ? a.cliente.localeCompare(b.cliente, 'pt-BR')
+      : o.campo === 'maisAntiga' ? a.maisAntiga.localeCompare(b.maisAntiga)
+      : o.campo === 'qtd' ? a.qtd - b.qtd
+      : o.campo === 'vencido' ? vencido(a) - vencido(b)
+      : a.total - b.total));
+}

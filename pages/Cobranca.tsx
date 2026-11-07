@@ -11,10 +11,11 @@ import {
   adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, saldosParados,
 } from '../services/relatoriosService';
 import { listarContestacoes } from '../services/fase4Service';
-import { FAIXAS, FaturaAberta, Pivo, dividaPorCondomino, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
+import { FaturaAberta, Pivo, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
 import { notify } from '../utils/notify';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
+import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -136,10 +137,8 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const ultimaCobranca = (c: string) => cobrancas.filter(x => x.comando === c).map(x => x.enviadaEm).sort().pop();
 
   // ------------- painel
-  const divida = useMemo(() => dividaPorCondomino(abertas, h), [abertas, h]);
   const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60) : []), [base, h]);
   const adiant = useMemo(() => (base ? adiantamentosComSaldo(base) : []), [base]);
-  const totVencido = q.vencidas.reduce((s, f) => s + f.saldo, 0), totContestado = abertas.filter(f => f.contestada).reduce((s, f) => s + f.saldo, 0);
 
   return (
     <div className="space-y-5">
@@ -211,50 +210,8 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       )}
 
       {base && aba === 'painel' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {[['Em aberto', brl(q.todas.reduce((s, f) => s + f.saldo, 0))], ['Vencido', brl(totVencido)], ['Em contestação', `${brl(totContestado)}${contestacoesAbertas != null ? ` (${contestacoesAbertas})` : ''}`],
-              ['Adiantamentos disponíveis', brl(adiant.reduce((s, a) => s + a.saldo, 0))], ['ALTCRED com saldo parado', `${parados.length} · ${brl(parados.reduce((s, p) => s + p.doc.availableValue, 0))}`]].map(([r, v]) => (
-              <div key={r} className="p-3 rounded-lg border border-slate-200 bg-white"><div className="text-[11px] uppercase font-semibold text-slate-500">{r}</div><div className="text-lg font-bold tabular-nums">{v}</div></div>
-            ))}
-          </div>
-          <section className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">Dívida por condômino e idade (dias após a data-limite)</h3>
-            <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
-              <table className="min-w-full text-xs">
-                <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0"><tr><th className="px-3 py-2 text-left">OM</th><th className="px-3 py-2 text-left">Comando</th>{FAIXAS.map(f => <th key={f.rotulo} className="px-3 py-2 text-right">{f.rotulo}</th>)}<th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-left">Mais antiga</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {divida.map(d => (
-                    <tr key={d.chave}>
-                      <td className="px-3 py-1.5 font-medium max-w-[220px] truncate" title={d.cliente}>{d.cliente}{d.contestado > 0 && <span className="ml-1 text-amber-700">(contest. {brl(d.contestado)})</span>}</td>
-                      <td className="px-3 py-1.5 max-w-[200px] truncate text-slate-500" title={d.comando}>{d.comando}</td>
-                      {FAIXAS.map((f, i) => <td key={f.rotulo} className={`px-3 py-1.5 text-right tabular-nums ${i >= 4 && d.porFaixa[f.rotulo] ? 'text-red-700 font-semibold' : ''}`}>{d.porFaixa[f.rotulo] ? brl(d.porFaixa[f.rotulo]) : ''}</td>)}
-                      <td className="px-3 py-1.5 text-right tabular-nums font-bold">{brl(d.total)}</td>
-                      <td className="px-3 py-1.5">{br(d.maisAntiga)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <div className="grid md:grid-cols-2 gap-4">
-            <section className="bg-white rounded-lg border border-slate-200">
-              <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">ALTCRED/GRU com saldo parado (mais de {Number(base.par.dias_saldo_parado) || 60} dias)</h3>
-              <table className="min-w-full text-xs"><tbody className="divide-y divide-slate-100">
-                {parados.slice(0, 15).map(p => <tr key={p.doc.id}><td className="px-3 py-1.5 font-mono">{p.doc.documentNumber}</td><td className="px-3 py-1.5 truncate max-w-[180px]">{p.doc.client}</td><td className="px-3 py-1.5 text-right tabular-nums font-semibold">{brl(p.doc.availableValue)}</td><td className="px-3 py-1.5 text-slate-500">{p.dias} dias</td></tr>)}
-                {!parados.length && <tr><td className="px-3 py-4 text-center text-slate-400">Nenhum.</td></tr>}
-              </tbody></table>
-            </section>
-            <section className="bg-white rounded-lg border border-slate-200">
-              <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">Adiantamentos disponíveis por cliente</h3>
-              <table className="min-w-full text-xs"><tbody className="divide-y divide-slate-100">
-                {Object.entries(adiant.reduce<Record<string, number>>((m, a) => ({ ...m, [a.cliente]: (m[a.cliente] || 0) + a.saldo }), {})).sort((a, b) => b[1] - a[1]).slice(0, 15)
-                  .map(([c, v]) => <tr key={c}><td className="px-3 py-1.5 truncate max-w-[260px]">{c}</td><td className="px-3 py-1.5 text-right tabular-nums font-semibold text-emerald-700">{brl(v)}</td></tr>)}
-                {!adiant.length && <tr><td className="px-3 py-4 text-center text-slate-400">Nenhum.</td></tr>}
-              </tbody></table>
-            </section>
-          </div>
-        </div>
+        <PainelEncarregado abertas={abertas} hoje={h} diasParado={Number(base.par.dias_saldo_parado) || 60} contestacoesAbertas={contestacoesAbertas}
+          parados={parados} adiantamentos={adiant} />
       )}
 
       <Modal isOpen={!!msg} onClose={() => setMsg(null)} title={`Mensagem de cobrança — ${msg?.comando ?? ''}`} maxWidth="max-w-3xl"
