@@ -8,13 +8,12 @@ import { diasNoMes, referencia } from '../../utils/faturamento';
 import { acharNavio, lerMapaAtracacao } from '../../utils/importMedicoes';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
-import { Aviso, Campo, compAtual, entrada, lerArquivo } from './comum';
+import { Aviso, Campo, entrada, lerArquivo } from './comum';
 
 const CICLO: Record<string, string> = { '': 'A', A: 'D', D: '' };
 const COR: Record<string, string> = { A: 'bg-emerald-500 text-white', D: 'bg-amber-400 text-slate-900', '': 'bg-white text-slate-300' };
 
-export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean }> = ({ ctx, podeEditar }) => {
-  const [comp, setComp] = useState(compAtual());
+export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {
   const [previsao, setPrevisao] = useState(false);
   const [grade, setGrade] = useState<Record<string, string[]>>({});
   const [salvo, setSalvo] = useState<Record<string, string[]>>({});
@@ -22,6 +21,9 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
   const [pendentes, setPendentes] = useState<{ nome: string; dias: string[]; arquivo: string; gerencia: string }[]>([]);
   const [gravando, setGravando] = useState(false);
   const [busca, setBusca] = useState('');
+  // só aparecem os navios com mapa lançado (ou escolhidos aqui): a lista de todos os ativos passa de 50 linhas quase vazias
+  const [extras, setExtras] = useState<Set<string>>(new Set());
+  const [todos, setTodos] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const n = diasNoMes(comp);
 
@@ -33,11 +35,13 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
       setGrade(prev => ({ ...g, ...prev })); setSalvo(g); setGerencia(p => ({ ...ge, ...p })); setPendentes([]); // preserva o digitado durante a carga
     } catch (e) { notify.fail('Erro ao carregar o mapa', e); }
   };
-  useEffect(() => { setGrade({}); setSalvo({}); setGerencia({}); carregar(); }, [comp, previsao]);
+  useEffect(() => { setGrade({}); setSalvo({}); setGerencia({}); setExtras(new Set()); carregar(); }, [comp, previsao]);
 
-  const navios = useMemo(() => ctx.omsFat.filter(o => (o.tipo === 'NAVIO' && o.ativo) || grade[o.id])
+  const naviosAtivos = useMemo(() => ctx.omsFat.filter(o => o.tipo === 'NAVIO' && o.ativo).sort((a, b) => a.nome.localeCompare(b.nome)), [ctx.omsFat]);
+  const navios = useMemo(() => ctx.omsFat.filter(o => (o.tipo === 'NAVIO' && o.ativo && (todos || extras.has(o.id))) || grade[o.id])
     .filter(o => !busca || o.nome.toLowerCase().includes(busca.toLowerCase()))
-    .sort((a, b) => Number(!grade[a.id]) - Number(!grade[b.id]) || a.nome.localeCompare(b.nome)), [ctx.omsFat, grade, busca]);
+    .sort((a, b) => Number(!grade[a.id]) - Number(!grade[b.id]) || a.nome.localeCompare(b.nome)), [ctx.omsFat, grade, busca, extras, todos]);
+  const foraDaGrade = naviosAtivos.filter(o => !grade[o.id] && !extras.has(o.id));
   const alterados = Object.keys(grade).filter(k => JSON.stringify(grade[k]) !== JSON.stringify(salvo[k]));
 
   const clicar = (id: string, d: number) => {
@@ -95,6 +99,15 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
           </select>
         </Campo>
         <Campo rotulo="Buscar navio"><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
+        {podeEditar && !todos && (
+          <Campo rotulo="Adicionar navio à grade">
+            <select className={entrada} value="" aria-label="Adicionar navio à grade" onChange={e => { const id = e.target.value; if (id) setExtras(p => new Set(p).add(id)); }}>
+              <option value="">escolher... ({foraDaGrade.length})</option>
+              {foraDaGrade.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+            </select>
+          </Campo>
+        )}
+        <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={todos} onChange={e => setTodos(e.target.checked)} /> Mostrar todos os navios ativos ({naviosAtivos.length})</label>
         {podeEditar && <>
           <input ref={ref} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
           <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar mapas (G1…G6)</Button>
@@ -117,6 +130,7 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
           ))}
         </Aviso>
       )}
+      {!navios.length && <Aviso tom="slate">Nenhum navio com mapa lançado em {referencia(comp)}. Importe os mapas (G1…G6) ou escolha um navio em "Adicionar navio à grade".</Aviso>}
       <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
         <table className="text-xs">
           <thead className="bg-slate-50 sticky top-0 z-10">

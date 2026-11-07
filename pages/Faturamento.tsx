@@ -9,21 +9,30 @@ import { AtracacaoTab } from '../components/faturamento/AtracacaoTab';
 import { PrecosTab } from '../components/faturamento/PrecosTab';
 import { LotesEmitidos } from '../components/faturamento/LotesEmitidos';
 import { CorrecaoTab } from '../components/faturamento/CorrecaoTab';
+import { ResumoMesTab } from '../components/faturamento/ResumoMesTab';
+import { compAtual } from '../components/faturamento/comum';
+import { AbaFaturamento } from '../utils/resumoFaturamento';
 import { Button } from '../components/ui/Button';
 
-type Aba = 'lote' | 'medicoes' | 'atracacao' | 'precos' | 'correcao';
+type Aba = AbaFaturamento;
+// na ordem do trabalho: ver o que falta → preços → medições → atracação → lote → correção
 const ABAS: { id: Aba; label: string }[] = [
-  { id: 'lote', label: 'Lote de faturas' },
+  { id: 'resumo', label: 'Resumo do mês' },
+  { id: 'precos', label: 'Preços do ano' },
   { id: 'medicoes', label: 'Medições do mês' },
   { id: 'atracacao', label: 'Atracação (BNIC-35)' },
-  { id: 'precos', label: 'Preços do ano' },
+  { id: 'lote', label: 'Lote de faturas' },
   { id: 'correcao', label: 'Correção por atraso (OI 6.2)' },
 ];
 
 export const Faturamento: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = user?.role !== UserRole.READ_ONLY;
-  const [aba, setAba] = useState<Aba>('lote');
+  const [aba, setAba] = useState<Aba>('resumo');
+  // abas já abertas continuam montadas (escondidas): trocar de aba não apaga a prévia nem o que foi digitado
+  const [abertas, setAbertas] = useState<Set<Aba>>(new Set(['resumo']));
+  const [comp, setComp] = useState(compAtual());
+  const irPara = (a: Aba) => { setAba(a); setAbertas(p => new Set(p).add(a)); };
   const [ctx, setCtx] = useState<ContextoFaturamento | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [naoInstalado, setNaoInstalado] = useState(false);
@@ -47,7 +56,7 @@ export const Faturamento: React.FC = () => {
     <div className="space-y-5">
       <div className="flex justify-between items-start gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Faturamento</h2>
+          <h2 className="text-2xl font-bold text-slate-800">Emitir faturas do mês</h2>
           <p className="text-slate-500 text-sm max-w-3xl">Ciclo mensal: lance as medições das divisões e o mapa de atracação, mantenha os preços do ano e emita o lote — numeração automática, emissão no dia 15, data-limite em dias úteis e abatimento do adiantamento. Também o lote estimado de fim de exercício (OND) e o acerto no ano seguinte.</p>
         </div>
         <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Recarregar</Button>
@@ -63,18 +72,19 @@ export const Faturamento: React.FC = () => {
         <>
           <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto">
             {ABAS.map(a => (
-              <button key={a.id} onClick={() => setAba(a.id)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === a.id ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{a.label}</button>
+              <button key={a.id} onClick={() => irPara(a.id)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === a.id ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{a.label}</button>
             ))}
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-6">
-            {aba === 'lote' && <>
-              <LoteTab ctx={ctx} usuario={user?.name || user?.email || ''} podeEditar={podeEditar} onEmitido={carregar} />
+            {abertas.has('resumo') && <div role="tabpanel" hidden={aba !== 'resumo'}><ResumoMesTab ctx={ctx} comp={comp} setComp={setComp} ativa={aba === 'resumo'} irPara={irPara} /></div>}
+            {abertas.has('precos') && <div role="tabpanel" hidden={aba !== 'precos'}><PrecosTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
+            {abertas.has('medicoes') && <div role="tabpanel" hidden={aba !== 'medicoes'}><MedicoesTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
+            {abertas.has('atracacao') && <div role="tabpanel" hidden={aba !== 'atracacao'}><AtracacaoTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
+            {abertas.has('lote') && <div role="tabpanel" hidden={aba !== 'lote'} className="space-y-6">
+              <LoteTab ctx={ctx} usuario={user?.name || user?.email || ''} podeEditar={podeEditar} onEmitido={carregar} comp={comp} setComp={setComp} />
               <LotesEmitidos ctx={ctx} podeEditar={podeEditar} versao={versao} recarregar={carregar} />
-            </>}
-            {aba === 'medicoes' && <MedicoesTab ctx={ctx} podeEditar={podeEditar} />}
-            {aba === 'atracacao' && <AtracacaoTab ctx={ctx} podeEditar={podeEditar} />}
-            {aba === 'precos' && <PrecosTab ctx={ctx} podeEditar={podeEditar} />}
-            {aba === 'correcao' && <CorrecaoTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} onEmitido={carregar} />}
+            </div>}
+            {abertas.has('correcao') && <div role="tabpanel" hidden={aba !== 'correcao'}><CorrecaoTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} onEmitido={carregar} /></div>}
           </div>
         </>
       )}

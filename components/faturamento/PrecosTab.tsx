@@ -16,8 +16,12 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const parse = (s: string) => (s.trim() === '' ? null : Number(s.replace(/\./g, '').replace(',', '.')));
 const fmt = (n: number) => String(n).replace('.', ',');
 
-export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean }> = ({ ctx, podeEditar }) => {
-  const [ano, setAno] = useState(new Date().getFullYear());
+export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {
+  // o ano dos preços acompanha a competência escolhida (as outras abas usam a mesma)
+  const ano = Number(comp.slice(0, 4)) || new Date().getFullYear();
+  const [anoTxt, setAnoTxt] = useState(String(ano));
+  useEffect(() => { setAnoTxt(String(ano)); }, [ano]);
+  const setAno = (t: string) => { setAnoTxt(t); const a = Number(t); if (/^\d{4}$/.test(t) && a >= 2000 && a <= 2100) setComp(`${a}-${comp.slice(5, 7) || '01'}`); };
   const [sigla, setSigla] = useState('TC');
   const [vals, setVals] = useState<Valores>({});
   const [salvo, setSalvo] = useState<Valores>({});
@@ -93,7 +97,7 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-3 items-end">
-        <Campo rotulo="Ano"><input className={`${entrada} w-24`} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Ano dos preços" /></Campo>
+        <Campo rotulo="Ano"><input className={`${entrada} w-24`} type="number" value={anoTxt} onChange={e => setAno(e.target.value)} aria-label="Ano dos preços" /></Campo>
         <Campo rotulo="Serviço">
           <select className={entrada} value={sigla} onChange={e => setSigla(e.target.value)} aria-label="Serviço dos preços">{ctx.servicos.map(s => <option key={s.sigla} value={s.sigla}>{s.sigla} — {s.nome}</option>)}</select>
         </Campo>
@@ -107,6 +111,7 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>
+      <Aviso tom="slate"><b>De onde vêm os preços de TC e diária:</b> são calculados na página <b>Taxa condominial e diárias</b> e gravados aqui quando você clica em <b>Publicar</b> lá. Esta aba serve para conferir, ajustar valor de uma OM, importar a tabela da TC ou copiar do ano anterior; o lote usa sempre o que está gravado aqui.</Aviso>
       {porOm && <Aviso tom="slate">{sigla === 'TC' ? `Soma mensal: ${brl(total)} · anual: ${brl(total * 12)}.` : 'Diária de cada navio no ano (Anexo L: lotação × média trienal da classe).'} OM sem valor não recebe fatura deste serviço.</Aviso>}
       {!porOm && (
         <div className="p-3 rounded-lg border border-slate-200 bg-white flex items-center gap-3 text-sm">

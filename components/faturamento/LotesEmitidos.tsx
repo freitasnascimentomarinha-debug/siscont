@@ -3,6 +3,7 @@ import { CheckSquare, Copy, FileArchive, Mail } from 'lucide-react';
 import { ContextoFaturamento, Lote, listarLotes, marcarFaturas } from '../../services/faturamentoService';
 import { baixarZipFr172 } from '../../services/fr172Service';
 import { referencia } from '../../utils/faturamento';
+import { anosDosLotes, filtrarLotes } from '../../utils/resumoFaturamento';
 import { notify } from '../../utils/notify';
 import { Invoice } from '../../types';
 import { Modal } from '../ui/Modal';
@@ -34,8 +35,14 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
   const [aberto, setAberto] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ titulo: string; texto: string; ids: string[] } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [fAno, setFAno] = useState('TODOS');
+  const [fTipo, setFTipo] = useState('TODOS');
+  const [fBusca, setFBusca] = useState('');
+  const [verTodos, setVerTodos] = useState(false);
   useEffect(() => { listarLotes().then(setLotes).catch(() => setLotes([])); }, [versao]);
 
+  const filtrados = useMemo(() => filtrarLotes(lotes, { ano: fAno, tipo: fTipo, busca: fBusca }), [lotes, fAno, fTipo, fBusca]);
+  const visiveis = verTodos ? filtrados : filtrados.slice(0, 12);
   const lote = lotes.find(l => l.id === aberto);
   const faturas = useMemo(() => (aberto ? ctx.invoices.filter(i => i.loteId === aberto) : []), [aberto, ctx.invoices]);
   const saldo = (i: Invoice) => i.saldoAPagar ?? Math.max(0, totalFatura(i) - i.paidAmount);
@@ -65,9 +72,22 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
   if (!lotes.length) return null;
   return (
     <section className="space-y-3">
-      <h3 className="font-semibold text-slate-800">Lotes emitidos</h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <h3 className="font-semibold text-slate-800 mr-2">Lotes emitidos <span className="text-xs font-normal text-slate-500">({filtrados.length} de {lotes.length})</span></h3>
+        <label className="text-xs text-slate-600 flex flex-col gap-1">Ano
+          <select className="text-sm border border-slate-300 rounded-md px-2 py-1 bg-white" value={fAno} onChange={e => setFAno(e.target.value)} aria-label="Filtrar lotes por ano">
+            <option value="TODOS">Todos</option>{anosDosLotes(lotes).map(a => <option key={a} value={a}>{a}</option>)}
+          </select></label>
+        <label className="text-xs text-slate-600 flex flex-col gap-1">Tipo
+          <select className="text-sm border border-slate-300 rounded-md px-2 py-1 bg-white" value={fTipo} onChange={e => setFTipo(e.target.value)} aria-label="Filtrar lotes por tipo">
+            <option value="TODOS">Todos</option>{Object.entries(TIPO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></label>
+        <label className="text-xs text-slate-600 flex flex-col gap-1">Buscar (ex.: OUT26)
+          <input className="text-sm border border-slate-300 rounded-md px-2 py-1 bg-white w-36" value={fBusca} onChange={e => setFBusca(e.target.value)} aria-label="Buscar lote" /></label>
+      </div>
       <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-        {lotes.map(l => (
+        {!visiveis.length && <p className="px-3 py-4 text-sm text-slate-400 text-center">Nenhum lote com esses filtros.</p>}
+        {visiveis.map(l => (
           <div key={l.id}>
             <button className="w-full flex flex-wrap items-center gap-3 px-3 py-2 text-sm text-left hover:bg-slate-50" onClick={() => setAberto(aberto === l.id ? null : l.id)} aria-expanded={aberto === l.id}>
               <span className="font-semibold w-20">{referencia(l.competencia)}</span>
@@ -111,6 +131,7 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
           </div>
         ))}
       </div>
+      {filtrados.length > 12 && <button type="button" className="text-xs font-semibold text-primary-700" onClick={() => setVerTodos(!verTodos)}>{verTodos ? 'Mostrar só os 12 mais recentes' : `Ver todos os ${filtrados.length} lotes`}</button>}
       <Modal isOpen={!!msg} onClose={() => setMsg(null)} title={`Mensagem de envio — ${msg?.titulo ?? ''}`} maxWidth="max-w-3xl"
         footer={<div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={() => { navigator.clipboard?.writeText(msg!.texto); notify.success('Mensagem copiada.'); }}><Copy size={14} className="mr-1" />Copiar</Button>

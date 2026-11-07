@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Calculator, ChevronDown, ChevronRight, Send } from 'lucide-react';
+import { AlertTriangle, Calculator, ChevronDown, ChevronRight, FileSpreadsheet, Send } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { linhasPrevia } from '../../utils/resumoFaturamento';
 import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
@@ -8,13 +10,12 @@ import {
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
-import { Aviso, Campo, br, brl, compAtual, entrada } from './comum';
+import { Aviso, Campo, br, brl, entrada } from './comum';
 
 const MEDIDOS = ['AE', 'EL', 'TL', 'VT', 'RB', 'CR'];
 
-export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; podeEditar: boolean; onEmitido: () => Promise<void> }> = ({ ctx, usuario, podeEditar, onEmitido }) => {
+export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; podeEditar: boolean; onEmitido: () => Promise<void>; comp: string; setComp: (c: string) => void }> = ({ ctx, usuario, podeEditar, onEmitido, comp, setComp }) => {
   const [tipo, setTipo] = useState<TipoLote>('MENSAL');
-  const [comp, setComp] = useState(compAtual());
   const [anoOnd, setAnoOnd] = useState(String(new Date().getFullYear() - (new Date().getMonth() < 9 ? 1 : 0)));
   const [emissao, setEmissao] = useState('');
   const [limite, setLimite] = useState('');
@@ -87,6 +88,12 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
     } catch (e) { notify.fail('Erro ao emitir o lote', e); } finally { setEmitindo(null); }
   };
 
+  const exportarPrevia = () => {
+    const ws = XLSX.utils.aoa_to_sheet(linhasPrevia(final));
+    ws['!cols'] = [30, 8, 46, 24, 12, 8, 14, 16, 14, 12, 14, 50].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Prévia');
+    XLSX.writeFile(wb, `previa_lote_${tipo}_${compLote}.xlsx`);
+  };
   const alternar = (k: string) => setAbertos(p => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   return (
@@ -178,6 +185,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
               </tbody>
             </table>
           </div>
+          <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={exportarPrevia} disabled={!final.length}><FileSpreadsheet size={14} className="mr-1" />Prévia em Excel ({final.length})</Button></div>
           {fora.size > 0 && <p className="text-xs text-slate-500">{fora.size} fatura(s) retirada(s) da prévia. <button className="text-primary-700 underline" onClick={() => setFora(new Set())}>Recolocar</button></p>}
           {podeEditar && final.length > 0 && (
             <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 flex flex-wrap items-center gap-3">

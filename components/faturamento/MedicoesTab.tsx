@@ -24,9 +24,8 @@ const anteriores = (comp: string, n: number) => {
   return Array.from({ length: n }, (_, i) => { const d = new Date(Date.UTC(ano, mes - 2 - i, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; });
 };
 
-export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean }> = ({ ctx, podeEditar }) => {
+export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {
   const medidos = ctx.servicos.filter(s => !['TC', 'DA'].includes(s.sigla));
-  const [comp, setComp] = useState(compAtual());
   const [sigla, setSigla] = useState(medidos.find(s => s.sigla === 'EL')?.sigla || medidos[0]?.sigla || 'EL');
   const [linhas, setLinhas] = useState<Record<string, Linha>>({});
   const [salvo, setSalvo] = useState<Record<string, Linha>>({});

@@ -512,9 +512,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
 
     await page.reload();
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    // resumo do mês: abre primeiro e aponta o que falta antes de calcular
+    await page.getByText(/pendência\(s\) para/).waitFor();
+    ok(await page.getByText('Nenhum preço carregado.').first().isVisible(), 'resumo do mês: preços da TC pendentes antes de lançar');
+    ok(await page.getByText(/Nenhuma medição lançada/).first().isVisible() && await page.getByText(/Mapa não lançado/).isVisible(), 'resumo do mês: medições e mapa de atracação pendentes');
     // preços
-    await page.getByRole('button', { name: 'Preços do ano' }).click();
+    await page.getByRole('button', { name: 'Preços do ano', exact: true }).click();
     await page.getByLabel('Ano dos preços').fill('2026');
     await page.getByLabel('TC Diretoria Industrial da Marinha').fill('19615,73');
     await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
@@ -525,29 +529,36 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.waitForTimeout(400);
     ok(db.precos.length === 2 && db.precos.some(p => p.sigla === 'DA' && Number(p.valor) === 95.51), 'TC e diária de atracação de 2026 gravadas');
     // medições: rateio
-    await page.getByRole('button', { name: 'Medições do mês' }).click();
+    await page.getByRole('button', { name: 'Medições do mês', exact: true }).click();
     await page.getByLabel('Competência das medições').fill('2026-08');
     await page.getByLabel('Serviço', { exact: true }).selectOption('EL');
-    await page.locator('input[type=file]').setInputFiles(rateio);
+    await page.getByRole('tabpanel').locator('input[type=file]').setInputFiles(rateio);
     await page.getByText(/Código 99999 .* não está no cadastro/).waitFor();
     await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
     await page.getByText('2 medição(ões) gravada(s).').waitFor();
     ok(db.medicoes.length === 2 && Number(db.medicoes.find(m => m.om_id === dim.id).valor) === 10134.19, 'rateio importado: 2 OM, código desconhecido apontado');
     // atracação
-    await page.getByRole('button', { name: 'Atracação (BNIC-35)' }).click();
+    await page.getByRole('button', { name: 'Atracação (BNIC-35)', exact: true }).click();
     await page.getByLabel('Competência do mapa').fill('2026-08');
-    await page.locator('input[type=file]').setInputFiles(mapa);
+    ok(await page.getByText(/Nenhum navio com mapa lançado/).isVisible() && await page.getByRole('button', { name: /Navio-Patrulha Mangaratiba dia 1$/ }).count() === 0, 'atracação: grade vazia até lançar o mapa (não lista todos os navios ativos)');
+    await page.getByRole('tabpanel').locator('input[type=file]').setInputFiles(mapa);
     await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
     await page.getByText('1 navio(s) gravado(s).').waitFor();
     ok(db.atracacoes[0].dias_atracado === 31 && db.atracacoes[0].om_id === npa.id, 'mapa BNIC-35 importado: Mangaratiba 31 dias atracado');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-atracacao.png') });
     // lote
-    await page.getByRole('button', { name: 'Lote de faturas' }).click();
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
     await page.getByLabel('Competência', { exact: true }).fill('2026-08');
     await page.getByRole('button', { name: 'Calcular prévia' }).click();
     await page.getByText('40030-TC-08-2026-001-0').waitFor();
     ok(await page.getByLabel('Valor de 40032-DA-08-2026-001-0').inputValue() === '2960.81', 'DA = 95,51 × 31 = 2.960,81');
     ok(await page.getByText('00994-EL-08-2026-001-0').isVisible() && await page.getByText('40030-EL-08-2026-002-0').isVisible(), 'numeração: extra-MB primeiro, sequência por serviço');
+    await page.getByRole('button', { name: 'Resumo do mês', exact: true }).click();
+    ok(await page.getByLabel('Competência do resumo').inputValue() === '2026-08', 'competência compartilhada entre as abas');
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    ok(await page.getByText('40030-TC-08-2026-001-0').isVisible(), 'trocar de aba não apaga a prévia do lote');
+    const [dlPrevia] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Prévia em Excel/ }).click()]);
+    ok(/^previa_lote_MENSAL_2026-08\.xlsx$/.test(dlPrevia.suggestedFilename()), 'prévia do lote exportada em Excel');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-previa.png'), fullPage: false });
     await page.getByRole('button', { name: 'Emitir lote' }).click();
     await page.getByRole('button', { name: 'Sim, emitir' }).click();
@@ -559,6 +570,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Baixa na ALTCRED G424.2026.AC.00403/.test(db.invoices.find(i => i.id === ad[0].invoice_id).observation), 'fatura registra "Baixa na ALTCRED"');
     ok(db.lotes_faturamento.length === 1 && db.lotes_faturamento[0].qtd === 4, 'lote registrado');
     // lotes emitidos: mensagem e PDF
+    await page.getByLabel('Buscar lote').fill('zzz');
+    ok(await page.getByText('Nenhum lote com esses filtros.').isVisible(), 'lotes emitidos: busca sem resultado');
+    await page.getByLabel('Buscar lote').fill('ago26');
+    await page.getByLabel('Filtrar lotes por tipo').selectOption('MENSAL');
     await page.getByRole('button', { name: /AGO26/ }).click();
     await page.getByRole('button', { name: /mensagem/ }).first().click();
     const texto = await page.getByLabel('Texto da mensagem').inputValue();
@@ -629,7 +644,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(el.is_canceled && el.cancelamento_motivo === 'Emitida em duplicidade' && el.cancelada_por === 'CC Admin', 'cancelamento registra motivo e responsável');
     // 4) correção por atraso: RB paga em 29/10 com data-limite 29/09
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('button', { name: 'Correção por atraso (OI 6.2)' }).click();
+    await page.getByRole('button', { name: 'Correção por atraso (OI 6.2)', exact: true }).click();
     await page.getByLabel('Taxa SET26').fill('0,6');
     await page.getByLabel('Taxa OUT26').fill('0,6');
     await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
@@ -1097,11 +1112,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
 
     await page.reload();
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
-    await page.getByRole('button', { name: 'Medições do mês' }).click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Medições do mês', exact: true }).click();
     await page.getByLabel('Competência das medições').fill('2026-08');
     await page.getByLabel('Serviço', { exact: true }).selectOption('EL');
-    await page.locator('input[type=file]').setInputFiles(arq);
+    await page.getByRole('tabpanel').locator('input[type=file]').setInputFiles(arq);
     const dlg = page.getByRole('dialog', { name: 'Conferir planilha de água e esgoto' });
     await dlg.waitFor();
     ok(await dlg.getByText('Confere', { exact: false }).first().isVisible(), 'totais da planilha conferem com as contas da concessionária');
@@ -1158,8 +1173,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // lote: a BNIC fica de fora (só controle)
     await page.reload();
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
-    await page.getByRole('button', { name: 'Lote de faturas' }).click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
     await page.getByLabel('Competência', { exact: true }).fill('2026-08');
     await page.getByRole('button', { name: 'Calcular prévia' }).click();
     await page.getByText(/é a OM emissora: R\$ 5\.000,00 de rateio \(EL\)/).waitFor();
