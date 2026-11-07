@@ -206,7 +206,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (process.env.CENARIO && !nome.includes(process.env.CENARIO)) return; // ex.: CENARIO='Fase 5'
     console.log(`\n▶ ${nome}`);
     const db = novoBanco(); const log = [];
-    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: 'America/Sao_Paulo', locale: 'pt-BR' });
     const page = await ctx.newPage();
     const erros = [];
     page.on('pageerror', e => erros.push(e.message));
@@ -613,6 +613,66 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Correção por atraso (OI 41-02, item 7.3)', exact: true }).waitFor();
     ok(true, 'aba de correção cita a norma cadastrada');
     ok(await page.getByRole('button', { name: 'Atracação', exact: true }).isVisible() && !(await page.getByText(/BNIC-35/).count()), 'nenhum setor fixo (BNIC-35) nas abas do Faturamento');
+  });
+
+  await cenario('Faturas emitidas: datas sem perder 1 dia, filtros, lote e exclusão só do administrador', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', indicativo_naval: 'DIMRJ', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const f = (id, n, extra) => ({ id, invoice_number: n, ug: '40030', sector: 'DGMM', command: 'Com A', client: 'Diretoria Industrial da Marinha', value: 1000, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-09-15', due_date: '2026-10-15', month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false,
+      om_id: om.id, lote_id: null, enviada_em: null, certificada_em: null, siafi_em: null, data_limite_certificacao: '2026-09-29', ...extra });
+    db.invoices = [f(uid(), '40030-TC-08-2026-001-0', {}), f(uid(), '40030-EL-08-2026-001-0', { type: 'Eletricidade', service_acronym: 'EL', value: 500 }),
+      f(uid(), '51209-DA-01-2023-047-0', { client: 'NHo Taurus', om_id: null, ug: '51209', sector: 'COMOPNAV', command: 'Com B', month_competence: 1, year_competence: 2023, competence: '01/2023' }),
+      f(uid(), '40030-TC-07-2026-001-0', { is_canceled: true, value: 9999, month_competence: 7, competence: '07/2026' })];
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
+    await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).waitFor();
+    // 1. data de vencimento sem perder 1 dia (o navegador do teste roda em fuso de Brasília)
+    ok((await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).innerText()).includes('15/10/2026'), 'vencimento 15/10/2026 aparece como 15/10/2026 (sem perder 1 dia)');
+    // 3. cabeçalho: ativas e canceladas, serviço sem as canceladas
+    await page.getByText(/Na lista: 4/).waitFor();
+    ok(await page.getByText(/3 ativas, 1 canceladas/).isVisible() && await page.getByText(/R\$ 2\.500,00/).first().isVisible(), 'cabeçalho: 3 ativas, 1 cancelada e serviço prestado sem a cancelada (R$ 2.500,00)');
+    // 5. sem OM ligada
+    ok(await page.getByRole('button', { name: /1 sem OM ligada/ }).isVisible(), 'aponta a fatura sem OM ligada ao cadastro');
+    await page.getByLabel('Filtrar por cadastro').selectOption('sem');
+    ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro "só sem OM ligada" mostra só a fatura sem cadastro');
+    await page.getByRole('button', { name: 'limpar estes filtros' }).click();
+    // 2. filtro de várias escolhas: só o setor COMOPNAV
+    await page.getByRole('button', { name: /^Setor:/ }).click();
+    await page.getByTitle('Mostrar só COMOPNAV').click({ force: true });
+    await page.keyboard.press('Escape');
+    ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro de setor (várias escolhas): só COMOPNAV');
+    await page.getByRole('button', { name: 'limpar estes filtros' }).click();
+    // acompanhamento e lote
+    await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).getByRole('button').first().waitFor();
+    await page.getByLabel('Selecionar a fatura 40030-TC-08-2026-001-0').check();
+    await page.getByLabel('Selecionar a fatura 40030-EL-08-2026-001-0').check();
+    await page.getByText('2 selecionada(s)').waitFor();
+    await page.getByRole('button', { name: 'SIPLAD: lançado' }).click();
+    await page.getByText(/2 fatura\(s\): SIPLAD lançado/).waitFor();
+    ok(db.invoices.filter(i => i.siplad_settled).length === 2, 'SIPLAD marcado em lote em 2 faturas');
+    await page.getByLabel('Selecionar a fatura 40030-TC-08-2026-001-0').check();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-emitidas.png'), fullPage: false });
+    await page.getByRole('button', { name: 'Enviadas hoje' }).click();
+    await page.getByText(/1 fatura\(s\): marcadas como enviadas/).waitFor();
+    const tc = db.invoices.find(i => i.invoice_number === '40030-TC-08-2026-001-0');
+    ok(!!tc.enviada_em && !db.invoices.find(i => i.invoice_number === '40030-EL-08-2026-001-0').enviada_em, 'envio marcado em lote só na fatura escolhida');
+    await page.getByLabel('Filtrar por andamento').selectOption('naoEnviada');
+    await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).waitFor({ state: 'detached' });
+    ok(await page.getByRole('row', { name: /40030-EL-08-2026-001-0/ }).count() === 1, 'filtro "ainda não enviadas" tira a fatura enviada');
+    await page.getByLabel('Filtrar por andamento').selectOption('');
+    // acompanhamento na linha expandida
+    await page.getByRole('row', { name: /40030-EL-08-2026-001-0/ }).getByRole('button').first().click();
+    await page.getByText('Data-limite de certificação').waitFor();
+    ok(await page.getByText('29/09/2026').isVisible(), 'data-limite de certificação 29/09/2026 (sem perder 1 dia)');
+    // 12. nova fatura avulsa com aviso; 10. ações com nome acessível; 11. exclusão (admin vê)
+    ok(await page.getByRole('button', { name: 'Editar a fatura 40030-TC-08-2026-001-0' }).isVisible() && await page.getByRole('button', { name: 'Excluir a fatura 40030-TC-08-2026-001-0' }).isVisible(), 'ações com nome acessível; administrador vê Excluir');
+    await page.getByRole('button', { name: /Nova fatura avulsa/ }).click();
+    ok(await page.getByText(/A emissão regular é feita pelo lote/).isVisible(), 'nova fatura avulsa avisa que a emissão regular é pelo lote');
+    await page.keyboard.press('Escape');
   });
 
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {
@@ -1063,7 +1123,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Cliente', { exact: true }).fill('industrial');
     await page.getByRole('option', { name: /Diretoria Industrial da Marinha/ }).first().click();
     ok(await page.getByText(/Ligado ao cadastro: 40030 · Diretoria Industrial da Marinha/).isVisible()
-      && await page.getByLabel('UG (Unidade Gestora)').inputValue() === '40030' && await page.getByLabel('Setor').inputValue() === 'DGMM', 'fatura: cliente escolhido no cadastro preenche UG, setor e comando');
+      && await page.getByLabel('UG (Unidade Gestora)').inputValue() === '40030' && await page.getByLabel('Setor', { exact: true }).inputValue() === 'DGMM', 'fatura: cliente escolhido no cadastro preenche UG, setor e comando');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
     await page.getByRole('button', { name: 'Novo Documento' }).click();

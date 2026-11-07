@@ -1,4 +1,5 @@
 
+import { dataBR } from '../utils/datas';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
@@ -346,7 +347,7 @@ export const ReceivedBalances: React.FC = () => {
     filteredDocs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(d => {
       // Main Row
       bodyRows.push([
-        new Date(d.date).toLocaleDateString(),
+        dataBR(d.date),
         d.sector,
         d.command,
         d.client,
@@ -617,7 +618,7 @@ export const ReceivedBalances: React.FC = () => {
                                     {!!doc.valorEstornado && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">Estorno R$ {doc.valorEstornado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
                                     {doc.situacaoSiplad && !/processad/i.test(doc.situacaoSiplad) && <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700">SIPLAD: {doc.situacaoSiplad}</span>}
                                   </div>
-                                  <p className="text-sm text-slate-500">{new Date(doc.date).toLocaleDateString()} - {doc.client}</p>
+                                  <p className="text-sm text-slate-500">{dataBR(doc.date)} - {doc.client}</p>
                                 </div>
                               </div>
 

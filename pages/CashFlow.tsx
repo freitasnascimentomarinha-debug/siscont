@@ -1,4 +1,5 @@
 
+import { dataBR } from '../utils/datas';
 import { BaixarModelo } from '../components/ui/BaixarModelo';
 import { modeloNotasEmpenho } from '../utils/modelos';
 import React, { useState, useEffect, useRef } from 'react';
@@ -180,7 +181,7 @@ const Lancamentos: React.FC = () => {
     doc.text(`Período: ${filterMonth ? filterMonth : 'Todos'}/${filterYear ? filterYear : 'Todos'} | Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
 
     const rows = filteredItems.map(item => [
-      new Date(item.date).toLocaleDateString(),
+      dataBR(item.date),
       item.documentNumber + (item.isCanceled ? ' (CANCELADO)' : ''),
       item.client,
       item.description + (item.rubric ? ` (${item.rubric})` : ''),
@@ -397,7 +398,7 @@ const Lancamentos: React.FC = () => {
             <tbody className="bg-white divide-y divide-slate-200">
               {filteredItems.map((item, idx) => (
                 <tr key={`${item.id}-${idx}`} className={`hover:bg-slate-50 ${item.isCanceled ? 'bg-slate-100' : ''}`}>
-                  <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{new Date(item.date).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{dataBR(item.date)}</td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-900">
                     {item.documentNumber}
                     {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}

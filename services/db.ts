@@ -1,4 +1,5 @@
 
+import { hojeISO } from '../utils/datas';
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition } from '../types';
 import { supabaseService } from './supabaseService';
 import { ehAdiantamento } from '../utils/baixas';
@@ -134,7 +135,7 @@ export const db = {
       if (ehAdiantamento(a, doc)) t.adiant += a.amount; else t.pago += a.amount;
       porFatura.set(a.invoiceId, t);
     });
-    const today = new Date().toISOString().split('T')[0];
+    const today = hojeISO(); // calendário local: às 21h de Brasília o UTC já é o dia seguinte e marcaria como vencida a fatura que vence hoje
     const pontos = avaliarPontos(invoices, documents, allocations).faturas;
 
     return invoices.map(inv => {

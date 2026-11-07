@@ -251,6 +251,15 @@ export async function marcarFaturas(ids: string[], campo: 'enviada_em' | 'certif
   db.invalidateCache();
 }
 
+/** Marca (ou desmarca) o lançamento no SIPLAD de várias faturas de uma vez. */
+export async function marcarSiplad(ids: string[], lancado: boolean) {
+  for (let i = 0; i < ids.length; i += 200) {
+    const { error } = await supabase.from('invoices').update({ siplad_settled: lancado }).in('id', ids.slice(i, i + 200));
+    checar(error);
+  }
+  db.invalidateCache();
+}
+
 /** Faturas do lote com os campos da Fase 3 (lidos direto, para o PDF e o envio). */
 export async function faturasDoLote(loteId: string) {
   const rows = await tudo('invoices', q => q.eq('lote_id', loteId));

@@ -1,4 +1,5 @@
 
+import { dataBR, hojeISO } from '../utils/datas';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
 import { ORDEM_PADRAO, Ordem, ordenarFaturas } from '../utils/ordenarFaturas';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -16,6 +17,10 @@ import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
 import { HistoricoModal } from '../components/auditoria/Historico';
+import { MultiFiltro } from '../components/ui/MultiFiltro';
+import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura';
+import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
+import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, resumoCabecalho, setorDe, temFiltroExtra } from '../utils/filtrosFaturas';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -43,6 +48,7 @@ function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
 export const Invoices: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = user?.role === UserRole.READ_ONLY;
+  const isAdmin = user?.role === UserRole.ADMIN;
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<'list' | 'map'>('list');
@@ -82,6 +88,9 @@ export const Invoices: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSiplad, setFilterSiplad] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
+  const [extras, setExtras] = useState<FiltrosExtras>(SEM_FILTROS);
+  const setExtra = (p: Partial<FiltrosExtras>) => setExtras(x => ({ ...x, ...p }));
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
   const [acaoFatura, setAcaoFatura] = useState<AcaoFatura>(null);
   const [historicoDe, setHistoricoDe] = useState<Invoice | null>(null);
@@ -496,7 +505,7 @@ export const Invoices: React.FC = () => {
             documentId: dist.docId,
             invoiceId: payload.id,
             amount: dist.amountUsed,
-            date: new Date().toISOString().split('T')[0],
+            date: hojeISO(),
             siscontSettled: true,
             observation: 'Abatimento automático de Adiantamento',
             serviceType: payload.type,
@@ -532,7 +541,7 @@ export const Invoices: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    if (actionId && !isReadOnly) {
+    if (actionId && isAdmin) {
       try {
         await db.deleteInvoice(actionId);
         notify.success('Fatura excluída.');
@@ -593,9 +602,9 @@ export const Invoices: React.FC = () => {
       const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
       const abertos = pendentes(inv.pontos);
       const matchesPontos = !filterPontos || (filterPontos === 'any' ? abertos.length > 0 : abertos.some(p => p.gravidade === filterPontos));
-      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos;
+      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos && passaFiltrosExtras(inv, extras);
     }), ordem);
-  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem]);
+  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem, extras]);
 
   const totalCount = filteredInvoices.length;
   
@@ -615,7 +624,13 @@ export const Invoices: React.FC = () => {
 
   const totals = useMemo(() => calculateTotals(filteredInvoices), [filteredInvoices, calcPorFatura]);
   // volta para a 1ª página quando os filtros mudam
-  useEffect(() => { setPagina(0); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina, ordem]);
+  useEffect(() => { setPagina(0); setSelecionadas(new Set()); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina, ordem, extras]);
+  const cabecalho = useMemo(() => resumoCabecalho(filteredInvoices), [filteredInvoices]);
+  const opSetores = useMemo(() => [...new Set(invoices.map(setorDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
+  const opComandos = useMemo(() => [...new Set(invoices.map(comandoDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
+  const opClientes = useMemo(() => [...new Set(invoices.map(clienteDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
+  const semOM = useMemo(() => invoices.filter(i => !i.omId).length, [invoices]);
+  const semCompetencia = useMemo(() => invoices.filter(i => !i.yearCompetence).length, [invoices]);
   const totalPaginas = Math.max(1, Math.ceil(filteredInvoices.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
   const faturasDaPagina = filteredInvoices.slice(paginaAtual * porPagina, (paginaAtual + 1) * porPagina);
@@ -718,8 +733,8 @@ export const Invoices: React.FC = () => {
                 invoiceNumber: cols[2] || 'S/N',
                 type: cols[3] || 'Outros',
                 value: Number(cols[4].replace('.', '').replace(',', '.')) || 0,
-                issueDate: cols[5] || new Date().toISOString().split('T')[0],
-                dueDate: cols[6] || new Date().toISOString().split('T')[0],
+                issueDate: cols[5] || hojeISO(),
+                dueDate: cols[6] || hojeISO(),
                 monthCompetence: Number(cols[7]) || new Date().getMonth() + 1,
                 yearCompetence: Number(cols[8]) || new Date().getFullYear(),
                 competence: `${(Number(cols[7]) || 1).toString().padStart(2, '0')}/${cols[8] || 2024}`,
@@ -770,8 +785,8 @@ export const Invoices: React.FC = () => {
     doc.text(`Tipo: ${inv.type}`, col2X, y);
     y += lineHeight;
 
-    doc.text(`Emissão: ${new Date(inv.issueDate).toLocaleDateString()}`, 20, y);
-    doc.text(`Vencimento: ${new Date(inv.dueDate).toLocaleDateString()}`, col2X, y);
+    doc.text(`Emissão: ${dataBR(inv.issueDate)}`, 20, y);
+    doc.text(`Vencimento: ${dataBR(inv.dueDate)}`, col2X, y);
     y += lineHeight + 5;
 
     doc.setFillColor(240, 240, 240);
@@ -859,18 +874,19 @@ export const Invoices: React.FC = () => {
       {/* Header & Stats */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Faturas</h2>
-          <div className="flex gap-4 text-sm text-slate-500 mt-1">
-            <span>Total Ativas: <strong>{totalCount}</strong></span>
-            <span>Total Serviço Prestado: <strong>R$ {totalServiceSum.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+          <h2 className="text-2xl font-bold text-slate-800">Faturas emitidas</h2>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-1">
+            <span>Na lista: <strong>{cabecalho.total}</strong> ({cabecalho.ativas} ativas{cabecalho.canceladas ? `, ${cabecalho.canceladas} canceladas` : ''})</span>
+            <span>Serviço prestado (sem canceladas): <strong>R$ {cabecalho.servico.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+            {semOM > 0 && <button type="button" className="text-amber-700 underline" onClick={() => setExtra({ cadastro: 'sem' })} title="Faturas cujo cliente não está ligado a uma OM do cadastro">{semOM} sem OM ligada</button>}
           </div>
         </div>
         <div className="flex gap-2">
-          {!isReadOnly && (
+          {isAdmin && (
             <>
               <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
               <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-2" /> Importar
+                <Upload className="w-4 h-4 mr-2" /> Importar CSV
               </Button>
             </>
           )}
@@ -882,7 +898,7 @@ export const Invoices: React.FC = () => {
           </Button>
           {!isReadOnly && (
             <Button onClick={() => { setEditingId(null); setFormData({}); setSaveError(null); setIsModalOpen(true); }}>
-              <Plus className="w-4 h-4 mr-2" /> Nova Fatura
+              <Plus className="w-4 h-4 mr-2" /> Nova fatura avulsa
             </Button>
           )}
         </div>
@@ -914,14 +930,14 @@ export const Invoices: React.FC = () => {
       {activeTab === 'list' && (
         <>
           {/* Filters */}
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 items-end">
-            <div className="flex-1 w-full">
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:flex-wrap gap-3 items-end">
+            <div className="flex-1 w-full md:min-w-[220px]">
               <Input label="Busca" placeholder="UG, Cliente ou número..." value={searchText} onChange={e => setSearchText(e.target.value)} />
             </div>
             <div className="w-full md:w-32">
               <Select label="Mês" options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
             </div>
-            <div className="w-full md:w-24">
+            <div className="w-full md:w-64">
               <Select label="Ordenar por" options={[
                 { label: 'Competência (mais recente) › vencimento › A–Z', value: 'competencia|0' },
                 { label: 'Competência (mais antiga) › vencimento › A–Z', value: 'competencia|1' },
@@ -930,7 +946,9 @@ export const Invoices: React.FC = () => {
                 { label: 'Cliente (A–Z)', value: 'cliente|1' },
                 { label: 'Número da fatura', value: 'numero|1' },
               ]} value={`${ordem.campo}|${ordem.asc ? 1 : 0}`} onChange={e => { const [c, a] = e.target.value.split('|'); setOrdem({ campo: c as any, asc: a === '1' }); }} />
-              <Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y }))} value={filterYear} onChange={e => setFilterYear(e.target.value)} />
+            </div>
+            <div className="w-full md:w-28">
+              <Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y })).concat(semCompetencia ? [{ label: 'Sem competência', value: 0 }] : [])} value={filterYear} onChange={e => setFilterYear(e.target.value)} />
             </div>
             <div className="w-full md:w-40">
               <Select label="Status" options={[{ label: 'Em Aberto', value: InvoiceStatus.OPEN }, { label: 'Quitada', value: InvoiceStatus.PAID }, { label: 'Vencida', value: InvoiceStatus.OVERDUE }, { label: 'Cancelada', value: InvoiceStatus.CANCELLED }]} value={filterStatus} onChange={e => setFilterStatus(e.target.value)} />
@@ -946,12 +964,34 @@ export const Invoices: React.FC = () => {
             </div>
           </div>
 
+          {/* Filtros de várias escolhas e andamento */}
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap gap-4 items-end">
+            <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={extras.setoresExcluidos} onChange={x => setExtra({ setoresExcluidos: x })} />
+            <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={extras.comandosExcluidos} onChange={x => setExtra({ comandosExcluidos: x })} largura="w-96" />
+            <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={extras.clientesExcluidos} onChange={x => setExtra({ clientesExcluidos: x })} largura="w-96" />
+            <label className="text-xs font-semibold text-slate-600">Cadastro
+              <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.cadastro} onChange={e => setExtra({ cadastro: e.target.value as FiltrosExtras['cadastro'] })} aria-label="Filtrar por cadastro">
+                <option value="">Todas</option><option value="sem">Só sem OM ligada ({semOM})</option>
+              </select></label>
+            <label className="text-xs font-semibold text-slate-600">Andamento
+              <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.andamento} onChange={e => setExtra({ andamento: e.target.value as FiltrosExtras['andamento'] })} aria-label="Filtrar por andamento">
+                <option value="">Todas</option><option value="naoEnviada">Ainda não enviadas</option><option value="naoCertificada">Ainda não certificadas</option><option value="semSiafi">Sem registro no SIAFI</option>
+              </select></label>
+            {temFiltroExtra(extras) && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setExtras(SEM_FILTROS)}>limpar estes filtros</button>}
+          </div>
+
+          {!isReadOnly && <BarraLoteFaturas selecionadas={[...selecionadas]} totalFiltradas={filteredInvoices.length} selecionouTodas={selecionadas.size === filteredInvoices.length}
+            onSelecionarFiltradas={() => setSelecionadas(new Set(filteredInvoices.map(i => i.id)))} onLimpar={() => setSelecionadas(new Set())} onFeito={refresh} />}
+
           {/* Table */}
           <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
+                    {!isReadOnly && <th className="px-2 py-3 text-left"><input type="checkbox" aria-label="Selecionar as faturas desta página" className="h-4 w-4 accent-primary-600"
+                      checked={faturasDaPagina.length > 0 && faturasDaPagina.every(i => selecionadas.has(i.id))}
+                      onChange={e => setSelecionadas(prev => { const n = new Set(prev); faturasDaPagina.forEach(i => (e.target.checked ? n.add(i.id) : n.delete(i.id))); return n; })} /></th>}
                     <th className="px-2 py-3 text-left"></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'competencia' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'competencia', asc: o.campo === 'competencia' ? !o.asc : false }))}>Comp.{ordem.campo === 'competencia' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
@@ -971,10 +1011,10 @@ export const Invoices: React.FC = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {carregando && invoices.length === 0 && (
-                    <tr><td colSpan={15} className="px-4 py-10 text-center text-slate-500 text-sm">Carregando faturas...</td></tr>
+                    <tr><td colSpan={16} className="px-4 py-10 text-center text-slate-500 text-sm">Carregando faturas...</td></tr>
                   )}
                   {!carregando && filteredInvoices.length === 0 && (
-                    <tr><td colSpan={15} className="px-4 py-10 text-center text-slate-400 text-sm">Nenhuma fatura com esses filtros.</td></tr>
+                    <tr><td colSpan={16} className="px-4 py-10 text-center text-slate-400 text-sm">Nenhuma fatura com esses filtros.</td></tr>
                   )}
                   {faturasDaPagina.map((inv) => {
                     const calc = getInvoiceCalculations(inv);
@@ -982,7 +1022,9 @@ export const Invoices: React.FC = () => {
 
                     return (
                       <React.Fragment key={inv.id}>
-                        <tr className={`hover:bg-slate-50 ${inv.isCanceled ? 'bg-slate-50 opacity-75' : ''}`}>
+                        <tr className={`hover:bg-slate-50 ${inv.isCanceled ? 'bg-slate-50 opacity-75' : ''} ${selecionadas.has(inv.id) ? 'bg-primary-50/50' : ''}`}>
+                          {!isReadOnly && <td className="px-2 py-4"><input type="checkbox" aria-label={`Selecionar a fatura ${inv.invoiceNumber}`} className="h-4 w-4 accent-primary-600" checked={selecionadas.has(inv.id)}
+                            onChange={() => setSelecionadas(prev => { const n = new Set(prev); n.has(inv.id) ? n.delete(inv.id) : n.add(inv.id); return n; })} /></td>}
                           <td className="px-2 py-4">
                             <button onClick={() => setExpandedRowId(isExpanded ? null : inv.id)} className="text-slate-400 hover:text-primary-600">
                               {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -993,6 +1035,12 @@ export const Invoices: React.FC = () => {
                               ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700" title={`Substituída por ${inv.substituidaPor}${inv.cancelamentoMotivo ? `: ${inv.cancelamentoMotivo}` : ''}`}><RefreshCcw size={12} className="mr-1" /> Substituída</span>
                               : <span title={inv.isCanceled && inv.cancelamentoMotivo ? `Motivo: ${inv.cancelamentoMotivo}` : undefined}>{getStatusBadge(inv.status)}</span>}
                             {inv.contestada && !inv.isCanceled && <div className="mt-1"><span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800">Contestada</span></div>}
+                            {!inv.isCanceled && <div className="mt-1 flex gap-1" aria-label="Andamento da fatura">
+                              {([['E', 'Enviada', inv.enviadaEm], ['C', 'Certificada', inv.certificadaEm], ['S', 'SIAFI', inv.siafiEm]] as const).map(([l, nome, d]) => (
+                                <span key={l} title={d ? `${nome} em ${dataBR(d)}` : `${nome}: pendente`} aria-label={d ? `${nome} em ${dataBR(d)}` : `${nome}: pendente`}
+                                  className={`inline-flex w-5 h-5 items-center justify-center rounded text-[10px] font-bold ${d ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-400'}`}>{l}</span>
+                              ))}
+                            </div>}
                           </td>
                           <td className="px-4 py-4 text-sm text-slate-500">{inv.competence}</td>
                           <td className="px-4 py-4 text-sm text-slate-700">{inv.ug || '-'}</td>
@@ -1004,7 +1052,7 @@ export const Invoices: React.FC = () => {
                             </span>
                           </td>
                           <td className="px-4 py-4 text-sm text-slate-500 truncate max-w-[100px]" title={inv.type}>{inv.type}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500">{new Date(inv.dueDate).toLocaleDateString()}</td>
+                          <td className="px-4 py-4 text-sm text-slate-500">{dataBR(inv.dueDate)}</td>
                           <td className="px-4 py-4 text-sm font-semibold text-slate-900">R$ {calc.valService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 text-sm text-slate-500">R$ {calc.add.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 text-sm text-slate-500">R$ {calc.ded.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
@@ -1013,15 +1061,15 @@ export const Invoices: React.FC = () => {
                           <td className="px-4 py-4 text-sm font-bold text-slate-800">R$ {calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex justify-end gap-2">
-                              <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)"><Printer size={16} /></button>
+                              <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)" aria-label={`PDF da fatura ${inv.invoiceNumber}`}><Printer size={16} /></button>
                               <button onClick={() => setHistoricoDe(inv)} className="text-slate-400 hover:text-slate-800" title="Histórico: quem alterou e quando" aria-label={`Histórico da fatura ${inv.invoiceNumber}`}><History size={16} /></button>
                               {!inv.isCanceled && !isReadOnly && (
                                 <>
-                                  <button onClick={() => handleEdit(inv)} className="text-indigo-600 hover:text-indigo-900"><Edit2 size={16} /></button>
-                                  <button onClick={() => setAcaoFatura({ tipo: 'substituir', fatura: inv })} className="text-sky-600 hover:text-sky-900" title="Retificar: cancela e substitui (nova versão)"><RefreshCcw size={16} /></button>
-                                  {!inv.contestada && <button onClick={() => setAcaoFatura({ tipo: 'contestar', fatura: inv })} className="text-amber-600 hover:text-amber-800" title="Abrir contestação"><MessageSquareWarning size={16} /></button>}
-                                  <button onClick={() => setAcaoFatura({ tipo: 'cancelar', fatura: inv })} className="text-orange-600 hover:text-orange-900" title="Cancelar fatura (motivo obrigatório)"><Ban size={16} /></button>
-                                  <button onClick={() => { setActionId(inv.id); setIsDeleteModalOpen(true); }} className="text-red-600 hover:text-red-900"><Trash2 size={16} /></button>
+                                  <button onClick={() => handleEdit(inv)} className="text-indigo-600 hover:text-indigo-900" title="Editar a fatura" aria-label={`Editar a fatura ${inv.invoiceNumber}`}><Edit2 size={16} /></button>
+                                  <button onClick={() => setAcaoFatura({ tipo: 'substituir', fatura: inv })} className="text-sky-600 hover:text-sky-900" title="Retificar: cancela e substitui (nova versão)" aria-label={`Retificar a fatura ${inv.invoiceNumber}`}><RefreshCcw size={16} /></button>
+                                  {!inv.contestada && <button onClick={() => setAcaoFatura({ tipo: 'contestar', fatura: inv })} className="text-amber-600 hover:text-amber-800" title="Abrir contestação" aria-label={`Contestar a fatura ${inv.invoiceNumber}`}><MessageSquareWarning size={16} /></button>}
+                                  <button onClick={() => setAcaoFatura({ tipo: 'cancelar', fatura: inv })} className="text-orange-600 hover:text-orange-900" title="Cancelar fatura (motivo obrigatório)" aria-label={`Cancelar a fatura ${inv.invoiceNumber}`}><Ban size={16} /></button>
+                                  {isAdmin && <button onClick={() => { setActionId(inv.id); setIsDeleteModalOpen(true); }} className="text-red-600 hover:text-red-900" title="Excluir (só administrador; para fatura emitida prefira cancelar ou retificar)" aria-label={`Excluir a fatura ${inv.invoiceNumber}`}><Trash2 size={16} /></button>}
                                 </>
                               )}
                             </div>
@@ -1029,7 +1077,7 @@ export const Invoices: React.FC = () => {
                         </tr>
                         {isExpanded && (
                           <tr className="bg-slate-50/80">
-                            <td colSpan={15} className="px-6 py-4">
+                            <td colSpan={16} className="px-6 py-4">
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Detalhamento de Créditos Vinculados (Adiantamentos e Pagamentos)</h4>
                               <div className="bg-white rounded border border-slate-200 overflow-hidden max-w-4xl">
                                 <table className="min-w-full text-sm">
@@ -1056,7 +1104,7 @@ export const Invoices: React.FC = () => {
                                           </td>
                                           <td className="px-3 py-2 text-slate-700">{doc.client}</td>
                                           <td className="px-3 py-2 text-slate-600">{doc.documentNumber}</td>
-                                          <td className="px-3 py-2 text-slate-500">{new Date(doc.date).toLocaleDateString()}</td>
+                                          <td className="px-3 py-2 text-slate-500">{dataBR(doc.date)}</td>
                                           <td className="px-3 py-2 text-right font-medium text-slate-700">R$ {a.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                         </tr>
                                       );
@@ -1067,6 +1115,7 @@ export const Invoices: React.FC = () => {
                                   </tbody>
                                 </table>
                               </div>
+                              <AcompanhamentoFatura inv={inv} podeEditar={!isReadOnly} onMudou={refresh} />
                               <div className="mt-3 p-3 bg-white border border-slate-200 rounded flex justify-between items-center max-w-4xl">
                                 <span className="text-sm font-bold text-slate-700">Status SIPLAD (Fatura):</span>
                                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1089,7 +1138,7 @@ export const Invoices: React.FC = () => {
                     );
                   })}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={15} className="text-center py-8 text-slate-500">Nenhuma fatura encontrada.</td></tr>
+                    <tr><td colSpan={16} className="text-center py-8 text-slate-500">Nenhuma fatura encontrada.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1240,7 +1289,7 @@ export const Invoices: React.FC = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={closeModal}
-        title={editingId ? 'Editar Fatura' : 'Nova Fatura'}
+        title={editingId ? 'Editar Fatura' : 'Nova fatura avulsa'}
         maxWidth="max-w-3xl"
         footer={
           <div className="flex justify-end gap-3 p-6 bg-slate-50 border-t border-slate-200">
@@ -1258,6 +1307,7 @@ export const Invoices: React.FC = () => {
           </div>
         )}
 
+        {!editingId && <div className="mb-3 p-2 text-xs rounded border border-amber-200 bg-amber-50 text-amber-900">A emissão regular é feita pelo lote em <b>Emitir faturas do mês</b> (numeração, datas e adiantamento automáticos). Use esta tela só para fatura avulsa; número fora do padrão gera ponto de atenção.</div>}
         <form className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input label="UG (Unidade Gestora)" value={formData.ug || ''} onChange={handleUgChange} placeholder="Ex: 789000 (Auto-preenchimento)" disabled={isReadOnly} />
 
@@ -1389,7 +1439,7 @@ export const Invoices: React.FC = () => {
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={handleDelete}
         title="Excluir Fatura"
-        message="Tem certeza que deseja excluir esta fatura? Esta ação não pode ser desfeita."
+        message="Excluir apaga a fatura e TAMBÉM as baixas ligadas a ela (o saldo volta para a ALTCRED). Para fatura já emitida, prefira Cancelar ou Retificar. Esta ação não pode ser desfeita."
       />
 
       <ConfirmModal
