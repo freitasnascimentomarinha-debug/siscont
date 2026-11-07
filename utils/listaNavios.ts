@@ -43,6 +43,10 @@ export interface Comparacao {
   classeDiferente: { navio: NavioCad; lista: NavioLista; classeAtual: string | null; classeLista: ClasseCad | null }[];
   conferem: { navio: NavioCad; lista: NavioLista }[];
   foraDaLista: NavioCad[];
+  /** desativados no cadastro que estão na lista trienal: ainda em operação, devem ser reativados */
+  desativadosNaLista: { navio: NavioCad; lista: NavioLista }[];
+  /** desativados no cadastro e fora da lista trienal: desativados de verdade */
+  desativadosForaDaLista: NavioCad[];
 }
 
 export function compararNavios(lista: NavioLista[], oms: NavioCad[], classes: ClasseCad[]): Comparacao {
@@ -51,16 +55,18 @@ export function compararNavios(lista: NavioLista[], oms: NavioCad[], classes: Cl
   const classeDe = (nome: string) => acharPorNome(nome, classes);
   const nomeClasse = new Map(classes.map(c => [c.id, c.nome]));
   const vistos = new Set<string>();
-  const r: Comparacao = { classesNovas: [], naviosNovos: [], classeDiferente: [], conferem: [], foraDaLista: [] };
+  const r: Comparacao = { classesNovas: [], naviosNovos: [], classeDiferente: [], conferem: [], foraDaLista: [], desativadosNaLista: [], desativadosForaDaLista: [] };
   [...new Set(lista.map(l => l.classe))].forEach(c => { if (!classeDe(c)) r.classesNovas.push(c); });
   lista.filter(l => l.navio).forEach(l => {
     const om = acharPorNome(l.navio!, comApelidos) || acharNavio(l.navio!, comApelidos);
     if (!om || vistos.has(om.id)) { if (!om) r.naviosNovos.push(l); return; }
     vistos.add(om.id);
+    if (!om.ativo) r.desativadosNaLista.push({ navio: om, lista: l });
     const cl = classeDe(l.classe) || null;
     if (cl && om.classeId === cl.id) r.conferem.push({ navio: om, lista: l });
     else r.classeDiferente.push({ navio: om, lista: l, classeAtual: om.classeId ? nomeClasse.get(om.classeId) ?? null : null, classeLista: cl });
   });
   r.foraDaLista = navios.filter(o => o.ativo && !vistos.has(o.id));
+  r.desativadosForaDaLista = navios.filter(o => !o.ativo && !vistos.has(o.id));
   return r;
 }

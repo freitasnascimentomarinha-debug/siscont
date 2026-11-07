@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { CheckCircle2, FileUp, Link2, Plus, Wrench } from 'lucide-react';
+import { CheckCircle2, FileUp, Link2, Plus, RotateCcw, Wrench } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { cadastroService } from '../../services/cadastroService';
 import { notify } from '../../utils/notify';
@@ -48,6 +48,14 @@ export const ListaNaviosTab: React.FC<{ dados: DadosCadastro; podeEditar: boolea
     }
     return n;
   });
+  const reativar = (itens: { navio: { id: string } }[]) => executar('Navios reativados', async () => {
+    let n = 0;
+    for (const it of itens) {
+      const om = dados.oms.find(o => o.id === it.navio.id);
+      if (om && !om.ativo) { await cadastroService.saveOM({ ...om, ativo: true, desativadoEm: null, motivoDesativacao: null }); n++; }
+    }
+    return n;
+  });
   const corrigirClasses = (itens: { navio: { id: string }; classeLista: { id: string } | null }[]) => executar('Classes corrigidas', async () => {
     let n = 0;
     for (const it of itens) {
@@ -70,7 +78,25 @@ export const ListaNaviosTab: React.FC<{ dados: DadosCadastro; podeEditar: boolea
 
       {cmp && lista && <>
         <div className="text-sm text-slate-700"><b>{arquivo}</b>: {lista.filter(x => x.navio).length} navios em {new Set(lista.map(x => x.classe)).size} classes.
-          {' '}<span className="text-emerald-700">{cmp.conferem.length} conferem</span> · {cmp.classesNovas.length} classe(s) a criar · {cmp.naviosNovos.length} navio(s) fora do cadastro · {cmp.classeDiferente.length} com classe diferente · {cmp.foraDaLista.length} ativo(s) no cadastro fora da lista.</div>
+          {' '}<span className="text-emerald-700">{cmp.conferem.length} conferem</span> · {cmp.classesNovas.length} classe(s) a criar · {cmp.naviosNovos.length} navio(s) fora do cadastro · {cmp.classeDiferente.length} com classe diferente · {cmp.foraDaLista.length} ativo(s) no cadastro fora da lista · <span className="text-amber-700">{cmp.desativadosNaLista.length} desativado(s) que estão na lista</span> · {cmp.desativadosForaDaLista.length} desativado(s) fora da lista.</div>
+
+        {cmp.desativadosNaLista.length > 0 && (
+          <section className="border border-emerald-200 bg-emerald-50/40 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap"><h4 className="font-semibold">Navios desativados que constam na lista trienal</h4>
+              {podeEditar && <Button size="sm" onClick={() => reativar(cmp.desativadosNaLista)} isLoading={trabalhando}><RotateCcw size={14} className="mr-1" />Reativar todos ({cmp.desativadosNaLista.length})</Button>}</div>
+            <p className="text-xs text-slate-500 mb-2">Estão na lista, portanto não foram desativados fisicamente. Os desativados que <b>não</b> estão na lista continuam desativados ({cmp.desativadosForaDaLista.length}).</p>
+            <table className="w-full text-xs"><thead className="text-slate-500"><tr><th className="text-left">Navio</th><th className="text-left">Classe na lista</th><th className="text-left">Desativado em</th><th className="text-left">Motivo</th><th></th></tr></thead>
+              <tbody>{cmp.desativadosNaLista.map(x => {
+                const om = dados.oms.find(o => o.id === x.navio.id);
+                return (
+                  <tr key={x.navio.id} className="border-t border-emerald-100">
+                    <td className="py-1">{x.navio.nome}</td><td>{x.lista.classe}</td><td>{om?.desativadoEm || ''}</td><td>{om?.motivoDesativacao || ''}</td>
+                    <td className="text-right">{podeEditar && <button className="text-primary-700 underline" onClick={() => reativar([x])}>reativar</button>}</td>
+                  </tr>);
+              })}</tbody>
+            </table>
+          </section>
+        )}
 
         {cmp.classesNovas.length > 0 && (
           <section className="border border-amber-200 bg-amber-50/40 rounded-xl p-3">

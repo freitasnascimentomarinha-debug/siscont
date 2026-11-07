@@ -291,4 +291,13 @@ describe('lista de navios do Histórico Trienal × cadastro', () => {
     expect(c.classesNovas).toEqual(['Aviso Rio Chuí (Classe Pardo)']);
     expect(c.foraDaLista.map(x => x.id)).toEqual(['3']);
   });
+  it('desativados: os que estão na lista voltam a ser reativados; os fora da lista continuam desativados', () => {
+    const c = compararNavios(lerListaNavios(abas), [
+      { id: '1', nome: 'Corveta Barroso', tipo: 'NAVIO', ativo: false, classeId: 'cb' },
+      { id: '5', nome: 'Navio Baixado', tipo: 'NAVIO', ativo: false },
+    ], [{ id: 'cb', nome: 'Corvetas Classe Barroso', ativo: true }]);
+    expect(c.desativadosNaLista.map(x => x.navio.id)).toEqual(['1']);
+    expect(c.desativadosForaDaLista.map(x => x.id)).toEqual(['5']);
+    expect(c.foraDaLista).toEqual([]);
+  });
 });
