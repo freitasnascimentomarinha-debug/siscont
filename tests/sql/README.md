@@ -117,3 +117,9 @@ Com 001–014 aplicados: `psql -d sb -f tests/sql/unificar_015_tests.sql` (aplic
 unificado ("Unificada com ...") é excluído e as faturas, inclusive as antigas sem ligação, ficam na OM que ficou;
 Operador não unifica nem chama a rotina interna; Admin unifica e o duplicado some, com o nome corrigido na fatura e
 guardado como alternativo; OM com fatura continua sem poder ser excluída.
+
+## Script 016 (unificar sem guardar o nome duplicado)
+
+Com 001–015 aplicados: `psql -d sb -f tests/sql/unificar_016_tests.sql`. Esperado: nomes vindos de unificações saem dos
+"outros nomes" (o apelido manual fica), a fatura passa a ter o nome da OM que ficou, o unificado antigo é excluído e uma
+unificação nova não guarda o nome.

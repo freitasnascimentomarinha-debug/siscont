@@ -10,8 +10,8 @@ import { DadosCadastro } from './useCadastros';
 /**
  * Clientes cadastrados mais de uma vez (código diferente, nome abreviado, cortado ou com pequena diferença) e
  * desativados que têm um correspondente ativo. Unificar passa faturas, ALTCRED, preços, medições, lotação etc. para a
- * OM escolhida, guarda o outro nome como "nome alternativo" e exclui o cadastro duplicado (script 015; a exclusão fica na
- * auditoria). Sem o 015, o duplicado fica desativado.
+ * OM escolhida, corrige o nome do cliente nas faturas para o da OM que fica e exclui o cadastro duplicado (script 016;
+ * a exclusão fica na auditoria). O nome duplicado não é guardado.
  */
 export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recarregar: () => Promise<void> | void }> = ({ dados, podeEditar, recarregar }) => {
   const [ignorados, setIgnorados] = useState<Set<string>>(new Set());
@@ -39,7 +39,7 @@ export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boole
     const outros = g.membros.filter(m => m.id !== alvo && unificar(k, g).has(m.id));
     if (!outros.length) { notify.error('Marque ao menos uma OM para unificar.'); return; }
     const nomeAlvo = g.membros.find(m => m.id === alvo)!.nome;
-    if (!window.confirm(`Unificar em "${nomeAlvo}":\n\n${outros.map(o => `• ${o.codigo} – ${o.nome}`).join('\n')}\n\nFaturas, ALTCRED, preços, medições, lotação e demais registros dessas OM passam para "${nomeAlvo}". O nome do cliente nas faturas passa a ser o de "${nomeAlvo}" (número e UG emitidos não mudam). Os nomes antigos ficam guardados como nomes alternativos e os cadastros duplicados são excluídos (fica registrado na auditoria). Continuar?`)) return;
+    if (!window.confirm(`Unificar em "${nomeAlvo}":\n\n${outros.map(o => `• ${o.codigo} – ${o.nome}`).join('\n')}\n\nFaturas, ALTCRED, preços, medições, lotação e demais registros dessas OM passam para "${nomeAlvo}". O nome do cliente nas faturas passa a ser "${nomeAlvo}" (número e UG emitidos não mudam) e os cadastros duplicados são excluídos — o nome duplicado deixa de existir (fica registrado na auditoria). Continuar?`)) return;
     setTrabalhando(k);
     try {
       let movidos = 0;
@@ -79,7 +79,7 @@ export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boole
         <p className="text-sm text-slate-600 max-w-3xl">
           Clientes que parecem ser o mesmo: mesmo nome com diferença de acento/edifício, mesma sigla, sigla × nome por extenso, nome cortado ou com códigos diferentes.
           Escolha qual cadastro <b>fica</b> e marque os que serão <b>unificados</b> nele. Tudo o que estava nos outros (faturas, ALTCRED, preços, lotação...) passa para o que fica;
-          os nomes antigos ficam como nomes alternativos (as importações passam a reconhecê-los) e os cadastros duplicados são excluídos — não sobra cadastro repetido.
+          as faturas passam a mostrar o nome do que fica e os cadastros duplicados são <b>excluídos</b> — o nome duplicado deixa de existir no sistema.
         </p>
         <div className="flex items-center gap-3">
           <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={mostrarFracos} onChange={e => setMostrarFracos(e.target.checked)} /> mostrar também os menos prováveis</label>

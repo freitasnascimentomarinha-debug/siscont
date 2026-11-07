@@ -51,9 +51,8 @@ function handler(db, log) {
       let n = 0;
       Object.values(db).forEach(t => Array.isArray(t) && t.forEach(r => { if (r && r.om_id === p_remover) { r.om_id = p_manter; n++; } }));
       const m = db.oms.find(x => x.id === p_manter), r = db.oms.find(x => x.id === p_remover);
-      m.nomes_alternativos = [...new Set([...(m.nomes_alternativos || []), ...(r.nomes_alternativos || []), r.nome])];
       db.invoices.forEach(i => { if (i.om_id === p_manter && (i.client || '').toLowerCase() === r.nome.toLowerCase()) i.client = m.nome; });
-      db.oms.splice(db.oms.indexOf(r), 1);   // script 015: o duplicado é excluído
+      db.oms.splice(db.oms.indexOf(r), 1);   // script 016: o duplicado é excluído e o nome dele não é guardado
       return json(200, n);
     }
     if (url.pathname === '/rest/v1/rpc/om_tem_movimento') {
@@ -962,7 +961,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await grupoDim.getByRole('button', { name: 'Unificar marcadas na que fica' }).click();
     await page.getByText(/1 cadastro\(s\) unificado\(s\)/).waitFor();
     ok(db.invoices.filter(i => i.om_id === a.id).length === 2 && !db.invoices.some(i => i.om_id === b.id), 'faturas da duplicada passaram para a OM que fica');
-    ok(!db.oms.includes(b) && a.nomes_alternativos.includes('DIRETORIA INDUSTRIAL DA MARINHA') && db.invoices.filter(i => i.om_id === a.id).every(i => i.client === a.nome), 'duplicada excluída; nome guardado como alternativo e corrigido nas faturas');
+    ok(!db.oms.includes(b) && !a.nomes_alternativos.includes('DIRETORIA INDUSTRIAL DA MARINHA') && db.invoices.filter(i => i.om_id === a.id).every(i => i.client === a.nome), 'duplicada excluída; faturas com o nome da que fica; nome duplicado não guardado');
     await page.waitForTimeout(500);
     ok(!(await page.locator('div.border.rounded-xl.p-3').filter({ hasText: '40031' }).count()), 'depois de unificar, o grupo sai da lista (não volta como duplicidade)');
     const grupoBanco = page.locator('div.border.rounded-xl').filter({ hasText: '00994' }).last();

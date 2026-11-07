@@ -260,9 +260,10 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
 - **Cadastros › OM / Clientes**: marcação **OM fora da Ilha das Cobras** (com filtro) e **outros nomes / abreviações**.
 - **Cadastros › Duplicidades** (Administrador): grupos de clientes que parecem o mesmo (mesmo nome com diferença de
   acento/edifício, mesma sigla, sigla × nome por extenso, nome cortado, códigos diferentes). **Unificar** transfere
-  faturas, ALTCRED, preços, medições, lotação etc. para o cadastro que fica, corrige o nome do cliente nas faturas,
-  guarda os nomes antigos como alternativos e **exclui** os duplicados (script 015; fica na auditoria — sem o 015 eles
-  ficam desativados). O 015 também exclui os que já tinham sido unificados antes ("Unificada com ..."). **Não são a mesma OM** tira o grupo da lista.
+  faturas, ALTCRED, preços, medições, lotação etc. para o cadastro que fica, corrige o nome do cliente nas faturas para o
+  dele e **exclui** os duplicados (script 016, que substitui o 015; fica na auditoria). O nome duplicado não é guardado.
+  O 016 também conclui os unificados antigos ("Unificada com ...") e tira dos "outros nomes" os que vieram de
+  unificações. **Não são a mesma OM** tira o grupo da lista.
   Não são duplicidade: nome com complemento depois de " - " (ex.: *Arsenal de Marinha do Rio de Janeiro - BGL1*,
   *Diretoria de Patrimônio Histórico… - ILHA FISCAL*: a fatura é de quem está no complemento e o comando responsável é
   o da primeira parte) e nomes com **Ed.XX** em edifícios diferentes. A mesma página sugere ligar esses clientes ao
