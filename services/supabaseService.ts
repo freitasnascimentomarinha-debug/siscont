@@ -154,6 +154,7 @@ export const supabaseService = {
                 quitacaoExterna: 'quitacao_externa' in i ? i.quitacao_externa : undefined,
                 quitadaEm: 'quitada_em' in i ? i.quitada_em : undefined,
                 contestada: 'contestada' in i ? i.contestada === true : undefined,
+                pontosRegistro: Array.isArray(i.pontos_atencao) ? i.pontos_atencao : undefined,
                 paidAmount: 0,
                 status: 'OPEN' as any
             })) as Invoice[];
@@ -217,7 +218,8 @@ export const supabaseService = {
                 date: d.date,
                 operation: d.operation,
                 observation: d.observation,
-                comandoId: d.comando_id ?? null,
+                comandoId: 'comando_id' in d ? d.comando_id : undefined,
+                pontosRegistro: Array.isArray(d.pontos_atencao) ? d.pontos_atencao : undefined,
                 origem: d.origem ?? null,
                 availableValue: 0,
                 informedAdvance: false

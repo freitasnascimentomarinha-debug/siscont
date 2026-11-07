@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
+import { pendentes } from '../utils/pontosAtencao';
 import { notify, friendlyError } from '../utils/notify';
 import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
@@ -30,6 +32,8 @@ export const ReceivedBalances: React.FC = () => {
   const [filterCommand, setFilterCommand] = useState('');
   const [filterDocNumber, setFilterDocNumber] = useState('');
   const [filterUG, setFilterUG] = useState('');
+  const [filterPontos, setFilterPontos] = useState('');
+  const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
 
   // Forms & Modals
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
@@ -136,6 +140,10 @@ export const ReceivedBalances: React.FC = () => {
     if (filterCommand && !d.command.toLowerCase().includes(filterCommand.toLowerCase())) return false;
     if (filterDocNumber && !d.documentNumber.toLowerCase().includes(filterDocNumber.toLowerCase())) return false;
     if (filterUG && !(d.ug || '').toLowerCase().includes(filterUG.toLowerCase())) return false;
+    if (filterPontos) {
+      const abertos = pendentes(d.pontos);
+      if (filterPontos === 'any' ? !abertos.length : !abertos.some(p => p.gravidade === filterPontos)) return false;
+    }
 
     return true;
   });
@@ -511,6 +519,7 @@ export const ReceivedBalances: React.FC = () => {
           <Input label="Comando" value={filterCommand} onChange={e => setFilterCommand(e.target.value)} placeholder="Buscar Comando..." />
           <Input label="Cliente" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Buscar Cliente..." />
           <Input label="Nº Doc" value={filterDocNumber} onChange={e => setFilterDocNumber(e.target.value)} placeholder="Buscar Nº..." />
+          <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
         </div>
         <div className="flex justify-end">
           <Button variant="ghost" size="sm" onClick={() => {
@@ -567,6 +576,7 @@ export const ReceivedBalances: React.FC = () => {
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <h4 className="font-bold text-slate-900">{doc.documentNumber}</h4>
+                                    <PontoIcone pontos={doc.pontos} onClick={() => setPontosAlvo({ alvo: 'documento', id: doc.id, titulo: doc.documentNumber, subtitulo: `${doc.documentType} · ${doc.client}`, pontos: doc.pontos || [] })} />
                                     <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-600">{doc.documentType}</span>
                                     {doc.ug && <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700">UG: {doc.ug}</span>}
                                   </div>
@@ -842,6 +852,12 @@ export const ReceivedBalances: React.FC = () => {
         title="Confirmação de Segurança"
         message="Tem certeza que deseja continuar? Esta ação afetará saldos e status das faturas permanentemente."
       />
+      <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
+        onAlterado={async () => {
+          await refresh();
+          const d = (await db.getDocuments()).find(x => x.id === pontosAlvo?.id);
+          setPontosAlvo(a => (a && d ? { ...a, pontos: d.pontos || [] } : a));
+        }} />
     </div>
   );
 };

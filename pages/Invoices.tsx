@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
+import { pendentes } from '../utils/pontosAtencao';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
@@ -66,6 +68,8 @@ export const Invoices: React.FC = () => {
   const [filterYear, setFilterYear] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSiplad, setFilterSiplad] = useState('');
+  const [filterPontos, setFilterPontos] = useState('');
+  const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
 
   // Master Data
   const [services, setServices] = useState<{ label: string, value: string, acronym: string, unit: string }[]>([]);
@@ -250,6 +254,17 @@ export const Invoices: React.FC = () => {
   // --- LIST TAB LOGIC (Existing) ---
   // ... (Code reused from previous implementation)
 
+  const omDoFormulario = (): string | null | undefined => {
+    const ug = (formData.ug || '').trim(), nome = (formData.client || '').trim().toLowerCase();
+    const m = clients.find(c => c.omId && c.ug === ug && String(c.name).trim().toLowerCase() === nome);
+    if (m) return m.omId;
+    // mesmo cliente de antes (ex.: navio já desativado no cadastro): mantém a ligação
+    const orig = editingId ? invoices.find(i => i.id === editingId) : undefined;
+    if (orig && (orig.ug || '').trim() === ug && orig.client.trim().toLowerCase() === nome) return orig.omId;
+    // cliente fora do cadastro: ao editar, desliga a OM antiga (só se a coluna já existe); ao criar, não envia
+    return editingId && formData.omId !== undefined ? null : undefined;
+  };
+
   const handleUgChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setFormData(prev => {
@@ -425,7 +440,9 @@ export const Invoices: React.FC = () => {
         paidAmount: editingId ? (formData.paidAmount || 0) : 0,
         status: editingId ? (formData.status || InvoiceStatus.OPEN) : InvoiceStatus.OPEN,
         isCanceled: formData.isCanceled || false,
-        sipladSettled: editingId ? (formData.sipladSettled || false) : false
+        sipladSettled: editingId ? (formData.sipladSettled || false) : false,
+        // liga a fatura à OM do cadastro quando UG + cliente batem com uma OM cadastrada
+        omId: omDoFormulario(),
       };
 
       await db.saveInvoice(payload);
@@ -543,9 +560,11 @@ export const Invoices: React.FC = () => {
       const matchesStatus = !filterStatus || inv.status === filterStatus;
       const matchesType = !filterType || inv.type === filterType;
       const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
-      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad;
+      const abertos = pendentes(inv.pontos);
+      const matchesPontos = !filterPontos || (filterPontos === 'any' ? abertos.length > 0 : abertos.some(p => p.gravidade === filterPontos));
+      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos;
     });
-  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad]);
+  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos]);
 
   const totalCount = filteredInvoices.length;
   
@@ -878,6 +897,9 @@ export const Invoices: React.FC = () => {
             <div className="w-full md:w-48">
               <Select label="Tipo" options={services} value={filterType} onChange={e => setFilterType(e.target.value)} />
             </div>
+            <div className="w-full md:w-44">
+              <Select label="Pontos de atenção" options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} value={filterPontos} onChange={e => setFilterPontos(e.target.value)} />
+            </div>
           </div>
 
           {/* Table */}
@@ -920,7 +942,12 @@ export const Invoices: React.FC = () => {
                           <td className="px-4 py-4 text-sm text-slate-500">{inv.competence}</td>
                           <td className="px-4 py-4 text-sm text-slate-700">{inv.ug || '-'}</td>
                           <td className="px-4 py-4 text-sm font-medium text-slate-900 truncate max-w-[150px]" title={inv.client}>{inv.client}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500">{inv.invoiceNumber}</td>
+                          <td className="px-4 py-4 text-sm text-slate-500 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5">
+                              {inv.invoiceNumber}
+                              <PontoIcone pontos={inv.pontos} onClick={() => setPontosAlvo({ alvo: 'fatura', id: inv.id, titulo: inv.invoiceNumber, subtitulo: `${inv.ug || ''} ${inv.client} · ${inv.type} · ${inv.competence}`, pontos: inv.pontos || [] })} />
+                            </span>
+                          </td>
                           <td className="px-4 py-4 text-sm text-slate-500 truncate max-w-[100px]" title={inv.type}>{inv.type}</td>
                           <td className="px-4 py-4 text-sm text-slate-500">{new Date(inv.dueDate).toLocaleDateString()}</td>
                           <td className="px-4 py-4 text-sm font-semibold text-slate-900">R$ {calc.valService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
@@ -1292,6 +1319,12 @@ export const Invoices: React.FC = () => {
         title="Cancelar Fatura"
         message="Tem certeza que deseja cancelar esta fatura? Ela será marcada como CANCELADA e qualquer saldo de adiantamento utilizado será devolvido ao documento de origem."
       />
+      <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
+        onAlterado={async () => {
+          await refresh();
+          const inv = (await db.getInvoices()).find(i => i.id === pontosAlvo?.id);
+          setPontosAlvo(a => (a && inv ? { ...a, pontos: inv.pontos || [] } : a));
+        }} />
     </div>
   );
 };

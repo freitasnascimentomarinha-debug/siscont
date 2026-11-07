@@ -144,3 +144,14 @@ describe('planejarMigracao', () => {
     expect(p2.resumo.ignoradasExistentes).toBe(2);
   });
 });
+
+describe('pontos de atenção gravados pela migração', () => {
+  it('anota vencimento recalculado na fatura e ALTCRED criada no documento', () => {
+    const plano = planejarMigracao(cenario(), contexto());
+    const da = plano.faturas.find(f => f.numero === '40032-DA-08-2026-010-1')!;
+    expect(da.pontos.map(x => x.tipo)).toContain('VENCIMENTO_CORRIGIDO');
+    expect(da.pontos[0].origem).toBe('migracao');
+    const criada = plano.documentos.find(d => d.numero === 'X488.2025.AC.03903')!;
+    expect(criada.pontos.map(x => x.tipo)).toEqual(['ALTCRED_CRIADA']);
+  });
+});

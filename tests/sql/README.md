@@ -42,3 +42,8 @@ Com 001–003 aplicados: `psql -d sb -f tests/sql/fase1b_004_tests.sql` (o arqui
 duas vezes e verifica). Esperado: setor TM removido e o Tribunal Marítimo mantido como OM sem setor; as cinco
 colunas novas em `invoices`; número de fatura repetido (mesmo com espaços) recusado; `om_tem_movimento` = t para
 OM com fatura ligada por `om_id` (mesmo com nome diferente) e exclusão dessa OM recusada.
+
+## Script 005 (pontos de atenção)
+
+Com 001–004 aplicados: `psql -d sb -f tests/sql/fase1b_005_tests.sql`. Esperado: coluna `pontos_atencao` (padrão
+`[]`) em `invoices` e `received_documents`; consulta por tipo com `@>` retorna 1; nulo recusado.

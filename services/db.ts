@@ -1,6 +1,7 @@
 
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition } from '../types';
 import { supabaseService } from './supabaseService';
+import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
 
 // --- Simple In-Memory Cache ---
 const CACHE_TTL = 30_000; // 30 seconds
@@ -53,6 +54,23 @@ async function cachedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T
   cache.set(key, { data: null, timestamp: 0, promise });
   return promise;
 }
+const TABELA_PONTOS = { fatura: 'invoices', documento: 'received_documents' } as const;
+const SEM_005 = 'Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase para gravar pontos de atenção.';
+
+async function lerRegistros(alvo: 'fatura' | 'documento', id: string): Promise<RegistroPonto[]> {
+  const { supabase } = await import('./supabase');
+  const { data, error } = await supabase.from(TABELA_PONTOS[alvo]).select('pontos_atencao').eq('id', id).single();
+  if (error) throw new Error(/pontos_atencao/.test(error.message) ? SEM_005 : error.message);
+  return Array.isArray(data?.pontos_atencao) ? data.pontos_atencao : [];
+}
+
+async function gravarRegistros(alvo: 'fatura' | 'documento', id: string, registros: RegistroPonto[]) {
+  const { supabase } = await import('./supabase');
+  const { error } = await supabase.from(TABELA_PONTOS[alvo]).update({ pontos_atencao: registros }).eq('id', id);
+  if (error) throw new Error(/pontos_atencao/.test(error.message) ? SEM_005 : error.message);
+  invalidateCache(alvo === 'fatura' ? 'raw_invoices' : 'raw_documents');
+}
+
 export const db = {
   // --- USERS ---
   // Gestão completa (criar login, senha, bloquear, excluir) fica em services/adminApi.ts,
@@ -115,6 +133,7 @@ export const db = {
       porFatura.set(a.invoiceId, t);
     });
     const today = new Date().toISOString().split('T')[0];
+    const pontos = avaliarPontos(invoices, documents, allocations).faturas;
 
     return invoices.map(inv => {
       const { adiant: advancesTotal, pago: paymentsTotal } = porFatura.get(inv.id) || { adiant: 0, pago: 0 };
@@ -130,7 +149,7 @@ export const db = {
       else status = InvoiceStatus.OPEN;
 
       const paidAmount = inv.quitacaoExterna && !inv.isCanceled ? Math.max(paymentsTotal, payableAmount) : paymentsTotal;
-      return { ...inv, paidAmount, status };
+      return { ...inv, paidAmount, status, pontos: pontos.get(inv.id) || [] };
     });
   },
 
@@ -158,7 +177,19 @@ export const db = {
       if (!existentes.has(a.invoiceId) || canceladas.has(a.invoiceId)) return;
       usado.set(a.documentId, (usado.get(a.documentId) || 0) + a.amount);
     });
-    return docs.map(doc => ({ ...doc, availableValue: doc.totalValue - (usado.get(doc.id) || 0) }));
+    const pontos = avaliarPontos(invoices, docs, allocations).documentos;
+    return docs.map(doc => ({ ...doc, availableValue: doc.totalValue - (usado.get(doc.id) || 0), pontos: pontos.get(doc.id) || [] }));
+  },
+
+  // --- PONTOS DE ATENÇÃO ---
+  /** Marca um ponto como resolvido (ou "ciente", quando automático), com justificativa. */
+  resolverPonto: async (alvo: 'fatura' | 'documento', id: string, ponto: PontoAtencao, por: string, justificativa: string) => {
+    const atuais = await lerRegistros(alvo, id);
+    await gravarRegistros(alvo, id, marcarResolvido(atuais, ponto, por, justificativa, new Date().toISOString().slice(0, 10)));
+  },
+  reabrirPonto: async (alvo: 'fatura' | 'documento', id: string, ponto: PontoAtencao) => {
+    const atuais = await lerRegistros(alvo, id);
+    await gravarRegistros(alvo, id, reabrir(atuais, ponto));
   },
 
   saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },

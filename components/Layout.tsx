@@ -13,7 +13,8 @@ import {
   Maximize,
   Minimize,
   UserCog,
-  Building2
+  Building2,
+  AlertTriangle,
 } from 'lucide-react';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole } from '../types';
@@ -50,6 +51,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     { id: 'invoices' as PageID, label: 'Faturas', icon: FileText },
     { id: 'received' as PageID, label: 'Saldos Recebidos', icon: Wallet },
     { id: 'cashflow' as PageID, label: 'Fluxo de Caixa', icon: ArrowLeftRight },
+    { id: 'pontos' as PageID, label: 'Pontos de Atenção', icon: AlertTriangle },
     { id: 'cadastros' as PageID, label: 'Cadastros', icon: Building2 },
   ];
 

@@ -109,7 +109,7 @@ function planilhaPagamento() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab,
     ['DGMM', DIM, 'Diretoria Industrial da Marinha', '40030-EL-08-2026-010-0', 10134.19, 46280, 46295, '', '', '', '', 10134.19, 0, 'PAGO', true, ''],
-    ['DGMM', DIM, 'Navio-Patrulha Mangaratiba', '40032-DA-08-2026-010-0', 2960.81, 46280, 46295, '', '', '', '', 0, 2960.81, 'VENCIDA', false, ''],
+    ['DGMM', DIM, 'Navio-Patrulha Mangaratiba', '40032-DA-08-2026-010-0', 2960.81, 46280, '31/11/26', '', '', '', '', 0, 2960.81, 'VENCIDA', false, ''],
     ['DGMM', DIM, 'Diretoria Industrial da Marinha', '40030-AE-08-2026-004-0', 8656.28, 46280, 46295, '', '', '', '', 0, 8656.28, 'A VENCER', false, ''],
   ]), 'FATURAS');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab.slice(0, 11),
@@ -122,6 +122,7 @@ function planilhaPagamento() {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['Data de situação', 'COMANDO', 'CLIENTE', 'NºALTCRED', 'NºFATURA', 'VALOR UTILIZADO', 'TIPO'],
     [46253, 'DGMM', DIM, 'G424.2026.AC.00343', '40030-EL-08-2026-010-0', 10134.19, 'EL'],
+    [46253, 'DGMM', DIM, 'G424.2026.AC.00343', '40030-EL-08-2026-099-0', 50, 'EL'],
   ]), 'LANÇAMENTOS');
   const f = path.join(os.tmpdir(), `siscont-e2e-pag-${Date.now()}.xlsx`);
   XLSX.writeFile(wb, f);
@@ -269,6 +270,36 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(novas.find(i => i.invoice_number === '40030-TC-01-2025-014-0').quitacao_externa, 'histórico entra como quitado fora do sistema');
     ok(db.received_documents.length === 1 && db.received_documents[0].document_number === 'G424.2026.AC.00343', 'ALTCRED gravada');
     ok(db.payment_allocations.length === 1 && Number(db.payment_allocations[0].amount) === 10134.19, 'baixa ligando ALTCRED e fatura');
+    const da = db.invoices.find(i => i.invoice_number === '40032-DA-08-2026-010-0');
+    ok(da.pontos_atencao.some(p => p.tipo === 'VENCIMENTO_CORRIGIDO'), 'vencimento recalculado anotado na fatura');
+    ok(db.received_documents[0].pontos_atencao.some(p => p.tipo === 'BAIXA_SEM_FATURA' && p.mensagem.includes('40030-EL-08-2026-099-0')), 'baixa para fatura inexistente anotada na ALTCRED');
+
+    // ícone na lista de faturas, detalhe e "marcar como resolvido"
+    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    const linha = page.getByRole('row').filter({ hasText: '40032-DA-08-2026-010-0' });
+    await linha.getByTestId('ponto-atencao').click();
+    await page.getByText('Vencimento recalculado', { exact: true }).waitFor();
+    ok(await page.getByText(/recalculado para \d{2}\/\d{2}\/2026/).isVisible(), 'janela mostra o problema e a data recalculada');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-fatura.png') });
+    await page.getByRole('button', { name: 'Marcar como resolvido' }).click();
+    await page.getByLabel('Justificativa').fill('Conferido no SIPLAD');
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText(/Resolvido por CC Admin/).waitFor();
+    const reg = db.invoices.find(i => i.invoice_number === '40032-DA-08-2026-010-0').pontos_atencao.find(p => p.tipo === 'VENCIMENTO_CORRIGIDO');
+    ok(reg.resolvido && reg.justificativa === 'Conferido no SIPLAD' && reg.resolvidoPor === 'CC Admin', 'resolução gravada com autor e justificativa');
+    await page.keyboard.press('Escape');
+    await page.locator('.fixed.inset-0 button').first().click();
+
+    // tela central
+    await page.getByRole('button', { name: 'Pontos de Atenção' }).click();
+    await page.getByRole('heading', { name: 'Pontos de Atenção' }).waitFor();
+    await page.getByText('Baixa para fatura inexistente').first().waitFor();
+    ok(true, 'tela Pontos de Atenção lista a baixa para fatura inexistente');
+    ok(!(await page.getByRole('cell', { name: 'Vencimento recalculado' }).count()), 'ponto resolvido sai da lista de pendentes');
+    await page.waitForTimeout(600);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-tela.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'Migrar faturas' }).click();
 
     await page.getByRole('button', { name: 'Desfazer migração' }).click();
     await page.getByRole('button', { name: 'Sim, remover' }).click();

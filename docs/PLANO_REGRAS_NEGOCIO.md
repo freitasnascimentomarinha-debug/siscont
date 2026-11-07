@@ -227,6 +227,11 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
 > FATURAS = R$ 8.083.843,53, igual ao da planilha; saldo de 1.590 de 1.590 faturas e utilizado de 397 de 401
 > ALTCRED conferidos) e opção de desfazer.
 >
+> **Pontos de atenção** (script 005, tela própria): o sistema detecta sozinho as inconsistências de faturas e
+> ALTCRED/GRU (pago a maior, crédito usado a mais, vencimento inválido, número repetido ou fora do padrão...) e a
+> migração anota em cada registro o que só ela sabe (vencimento recalculado, valor diferente do livro, baixa para
+> fatura inexistente...). Ícone ⚠ nas listas, descrição e "como corrigir", resolução com autor e justificativa.
+>
 > Regras da migração: valor da fatura = coluna *Valor* da planilha vigente (valor final, linha 05 do FR-172)
 > somado ao adiantamento usado; o livro de emissão (Faturamento) só completa serviço/adiantamento/acréscimo/débito
 > quando confere com esse total; histórico de *Faturas Pagas* entra como **pago fora do sistema** (sem

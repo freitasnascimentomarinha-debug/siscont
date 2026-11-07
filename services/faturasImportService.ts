@@ -5,6 +5,7 @@ import { db } from './db';
 import { lerComando } from '../utils/cadastroImport';
 import { ContextoImportacao, PlanoMigracao, criarResolverOM } from '../utils/faturasImport';
 import type { PropostaCadastro } from '../utils/cadastroImport';
+import type { RegistroPonto } from '../utils/pontosAtencao';
 
 const LOTE = 500;
 export const PREFIXO_ORIGEM_BAIXA = 'Migração › ';
@@ -14,6 +15,7 @@ const erroColuna = (msg: string) => /om_id|origem|quitacao_externa|quitada_em|co
 async function inserir(tabela: string, linhas: any[], onProgresso?: (m: string) => void, rotulo?: string) {
   for (let i = 0; i < linhas.length; i += LOTE) {
     const { error } = await supabase.from(tabela).insert(linhas.slice(i, i + LOTE));
+    if (error && /pontos_atencao/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase antes de migrar.');
     if (error && erroColuna(error.message || '')) throw new Error('Falta executar o script supabase/migrations/004_migracao_faturas.sql no Supabase antes de migrar.');
     if (error) throw new Error(`Erro ao gravar ${rotulo || tabela} (lote ${i / LOTE + 1}): ${error.message}`);
     onProgresso?.(`${rotulo || tabela}: ${Math.min(i + LOTE, linhas.length)} de ${linhas.length}`);
@@ -65,7 +67,7 @@ export async function aplicarMigracao(plano: PlanoMigracao, onProgresso?: (m: st
   await inserir('received_documents', plano.documentos.map(d => ({
     id: d.id, ug: d.ug, sector: d.setor, command: d.comando, client: d.cliente, document_number: d.numero,
     document_type: d.tipoDocumento, total_value: d.valor, date: d.data, operation: d.operacao,
-    observation: d.observacao, comando_id: d.comandoId, origem: d.origem,
+    observation: d.observacao, comando_id: d.comandoId, origem: d.origem, pontos_atencao: d.pontos,
   })), onProgresso, 'Documentos (ALTCRED/GRU)');
 
   await inserir('invoices', plano.faturas.map(f => ({
@@ -75,6 +77,7 @@ export async function aplicarMigracao(plano: PlanoMigracao, onProgresso?: (m: st
     month_competence: f.mesCompetencia, year_competence: f.anoCompetencia, competence: f.competencia, type: f.tipo,
     is_canceled: f.cancelada, observation: f.observacao, siplad_settled: f.siplad,
     om_id: f.omId, origem: f.origem, quitacao_externa: f.quitacaoExterna, quitada_em: f.quitadaEm, contestada: f.contestada,
+    pontos_atencao: f.pontos,
   })), onProgresso, 'Faturas');
 
   const fat = new Map(plano.faturas.map(f => [f.id, f]));
@@ -120,4 +123,42 @@ export async function desfazerMigracao(onProgresso?: (m: string) => void) {
   await apagar('received_documents', s.idsDocs, onProgresso);
   db.invalidateCache();
   return s;
+}
+
+/**
+ * Para faturas/documentos JÁ migrados antes dos pontos de atenção: grava neles os pontos que a migração
+ * conhece. Use com um plano montado sem "existentes" (todos os números da planilha). Mantém o que o
+ * usuário já marcou como resolvido.
+ */
+export async function gravarPontosEmExistentes(plano: PlanoMigracao, onProgresso?: (m: string) => void): Promise<number> {
+  const [faturas, documentos] = await Promise.all([supabaseService.getInvoices(), supabaseService.getDocuments()]);
+  const chave = (n: string) => (n || '').trim().toUpperCase();
+  const idFat = new Map(faturas.map(f => [chave(f.invoiceNumber), f]));
+  const idDoc = new Map(documentos.map(d => [chave(d.documentNumber), d]));
+  const tarefas: { tabela: string; id: string; pontos: RegistroPonto[] }[] = [];
+  const mesclar = (atuais: RegistroPonto[] = [], novos: RegistroPonto[]) => {
+    const fora = atuais.filter(r => r.origem !== 'migracao');
+    const res = novos.map(n => atuais.find(a => a.origem === 'migracao' && a.tipo === n.tipo && a.mensagem === n.mensagem) || n);
+    return [...fora, ...res];
+  };
+  plano.faturas.forEach(f => {
+    const ex = idFat.get(chave(f.numero));
+    if (!ex || (!f.pontos.length && !(ex.pontosRegistro || []).some(r => r.origem === 'migracao'))) return;
+    tarefas.push({ tabela: 'invoices', id: ex.id, pontos: mesclar(ex.pontosRegistro, f.pontos) });
+  });
+  plano.documentos.forEach(d => {
+    const ex = idDoc.get(chave(d.numero));
+    if (!ex || (!d.pontos.length && !(ex.pontosRegistro || []).some(r => r.origem === 'migracao'))) return;
+    tarefas.push({ tabela: 'received_documents', id: ex.id, pontos: mesclar(ex.pontosRegistro, d.pontos) });
+  });
+  for (let i = 0; i < tarefas.length; i += 10) {
+    await Promise.all(tarefas.slice(i, i + 10).map(async t => {
+      const { error } = await supabase.from(t.tabela).update({ pontos_atencao: t.pontos }).eq('id', t.id);
+      if (error && /pontos_atencao/.test(error.message)) throw new Error('Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase.');
+      if (error) throw new Error(`Erro ao gravar pontos de atenção: ${error.message}`);
+    }));
+    onProgresso?.(`Pontos de atenção: ${Math.min(i + 10, tarefas.length)} de ${tarefas.length}`);
+  }
+  db.invalidateCache();
+  return tarefas.length;
 }

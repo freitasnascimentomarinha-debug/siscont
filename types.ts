@@ -1,3 +1,4 @@
+import type { PontoAtencao, RegistroPonto } from './utils/pontosAtencao';
 
 // Enums
 export enum UserRole {
@@ -65,6 +66,7 @@ export interface ManagedUser extends User {
 // New Interface for Client Management (UG Automation)
 export interface Client {
   id: string;
+  omId?: string; // presente quando o cliente vem do cadastro de OM (Fase 1)
   ug: string;
   sector: string;
   command: string;
@@ -109,6 +111,9 @@ export interface Invoice {
   quitacaoExterna?: string | null; // quitada antes do SISCONT, sem o detalhe da ALTCRED/GRU
   quitadaEm?: string | null;
   contestada?: boolean;
+  // Pontos de atenção (script 005): registrados (migração/ciente) e calculados
+  pontosRegistro?: RegistroPonto[];
+  pontos?: PontoAtencao[];
 }
 
 export interface ReceivedDocument {
@@ -127,6 +132,8 @@ export interface ReceivedDocument {
   observation?: string;
   comandoId?: string | null; // comando pagador (cadastro)
   origem?: string | null;
+  pontosRegistro?: RegistroPonto[];
+  pontos?: PontoAtencao[];
 }
 
 // This represents a link between a Document and an Invoice (Payment)

@@ -165,6 +165,7 @@ export function omsToClients(oms: OM[], comandos: Comando[], setores: Setor[]): 
       const setorId = o.setorId || c?.setorId || undefined;
       return {
         id: o.id,
+        omId: o.id,
         ug: o.codigo,
         name: o.nome,
         sector: (setorId && set.get(setorId)?.sigla) || '',

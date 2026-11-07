@@ -70,6 +70,24 @@ Faturamento). Confira o quadro *Conferência com a planilha* e os pontos de aten
 migração**. Uma nova leitura só acrescenta o que ainda não existe; **Desfazer migração** remove tudo o que a
 migração gravou (recusa se já houver baixa lançada à mão sobre esses registros).
 
+### 1-E. Pontos de atenção (script 005)
+
+Execute [`supabase/migrations/005_pontos_atencao.sql`](../supabase/migrations/005_pontos_atencao.sql) **antes de
+gravar a migração** (ela grava em cada fatura/ALTCRED os problemas que encontrou). O sistema mostra um ícone ⚠ ao
+lado do número da fatura (Faturas) e do documento (Saldos Recebidos), e a tela **Pontos de Atenção** reúne todos,
+com filtros, exportação em CSV e o botão para marcar como resolvido/ciente com justificativa.
+
+- **Automáticos** (recalculados a cada leitura; somem quando o dado é corrigido): pago a maior, adiantamento maior
+  que o serviço, fatura cancelada com baixa, vencimento ausente ou anterior à emissão, número repetido, número fora
+  do padrão, competência ou serviço diferentes do número, fatura sem OM do cadastro, valor negativo, ALTCRED/GRU com
+  baixas acima do valor, documento repetido ou sem valor.
+- **Anotados pela migração** (ficam até alguém resolver): vencimento recalculado, emissão presumida, valor
+  diferente do livro de emissão, fatura só no livro de emissão, situação diferente da planilha, fatura repetida
+  nas abas, baixa para fatura inexistente, ALTCRED criada pelas baixas, utilizado diferente da planilha.
+
+Se a migração já tinha sido gravada antes do 005: em **Migrar faturas**, selecione de novo as planilhas e clique
+em **Gravar pontos nos já migrados**.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

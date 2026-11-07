@@ -4,7 +4,7 @@ import { analisarCadastro, LinhaFatura } from '../../utils/cadastroImport';
 import { lerPlanilhaCompleta } from '../../utils/planilhaImport';
 import { PlanilhasFaturas, PlanoMigracao, planejarMigracao, planilhasVazias } from '../../utils/faturasImport';
 import {
-  aplicarMigracao, carregarContexto, desfazerMigracao, ResultadoMigracao, situacaoMigracao,
+  aplicarMigracao, carregarContexto, desfazerMigracao, gravarPontosEmExistentes, ResultadoMigracao, situacaoMigracao,
 } from '../../services/faturasImportService';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -43,6 +43,8 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
   const [situacao, setSituacao] = useState<Situacao | null>(null);
   const [desfazendo, setDesfazendo] = useState<string | null>(null);
   const [confirmarDesfazer, setConfirmarDesfazer] = useState(false);
+  const [planoCompleto, setPlanoCompleto] = useState<PlanoMigracao | null>(null);
+  const [gravandoPontos, setGravandoPontos] = useState<string | null>(null);
 
   const atualizarSituacao = async () => {
     try { setSituacao(await situacaoMigracao()); } catch { setSituacao(null); }
@@ -76,6 +78,10 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
       setLendo('Montando a migração...');
       await pausa();
       setPlano(planejarMigracao(fat, ctx));
+      // Para registros já migrados: plano sem "existentes", só para saber os pontos de atenção de cada número
+      setPlanoCompleto(ctx.faturasExistentes.size || ctx.documentosExistentes.size
+        ? planejarMigracao(fat, { ...ctx, faturasExistentes: new Set(), documentosExistentes: new Set() })
+        : null);
       setAbas(lidas);
       setAbertos(new Set());
     } catch (e: any) {
@@ -101,6 +107,18 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
     } finally {
       setGravando(null); setConfirmando(false);
     }
+  };
+
+  const gravarPontos = async () => {
+    if (!planoCompleto) return;
+    setGravandoPontos('Iniciando...');
+    try {
+      const n = await gravarPontosEmExistentes(planoCompleto, setGravandoPontos);
+      notify.success(`Pontos de atenção gravados em ${int(n)} fatura(s)/documento(s) já existentes.`);
+      setPlanoCompleto(null);
+    } catch (e) {
+      notify.fail('Erro ao gravar pontos de atenção', e);
+    } finally { setGravandoPontos(null); }
   };
 
   const desfazer = async () => {
@@ -208,10 +226,17 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
             <ul className="mt-2 grid md:grid-cols-2 gap-x-6 list-disc pl-5">{abas.map(a => <li key={a}>{a}</li>)}</ul>
           </details>
 
+          {planoCompleto && r.ignoradasExistentes > 0 && podeEditar && (
+            <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 text-sm text-slate-700 flex flex-col md:flex-row md:items-center gap-2">
+              <span className="flex-1">{int(r.ignoradasExistentes)} registro(s) desta planilha já estão no sistema. Para marcar neles os pontos de atenção que a migração encontrou (ícone ⚠ nas faturas e documentos):</span>
+              <Button size="sm" variant="secondary" onClick={gravarPontos} isLoading={!!gravandoPontos} disabled={!!gravando}>{gravandoPontos || 'Gravar pontos nos já migrados'}</Button>
+            </div>
+          )}
+
           {plano.avisos.length > 0 && (
             <section className="space-y-2">
               <h3 className="font-semibold text-slate-800">Pontos de atenção encontrados nas planilhas</h3>
-              <p className="text-xs text-slate-500">Os itens em destaque merecem conferência com a planilha original; os demais foram corrigidos automaticamente conforme a OI 40-04.</p>
+              <p className="text-xs text-slate-500">Ao gravar, cada problema fica marcado na própria fatura ou ALTCRED (ícone ⚠ com a descrição e como corrigir) e reunido na tela <b>Pontos de Atenção</b>, para você corrigir depois. Os itens em destaque merecem conferência com a planilha original; os demais foram corrigidos automaticamente conforme a OI 40-04.</p>
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
                 {plano.avisos.map((a, i) => ({ a, i })).sort((x, y) => Number(y.a.grave) - Number(x.a.grave)).map(({ a, i }) => {
                   const aberto = abertos.has(i);

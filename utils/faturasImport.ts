@@ -1,3 +1,4 @@
+import type { RegistroPonto } from './pontosAtencao';
 /**
  * Fase 1-B — migração de faturas, ALTCRED e baixas a partir das planilhas
  * "Pagamento 2026" (abas FATURAS, Faturas Pagas, Faturas Extra-MB, ALTCRED,
@@ -143,11 +144,14 @@ export interface FaturaPlano {
   valor: number; acrescimo: number; debito: number; emissao: string; vencimento: string;
   cancelada: boolean; contestada: boolean; siplad: boolean; quitacaoExterna: string | null; quitadaEm: string | null; observacao: string;
   statusPlanilha: string | null; saldoPlanilha: number | null;
+  /** Pontos de atenção que só a migração conhece (gravados em pontos_atencao). */
+  pontos: RegistroPonto[];
 }
 export interface DocumentoPlano {
   id: string; numero: string; tipoDocumento: 'ALTCRED' | 'GRU'; operacao: 'PAGAMENTO' | 'ADIANTAMENTO' | 'OUTROS';
   valor: number; data: string; ug: string; setor: string; comando: string; cliente: string; comandoId: string | null;
   observacao: string; origem: string; utilizadoPlanilha: number | null;
+  pontos: RegistroPonto[];
 }
 export interface BaixaPlano { id: string; documentoId: string; faturaId: string; valor: number; data: string; origem: string; sigla: string }
 
@@ -185,6 +189,12 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   };
   const norm = (n: Celula) => limpar(n).toUpperCase();
   const servico = new Map(ctx.servicos.map(s => [s.sigla.toUpperCase(), s]));
+  const anotar = (r: { pontos: RegistroPonto[] } | undefined, tipo: string, mensagem: string) => {
+    if (r) r.pontos.push({ tipo, mensagem, origem: 'migracao', em: ctx.hoje });
+  };
+  const rs = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const br = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  const anotacoesFatura: [string, string, string][] = []; // [numero, tipo, mensagem] aplicadas após criar a fatura
 
   // 1. Livro de emissão (última ocorrência vale)
   const livro = new Map<string, Record<string, Celula>>();
@@ -229,7 +239,11 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
         const n = norm(l.fatura);
         const f = lerFatura(n);
         if (!f) continue;
-        if (faturas.has(n)) { repetidas.push(`${n} (${ORIGEM[origemK].split('› ')[1]})`); continue; }
+        if (faturas.has(n)) {
+          repetidas.push(`${n} (${ORIGEM[origemK].split('› ')[1]})`);
+          anotar(faturas.get(n), 'FATURA_REPETIDA', `Também consta na aba ${ORIGEM[origemK].split('› ')[1]} da planilha; valeram os dados de ${faturas.get(n)!.origem.split('› ')[1]}.`);
+          continue;
+        }
         if (ctx.faturasExistentes.has(n)) { existentes.push(n); continue; }
         if (!f.padrao) foraPadrao.push(n);
 
@@ -243,7 +257,10 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
         if (lv) {
           const sv = numero(lv.servico), ac = numero(lv.acrescimo) || 0, db = numero(lv.debito) || 0;
           if (sv !== null && Math.abs(r2(sv + ac - db) - valor) <= 0.01) { valor = r2(sv); acrescimo = r2(ac); debito = r2(db); }
-          else if (sv !== null && origemK === 'faturas') servicoDivergente.push(`${n}: vigente na planilha R$ ${r2(valorPlanilha + adiantUsado).toFixed(2)} × livro de emissão R$ ${r2(sv + ac - db).toFixed(2)}`);
+          else if (sv !== null && origemK === 'faturas') {
+            servicoDivergente.push(`${n}: vigente na planilha R$ ${r2(valorPlanilha + adiantUsado).toFixed(2)} × livro de emissão R$ ${r2(sv + ac - db).toFixed(2)}`);
+            anotacoesFatura.push([n, 'VALOR_DIVERGENTE_LIVRO', `Valor vigente na planilha ${rs(r2(valorPlanilha + adiantUsado))}; no livro de emissão ${rs(r2(sv + ac - db))} (serviço ${rs(r2(sv))} + acréscimo ${rs(r2(ac))} − débito ${rs(r2(db))}).`]);
+          }
         }
 
         // competência pelo número da fatura (MM-AAAA)
@@ -256,12 +273,14 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
           const y = mm === 12 ? aaaa + 1 : aaaa, mo = mm === 12 ? 1 : mm + 1;
           emissao = f.competencia ? iso(y, mo, 15) : ctx.hoje;
           emisCorrigida.push(`${n}: emissão "${limpar(l.emissao) || 'vazia'}" → ${emissao}`);
+          anotacoesFatura.push([n, 'EMISSAO_CORRIGIDA', `Emissão na planilha "${limpar(l.emissao) || 'vazia'}"; adotado ${br(emissao)}.`]);
         }
         let vencimento = data(l.vencimento) || (lv ? data(lv.vencimento) : null);
         if (!vencimento || vencimento < emissao) {
           const novo = somarDiasUteis(emissao, ctx.prazoDiasUteis, ctx.feriados);
           const original = typeof l.vencimento === 'number' ? (data(l.vencimento) ?? String(l.vencimento)) : limpar(l.vencimento);
           vencCorrigido.push(`${n}: "${original || 'vazio'}" → ${novo}`);
+          anotacoesFatura.push([n, 'VENCIMENTO_CORRIGIDO', `Vencimento na planilha "${original && /^\d{4}-\d{2}-\d{2}$/.test(original) ? br(original) : original || 'vazio'}"; recalculado para ${br(novo)} (emissão + ${ctx.prazoDiasUteis} dias úteis).`]);
           vencimento = novo;
         }
 
@@ -287,7 +306,9 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
           quitadaEm: historico ? vencimento : null,
           observacao: [limpar(l.obs), contestadas.get(n) ? `Contestação: ${contestadas.get(n)}` : ''].filter(Boolean).join(' | '),
           statusPlanilha: historico ? 'PAGO' : statusPlan, saldoPlanilha: origemK === 'faturas' ? numero(l.valor) : null,
+          pontos: [],
         });
+        anotacoesFatura.filter(a => a[0] === n).forEach(([, t, m]) => anotar(faturas.get(n), t, m));
       }
     }
   }
@@ -313,6 +334,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       vencimento: venc && venc >= emissao ? venc : somarDiasUteis(emissao, ctx.prazoDiasUteis, ctx.feriados),
       cancelada: canceladas.has(b.fatura), contestada: contestadas.has(b.fatura), siplad: false, quitacaoExterna: null, quitadaEm: null,
       observacao: 'Fatura ausente das listas da planilha de pagamento; dados do livro de emissão.', statusPlanilha: null, saldoPlanilha: null,
+      pontos: [{ tipo: 'FATURA_DO_LIVRO', mensagem: `Citada na baixa da ${b.altcred}, mas ausente das listas da planilha de pagamento; dados tirados do livro de emissão.`, origem: 'migracao', em: ctx.hoje }],
     });
     if (!om) semCliente.push(`${b.fatura} — ${limpar(lv.cliente)}`);
     doLivro.push(b.fatura);
@@ -335,7 +357,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       ug: cmd?.codigo ?? lerComando(l.cliente)?.codigo ?? '', setor: cmd?.setor || normalizarSetor(l.setor).sigla || '',
       comando: cmd?.nome ?? limpar(l.cliente), cliente: cmd?.nome ?? limpar(l.cliente), comandoId: cmd?.comandoId ?? null,
       observacao: [tipo && !['ADIANTAMENTO', 'PAGAMENTO'].includes(tipo) ? `Tipo na planilha: ${tipo}` : '', limpar(l.obs)].filter(Boolean).join(' | '),
-      origem: 'Planilha Pagamento 2026 › ALTCRED', utilizadoPlanilha: numero(l.utilizado),
+      origem: 'Planilha Pagamento 2026 › ALTCRED', utilizadoPlanilha: numero(l.utilizado), pontos: [],
     });
   }));
   const altcredCriadas: string[] = [];
@@ -353,6 +375,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       cliente: cmd?.nome ?? limpar(bs[0].cliente), comandoId: cmd?.comandoId ?? null,
       observacao: 'ALTCRED citada nas baixas, mas ausente da aba ALTCRED (provável exercício anterior). Valor = soma das baixas; confira no SIPLAD.',
       origem: 'Planilha Pagamento 2026 › baixas', utilizadoPlanilha: total,
+      pontos: [{ tipo: 'ALTCRED_CRIADA', mensagem: `Ausente da aba ALTCRED; criada com ${rs(total)}, soma de ${bs.length} baixa(s) da planilha.`, origem: 'migracao', em: ctx.hoje }],
     });
     altcredCriadas.push(`${n}: ${bs.length} baixa(s), R$ ${total.toFixed(2)}`);
   });
@@ -366,7 +389,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       id: ctx.novoId(), numero: numeroGru(g), tipoDocumento: 'GRU', operacao: 'PAGAMENTO', valor: r2(valorGru.get(numeroGru(g))!), data: g.data,
       ug: fat.ug, setor: fat.setor, comando: fat.comando, cliente: fat.cliente, comandoId: null,
       observacao: g.autenticacao ? `Autenticação bancária ${g.autenticacao}` : 'GRU sem autenticação bancária informada na planilha',
-      origem: 'Planilha Pagamento 2026 › Faturas Extra-MB', utilizadoPlanilha: r2(valorGru.get(numeroGru(g))!),
+      origem: 'Planilha Pagamento 2026 › Faturas Extra-MB', utilizadoPlanilha: r2(valorGru.get(numeroGru(g))!), pontos: [],
     });
   });
 
@@ -376,7 +399,11 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   baixasBrutas.forEach(b => {
     const fat = faturas.get(b.fatura);
     const doc = documentos.get(b.altcred);
-    if (!fat) { semFatura.push(`${b.altcred} → ${b.fatura} (R$ ${b.valor.toFixed(2)})`); return; }
+    if (!fat) {
+      semFatura.push(`${b.altcred} → ${b.fatura} (R$ ${b.valor.toFixed(2)})`);
+      anotar(doc, 'BAIXA_SEM_FATURA', `A planilha (${b.origem.split(' (')[0]}) baixava ${rs(b.valor)} na fatura ${b.fatura}${b.data ? ` em ${br(b.data)}` : ''}, que não existe em nenhuma lista; baixa não migrada.`);
+      return;
+    }
     if (!doc) { semDocumento.push(`${b.altcred} → ${b.fatura}`); return; }
     baixas.push({ id: ctx.novoId(), documentoId: doc.id, faturaId: fat.id, valor: r2(b.valor), data: b.data || doc.data, origem: b.origem, sigla: fat.sigla });
   });
@@ -416,7 +443,10 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
     const abertaPlan = f.statusPlanilha === 'VENCIDA' || f.statusPlanilha === 'A VENCER';
     const ok = (quitadaPlan && saldo <= 0.01) || (abertaPlan && saldo > 0.01) || (!quitadaPlan && !abertaPlan);
     if (ok) conferidasFaturas++;
-    else divergentes.push(`${f.numero}: planilha ${f.statusPlanilha}, saldo calculado R$ ${saldo.toFixed(2)}`);
+    else {
+      divergentes.push(`${f.numero}: planilha ${f.statusPlanilha}, saldo calculado R$ ${saldo.toFixed(2)}`);
+      anotar(f, 'STATUS_DIVERGENTE', `Na planilha: ${f.statusPlanilha}; pelas baixas migradas o saldo é ${rs(saldo)}.`);
+    }
   });
   let conferidasAltcred = 0;
   const altDiv: string[] = [], altEstouro: string[] = [];
@@ -427,7 +457,10 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
     if (usado > d.valor + 0.01) altEstouro.push(`${d.numero}: valor R$ ${d.valor.toFixed(2)}, baixado R$ ${usado.toFixed(2)}`);
     if (d.utilizadoPlanilha === null) return;
     if (Math.abs(usado - d.utilizadoPlanilha) <= 0.01) conferidasAltcred++;
-    else altDiv.push(`${d.numero}: planilha utilizado R$ ${d.utilizadoPlanilha.toFixed(2)}, migrado R$ ${usado.toFixed(2)}`);
+    else {
+      altDiv.push(`${d.numero}: planilha utilizado R$ ${d.utilizadoPlanilha.toFixed(2)}, migrado R$ ${usado.toFixed(2)}`);
+      anotar(d, 'ALTCRED_DIVERGENTE', `VALOR UTILIZADO na aba ALTCRED ${rs(d.utilizadoPlanilha)}; baixas migradas somam ${rs(usado)}.`);
+    }
   });
 
   aviso('ALTCRED_ESTOURADA', true, `${altEstouro.length} ALTCRED com baixas acima do valor recebido (crédito usado a mais na planilha). Migradas como estão; corrija as baixas.`, altEstouro);
