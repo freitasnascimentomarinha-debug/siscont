@@ -252,6 +252,7 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   const repetidas: string[] = [], semCliente: string[] = [], vencCorrigido: string[] = [], emisCorrigida: string[] = [],
     servicoDivergente: string[] = [], foraPadrao: string[] = [], existentes: string[] = [];
   const gru: { fatura: string; data: string; autenticacao: string; valor: number }[] = [];
+  const adiantSemAltcred: { fatura: string; valor: number; comando: string; ano: number }[] = [];
   const fontes: [keyof PlanilhasFaturas, string][] = [['faturas', 'faturas'], ['extra', 'extra'], ['pagas', 'pagas'], ['extraPagas', 'extraPagas']];
   for (const [aba, origemK] of fontes) {
     for (const m of p[aba]) {
@@ -276,7 +277,14 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
         let valor = r2(valorPlanilha + adiantUsado), acrescimo = 0, debito = 0;
         if (lv) {
           const sv = numero(lv.servico), ac = numero(lv.acrescimo) || 0, db = numero(lv.debito) || 0;
+          const adL = numero(lv.adiantamento) || 0;
           if (sv !== null && Math.abs(r2(sv + ac - db) - valor) <= 0.01) { valor = r2(sv); acrescimo = r2(ac); debito = r2(db); }
+          else if (sv !== null && origemK === 'faturas' && adL > adiantUsado + 0.01 && Math.abs(r2(sv + ac - db - adL) - valorPlanilha) <= 0.01) {
+            // O livro registra adiantamento maior que o do RESUMO ADIANTAMENTO: o serviço real é o do livro e a
+            // diferença foi abatida de adiantamento cuja ALTCRED não está identificada na planilha.
+            valor = r2(sv); acrescimo = r2(ac); debito = r2(db);
+            adiantSemAltcred.push({ fatura: n, valor: r2(adL - adiantUsado), comando: limpar(l.comando), ano: Math.floor(f.competencia / 100) || 0 });
+          }
           else if (sv !== null && origemK === 'faturas') {
             servicoDivergente.push(`${n}: vigente na planilha R$ ${r2(valorPlanilha + adiantUsado).toFixed(2)} × livro de emissão R$ ${r2(sv + ac - db).toFixed(2)}`);
             anotacoesFatura.push([n, 'VALOR_DIVERGENTE_LIVRO', `Valor vigente na planilha ${rs(r2(valorPlanilha + adiantUsado))}; no livro de emissão ${rs(r2(sv + ac - db))} (serviço ${rs(r2(sv))} + acréscimo ${rs(r2(ac))} − débito ${rs(r2(db))}).`]);
@@ -438,6 +446,35 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   documentos.forEach((d, n) => { if (sobraParaAdiant.has(n) && d.operacao !== 'ADIANTAMENTO') d.sobraAdiantamento = true; });
   usoPorAltcredAdiant(baixasBrutas).forEach(n => { const d = documentos.get(n); if (d && d.operacao !== 'ADIANTAMENTO') d.sobraAdiantamento = true; });
 
+  // 5-B. Adiantamentos do livro sem ALTCRED identificada: um documento por comando e ano, para o saldo fechar
+  const semAltcredDoc = new Map<string, DocumentoPlano>();
+  const docSemAltcredDaFatura = new Map<string, DocumentoPlano>();
+  const qtdSemAltcred = new Map<string, number>();
+  adiantSemAltcred.forEach(a => {
+    const fat = faturas.get(a.fatura)!;
+    const cmd = ctx.resolverComando(a.comando);
+    const cod = cmd?.codigo ?? lerComando(a.comando)?.codigo ?? fat.ug;
+    const numeroDoc = `S/ALTCRED ${a.ano} ${cod}`;
+    if (ctx.documentosExistentes.has(numeroDoc)) return;
+    let d = semAltcredDoc.get(numeroDoc);
+    if (!d) {
+      d = {
+        id: ctx.novoId(), numero: numeroDoc, tipoDocumento: 'ALTCRED', operacao: 'ADIANTAMENTO', valor: 0, data: fat.emissao,
+        ug: cod, setor: cmd?.setor || fat.setor, comando: cmd?.nome ?? fat.comando, cliente: cmd?.nome ?? fat.comando, comandoId: cmd?.comandoId ?? null,
+        observacao: `Adiantamentos abatidos em faturas de ${a.ano} segundo o livro de emissão (coluna "Valor do Adiantamento"), sem a ALTCRED correspondente no RESUMO ADIANTAMENTO.`,
+        origem: 'Planilha Faturamento › adiantamento sem ALTCRED', utilizadoPlanilha: null, pontos: [],
+      };
+      semAltcredDoc.set(numeroDoc, d);
+      documentos.set(numeroDoc, d);
+    }
+    d.valor = r2(d.valor + a.valor);
+    if (fat.emissao < d.data) d.data = fat.emissao;
+    docSemAltcredDaFatura.set(a.fatura, d);
+    qtdSemAltcred.set(d.numero, (qtdSemAltcred.get(d.numero) || 0) + 1);
+  });
+  semAltcredDoc.forEach(d => anotar(d, 'ALTCRED_NAO_IDENTIFICADA',
+    `${qtdSemAltcred.get(d.numero)} fatura(s) com adiantamento de ${rs(d.valor)} no livro de emissão sem a ALTCRED no RESUMO ADIANTAMENTO.`));
+
   // 6. Baixas
   const baixas: BaixaPlano[] = [];
   const semFatura: string[] = [], semDocumento: string[] = [];
@@ -458,6 +495,13 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
     if (!fat || !doc) baixasEmExistentes++;
     baixas.push({ id: ctx.novoId(), documentoId: docId, faturaId: fatId, valor: r2(b.valor), data: b.data || doc?.data || ctx.hoje, origem: b.origem, sigla: fat?.sigla ?? lerFatura(b.fatura)?.sigla ?? '' });
   });
+  adiantSemAltcred.forEach(a => {
+    const fat = faturas.get(a.fatura)!;
+    const d = docSemAltcredDaFatura.get(a.fatura);
+    if (d) baixas.push({ id: ctx.novoId(), documentoId: d.id, faturaId: fat.id, valor: a.valor, data: fat.emissao, origem: 'RESUMO ADIANTAMENTO (livro de emissão, sem ALTCRED)', sigla: fat.sigla });
+  });
+  aviso('ALTCRED_NAO_IDENTIFICADA', true, `${adiantSemAltcred.length} fatura(s) quitadas com adiantamento registrado só no livro de emissão (sem a ALTCRED no RESUMO ADIANTAMENTO), somando ${rs(r2(adiantSemAltcred.reduce((s2, a) => s2 + a.valor, 0)))}: valor do serviço tirado do livro e adiantamento lançado em "S/ALTCRED <ano> <comando>".`,
+    adiantSemAltcred.map(a => `${a.fatura}: ${rs(a.valor)}`));
   gru.forEach(g => {
     const doc = documentos.get(numeroGru(g))!;
     const fat = faturas.get(g.fatura)!;

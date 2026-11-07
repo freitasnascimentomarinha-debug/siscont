@@ -71,6 +71,7 @@ export const TIPOS_PONTO: Record<string, DefTipo> = {
   ALTCRED_DIVERGENTE: { alvo: 'documento', gravidade: 'alta', titulo: 'Utilizado diferente da planilha', comoCorrigir: 'O valor baixado no sistema difere do VALOR UTILIZADO da aba ALTCRED. Confira as baixas deste documento.' },
   ADIANTAMENTO_DIVERGENTE: { alvo: 'documento', gravidade: 'alta', titulo: 'Adiantamento diferente da planilha', comoCorrigir: 'Valor enviado para adiantamento, utilizado ou saldo diferente da aba ADIANTAMENTOS. Confira as faturas que usaram este adiantamento (RESUMO ADIANTAMENTO).' },
   ADIANTAMENTO_NAO_ENVIADO: { alvo: 'documento', gravidade: 'alta', titulo: 'Usada como adiantamento sem envio', comoCorrigir: 'A ALTCRED foi usada como adiantamento sem constar na aba ADIANTAMENTOS (provável uso em duplicidade: pagou faturas e também abateu adiantamentos). Desfaça as baixas indevidas.' },
+  ALTCRED_NAO_IDENTIFICADA: { alvo: 'documento', gravidade: 'media', titulo: 'Adiantamento sem ALTCRED identificada', comoCorrigir: 'O livro de emissão registra adiantamento nestas faturas, mas a planilha não diz de qual ALTCRED veio. Identifique a ALTCRED (aba ADIANTAMENTOS/SIPLAD) e transfira as baixas para ela.' },
   ALTCRED_CRIADA: { alvo: 'documento', gravidade: 'media', titulo: 'ALTCRED criada pelas baixas', comoCorrigir: 'Não constava na aba ALTCRED; criada com o valor somado das baixas. Confira o valor real no SIPLAD e ajuste.' },
 };
 
@@ -80,7 +81,7 @@ const brl = (n: number) => `R$ ${r2(n).toLocaleString('pt-BR', { minimumFraction
 export interface FaturaParaPontos {
   id: string; invoiceNumber: string; value: number; adjustmentAddition?: number; adjustmentDeduction?: number;
   issueDate: string; dueDate: string; monthCompetence: number; yearCompetence: number; serviceAcronym?: string;
-  isCanceled?: boolean; quitacaoExterna?: string | null; omId?: string | null; pontosRegistro?: RegistroPonto[];
+  isCanceled?: boolean; quitacaoExterna?: string | null; omId?: string | null; pontosRegistro?: RegistroPonto[]; acertoDe?: string | null;
 }
 export interface DocumentoParaPontos {
   id: string; documentNumber: string; documentType: string; totalValue: number; operation: string;
@@ -156,7 +157,7 @@ export function avaliarPontos(
     } else {
       if (s.adiant > 0.01 && s.adiant > total + 0.01) a.push(['ADIANTAMENTO_MAIOR', `Adiantamento usado ${brl(s.adiant)} para serviço de ${brl(total)}.`]);
       if (s.adiant + s.pago > total + 0.01) a.push(['PAGO_A_MAIOR', `Baixado ${brl(s.adiant + s.pago)} para fatura de ${brl(total)}: excedente de ${brl(s.adiant + s.pago - total)}.`]);
-      if (total < -0.01) a.push(['VALOR_NEGATIVO', `Valor da fatura ${brl(total)}.`]);
+      if (total < -0.01 && !f.acertoDe) a.push(['VALOR_NEGATIVO', `Valor da fatura ${brl(total)}.`]);
     }
     if (!f.dueDate) a.push(['VENCIMENTO_INVALIDO', 'Fatura sem data de vencimento.']);
     else if (f.issueDate && f.dueDate < f.issueDate) a.push(['VENCIMENTO_INVALIDO', `Vencimento ${dataBR(f.dueDate)} anterior à emissão ${dataBR(f.issueDate)}.`]);

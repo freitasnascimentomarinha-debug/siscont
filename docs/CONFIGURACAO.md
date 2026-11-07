@@ -116,6 +116,31 @@ Faturamento. A leitura passa a usar também a aba **ADIANTAMENTOS** e o consolid
 migração (acrescenta só o que faltava, ligando as baixas novas às ALTCRED já gravadas) e clique em **Atualizar os já
 migrados**.
 
+### 1-G. Faturamento mensal — Fase 3 (script 007)
+
+Execute [`supabase/migrations/007_faturamento_fase3.sql`](../supabase/migrations/007_faturamento_fase3.sql): cria
+**preços** do ano (TC mensal por OM, diária de atracação por navio, valores unitários), **medições** do mês, mapa de
+**atracação** (BNIC-35, realizado e previsão), **lotes** de faturamento e, na fatura, lote, memória de cálculo,
+estimado (OND), acerto de, "cancela e substitui" e as marcas de envio/SIPLAD/SIAFI.
+
+Menu **Faturamento**:
+1. **Preços do ano** — TC mensal (pode importar a aba TAXA CONDOMINIAL da proposta), diária de cada navio, valores
+   unitários; "Copiar do ano anterior" com reajuste.
+2. **Medições do mês** — por serviço; **Importar rateio da divisão** (formato "DADOS BNIC-41": código, consumo,
+   demanda, R$; prédios da mesma OM são somados), conferência com a conta da concessionária, OM sem leitura com
+   "estimar" (média das 3 últimas, Anexo J).
+3. **Atracação (BNIC-35)** — grade dia a dia (A atracado, D docado: não paga) ou **Importar mapas (G1…G6)**;
+   "Previsão" para o lote OND (OUT–DEZ).
+4. **Lote de faturas** — Mensal, **Estimado OND** (3 × média JAN–AGO ÷ 8; TC = 3 × tabela; DA = diária × dias
+   previstos; extra-MB mensal) ou **Acerto do OND** (real OUT–DEZ − estimado → acréscimo/débito). Prévia com
+   pendências, base de cálculo e valor editável; numeração automática OM-SIGLA-MM-AAAA-SEQ-V (sequência por serviço,
+   sem lacunas, continuando das avulsas); emissão no dia 15 e data-limite em dias úteis; **abatimento automático do
+   adiantamento** ("Baixa na ALTCRED ..."). Lotes emitidos: **PDF FR-172 em ZIP por comando**, mensagem de envio
+   por comando (com o indicativo naval) e marcação de enviadas, certificadas no SIPLAD e registradas no SIAFI.
+
+Preencha em **Cadastros → Parâmetros** o nome e o posto do Encarregado (impressos na fatura) e, em **Cadastros →
+Serviços**, o setor e o telefone de cada divisão (texto de dúvidas da fatura).
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

@@ -25,6 +25,7 @@ function novoBanco() {
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
+    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [],
   };
 }
 
@@ -72,7 +73,8 @@ function handler(db, log) {
       for (const l of linhas) {
         if (t === 'oms' && db.oms.some(o => o.codigo === l.codigo && o.nome.toLowerCase() === l.nome.toLowerCase())) return json(409, { code: '23505', message: 'duplicate key value violates unique constraint "oms_codigo_nome_uk"' });
         if (t === 'feriados') { db.feriados = db.feriados.filter(f => f.data !== l.data); }
-        const ja = l.id && db[t].find(r => r.id === l.id);
+        const conflito = (url.searchParams.get('on_conflict') || '').split(',').filter(Boolean);
+        const ja = (l.id && db[t].find(r => r.id === l.id)) || (conflito.length && db[t].find(r => conflito.every(c => String(r[c]) === String(l[c]))));
         if (ja && (req.headers()['prefer'] || '').includes('merge-duplicates')) { Object.assign(ja, l); continue; } // upsert
         db[t].push({ id: l.id || uid(), ativo: true, ...l });
       }
@@ -457,6 +459,91 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/extrato_12345_\d{4}\.xlsx/.test(dl.suggestedFilename()), `Excel gerado (${dl.suggestedFilename()})`);
     const [dl2] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
     ok(dl2.suggestedFilename().endsWith('.pdf'), 'PDF gerado');
+  });
+
+  await cenario('Fase 3: preços, rateio, mapa BNIC-35, lote com adiantamento, mensagem e PDF', [], async (page, db, _a, log) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', indicativo_naval: 'DIMRJ', setor_id: setor.id, ativo: true };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    const npa = { id: uid(), codigo: '40032', nome: 'Navio-Patrulha Mangaratiba', tipo: 'NAVIO', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    const banco = { id: uid(), codigo: '00994', nome: 'Banco do Brasil', tipo: 'EXTRA_MB', comando_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(dim, npa, banco);
+    db.service_definitions.push(
+      { id: uid(), name: 'Taxa Condominial', unit_measure: '-', acronym: 'TC', nome_oficial: 'TAXA CONDOMINIAL', ordem: 10, ativo: true },
+      { id: uid(), name: 'Eletricidade', unit_measure: 'KWH', acronym: 'EL', nome_oficial: 'FORNECIMENTO DE ENERGIA ELÉTRICA', setor_responsavel: 'a Divisão de Eletricidade (BNIC-34)', ordem: 30, ativo: true },
+      { id: uid(), name: 'Diária de Atracação', unit_measure: 'DIA', acronym: 'DA', nome_oficial: 'DIÁRIA DE ATRACAÇÃO', emitida_de_acordo_com: 'DIÁRIA ESTABELECIDA', ordem: 40, ativo: true });
+    db.invoices = [];
+    db.received_documents.push({ id: uid(), document_number: 'G424.2026.AC.00403', document_type: 'ALTCRED', total_value: 5000, date: '2026-09-14', operation: 'ADIANTAMENTO', client: 'DIM', sector: 'DGMM', command: '40030', ug: '40030', comando_id: cmd.id, observation: '' });
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-f3-'));
+    const rateio = path.join(pasta, 'rateio.xlsx'), mapa = path.join(pasta, 'G6.xlsx');
+    let wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ORGANIZAÇÕES APOIADAS', '', '', 'MEDIDO', '', '', 'VALOR TOTAL (R$)'], ['SIGLA', 'CÓDIGO', '', 'DIAS', 'CONSUMO (kWh)', 'Demanda (kW)', ''],
+      ['DIM', '40030', '', 31, 12799, 40, 10134.19], ['BANCO DO BRASIL', '00994', '', 31, 1191, 3, 925.10], ['DESCONHECIDA', '99999', '', 31, 10, 1, 7]]), 'DADOS BNIC-41');
+    XLSX.writeFile(wb, rateio);
+    wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['BNIC-35'], ['', '', 'MÊS DE AGOSTO DE 2026'], ['', '', 'GERÊNCIA: G6'],
+      ['NAVIOS', ...Array.from({ length: 31 }, (_, i) => i + 1)], ['NPA MANGARATIBA', ...Array(31).fill('A')], ['LEGENDA:']]), 'G6');
+    XLSX.writeFile(wb, mapa);
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturamento' }).first().click();
+    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
+    // preços
+    await page.getByRole('button', { name: 'Preços do ano' }).click();
+    await page.getByLabel('Ano dos preços').fill('2026');
+    await page.getByLabel('TC Diretoria Industrial da Marinha').fill('19615,73');
+    await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
+    await page.getByText('Preços gravados.').first().waitFor();
+    await page.getByLabel('Serviço dos preços').selectOption('DA');
+    await page.getByLabel('DA Navio-Patrulha Mangaratiba').fill('95,51');
+    await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
+    await page.waitForTimeout(400);
+    ok(db.precos.length === 2 && db.precos.some(p => p.sigla === 'DA' && Number(p.valor) === 95.51), 'TC e diária de atracação de 2026 gravadas');
+    // medições: rateio
+    await page.getByRole('button', { name: 'Medições do mês' }).click();
+    await page.getByLabel('Competência das medições').fill('2026-08');
+    await page.getByLabel('Serviço', { exact: true }).selectOption('EL');
+    await page.locator('input[type=file]').setInputFiles(rateio);
+    await page.getByText(/Código 99999 .* não está no cadastro/).waitFor();
+    await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
+    await page.getByText('2 medição(ões) gravada(s).').waitFor();
+    ok(db.medicoes.length === 2 && Number(db.medicoes.find(m => m.om_id === dim.id).valor) === 10134.19, 'rateio importado: 2 OM, código desconhecido apontado');
+    // atracação
+    await page.getByRole('button', { name: 'Atracação (BNIC-35)' }).click();
+    await page.getByLabel('Competência do mapa').fill('2026-08');
+    await page.locator('input[type=file]').setInputFiles(mapa);
+    await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
+    await page.getByText('1 navio(s) gravado(s).').waitFor();
+    ok(db.atracacoes[0].dias_atracado === 31 && db.atracacoes[0].om_id === npa.id, 'mapa BNIC-35 importado: Mangaratiba 31 dias atracado');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-atracacao.png') });
+    // lote
+    await page.getByRole('button', { name: 'Lote de faturas' }).click();
+    await page.getByLabel('Competência', { exact: true }).fill('2026-08');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('40030-TC-08-2026-001-0').waitFor();
+    ok(await page.getByLabel('Valor de 40032-DA-08-2026-001-0').inputValue() === '2960.81', 'DA = 95,51 × 31 = 2.960,81');
+    ok(await page.getByText('00994-EL-08-2026-001-0').isVisible() && await page.getByText('40030-EL-08-2026-002-0').isVisible(), 'numeração: extra-MB primeiro, sequência por serviço');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-previa.png'), fullPage: false });
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    await page.getByText(/Lote emitido: 4 faturas/).waitFor({ timeout: 15000 });
+    const tc = db.invoices.find(i => i.invoice_number === '40030-TC-08-2026-001-0');
+    ok(tc && tc.issue_date === '2026-09-15' && tc.due_date === '2026-09-29' && tc.lote_id, 'emissão 15/09/2026 e data-limite 29/09/2026 (10 dias úteis)');
+    const ad = db.payment_allocations.filter(b => b.tipo_baixa === 'ADIANTAMENTO');
+    ok(ad.length >= 1 && Math.abs(ad.reduce((s, b) => s + Number(b.amount), 0) - 5000) < 0.01, 'adiantamento de R$ 5.000,00 abatido automaticamente');
+    ok(/Baixa na ALTCRED G424.2026.AC.00403/.test(db.invoices.find(i => i.id === ad[0].invoice_id).observation), 'fatura registra "Baixa na ALTCRED"');
+    ok(db.lotes_faturamento.length === 1 && db.lotes_faturamento[0].qtd === 4, 'lote registrado');
+    // lotes emitidos: mensagem e PDF
+    await page.getByRole('button', { name: /AGO26/ }).click();
+    await page.getByRole('button', { name: /mensagem/ }).first().click();
+    const texto = await page.getByLabel('Texto da mensagem').inputValue();
+    ok(/PARA: DIMRJ/.test(texto) && /40030-TC-08-2026-001-0/.test(texto), 'mensagem de envio com indicativo naval e faturas');
+    await page.getByRole('button', { name: /marcar faturas/ }).click();
+    await page.getByText(/marcada\(s\): enviadas/).waitFor();
+    ok(db.invoices.filter(i => i.enviada_em).length === 3, 'faturas do comando marcadas como enviadas');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF FR-172/ }).click()]);
+    ok(/\.zip$/.test(dl.suggestedFilename()), `ZIP de PDF FR-172 gerado (${dl.suggestedFilename()})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-lotes.png'), fullPage: true });
   });
 
   if (extras.length) {

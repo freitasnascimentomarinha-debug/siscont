@@ -16,6 +16,7 @@ import {
   Building2,
   AlertTriangle,
   Scale,
+  Receipt,
 } from 'lucide-react';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole } from '../types';
@@ -50,6 +51,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
   const navItems = [
     { id: 'dashboard' as PageID, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'invoices' as PageID, label: 'Faturas', icon: FileText },
+    { id: 'faturamento' as PageID, label: 'Faturamento', icon: Receipt },
     { id: 'received' as PageID, label: 'Saldos Recebidos', icon: Wallet },
     { id: 'cashflow' as PageID, label: 'Fluxo de Caixa', icon: ArrowLeftRight },
     { id: 'conciliacao' as PageID, label: 'Extrato de Conciliação', icon: Scale },

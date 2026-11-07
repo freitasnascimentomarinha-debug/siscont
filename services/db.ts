@@ -151,7 +151,8 @@ export const db = {
       else status = InvoiceStatus.OPEN;
 
       const paidAmount = inv.quitacaoExterna && !inv.isCanceled ? Math.max(paymentsTotal, payableAmount) : paymentsTotal;
-      return { ...inv, paidAmount, status, pontos: pontos.get(inv.id) || [] };
+      const saldoAPagar = status === InvoiceStatus.CANCELLED || status === InvoiceStatus.PAID ? 0 : Math.max(0, Math.round((payableAmount - paymentsTotal) * 100) / 100);
+      return { ...inv, paidAmount, status, saldoAPagar, adiantamentoUsado: Math.round(advancesTotal * 100) / 100, pontos: pontos.get(inv.id) || [] };
     });
   },
 

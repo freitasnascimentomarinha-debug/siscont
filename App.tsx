@@ -1,6 +1,7 @@
 
 import { PontosAtencaoPage } from './pages/PontosAtencao';
 import { Conciliacao } from './pages/Conciliacao';
+import { Faturamento } from './pages/Faturamento';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
@@ -18,7 +19,7 @@ import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
 
-export type PageID = 'dashboard' | 'invoices' | 'received' | 'cashflow' | 'conciliacao' | 'pontos' | 'cadastros' | 'admin';
+export type PageID = 'dashboard' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'conciliacao' | 'pontos' | 'cadastros' | 'admin';
 
 const AuthenticatedApp = () => {
   const { user } = useAuth();
@@ -28,6 +29,7 @@ const AuthenticatedApp = () => {
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'invoices': return <Invoices />;
+      case 'faturamento': return <Faturamento />;
       case 'received': return <ReceivedBalances />;
       case 'cashflow': return <CashFlow />;
       case 'conciliacao': return <Conciliacao />;

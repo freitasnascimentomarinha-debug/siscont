@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
 import { aceitaAdiantamento, ehAdiantamento } from '../utils/baixas';
+import { baixarPdfFr172 } from '../services/fr172Service';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
@@ -991,7 +992,7 @@ export const Invoices: React.FC = () => {
                           <td className="px-4 py-4 text-sm font-bold text-slate-800">R$ {calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex justify-end gap-2">
-                              <button onClick={() => generateInvoicePDF(inv)} className="text-slate-500 hover:text-slate-800" title="Imprimir PDF"><Printer size={16} /></button>
+                              <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)"><Printer size={16} /></button>
                               {!inv.isCanceled && !isReadOnly && (
                                 <>
                                   <button onClick={() => handleEdit(inv)} className="text-indigo-600 hover:text-indigo-900"><Edit2 size={16} /></button>

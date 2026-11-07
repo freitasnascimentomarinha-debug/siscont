@@ -53,3 +53,9 @@ Com 001–004 aplicados: `psql -d sb -f tests/sql/fase1b_005_tests.sql`. Esperad
 Com 001–005 aplicados: `psql -d sb -f tests/sql/fase2_006_tests.sql`. Esperado: exercício 2026 tirado do número da
 ALTCRED, autenticação da GRU tirada de "GRU ABC123", sobra da ALTCRED marcada como adiantamento, baixas classificadas
 (LANÇAMENTOS = PAGAMENTO; RESUMO ADIANTAMENTO e documento de adiantamento = ADIANTAMENTO) e tipo inválido recusado.
+
+## Script 007 (Fase 3 - faturamento)
+
+Com 001–006 aplicados: `psql -d sb -f tests/sql/fase3_007_tests.sql`. Esperado: um preço por ano/serviço/OM (e um
+geral por serviço), competência inválida recusada, realizado e previsão de atracação no mesmo mês, tipo de lote
+inválido recusado, fatura mantida ao excluir o lote, e preços/atracações removidos junto com a OM.

@@ -191,6 +191,10 @@ export const supabaseService = {
                 quitadaEm: 'quitada_em' in i ? i.quitada_em : undefined,
                 contestada: 'contestada' in i ? i.contestada === true : undefined,
                 pontosRegistro: Array.isArray(i.pontos_atencao) ? i.pontos_atencao : undefined,
+                ...('lote_id' in i ? {
+                    loteId: i.lote_id, baseCalculo: i.base_calculo, estimado: !!i.estimado, acertoDe: i.acerto_de, substitui: i.substitui,
+                    enviadaEm: i.enviada_em, certificadaEm: i.certificada_em, siafiEm: i.siafi_em,
+                } : {}),
                 paidAmount: 0,
                 status: 'OPEN' as any
             })) as Invoice[];

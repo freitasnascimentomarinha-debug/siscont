@@ -114,6 +114,17 @@ export interface Invoice {
   // Pontos de atenção (script 005): registrados (migração/ciente) e calculados
   pontosRegistro?: RegistroPonto[];
   pontos?: PontoAtencao[];
+  // Fase 3 (script 007)
+  loteId?: string | null;
+  baseCalculo?: Record<string, unknown> | null; // memória de cálculo do lote
+  estimado?: boolean; // lote OND (estimado de fim de exercício)
+  acertoDe?: string | null; // fatura OND que este acerto corrige
+  substitui?: string | null; // "cancela e substitui" (Fase 4)
+  enviadaEm?: string | null;
+  certificadaEm?: string | null;
+  siafiEm?: string | null;
+  saldoAPagar?: number; // calculado: (01 − 02 + 03 − 04) − pagamentos
+  adiantamentoUsado?: number; // calculado: linha 02
 }
 
 export interface ReceivedDocument {

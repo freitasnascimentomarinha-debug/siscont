@@ -305,6 +305,16 @@ PAGAR / PAGO A MAIOR), ALTCRED com saldo negativo, baixas sem ALTCRED, datas inv
 
 ### Fase 3 — Ciclo de faturamento mensal
 
+> **Situação (07/11/2026)**: **Fase 3 concluída** (script 007, menu Faturamento): 3.1 mapa BNIC-35 (grade e
+> importação das gerências, previsão OUT–DEZ); 3.1-B medições com importação do rateio "DADOS BNIC-41", conferência
+> com a conta e OM sem leitura; 3.2 cálculo (TC tabela, DA diária × dias atracado, rateio em R$ ou quantidade × valor);
+> 3.3 lote com numeração automática, emissão/data-limite, abatimento de adiantamento, OND estimado (conferido com o
+> OND26: 40030-EL R$ 32.642,10 e 40030-AE R$ 24.114,60 exatos; TC = 3 × tabela) e 3.6 acerto do OND; 3.4 PDF FR-172 e
+> ZIP por comando; 3.5 mensagem de envio por comando e marcas enviada/certificada/SIAFI.
+> Regra do OND confirmada no livro: **3 × (soma JAN–AGO ÷ 8)**; a planilha às vezes dividiu pelos meses faturados
+> (opção na tela). A migração passou a usar o **valor do serviço do livro** quando o adiantamento está só no livro
+> (197 faturas, R$ 4,58 mi), lançando-o em "S/ALTCRED <ano> <comando>" para identificação posterior.
+
 3.1 **Atracação (BNIC-35)**: tela do mapa mensal por gerência (grade dia a dia A/D, ou importação dos
 mapas atuais), com os dias do mês corretos e totais automáticos; os dias atracados alimentam as faturas DA, e o
 histórico alimenta a média trienal (Fase 6). Para o lote OND, a divisão lança a **previsão de atracação** de OUT–DEZ.
