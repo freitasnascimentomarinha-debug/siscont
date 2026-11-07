@@ -39,6 +39,19 @@ export function partesDoNome(nome: string): { responsavel: string; complemento: 
   const semEd = ed ? t.replace(ed[0], ' ').replace(/\s+/g, ' ').trim() : t;
   const i = semEd.lastIndexOf(' - ');
   const responsavel = (i > 0 ? semEd.slice(0, i) : semEd).trim();
-  const complemento = i > 0 ? semEd.slice(i + 3).trim() || null : null;
+  let complemento = i > 0 ? semEd.slice(i + 3).trim() || null : null;
+  // "Centro de Perícias Médicas da Marinha - CPMM", "Comando do Primeiro Distrito Naval - Com1ºDN": é a sigla, não complemento
+  if (complemento && ehSiglaDe(complemento, responsavel)) return { responsavel: semEd, complemento: null, edificio: ed ? ed[1].toUpperCase() : null };
   return { responsavel, complemento, edificio: ed ? ed[1].toUpperCase() : null };
+}
+
+/** A sigla é uma palavra curta cujas letras aparecem, na ordem, no nome (começando pela mesma letra). */
+export function ehSiglaDe(sigla: string, nome: string): boolean {
+  const s = sigla.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (/\s/.test(s.trim()) || s.replace(/[^A-Z0-9]/g, '').length > 8) return false;
+  const letras = s.replace(/[^A-Z]/g, ''), n = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (letras.length < 2 || letras[0] !== n[0]) return false;
+  let j = 0;
+  for (const c of n) if (c === letras[j]) j++;
+  return j >= letras.length;
 }

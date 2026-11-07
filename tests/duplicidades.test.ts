@@ -103,3 +103,18 @@ describe('OM emissora e partes do nome', () => {
     expect(partesDoNome('CMS – CAM (Ed. 7B)')).toEqual({ responsavel: 'CMS', complemento: 'CAM', edificio: '7B' });
   });
 });
+
+describe('complemento × sigla e cliente com/sem responsável', () => {
+  it('sigla depois do travessão não é complemento', () => {
+    expect(partesDoNome('Centro de Perícias Médicas da Marinha - CPMM').complemento).toBeNull();
+    expect(partesDoNome('Comando do Primeiro Distrito Naval - Com1ºDN').complemento).toBeNull();
+    expect(partesDoNome('Arsenal de Marinha do Rio de Janeiro - BGL1').complemento).toBe('BGL1');
+    expect(partesDoNome('Arsenal de Marinha do Rio de Janeiro - ROMAO').complemento).toBe('ROMAO');
+  });
+  it('acha "BGL1" × "Arsenal - BGL1" e "Romão" × "Arsenal - ROMAO"', () => {
+    const l = [om('a', 'Arsenal de Marinha do Rio de Janeiro - BGL1'), om('b', 'BGL1'), om('c', 'Arsenal de Marinha do Rio de Janeiro - ROMAO'), om('d', 'Romão'),
+      om('e', 'Centro de Perícias Médicas da Marinha - CPMM'), om('f', 'Centro de Perícias Médicas da Marinha')];
+    const pares = paresDuplicados(l).map(p => [p.a.id, p.b.id].sort().join(''));
+    expect(pares.sort()).toEqual(['ab', 'cd', 'ef']);
+  });
+});

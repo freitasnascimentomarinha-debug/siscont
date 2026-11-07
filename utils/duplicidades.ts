@@ -39,6 +39,8 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
   const a = A.om, b = B.om;
   const na = A.compacto, nb = B.compacto;
   if (!na || !nb) return null;
+  // "Arsenal - BGL1" × "BGL1": mesmo cliente, um com e outro sem o nome do responsável
+  if ((A.compl && A.compl === nb) || (B.compl && B.compl === na)) return { pontos: 85, motivo: 'um é o complemento do outro (mesmo cliente, com e sem o nome do responsável)' };
   // "Arsenal - BGL1" × "Arsenal" ou × "Arsenal - SKM": o complemento é quem consome (outro cliente, mesmo responsável)
   if (A.resp && A.resp === B.resp && A.compl !== B.compl && !(A.compl && B.compl && (A.compl.startsWith(B.compl) || B.compl.startsWith(A.compl)))) return null;
   // edifícios diferentes (Ed.16 × Ed.32): pontos de consumo diferentes
@@ -57,7 +59,7 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
     // "Arsenal ... – TRANSUNIVERSAL": complemento depois de travessão costuma ser outro cliente (terceiro), não abreviação
     const [curto, longo] = na.length < nb.length ? [A.nome, B.nome] : [B.nome, A.nome];
     const resto = longo.slice(curto.replace(/\s*\(.*?\)\s*/g, '').trim().length);
-    if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto)) return null;
+    if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto) && (A.compl || B.compl)) return null;   // " - CPMM" (sigla) não conta
     // "Diretoria ... da Marinha" × "Diretoria ... da Marinha ILHA FISCAL": o curto é um nome completo e o longo acrescenta
     // palavras inteiras (complemento sem travessão) → outro cliente. Nome cortado termina no meio de uma palavra
     // ("... EDCG Cl") ou tem o tamanho do corte das planilhas (~50 caracteres).
