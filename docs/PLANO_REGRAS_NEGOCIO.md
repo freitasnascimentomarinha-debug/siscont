@@ -7,6 +7,9 @@ _Revisão 2 (06/11/2026): incorporadas as planilhas Faturamento (livro de emiss�
 Proposta 4 – Atualização da Taxa Condominial 2026, Rateio de energia ABR26 e Faturas em Aberto OUT26, e as
 respostas do usuário (rateio vem das divisões; sequencial é por ordem de emissão; fluxo de caixa é da Seção de
 Custos)._
+_Revisão 3 (07/11/2026): incorporados os mapas de acompanhamento de navios atracados/docados (BNIC-35, gerências
+G1–G6, OUT26) e o Histórico Trienal 2026; respostas: vencimento conforme a OI; faturamento OND = média JAN–AGO,
+exceto diárias de atracação, que usam a previsão de atracação enviada pela divisão responsável._
 
 ---
 
@@ -120,11 +123,26 @@ valor vigente × taxa condominial recebida × empenhado × saldo em conta × a r
 5. *Extrato demonstrativo por OM* (valor anual, mensal e %RUB por rubrica) e *quadro comparativo* taxa 2025 × proposta 2026;
 6. *Navios*: diária = **custo por militar-dia × lotação** (ex.: Mearim, lotação 35 → R$ 95,51/dia).
 
-**Faturamento estimado de fim de exercício (OND)** — em 23/10/26 foi emitido o lote "OND26" (competência
-OUT, vencimento 31/10), e há o precedente "Estimado (OND) 2025". Nele a **taxa condominial é cobrada em
-triplo** (OUT+NOV+DEZ — AMAZUL: 819,76 → 2.459,28) e os **consumos repetem os de SET** (ex.: Santander EL
-1.654 kWh / R$ 1.284,73; EMGEPRON EL 52.500 kWh), para que as OM paguem antes do encerramento do exercício.
-O sistema precisa de um **lote "estimado"** e do **acerto** posterior contra o consumo real (regra a confirmar).
+**Faturamento estimado de fim de exercício (OND)** — regra informada pelo usuário e conferida no lote OND26
+(emitido 23/10/26, competência OUT, cobre OUT+NOV+DEZ), para que as OM paguem antes do encerramento do exercício:
+- **OM da Marinha**: valor = **3 × média mensal de JAN a AGO** de cada serviço. Conferido: 18 faturas TC, 24 EL,
+  18 AE e 8 TL batem exatamente (ex.: CCEM-RIO TC média 3.339,07 → OND 10.017,21; AMAZUL TC 819,76 → 2.459,28).
+- **Diária de atracação**: diária × **dias previstos** de OUT a DEZ, conforme a **previsão de atracação** enviada
+  pela Divisão Marítima/Manobras (BNIC-35).
+- **Extra-MB**: nos dados, recebeu o valor de um mês (igual a SET) — segue o faturamento mensal normal.
+- Cerca de 25 faturas de OM da MB não se encaixam em nenhuma das regras acima e devem ser conferidas antes da
+  migração (provável caso de OM com mais de uma fatura no mesmo código ou meses sem cobrança).
+
+**Mapa de acompanhamento de navios atracados e docados (BNIC-35)** — um mapa por **gerência** (G1 fragatas;
+G2 navios do ComForSup — NAM Atlântico, NT Gastão Motta, NDM Bahia…; G3 navios-patrulha e hidrográficos;
+G4 submarinos; G6 NPa Mangaratiba), com grade dia a dia (`A` = atracado, `D` = docado), totais de A e D por
+navio, data de emissão, Agente de Manobra e responsável. É a **fonte dos dias de atracação** da fatura DA.
+
+**Histórico Trienal** — dias atracados por navio e por mês (abas 2022, 2023, 2023_2, 2025) e a aba **MÉDIA
+TRIENAL** por classe: média dos 3 anos ÷ 12 → dias/mês usados no rateio da taxa condominial (peso dos navios) e
+na diária de atracação. Também há uma "média" anual = total ÷ 10,5.
+
+**Faturas em aberto por comando** — extrato mensal
 
 **Faturas em aberto por comando** — extrato mensal por comando (comando, cliente, fatura, valor, total,
 instruções de pagamento, assinatura do Encarregado) enviado para cobrança.
@@ -151,6 +169,10 @@ instruções de pagamento, assinatura do Encarregado) enviado para cobrança.
 | D14 | Rateio de energia: linha "PAPEM (Ed. 23)" com código 49001 (que é do CTIM); BNIC-RANCHO com 40015 numa aba e 40016 na outra | importação valida o código contra o cadastro de OM |
 | D15 | Livro de emissão com números como texto e "Valor Final" ora número, ora "R$ 0,00" | valores numéricos e calculados (05 = 01 − 02 + 03 − 04) |
 | D16 | A planilha de rateio de energia guarda uma senha de proteção e endereços de rede em texto aberto | não manter credenciais em planilhas; o sistema não armazena esse tipo de dado |
+| D17 | **MÉDIA TRIENAL sem os dados de 2025**: a coluna 2025 está vazia, mas a soma continua dividida por 3 (ex.: Corvetas Classe Barroso 355 + 288 + 0 → média 214 dias/ano, 18/mês; com os 327 dias de 2025 da própria planilha seria 323 dias/ano, 27/mês). Os cabeçalhos também dizem "2022 a 2024" e "QTDE NAVIOS 2022" sobre colunas 2023–2025 | média calculada pelo sistema a partir dos dias registrados, sempre com os 3 exercícios corretos |
+| D18 | Totais do histórico que não fecham: aba 2023_2 soma só as linhas 6–49 (exibe 3.065 dias; a soma real das 103 linhas é 4.567); aba 2025 exibe total anual 4.677, mas os próprios totais mensais somam 5.414 | totais calculados, nunca intervalos fixos |
+| D19 | Critério muda entre anos: 2022/2023 contam "atracados **e docados**"; 2025 conta só "atracados" | regra única e registrada (ver decisão sobre navio docado) |
+| D20 | Mapas BNIC-35 de OUT26: G1 com colunas só até o dia 30 (outubro tem 31); total do NApOc Apa digitado (6) em vez de fórmula; fórmula do Mangaratiba incluindo a própria coluna de total; arquivo G2 com aba "G1" e G6 com aba "G5" | grade gerada pelo sistema com os dias reais do mês e totais calculados |
 
 Situação atual da planilha: **1.415 faturas em 2026** (1.110 pagas, 171 vencidas, 121 a vencer, 6
 contestadas, 6 canceladas), **R$ 8,08 milhões em aberto** (R$ 289,8 mil de competência 2025),
@@ -233,7 +255,11 @@ PAGAR / PAGO A MAIOR), ALTCRED com saldo negativo, baixas sem ALTCRED, datas inv
 
 ### Fase 3 — Ciclo de faturamento mensal
 
-3.1 **Medições do mês**: tela por serviço/competência para lançar ou **importar planilha** das divisões
+3.1 **Atracação (BNIC-35)**: tela do mapa mensal por gerência (grade dia a dia A/D, ou importação dos
+mapas atuais), com os dias do mês corretos e totais automáticos; os dias atracados alimentam as faturas DA, e o
+histórico alimenta a média trienal (Fase 6). Para o lote OND, a divisão lança a **previsão de atracação** de OUT–DEZ.
+
+3.1-B **Medições do mês**: tela por serviço/competência para lançar ou **importar planilha** das divisões
 (m³; kWh + kW; dias atracados; horas + km; minutos fixa/móvel; manobras). **Painel de pendências**: quais
 divisões ainda não enviaram, com o prazo da OI.
 
@@ -250,8 +276,9 @@ divisões ainda não enviaram, com o prazo da OI.
 avulsa recebe o próximo número livre), emissão no dia 15, **data-limite = +10 dias úteis**, e **abatimento
 automático do adiantamento** disponível (linha 02 + texto "Baixa na ALTCRED ...").
 O lote substitui o livro de emissão (planilha Faturamento) e registra consumo e unidade de cada fatura.
-Tipo de lote **"Estimado de fim de exercício (OND)"**: TC multiplicada pelos meses cobertos, consumo estimado
-(último mês ou média) e marcação para **acerto** posterior com o consumo real.
+Tipo de lote **"Estimado de fim de exercício (OND)"**: para OM da Marinha, valor = 3 × média mensal JAN–AGO de
+cada serviço (TC, AE, EL, TL, VT, RB, CR); DA = diária × dias previstos pela BNIC-35; extra-MB segue o mensal.
+Registra a base de cálculo usada e marca as faturas para **acerto** posterior com o consumo real.
 
 3.4 **PDF fiel ao modelo FR-172** (Anexos A–I), com o bloco de detalhamento de cada serviço, contato do
 setor, instruções de pagamento, Encarregado e — nas versões — "Esta fatura cancela e substitui a de nº ...".
@@ -301,8 +328,9 @@ média de dias atracados para navio); rateio peso = lotação × dias; **descont
 justificativa; extrato demonstrativo por OM (anual, mensal, %RUB); quadro comparativo ano anterior × proposta
 (o "Anexo B" da divulgação); versão por exercício com status (proposta → aprovada ComImSup → divulgada) e
 publicação da tabela vigente para a emissão mensal (Fase 3).
-6.2 **Diária de atracação**: custo por militar-dia (do modelo da taxa condominial, grupo NAVIOS) × lotação
-do navio; média de dias atracados calculada a partir do histórico de faturas DA dos últimos 3 anos.
+6.2 **Diária de atracação e média trienal**: custo por militar-dia (modelo da taxa condominial, grupo NAVIOS) ×
+lotação do navio. A **média trienal por classe** (dias atracados nos 3 exercícios ÷ nº de navios da classe ÷ 3 ÷
+12) é calculada pelo sistema a partir dos mapas BNIC-35 registrados, substituindo a planilha Histórico Trienal.
 
 ### Fase 7 — Qualidade e conformidade
 - Trilha de auditoria (quem criou/alterou/cancelou cada fatura e baixa).
@@ -317,11 +345,18 @@ do navio; média de dias atracados calculada a partir do histórico de faturas D
 - Sequencial: **por ordem de emissão**, 001…N por serviço e competência (Fase 3.3).
 - Fluxo de caixa: **atribuição da Seção de Contabilidade de Custos**; a OI precisa ser atualizada (Fase 5-A e item 6).
 
+- Vencimento: **conforme a OI** (item 6.1) — data-limite de certificação = **10 dias úteis após a apresentação
+  da fatura**. O sistema calcula com calendário de feriados. Observação: a prática de 2026 foi outra (dia 15 do
+  mês seguinte até JUL; fim do mês da emissão a partir de AGO) e passará a seguir a OI.
+- Faturamento OND: **média de JAN a AGO**, exceto diárias de atracação, que usam a **previsão de atracação**
+  enviada pela divisão responsável (Fase 3.3).
+
 **Pendentes**
-1. **Vencimento**: no livro de emissão de 2026 o vencimento foi o dia 15 do mês seguinte à emissão até a competência JUL; a partir da competência AGO (emitida 15/09) passou a ser o último dia do mês da emissão (30/09, 31/10). Essa é a regra a adotar daqui em diante?
-2. **Faturamento estimado OND**: a regra é "taxa condominial × 3 + consumo de setembro"? Como é feito o acerto com o consumo real de OUT, NOV e DEZ (fatura de acerto no ano seguinte, acréscimo/débito)?
-3. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
-4. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 5-A → 6 → 7.
+1. **Acerto do OND**: depois de dezembro, o valor estimado é acertado com o consumo real? Se sim, como (fatura de acerto no ano seguinte, acréscimo/débito na próxima fatura)?
+2. **Navio docado (`D` no mapa)**: paga diária de atracação? Em 2022/2023 o histórico somava atracados e docados; em 2025, só atracados.
+3. **Divisor 10,5** na "média" anual do histórico (total ÷ 10,5): de onde vem? A MÉDIA TRIENAL usa ÷ 12.
+4. **Acesso das OM clientes** (consulta do próprio extrato) — desejado no futuro?
+5. **Ordem das fases**: sugestão 1 → 2 → 3 → 4 → 5 → 5-A → 6 → 7.
 
 ## 6. Pontos para a atualização da Ordem Interna 40-04
 
@@ -331,7 +366,9 @@ do navio; média de dias atracados calculada a partir do histórico de faturas D
 | Lista de anexos | "E) Modelo de Fatura de Fornecimento de **Gás**" | o arquivo do Anexo E é "Modelo de Fatura de **Descarte de Resíduo Industrial**": ajustar o título ou incluir os dois modelos |
 | Anexos F e G | "05 TOTAL FATURA (01 – 02 – 03)" | "06 TOTAL FATURA (01 – 02 + 03 – 04)", como nos demais |
 | Numeração da fatura | não definida na OI | incluir a regra: `código da OM – sigla – mês – ano – sequencial por serviço e competência – versão`, e que a versão "-1" cancela e substitui a anterior |
-| Data-limite / vencimento | OI 6.1 fala em 10 dias úteis; prática varia | fixar a regra adotada |
+| Data-limite / vencimento | OI 6.1 fala em 10 dias úteis; a prática de 2026 foi outra | manter a OI (decisão do usuário) e alinhar a prática; o sistema calcula os 10 dias úteis |
+| Faturamento OND | não previsto | descrever: estimativa de fim de exercício = 3 × média mensal JAN–AGO por serviço; diária = previsão de atracação da divisão responsável; regra de acerto |
+| Mapa de atracação (3.6) | cita apenas o envio dos dados até o dia 10 | prever o envio da **previsão de atracação** de OUT–DEZ para o lote OND e a regra para navio docado |
 | Contatos dos setores | modelos citam BNIC-32/33; faturas emitidas citam BNIC-34/35 e Agente de Manobras | atualizar os modelos com o setor e telefone vigentes |
 | Serviços sem modelo | CR (cópia reprográfica) e AL (aluguel) são faturados sem anexo próprio | incluir modelos ou citar o modelo genérico |
 | Taxa condominial (item 5) | descreve o rito, não o cálculo | anexar o critério de rateio adotado: peso = lotação × dias (terra 30; navio = média de dias atracados) e a regra dos descontos |
