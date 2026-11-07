@@ -12,7 +12,8 @@ import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocat
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
+import { HistoricoModal } from '../components/auditoria/Historico';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -81,6 +82,7 @@ export const Invoices: React.FC = () => {
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
   const [acaoFatura, setAcaoFatura] = useState<AcaoFatura>(null);
+  const [historicoDe, setHistoricoDe] = useState<Invoice | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [pagina, setPagina] = useState(0);
   const [porPagina, setPorPagina] = useState(50);
@@ -1000,6 +1002,7 @@ export const Invoices: React.FC = () => {
                           <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div className="flex justify-end gap-2">
                               <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)"><Printer size={16} /></button>
+                              <button onClick={() => setHistoricoDe(inv)} className="text-slate-400 hover:text-slate-800" title="Histórico: quem alterou e quando" aria-label={`Histórico da fatura ${inv.invoiceNumber}`}><History size={16} /></button>
                               {!inv.isCanceled && !isReadOnly && (
                                 <>
                                   <button onClick={() => handleEdit(inv)} className="text-indigo-600 hover:text-indigo-900"><Edit2 size={16} /></button>
@@ -1366,6 +1369,7 @@ export const Invoices: React.FC = () => {
         </form>
       </Modal>
 
+      <HistoricoModal tabela="invoices" registroId={historicoDe?.id ?? null} titulo={`Histórico da fatura ${historicoDe?.invoiceNumber ?? ''}`} onClose={() => setHistoricoDe(null)} />
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}

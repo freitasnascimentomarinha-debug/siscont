@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { db } from '../services/db';
+import { TABELAS_BACKUP_EXTRAS, exportarTabela, registrarBackup } from '../services/auditoriaService';
 import { Button } from '../components/ui/Button';
 import { UsersPanel } from '../components/admin/UsersPanel';
 // @ts-ignore
@@ -39,10 +40,19 @@ export const Admin: React.FC = () => {
       add(data.classes, "ClassesNavio");
       add(data.parametros, "Parametros");
       add(data.feriados, "Feriados");
+      // Fases 2 a 6 (faturamento, contestações, rubricas, taxa condominial...): exportadas como estão no banco
+      const extras: string[] = [];
+      for (const t of TABELAS_BACKUP_EXTRAS) {
+        const rows = await exportarTabela(t);
+        if (rows === null) continue;
+        add(rows.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v !== null && typeof v === 'object' ? JSON.stringify(v) : v]))), t.slice(0, 31));
+        extras.push(`${t} ${rows.length}`);
+      }
       XLSX.writeFile(wb, `SISCONT_BACKUP_${new Date().toISOString().split('T')[0]}.xlsx`);
+      await registrarBackup().catch(() => undefined);
       setSystemMsg({
         type: 'ok',
-        text: `Backup gerado: ${data.invoices.length} faturas, ${data.documents.length} documentos, ${data.allocations.length} alocações, ${data.exits.length} saídas, ${data.oms.length} OM, ${data.comandos.length} comandos, ${data.services.length} serviços.`
+        text: `Backup gerado: ${data.invoices.length} faturas, ${data.documents.length} documentos, ${data.allocations.length} alocações, ${data.exits.length} saídas, ${data.oms.length} OM, ${data.comandos.length} comandos, ${data.services.length} serviços${extras.length ? `; ${extras.join(', ')}` : ''}.`
       });
     } catch (err: any) {
       setSystemMsg({ type: 'error', text: `Erro ao gerar backup: ${err?.message || 'verifique a conexão.'}` });

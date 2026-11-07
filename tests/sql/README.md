@@ -71,3 +71,13 @@ recusados; lote CORRECAO aceito; contestação removida junto com a fatura.
 Com 001–008 aplicados: `psql -d sb -f tests/sql/fase5_009_tests.sql`. Esperado: saídas antigas classificadas pela rubrica
 digitada ("14" → rubrica 14/CONDOMINIO; "Água e Esgoto" → AGUA; outro texto → OUTROS); categoria inválida recusada; uma
 rubrica por ano/número e número fora da faixa recusado; cobrança registrada.
+
+## Script 010 (Fases 6 e 7 - rotinas anuais, auditoria e backup)
+
+Com 001–009 aplicados: `psql -d sb -f tests/sql/fase6_7_010_tests.sql` (aplica o 010 duas vezes). Esperado: rubrica
+antiga com previsto = vigente; desconto geral maior que o previsto, status inválido, desconto sem justificativa e
+percentual acima de 100 recusados; lotação, matriz, desconto e dias por classe gravados; auditoria registra inclusão e
+alteração com o e-mail do usuário, só os campos alterados (alteração sem mudança não registra) e a linha inteira na
+exclusão; a trilha não pode ser alterada nem apagada; Consulta lê a trilha das faturas mas não a de usuários; Admin
+lê a de usuários e registra o backup; Consulta não grava lotação.
+

@@ -411,9 +411,26 @@ BNIC-35 registrados — **somente dias "A"; dias "D" (docado) não contam** —,
 Trienal. Classe sem histórico nos 3 anos: navio fora do rateio por peso e diária = (valor total das diárias ÷ média
 da tripulação de todos os navios) × tripulação do navio.
 
+> **Situação (07/11/2026)**: **Fase 6 concluída** (script 010, menu *Taxa condominial e diárias*). Proposta por exercício
+> com status, rubricas (previsto, desconto geral justificado, gasto anterior), lotação, matriz, descontos por OM, média
+> trienal (importa o Histórico Trienal ou calcula pelos mapas BNIC-35), resultado com extrato por OM, Anexo B e Excel, e
+> publicação nos Preços do ano. **Conferido com a Proposta 4 (2026)**: SecNSNQ R$ 120.688,36, BNIC R$ 3.053.471,44, CIAW
+> R$ 108.032,97, AMAZUL R$ 9.837,10; custo por militar-dia R$ 2,7288; Corveta Barroso R$ 403,86/dia, NAe Atlântico
+> R$ 1.268,90/dia. AMRJ e Batalhão Naval diferem exatamente pelos descontos por OM da aba PROPOSTA CONDOMINIO
+> (R$ 123.094,19 e R$ 183.393,47), que se lançam na aba Descontos. Os navios rateiam só a rubrica "Navios"; a regra da
+> classe sem histórico coincide com a "diária a ser considerada com base na lotação" da planilha (custo militar-dia ×
+> lotação). Diferença consciente: navio listado com 0 dias (ex.: Aviso Rio Chuí) recebe essa diária pela lotação em vez
+> de R$ 0,00.
+
 ### Fase 7 — Qualidade e conformidade
 - Trilha de auditoria (quem criou/alterou/cancelou cada fatura e baixa).
 - Backup automático; documentação DCTIM para homologação.
+
+> **Situação (07/11/2026)**: **Fase 7 concluída** (script 010). Trilha de auditoria por gatilhos no banco (faturas,
+> baixas, ALTCRED/GRU, saídas, contestações, lotes, preços, parâmetros, taxa condominial, usuários), somente leitura,
+> com tela *Auditoria* e histórico por fatura; backup completo com as tabelas novas e lembrete semanal ao Administrador.
+> O backup segue manual (download pela Administração): agendamento automático exigiria serviço externo. A documentação
+> DCTIM para homologação pode ser gerada à parte. Menu reorganizado por função.
 
 ---
 

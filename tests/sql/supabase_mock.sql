@@ -21,3 +21,4 @@ insert into public.profiles values
 insert into public.invoices values ('11111111-0000-0000-0000-000000000001', 100);
 create policy legado_tudo on public.invoices for all using (true);
 grant all on all tables in schema public to authenticated, service_role;
+create or replace function auth.jwt() returns jsonb language sql stable as $$ select coalesce(current_setting('request.jwt.claims', true), '{}')::jsonb $$;

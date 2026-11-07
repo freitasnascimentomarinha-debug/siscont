@@ -26,6 +26,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], cash_flow_exits: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [],
   };
 }
 
@@ -51,13 +52,17 @@ function handler(db, log) {
     const casa = r => filtros.every(([k, v]) => {
       if (v.startsWith('eq.')) return String(r[k]) === v.slice(3);
       if (v.startsWith('in.(')) return v.slice(4, -1).split(',').map(x => x.replace(/^"|"$/g, '')).includes(String(r[k]));
+      const cmp = (a, b) => (typeof a === 'number' ? a - Number(b) : String(a ?? '').localeCompare(b));
+      if (v.startsWith('gte.')) return cmp(r[k], v.slice(4)) >= 0;
+      if (v.startsWith('lte.')) return cmp(r[k], v.slice(4)) <= 0;
+      if (v.startsWith('ilike.')) return String(r[k] ?? '').toLowerCase().includes(v.slice(6).replace(/%/g, '').toLowerCase());
       return true;
     });
     const metodo = req.method();
     log.push(`${metodo} ${t}`);
     if (metodo === 'GET') {
       const rows = db[t].filter(casa);
-      if ((req.headers()['accept'] || '').includes('vnd.pgrst.object')) return rows[0] ? json(200, rows[0]) : json(406, { code: 'PGRST116' });
+      if ((req.headers()['accept'] || '').includes('vnd.pgrst.object')) return rows[0] ? json(200, rows[0]) : json(406, { code: 'PGRST116', details: 'The result contains 0 rows', message: 'JSON object requested, multiple (or no) rows returned' });
       // paginação do PostgREST (offset/limit) e total pedido com Prefer: count=exact
       const off = Number(url.searchParams.get('offset') || 0);
       const lim = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : rows.length;
@@ -73,7 +78,9 @@ function handler(db, log) {
       for (const l of linhas) {
         if (t === 'oms' && db.oms.some(o => o.codigo === l.codigo && o.nome.toLowerCase() === l.nome.toLowerCase())) return json(409, { code: '23505', message: 'duplicate key value violates unique constraint "oms_codigo_nome_uk"' });
         if (t === 'feriados') { db.feriados = db.feriados.filter(f => f.data !== l.data); }
+        const PK = { propostas_tc: ['ano'], rubricas: ['ano', 'numero'], parametros: ['chave'] };
         const conflito = (url.searchParams.get('on_conflict') || '').split(',').filter(Boolean);
+        if (!conflito.length && !l.id && PK[t]) conflito.push(...PK[t]);
         const ja = (l.id && db[t].find(r => r.id === l.id)) || (conflito.length && db[t].find(r => conflito.every(c => String(r[c]) === String(l[c]))));
         if (ja && (req.headers()['prefer'] || '').includes('merge-duplicates')) { Object.assign(ja, l); continue; } // upsert
         db[t].push({ id: l.id || uid(), ativo: true, ...l });
@@ -180,6 +187,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
   const browser = await chromium.launch();
   const resultados = [];
   async function cenario(nome, arquivos, fn) {
+    if (process.env.CENARIO && !nome.includes(process.env.CENARIO)) return; // ex.: CENARIO='Fase 5'
     console.log(`\n▶ ${nome}`);
     const db = novoBanco(); const log = [];
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -320,7 +328,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.received_documents[0].pontos_atencao.some(p => p.tipo === 'BAIXA_SEM_FATURA' && p.mensagem.includes('40030-EL-08-2026-099-0')), 'baixa para fatura inexistente anotada na ALTCRED');
 
     // ícone na lista de faturas, detalhe e "marcar como resolvido"
-    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     const linha = page.getByRole('row').filter({ hasText: '40032-DA-08-2026-010-0' });
     await linha.getByTestId('ponto-atencao').click();
     await page.getByText('Vencimento recalculado', { exact: true }).waitFor();
@@ -368,9 +376,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       if (i < 1200) db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: db.invoices[i].id, amount: 100 + i, date: '2026-03-01', service_type: 'EL', siscont_settled: false });
     }
     await page.reload(); // o painel inicial já tinha lido (e guardado em cache) o banco antes da carga
-    await page.getByRole('button', { name: 'Faturas' }).first().waitFor();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().waitFor();
     const t0 = Date.now();
-    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByText(/de 7\.000 faturas/).waitFor({ timeout: 30000 });
     const ms = Date.now() - t0;
     ok(ms < 8000, `lista de 7.000 faturas aberta em ${(ms / 1000).toFixed(1)} s`);
@@ -404,7 +412,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const nova = (n, v, venc) => ({ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] });
     db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
     await page.reload();
-    await page.getByRole('button', { name: 'Saldos Recebidos' }).first().click();
+    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
     await page.getByRole('button', { name: 'PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
@@ -447,7 +455,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-adiantamentos.png'), fullPage: false });
 
     // extrato de conciliação
-    await page.getByRole('button', { name: 'Extrato de Conciliação' }).click();
+    await page.getByRole('button', { name: 'Extrato de conciliação' }).click();
     await page.getByPlaceholder(/Digite o código/).fill('12345');
     await page.getByRole('button', { name: /12345 - Comando Teste/ }).click();
     await page.getByRole('heading', { name: 'Faturas pagas (por data de situação)' }).waitFor();
@@ -486,7 +494,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     XLSX.writeFile(wb, mapa);
 
     await page.reload();
-    await page.getByRole('button', { name: 'Faturamento' }).first().click();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
     await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
     // preços
     await page.getByRole('button', { name: 'Preços do ano' }).click();
@@ -560,7 +568,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: da.id, amount: 1000, date: '2026-10-29', tipo_baixa: 'PAGAMENTO' },
       { id: uid(), document_id: doc.id, invoice_id: rb.id, amount: 45207.21, date: '2026-10-29', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
-    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     // 1) retificar a DA: nova versão -1 recebe a baixa
     await page.getByRole('row').filter({ hasText: '40032-DA-08-2026-010-0' }).getByTitle(/Retificar/).click();
     await page.getByLabel('Novo valor do serviço').fill('2865.30');
@@ -596,7 +604,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.keyboard.press('Escape');
     await page.locator('.fixed.inset-0 button').first().click();
     // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
-    await page.getByRole('button', { name: 'Faturas' }).first().click();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle(/Cancelar fatura/).click();
     ok(await page.getByRole('button', { name: 'Cancelar fatura', exact: true }).last().isDisabled(), 'cancelar exige motivo');
     await page.getByLabel('Motivo').fill('Emitida em duplicidade');
@@ -604,7 +612,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Fatura 40032-EL-08-2026-039-0 cancelada.').waitFor();
     ok(el.is_canceled && el.cancelamento_motivo === 'Emitida em duplicidade' && el.cancelada_por === 'CC Admin', 'cancelamento registra motivo e responsável');
     // 4) correção por atraso: RB paga em 29/10 com data-limite 29/09
-    await page.getByRole('button', { name: 'Faturamento' }).first().click();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
     await page.getByRole('button', { name: 'Correção por atraso (OI 6.2)' }).click();
     await page.getByLabel('Taxa SET26').fill('0,6');
     await page.getByLabel('Taxa OUT26').fill('0,6');
@@ -653,7 +661,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /registrar/ }).click();
     await page.getByText('Cobrança registrada.').waitFor();
     ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');
-    await page.getByRole('button', { name: 'Painel do Encarregado' }).click();
+    await page.getByRole('button', { name: 'Painel do Encarregado' }).last().click(); // aba (o primeiro é o item do menu)
     await page.getByText('Dívida por condômino e idade').waitFor();
     ok(await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'painel do Encarregado com dívida por idade e saldos parados');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });
@@ -670,7 +678,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       ['10/10/2026', '740015000012026NE000122', 'AGUAS DO RIO 4 SPE S.A', '', 'R$ 94.860,00', '', 'Água e Esgoto', 'CONTRATACAO DOS SERVICOS'],
       ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', '']]), 'OUT2026');
     XLSX.writeFile(wb, nes);
-    await page.getByRole('button', { name: 'Fluxo de Caixa' }).first().click();
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).first().click();
     await page.getByRole('button', { name: 'Rubricas', exact: true }).click();
     await page.getByLabel('Exercício das rubricas').fill('2026');
     await page.locator('input[type=file]').setInputFiles(prop);
@@ -703,6 +711,90 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Exercício do disponível').fill('2026');
     const disp = await page.locator('table').last().innerText();
     ok(disp.includes('R$ 19.615,73') && disp.includes('R$ 10.384,27') && disp.includes('R$ 94.860,00'), 'disponível: entrada condomínio 19.615,73, sem indicação 10.384,27, saída água 94.860,00');
+  });
+
+  await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {
+    const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
+    db.classes_navio.push(classe);
+    const sec = { id: uid(), codigo: '40002', nome: 'SecNSNQ', tipo: 'TERRA', ativo: true };
+    const amrj = { id: uid(), codigo: '81100', nome: 'AMRJ', tipo: 'TERRA', ativo: true };
+    const bar = { id: uid(), codigo: '91645', nome: 'Corveta Barroso', tipo: 'NAVIO', classe_id: classe.id, ativo: true };
+    db.oms.push(sec, amrj, bar);
+    db.auditoria.push({ id: 1, tabela: 'invoices', registro_id: 'i1', acao: 'UPDATE', em: '2026-11-06T10:00:00Z', usuario_email: 'oper@mb.br', antes: { status: 'PENDENTE' }, depois: { status: 'PAGO' } });
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-f6-'));
+    const arq = path.join(pasta, 'proposta.xlsx');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025( R$)'],
+      [1, '8.9.9.1.1.08.02', '', 'Manutenção de Telhados', 200000, '', 391421.64], [2, '', '', 'Navios', 1236100, '', 1151786.23]]), 'Despesas_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['', 'CLIENTES'], ['', '', 1, 2], ['', 'SecNSNQ (Ed.23)', 'x', ''], ['', 'AMRJ', 'X', ''], ['', 'NAVIOS', '', 'X']]), 'Matriz_NOVO');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['CLIENTES'], ['OM DE TERRA', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'DIAS'],
+      ['SecNSNQ (Ed.23)', 140, 76, 30], ['AMRJ', 1010, 1422, 30], ['SUB TOTAL'], ['NAVIOS', '(A)', 'Lotação Anterior', '(B)'], ['', 'LOTAÇÃO', '', 'Nº MÉDIO DIAS'],
+      ['CORVETA CLASSE BARROSO – CORVETA BARROSO', 148, 125, 28], ['TOTAL GERAL']]), 'RATEIO MODELO TÉCNICO_2026');
+    XLSX.writeFile(wb, arq);
+    await page.reload();
+    await page.getByText('Contabilidade de custos', { exact: true }).waitFor();
+    await page.getByText('Nenhum backup completo registrado.').waitFor();
+    // menu por função, com grupos
+    for (const g of ['Visão geral', 'Faturamento', 'Acompanhamento contábil', 'Contabilidade de custos', 'Configuração']) ok(await page.getByText(g, { exact: true }).first().isVisible(), `menu: grupo "${g}"`);
+    ok(await page.getByText('Nenhum backup completo registrado.').isVisible(), 'lembrete de backup para o administrador');
+    await page.getByRole('button', { name: 'Taxa condominial e diárias' }).click();
+    await page.getByRole('heading', { name: 'Taxa condominial e diárias' }).waitFor();
+    await page.getByLabel('Exercício da proposta').selectOption('2026');
+    await page.getByText('Pendências: sem rubricas; sem OM com lotação.').waitFor();
+    await page.getByRole('button', { name: 'Importar proposta (planilha)' }).click();
+    await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(arq);
+    if (process.env.DEBUG_E2E) { await page.waitForTimeout(3000); console.log((await page.locator('body').innerText()).slice(0, 3000)); }
+    await page.getByText(/2 rubricas/).waitFor();
+    await page.getByRole('button', { name: 'Gravar importação' }).click();
+    await page.getByText('Proposta importada. Confira as abas e o resultado.').waitFor();
+    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).gasto_anterior) === 391421.64, 'rubricas com previsto e gasto do ano anterior');
+    ok(db.lotacoes_tc.length === 3 && Number(db.lotacoes_tc.find(l => l.om_id === bar.id).dias) === 28, 'lotação de 2 OM + navio (28 dias/mês)');
+    ok(db.matriz_tc.length === 3 && db.matriz_tc.some(m => m.om_id === bar.id && m.rubrica === 2) && !db.matriz_tc.some(m => m.om_id === bar.id && m.rubrica === 1), 'matriz: terra na rubrica 1, navio só na rubrica "Navios"');
+    // desconto da OM (SecNSNQ 23,5% no total)
+    await page.getByRole('button', { name: '4. Descontos por OM' }).click();
+    await page.getByLabel('OM do desconto').selectOption({ label: 'SecNSNQ' });
+    await page.getByLabel('Valor do desconto').fill('23,5');
+    ok(await page.getByRole('button', { name: 'Adicionar' }).isDisabled(), 'desconto exige justificativa');
+    await page.getByLabel('Justificativa do desconto').fill('Edifício mantido pela própria OM');
+    await page.getByRole('button', { name: 'Adicionar' }).click();
+    await page.getByText('Desconto gravado.').waitFor();
+    ok(db.descontos_tc.length === 1 && Number(db.descontos_tc[0].valor) === 23.5, 'desconto gravado');
+    // média trienal: digitação e gravação
+    await page.getByRole('button', { name: '3. Média trienal' }).click();
+    await page.getByLabel('Dias Corvetas Classe Barroso 2023').fill('355');
+    await page.getByLabel('Dias Corvetas Classe Barroso 2024').fill('288');
+    await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
+    await page.getByText('2 registro(s) gravado(s).').waitFor();
+    ok(db.atracacao_anual.length === 2, 'dias por classe e ano gravados');
+    ok((await page.getByRole('row').filter({ hasText: 'Corvetas Classe Barroso' }).innerText()).includes('17.86'), 'média mensal da classe 17,86 (355 + 288 + 0 ÷ 3 ÷ 12)');
+    // resultado: SecNSNQ = 200.000 × 140/1150 = 24.347,83 − 23,5% = 18.626,09; navio 1.236.100 ÷ (148×28×12) × 148 = 3.678,87/dia
+    await page.getByRole('button', { name: '5. Resultado' }).click();
+    const linhaSec = await page.getByRole('row').filter({ hasText: 'SecNSNQ' }).first().innerText();
+    ok(linhaSec.includes('R$ 18.626,09'), `SecNSNQ anual com desconto: R$ 18.626,09 (${linhaSec.replace(/\s+/g, ' ')})`);
+    ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 3.678,87'), 'diária da Corveta Barroso R$ 3.678,87 (custo militar-dia × lotação)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-resultado.png'), fullPage: true });
+    // aprovar e publicar
+    await page.getByRole('button', { name: 'Aprovar proposta' }).click();
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText('Proposta aprovada.').waitFor();
+    await page.getByRole('button', { name: 'Publicar tabela vigente' }).click();
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText(/Tabela 2026 publicada: 3 preço/).waitFor();
+    const tcSec = db.precos.find(p => p.sigla === 'TC' && p.om_id === sec.id), da = db.precos.find(p => p.sigla === 'DA' && p.om_id === bar.id);
+    ok(tcSec && Number(tcSec.valor) === 1552.17 && da && Number(da.valor) === 3678.87, 'publicado: TC mensal SecNSNQ R$ 1.552,17 e DA da Barroso R$ 3.678,87 nos Preços de 2026');
+    ok(db.propostas_tc.length === 1 && db.propostas_tc[0].status === 'DIVULGADA', 'proposta DIVULGADA');
+    // auditoria
+    await page.getByRole('button', { name: 'Auditoria' }).click();
+    await page.getByText('status: PENDENTE → PAGO').waitFor();
+    await page.getByText('status: PENDENTE → PAGO').click();
+    ok(await page.getByText('oper@mb.br').first().isVisible(), 'trilha mostra usuário e alteração');
+    await page.getByLabel('Ação').selectOption('DELETE');
+    await page.getByText('Nenhum registro.').waitFor();
+    ok(true, 'filtro por ação');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase7-auditoria.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Fazer backup agora' }).click();
+    await page.getByRole('heading', { name: 'Administração' }).waitFor();
+    ok(true, 'lembrete leva à Administração');
   });
 
   if (extras.length) {

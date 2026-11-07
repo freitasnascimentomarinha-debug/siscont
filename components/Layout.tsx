@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard,
@@ -19,7 +19,13 @@ import {
   Receipt,
   MessageSquareWarning,
   Megaphone,
+  Gauge,
+  Landmark,
+  ShieldCheck,
+  DatabaseBackup,
 } from 'lucide-react';
+import { ultimoBackup } from '../services/auditoriaService';
+import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole } from '../types';
 import { AccountModal } from './AccountModal';
@@ -50,22 +56,46 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     }
   };
 
-  const navItems = [
-    { id: 'dashboard' as PageID, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'invoices' as PageID, label: 'Faturas', icon: FileText },
-    { id: 'faturamento' as PageID, label: 'Faturamento', icon: Receipt },
-    { id: 'received' as PageID, label: 'Saldos Recebidos', icon: Wallet },
-    { id: 'cashflow' as PageID, label: 'Fluxo de Caixa', icon: ArrowLeftRight },
-    { id: 'cobranca' as PageID, label: 'Cobrança', icon: Megaphone },
-    { id: 'conciliacao' as PageID, label: 'Extrato de Conciliação', icon: Scale },
-    { id: 'contestacoes' as PageID, label: 'Contestações', icon: MessageSquareWarning },
-    { id: 'pontos' as PageID, label: 'Pontos de Atenção', icon: AlertTriangle },
-    { id: 'cadastros' as PageID, label: 'Cadastros', icon: Building2 },
+  /**
+   * Menu por FUNÇÃO, na ordem em que o trabalho acontece. Cada item diz o que faz (dica ao passar o mouse).
+   *  Visão geral (Encarregado) → Faturamento (emitir e acompanhar faturas) → Acompanhamento contábil (receber, conciliar, cobrar)
+   *  → Contabilidade de custos (fluxo de caixa e taxa anual) → Configuração.
+   */
+  type Item = { id: PageID; label: string; icon: React.ElementType; dica: string };
+  const grupos: { titulo: string; itens: Item[] }[] = [
+    { titulo: 'Visão geral', itens: [
+      { id: 'dashboard', label: 'Painel inicial', icon: LayoutDashboard, dica: 'Resumo geral do sistema' },
+      { id: 'painel', label: 'Painel do Encarregado', icon: Gauge, dica: 'Indicadores de cobrança, saldos parados e adiantamentos' },
+      { id: 'pontos', label: 'Pontos de Atenção', icon: AlertTriangle, dica: 'Inconsistências encontradas automaticamente para corrigir' },
+    ] },
+    { titulo: 'Faturamento', itens: [
+      { id: 'faturamento', label: 'Emitir faturas do mês', icon: Receipt, dica: 'Medições, atracação, preços, lote mensal, OND e correção por atraso' },
+      { id: 'invoices', label: 'Faturas emitidas', icon: FileText, dica: 'Consultar, retificar, contestar, cancelar e ver o histórico das faturas' },
+      { id: 'contestacoes', label: 'Contestações', icon: MessageSquareWarning, dica: 'Contestações abertas pelas OM e respostas' },
+    ] },
+    { titulo: 'Acompanhamento contábil', itens: [
+      { id: 'received', label: 'Recebimentos (ALTCRED/GRU)', icon: Wallet, dica: 'Importar ALTCRED do SIPLAD, GRU, baixas e adiantamentos' },
+      { id: 'conciliacao', label: 'Extrato de conciliação', icon: Scale, dica: 'Conferência faturado × recebido por OM' },
+      { id: 'cobranca', label: 'Cobrança', icon: Megaphone, dica: 'Faturas em aberto e mensagens de cobrança' },
+    ] },
+    { titulo: 'Contabilidade de custos', itens: [
+      { id: 'cashflow', label: 'Fluxo de caixa', icon: ArrowLeftRight, dica: 'Saídas (NE), saldo mensal, condomínio por rubrica e disponível' },
+      { id: 'taxa', label: 'Taxa condominial e diárias', icon: Landmark, dica: 'Rotina anual: proposta da taxa, média trienal e diárias de atracação' },
+    ] },
+    { titulo: 'Configuração', itens: [
+      { id: 'cadastros', label: 'Cadastros', icon: Building2, dica: 'OM, comandos, setores, classes de navio, serviços, parâmetros e feriados' },
+      { id: 'auditoria', label: 'Auditoria', icon: ShieldCheck, dica: 'Quem alterou o quê e quando' },
+      ...(user?.role === UserRole.ADMIN ? [{ id: 'admin' as PageID, label: 'Administração', icon: Users, dica: 'Usuários, backup e restauração' }] : []),
+    ] },
   ];
 
-  if (user?.role === UserRole.ADMIN) {
-    navItems.push({ id: 'admin' as PageID, label: 'Administração', icon: Users });
-  }
+  // Lembrete de backup (administrador): mais de 7 dias sem backup completo
+  const [diasBackup, setDiasBackup] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (user?.role !== UserRole.ADMIN) return;
+    ultimoBackup().then(u => setDiasBackup(diasSemBackup(u))).catch(() => undefined);
+  }, [user?.role, currentPage === 'admin']);
+  const lembrarBackup = user?.role === UserRole.ADMIN && diasBackup !== undefined && backupAtrasado(diasBackup) && currentPage !== 'admin';
 
   const navigateTo = (id: PageID) => {
     onPageChange(id);
@@ -98,57 +128,64 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       `}>
         <div className="flex flex-col h-full">
           {/* Logo Header */}
-          <div className="p-4 text-center border-b border-slate-800/50 shrink-0">
-            <div className="flex justify-center mb-2">
+          <div className="px-4 py-3 text-center border-b border-slate-800/50 shrink-0">
+            <div className="flex justify-center mb-1">
               <img
                 src="https://upload.wikimedia.org/wikipedia/commons/6/61/Logo_of_the_Brazilian_Navy_%28symbol%29.png"
                 alt="Brasão Marinha"
-                className="h-12 w-auto drop-shadow-2xl"
+                className="h-9 w-auto drop-shadow-2xl"
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
-            <h1 className="font-bold text-2xl tracking-tighter text-white">SISCONT</h1>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium italic">Base Naval da Ilha das Cobras</p>
+            <h1 className="font-bold text-xl tracking-tighter text-white">SISCONT</h1>
+            <p className="text-[10px] text-slate-400 font-medium italic">Base Naval da Ilha das Cobras</p>
           </div>
 
           {/* User Profile */}
-          <div className="px-6 py-3 shrink-0">
+          <div className="px-4 py-2 shrink-0">
             <button
               onClick={() => { setIsAccountOpen(true); setIsMobileMenuOpen(false); }}
-              className="w-full text-left p-4 bg-slate-800/40 rounded-xl border border-slate-700/30 hover:bg-slate-800 transition-colors group"
+              className="w-full text-left px-3 py-2 bg-slate-800/40 rounded-xl border border-slate-700/30 hover:bg-slate-800 transition-colors group"
               title="Minha Conta: alterar nome e senha"
             >
               <div className="flex items-center justify-between">
-                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Usuário</p>
+                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Usuário</p>
                 <UserCog size={14} className="text-slate-500 group-hover:text-primary-400" />
               </div>
               <p className="font-semibold text-sm truncate text-white">{user?.name}</p>
-              <p className="text-[10px] text-primary-400 font-bold uppercase mt-1 tracking-widest">{user ? ROLE_LABELS[user.role] : ''}</p>
+              <p className="text-[10px] text-primary-400 font-bold uppercase tracking-widest">{user ? ROLE_LABELS[user.role] : ''}</p>
             </button>
           </div>
 
           {/* Navigation */}
           <nav className="flex-1 min-h-0 px-4 space-y-1 overflow-y-auto custom-scrollbar pb-4">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => navigateTo(item.id)}
-                className={`
-                  w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group
-                  ${currentPage === item.id
-                    ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/40 font-semibold scale-[1.02]'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
-                `}
-              >
-                <item.icon size={18} className={currentPage === item.id ? 'text-white' : 'group-hover:text-primary-400'} />
-                <span className="text-sm">{item.label}</span>
-              </button>
+            {grupos.map(g => (
+              <div key={g.titulo} className="pt-1.5 first:pt-0">
+                <p className="px-4 pb-1 text-[10px] uppercase tracking-widest font-bold text-slate-500">{g.titulo}</p>
+                {g.itens.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => navigateTo(item.id)}
+                    title={item.dica}
+                    aria-current={currentPage === item.id ? 'page' : undefined}
+                    className={`
+                      w-full flex items-center gap-3 px-4 py-1.5 rounded-xl transition-all duration-200 group
+                      ${currentPage === item.id
+                        ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/40 font-semibold'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
+                    `}
+                  >
+                    <item.icon size={17} className={currentPage === item.id ? 'text-white' : 'group-hover:text-primary-400'} />
+                    <span className="text-sm text-left leading-tight">{item.label}</span>
+                  </button>
+                ))}
+              </div>
             ))}
 
             {/* Fullscreen Toggle Button in Nav for Desktop */}
             <button
               onClick={toggleFullscreen}
-              className="w-full hidden md:flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="w-full hidden md:flex items-center gap-3 px-4 py-1.5 rounded-xl transition-all duration-200 text-slate-400 hover:bg-slate-800 hover:text-white"
             >
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
               <span className="text-sm">{isFullscreen ? 'Sair da Tela Cheia' : 'Tela Cheia'}</span>
@@ -156,10 +193,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           </nav>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t border-slate-800/50 shrink-0">
+          <div className="px-4 py-2 border-t border-slate-800/50 shrink-0">
             <button
               onClick={logout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200 text-sm font-medium"
+              className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200 text-sm font-medium"
             >
               <LogOut size={18} />
               <span>Encerrar Sessão</span>
@@ -172,6 +209,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden relative">
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto h-full">
+            {lembrarBackup && (
+              <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm flex flex-wrap items-center gap-3" role="status">
+                <DatabaseBackup size={18} className="shrink-0" />
+                <span className="flex-1">{diasBackup === null ? 'Nenhum backup completo registrado.' : `Último backup completo há ${diasBackup} dias.`} Recomenda-se um backup por semana.</span>
+                <button onClick={() => navigateTo('admin')} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Fazer backup agora</button>
+              </div>
+            )}
             {children}
           </div>
         </div>

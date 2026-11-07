@@ -182,6 +182,39 @@ condomínio-diária-viatura/outros — as saídas antigas são classificadas pel
     sem indicação).
   - *Rubricas*: catálogo do exercício; **Importar proposta (Despesas)** lê a aba Despesas_NOVO da proposta anual.
 
+### 1-J. Rotinas anuais, auditoria e backup — Fases 6 e 7 (script 010)
+
+Execute [`supabase/migrations/010_rotinas_anuais_auditoria.sql`](../supabase/migrations/010_rotinas_anuais_auditoria.sql)
+(idempotente; pode rodar de novo). Cria a proposta anual da taxa condominial (status PROPOSTA → APROVADA → DIVULGADA),
+completa as rubricas (previsto, desconto geral com justificativa, gasto do ano anterior), lotação por OM e ano, matriz
+OM × rubrica, descontos por OM, dias atracados por classe e ano (média trienal), a **trilha de auditoria** e o parâmetro
+`ultimo_backup`.
+
+- **Taxa condominial e diárias** (menu *Contabilidade de custos*), na ordem das abas:
+  1. *Rubricas*: valor previsto do ano, desconto geral (exige justificativa), gasto do ano anterior e variação.
+  2. *Lotação e matriz*: lotação, lotação anterior e de quais despesas cada OM participa (X). Navio participa só da
+     rubrica **"Navios"** (valor destinado às diárias); os dias do navio vêm da média trienal da classe ou podem ser
+     informados.
+  3. *Média trienal*: dias "A" por classe nos 3 anos anteriores ÷ navios ativos; **Importar histórico trienal** (planilha
+     com uma aba por ano) ou **Calcular pelos mapas BNIC-35** gravados no Faturamento.
+  4. *Descontos por OM*: % ou R$, numa rubrica ou no total, com justificativa (não é redistribuído às outras OM).
+  5. *Resultado*: taxa anual/mensal e % de cada OM, diária de cada navio (custo por militar-dia × lotação), extrato da OM
+     rubrica a rubrica, comparativo com o ano anterior (Anexo B) e **Exportar Excel**.
+  - **Importar proposta (planilha)** lê de uma vez as abas *Despesas_NOVO*, *Matriz_NOVO* e *RATEIO MODELO TÉCNICO*
+    (ou *(1)*); nomes não encontrados no cadastro aparecem para escolher a OM. Descontos não são importados.
+  - **Aprovar proposta** e depois **Publicar tabela vigente**: grava a TC mensal de cada OM e a diária DA de cada navio
+    nos *Preços do ano* usados pela emissão mensal. Faturas já emitidas não mudam.
+- **Auditoria** (menu *Configuração*): toda inclusão, alteração e exclusão em faturas, baixas, ALTCRED/GRU, saídas,
+  contestações, lotes, preços, parâmetros, taxa condominial e usuários, com usuário, data/hora e valor anterior → novo.
+  É gravada por gatilhos do banco e não pode ser alterada pela aplicação. Em **Faturas emitidas**, o ícone de relógio
+  mostra o histórico da fatura. Alterações de usuários só o Administrador vê. O registro começa quando o 010 é executado.
+- **Backup assistido**: o backup da Administração passa a incluir as tabelas das Fases 2 a 6 e grava a data em
+  `ultimo_backup`; o Administrador vê um lembrete quando não há backup há mais de 7 dias.
+- **Menu por função**: *Visão geral* (Painel inicial, Painel do Encarregado, Pontos de Atenção) → *Faturamento*
+  (Emitir faturas do mês, Faturas emitidas, Contestações) → *Acompanhamento contábil* (Recebimentos ALTCRED/GRU, Extrato
+  de conciliação, Cobrança) → *Contabilidade de custos* (Fluxo de caixa, Taxa condominial e diárias) → *Configuração*
+  (Cadastros, Auditoria, Administração). Cada item mostra o que faz ao passar o mouse.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

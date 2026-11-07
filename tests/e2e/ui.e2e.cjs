@@ -150,7 +150,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
 
   await scenario('Usuário de Consulta não vê Administração', baseState(), async page => {
     await login(page, 'leitor@mb.br', 'senha12345');
-    await page.getByRole('button', { name: 'Faturas' }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Faturas emitidas' }).waitFor({ timeout: 10000 });
     assert(!(await page.getByRole('button', { name: 'Administração' }).count()), 'menu Administração oculto');
     assert(await page.getByText('Consulta', { exact: true }).first().isVisible(), 'perfil "Consulta" exibido');
   });

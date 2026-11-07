@@ -40,10 +40,10 @@ const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = (
   </section>
 );
 
-export const Cobranca: React.FC = () => {
+export const Cobranca: React.FC<{ abaInicial?: Aba }> = ({ abaInicial = 'quadro' }) => {
   const { user } = useAuth();
   const podeEditar = user?.role !== UserRole.READ_ONLY;
-  const [aba, setAba] = useState<Aba>('quadro');
+  const [aba, setAba] = useState<Aba>(abaInicial);
   const [base, setBase] = useState<Base | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');
