@@ -4,7 +4,7 @@
  */
 import { partesDoNome } from './emissora';
 
-export interface OMDup { id: string; nome: string; sigla?: string | null; codigo: string; tipo: string; ativo: boolean; nomesAlternativos?: string[] }
+export interface OMDup { id: string; nome: string; sigla?: string | null; codigo: string; tipo: string; ativo: boolean; nomesAlternativos?: string[]; motivoDesativacao?: string | null }
 export interface ParDup { a: OMDup; b: OMDup; pontos: number; motivo: string }
 
 const PARADAS = new Set(['DE', 'DA', 'DO', 'DAS', 'DOS', 'E', 'A', 'O', 'EM', 'NA', 'NO', 'ED', 'EDIFICIO', 'ANDAR']);
@@ -58,6 +58,15 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
     const [curto, longo] = na.length < nb.length ? [A.nome, B.nome] : [B.nome, A.nome];
     const resto = longo.slice(curto.replace(/\s*\(.*?\)\s*/g, '').trim().length);
     if (/^\s*[–-]\s*(?!ED\b|ED\.)[A-Z]/.test(resto)) return null;
+    // "Diretoria ... da Marinha" × "Diretoria ... da Marinha ILHA FISCAL": o curto é um nome completo e o longo acrescenta
+    // palavras inteiras (complemento sem travessão) → outro cliente. Nome cortado termina no meio de uma palavra
+    // ("... EDCG Cl") ou tem o tamanho do corte das planilhas (~50 caracteres).
+    const [pc, pl] = A.pal.length < B.pal.length ? [A.pal, B.pal] : [B.pal, A.pal];
+    const palavrasInteiras = pc.length < pl.length && pc.every((p, i) => p === pl[i]);
+    const extra = pl.slice(pc.length).join('');          // "ILHAFISCAL" é complemento; "RJ" é só um acréscimo
+    const tam = normalizarNome(curto).trim().length;
+    const cortadoNaPlanilha = tam >= 45 && tam <= 52;
+    if (palavrasInteiras && extra.length >= 5 && !cortadoNaPlanilha) return null;
     return { pontos: 85, motivo: 'um nome é o começo do outro' };
   }
   let comuns = 0;
@@ -78,6 +87,9 @@ function comparar(A: Prep, B: Prep): { pontos: number; motivo: string } | null {
  * Esse par não volta a aparecer.
  */
 function jaUnificadas(A: Prep, B: Prep) {
+  // desativada pela unificação (motivo "Unificada com ..."): já resolvida, mesmo quando os nomes são iguais
+  const unificada = (o: OMDup) => !o.ativo && /^unificada com/i.test(o.motivoDesativacao || '');
+  if (unificada(A.om) || unificada(B.om)) return true;
   return (!B.om.ativo && A.alternativos.has(B.compacto)) || (!A.om.ativo && B.alternativos.has(A.compacto));
 }
 

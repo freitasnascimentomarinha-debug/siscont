@@ -39,6 +39,14 @@ describe('duplicidades no cadastro', () => {
     ];
     const pares = paresDuplicados(l).map(p => [p.a.id, p.b.id].sort().join(''));
     expect(pares).toEqual(['fh']);      // só o mesmo nome no mesmo edifício
+    // complemento sem travessão (como veio do cadastro antigo)
+    expect(paresDuplicados([om('d', 'Diretoria de Patrimônio Histórico e Documentação da Marinha'), om('i', 'Diretoria de Patrimônio Histórico e Documentação da Marinha ILHA FISCAL', { ativo: false })])).toEqual([]);
+  });
+  it('unificada com o mesmo nome (nome não vira alternativo) sai da lista', () => {
+    const a = om('a', 'Submarino Timbira', { tipo: 'NAVIO', codigo: '91532' });
+    const b = om('b', 'Submarino Timbira', { tipo: 'NAVIO', codigo: '91500', ativo: false });
+    expect(paresDuplicados([a, b])).toHaveLength(1);
+    expect(paresDuplicados([a, { ...b, motivoDesativacao: 'Unificada com Submarino Timbira' }])).toEqual([]);
   });
   it('sugere o comando do responsável para o cliente com complemento', () => {
     const oms = [
