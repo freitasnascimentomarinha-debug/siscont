@@ -163,3 +163,99 @@ export interface CashFlowItem {
   documentType?: DocumentType;
   balanceAfter: number;
 }
+
+// ---------------------------------------------------------------------
+// Fase 1 — Cadastros (Setor → Comando → OM, classes de navio, parâmetros)
+// ---------------------------------------------------------------------
+export type TipoOM = 'TERRA' | 'NAVIO' | 'EXTRA_MB';
+
+export const TIPO_OM_LABELS: Record<TipoOM, string> = {
+  TERRA: 'OM de terra',
+  NAVIO: 'Navio',
+  EXTRA_MB: 'Extra-MB',
+};
+
+export interface Setor {
+  id: string;
+  sigla: string;
+  nome?: string | null;
+  ordem: number;
+  ativo: boolean;
+}
+
+export interface Comando {
+  id: string;
+  codigo?: string | null;
+  nome: string;
+  sigla?: string | null;
+  setorId?: string | null;
+  ativo: boolean;
+  desativadoEm?: string | null;
+  motivoDesativacao?: string | null;
+}
+
+export interface ClasseNavio {
+  id: string;
+  nome: string;
+  ativo: boolean;
+  desativadoEm?: string | null;
+}
+
+export interface OM {
+  id: string;
+  codigo: string;
+  nome: string;
+  sigla?: string | null;
+  indicativoNaval?: string | null;
+  tipo: TipoOM;
+  comandoId?: string | null;
+  setorId?: string | null;
+  areaCnic?: number | null;
+  lotacao?: number | null;
+  classeId?: string | null;
+  cnpj?: string | null;
+  endereco?: string | null;
+  emails?: string | null;
+  telefone?: string | null;
+  observacao?: string | null;
+  ativo: boolean;
+  ativadoEm?: string | null;
+  desativadoEm?: string | null;
+  motivoDesativacao?: string | null;
+}
+
+/** Tipo de serviço com os campos do catálogo da OI 40-04. */
+export interface ServicoCatalogo extends ServiceDefinition {
+  nomeOficial?: string | null;
+  emitidaDeAcordoCom?: string | null;
+  setorResponsavel?: string | null;
+  telefoneSetor?: string | null;
+  prazoEnvio?: string | null;
+  anexoOi?: string | null;
+  criterio?: string | null;
+  ordem?: number | null;
+  ativo?: boolean;
+}
+
+export interface Parametro {
+  chave: string;
+  valor: string;
+  descricao?: string | null;
+}
+
+export type TipoFeriado = 'NACIONAL' | 'ESTADUAL' | 'MUNICIPAL' | 'PONTO_FACULTATIVO';
+
+export interface Feriado {
+  data: string; // AAAA-MM-DD
+  descricao: string;
+  tipo: TipoFeriado;
+}
+
+/** Áreas do CNIC (OI 40-04, item 3.1). */
+export const AREAS_CNIC: Record<number, string> = {
+  1: 'Área 1 – Parte baixa interna',
+  2: 'Área 2 – Parte alta',
+  3: 'Área 3 – Parte baixa externa',
+  4: 'Área 4 – Ilha Fiscal',
+  5: 'Área 5 – CIAW',
+};

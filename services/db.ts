@@ -71,7 +71,23 @@ export const db = {
   },
 
   // --- CLIENTS ---
-  getClients: async (): Promise<Client[]> => cachedFetch('clients', () => supabaseService.getClients()),
+  /**
+   * Clientes para preenchimento automático (Faturas/Saldos). Vem do cadastro
+   * hierárquico da Fase 1 (OM ativas); se o script 002 ainda não foi executado,
+   * usa a tabela antiga `clients`.
+   */
+  getClients: async (): Promise<Client[]> => cachedFetch('clients', async () => {
+    const { cadastroService, omsToClients, CadastroNaoInstaladoError } = await import('./cadastroService');
+    try {
+      const [oms, comandos, setores] = await Promise.all([
+        cadastroService.listOMs(), cadastroService.listComandos(), cadastroService.listSetores(),
+      ]);
+      if (oms.length > 0) return omsToClients(oms, comandos, setores);
+    } catch (err) {
+      if (!(err instanceof CadastroNaoInstaladoError)) throw err;
+    }
+    return supabaseService.getClients();
+  }),
   saveClient: async (client: Client) => { await supabaseService.saveClient(client); invalidateCache('clients'); },
   deleteClient: async (id: string) => { await supabaseService.deleteClient(id); invalidateCache('clients'); },
 
@@ -201,6 +217,13 @@ export const db = {
       supabaseService.getExits(),
       supabaseService.getUsers().catch(() => [] as User[]),
     ]);
+    // Cadastros da Fase 1 (vazios se o script 002 ainda não foi executado)
+    const { cadastroService } = await import('./cadastroService');
+    const seguro = async <T,>(f: () => Promise<T[]>): Promise<T[]> => { try { return await f(); } catch { return []; } };
+    const [oms, comandos, setores, classes, parametros, feriados] = await Promise.all([
+      seguro(cadastroService.listOMs), seguro(cadastroService.listComandos), seguro(cadastroService.listSetores),
+      seguro(cadastroService.listClasses), seguro(cadastroService.listParametros), seguro(cadastroService.listFeriados),
+    ]);
     const strip = <T extends object>(rows: T[], keys: string[]) =>
       rows.map(r => Object.fromEntries(Object.entries(r).filter(([k]) => !keys.includes(k))));
     return {
@@ -212,6 +235,7 @@ export const db = {
       allocations,
       exits,
       users: users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role })),
+      oms, comandos, setores, classes, parametros, feriados,
     };
   },
 

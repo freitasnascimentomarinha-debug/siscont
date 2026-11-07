@@ -8,6 +8,7 @@ import { Invoices } from './pages/Invoices';
 import { ReceivedBalances } from './pages/ReceivedBalances';
 import { CashFlow } from './pages/CashFlow';
 import { Admin } from './pages/Admin';
+import { Cadastros } from './pages/Cadastros';
 import { ResetPassword } from './pages/ResetPassword';
 import { UserRole } from './types';
 import { isSupabaseConfigured } from './services/supabase';
@@ -15,7 +16,7 @@ import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
 
-export type PageID = 'dashboard' | 'invoices' | 'received' | 'cashflow' | 'admin';
+export type PageID = 'dashboard' | 'invoices' | 'received' | 'cashflow' | 'cadastros' | 'admin';
 
 const AuthenticatedApp = () => {
   const { user } = useAuth();
@@ -27,6 +28,7 @@ const AuthenticatedApp = () => {
       case 'invoices': return <Invoices />;
       case 'received': return <ReceivedBalances />;
       case 'cashflow': return <CashFlow />;
+      case 'cadastros': return <Cadastros />;
       case 'admin':
         return user?.role === UserRole.ADMIN ? <Admin /> : <Dashboard />;
       default: return <Dashboard />;

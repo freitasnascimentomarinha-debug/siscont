@@ -15,3 +15,17 @@ psql -d sb -f tests/sql/rls_tests.sql
 Resultado esperado: novo cadastro pendente; Consulta lê mas não grava nem se promove;
 Operador grava; pendente/bloqueado não lê; Admin gerencia perfis e não se exclui;
 excluir login apaga o perfil; troca de e-mail no Auth é refletida no perfil.
+
+## Fase 1 (002_cadastros_fase1.sql)
+
+Depois do 001, crie no banco de teste uma tabela `invoices` com `ug` e `client` (formato atual), aplique o 002
+duas vezes e rode:
+
+```bash
+psql -d sb -f supabase/migrations/002_cadastros_fase1.sql
+psql -d sb -f supabase/migrations/002_cadastros_fase1.sql   # idempotência
+psql -d sb -f tests/sql/fase1_cadastros_tests.sql
+```
+
+Esperado: mesmo código com nomes diferentes aceito; duplicidade e código inválido recusados; desativação exige
+data; OM com faturas não pode ser excluída; Operador só lê; usuário pendente não lê.

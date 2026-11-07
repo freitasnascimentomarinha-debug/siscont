@@ -32,3 +32,4 @@ dist-ssr
 *.zip
 *.sql
 !supabase/migrations/*.sql
+!tests/sql/*.sql

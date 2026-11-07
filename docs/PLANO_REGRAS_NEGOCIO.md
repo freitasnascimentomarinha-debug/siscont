@@ -219,6 +219,11 @@ Cada fase entrega algo utilizável e é publicada no site ao final. Critérios d
 
 ### Fase 1 — Fundação de dados (pré-requisito de todo o resto)
 
+> **Situação (07/11/2026)**: **1-A concluída** — 1.1 cadastro hierárquico com desativação sem exclusão e classes
+> de navio; 1.2 catálogo de serviços; 1.3 parâmetros e feriados (data-limite por dias úteis); importação do
+> **cadastro** das planilhas com relatório de saneamento (tela Cadastros → Importar planilhas). **1-B pendente**:
+> migração das faturas, ALTCRED e baixas (item 1.4) e ligação das faturas ao cadastro (`om_id`).
+
 1.1 **Cadastro hierárquico de clientes**
 - Tabelas `setores`, `comandos` (código, nome, sigla, setor), `oms` (código 5 dígitos, nome, sigla,
   indicativo naval, tipo TERRA/NAVIO/EXTRA_MB, comando, área CNIC 1–5, lotação/TMFT, classe do navio,

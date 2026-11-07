@@ -33,6 +33,23 @@ O script é idempotente (pode rodar de novo). Ele:
 > `service_definitions`, `invoices`, `received_documents`, `payment_allocations`,
 > `cash_flow_exits` e `profiles` pelas políticas acima.
 
+### 1-B. Cadastros da Fase 1 (script 002)
+
+Depois do 001, execute também [`supabase/migrations/002_cadastros_fase1.sql`](../supabase/migrations/002_cadastros_fase1.sql)
+(SQL Editor → New query → colar → Run). Ele cria:
+
+| Tabela | Conteúdo |
+|---|---|
+| `setores`, `comandos`, `oms` | hierarquia Setor → Comando (ComImSup) → OM/cliente; OM com tipo (terra, navio, extra-MB), área do CNIC, lotação, classe, CNPJ |
+| `classes_navio` | classes de navio (base da média trienal) |
+| `parametros` | código OMPS-E, CNPJ, dia de emissão, prazo de certificação (10 dias úteis), Encarregado, instruções de pagamento |
+| `feriados` | feriados nacionais, estaduais (RJ), municipais (Rio) e pontos facultativos de 2026 e 2027 |
+| `service_definitions` (ampliada) | os 11 serviços da OI com texto oficial, setor responsável, prazo e anexo |
+
+Regras garantidas pelo banco: só ADMIN altera cadastros; desativar exige data; OM com faturas não pode ser
+excluída (só desativada). Depois de executar, use **Cadastros → Importar planilhas** para trazer o cadastro das
+planilhas atuais.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

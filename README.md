@@ -21,18 +21,21 @@ npm test            # testes automatizados
 npm run build       # build de produção
 ```
 
-Teste ponta-a-ponta (interface com Supabase simulado):
+Testes ponta-a-ponta (interface com Supabase simulado):
 
 ```bash
 VITE_SUPABASE_URL=http://supabase.mock VITE_SUPABASE_ANON_KEY=anon npx vite --port 5179 &
-BASE_URL=http://localhost:5179 node tests/e2e/ui.e2e.cjs
+BASE_URL=http://localhost:5179 node tests/e2e/ui.e2e.cjs          # usuários e login
+BASE_URL=http://localhost:5179 node tests/e2e/cadastros.e2e.cjs   # cadastros e importação
 ```
 
 ## Estrutura
 
 | Pasta | Conteúdo |
 |---|---|
-| `pages/` | telas (Dashboard, Faturas, Saldos, Fluxo de Caixa, Administração, Login) |
+| `pages/` | telas (Dashboard, Faturas, Saldos, Fluxo de Caixa, Cadastros, Administração, Login) |
+| `components/cadastros/` | abas da tela Cadastros (OM, comandos, setores, classes, serviços, parâmetros, importação) |
+| `utils/cadastroImport.ts` | leitura das planilhas e relatório de saneamento do cadastro |
 | `components/` | layout, componentes de UI, painel de usuários |
 | `context/AuthContext.tsx` | sessão, login, cadastro, senha |
 | `services/` | acesso ao Supabase (`supabaseService`, `db` com cache, `adminApi`) |
