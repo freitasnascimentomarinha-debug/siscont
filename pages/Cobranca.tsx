@@ -1,0 +1,256 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Copy, FileSpreadsheet, FileText, Mail, RefreshCw } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+import { useAuth } from '../context/AuthContext';
+import { UserRole } from '../types';
+import {
+  adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, saldosParados,
+} from '../services/relatoriosService';
+import { listarContestacoes } from '../services/fase4Service';
+import { FAIXAS, FaturaAberta, Pivo, dividaPorCondomino, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
+import { notify } from '../utils/notify';
+import { Modal } from '../components/ui/Modal';
+import { Button } from '../components/ui/Button';
+
+const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
+const hoje = () => new Date().toISOString().slice(0, 10);
+const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
+type Base = Awaited<ReturnType<typeof carregarBase>>;
+type Aba = 'quadro' | 'mensagens' | 'painel';
+
+const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = ({ titulo, p, rotuloLinha }) => (
+  <section className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <h3 className="px-4 py-2 bg-slate-800 text-white text-sm font-semibold flex justify-between"><span>{titulo}</span><span className="tabular-nums">{brl(p.total)}</span></h3>
+    {p.total === 0 ? <p className="px-4 py-3 text-sm text-slate-400">Nenhuma fatura.</p> : (
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500 uppercase"><tr><th className="px-3 py-2 text-left">{rotuloLinha}</th>{p.colunas.map(c => <th key={c} className="px-3 py-2 text-right">{c}</th>)}<th className="px-3 py-2 text-right">Total</th></tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {p.linhas.map(l => (
+              <tr key={l}><td className="px-3 py-1.5 font-medium">{l}</td>{p.colunas.map(c => <td key={c} className="px-3 py-1.5 text-right tabular-nums">{p.valores[l][c] ? brl(p.valores[l][c]) : ''}</td>)}<td className="px-3 py-1.5 text-right tabular-nums font-semibold">{brl(p.totLinha[l])}</td></tr>
+            ))}
+            <tr className="bg-slate-100 font-bold"><td className="px-3 py-1.5">Total geral</td>{p.colunas.map(c => <td key={c} className="px-3 py-1.5 text-right tabular-nums">{brl(p.totColuna[c])}</td>)}<td className="px-3 py-1.5 text-right tabular-nums">{brl(p.total)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    )}
+  </section>
+);
+
+export const Cobranca: React.FC = () => {
+  const { user } = useAuth();
+  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const [aba, setAba] = useState<Aba>('quadro');
+  const [base, setBase] = useState<Base | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [atualizadoEm, setAtualizadoEm] = useState('');
+  const [linhaPor, setLinhaPor] = useState<'setor' | 'comando' | 'cliente'>('setor');
+  const [grupo, setGrupo] = useState<'todos' | 'material' | 'demais'>('todos');
+  const [incluirContestadas, setIncluirContestadas] = useState(false);
+  const [qExtra, setQExtra] = useState(false);
+  const [qContest, setQContest] = useState(false);
+  const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
+  const [contestacoesAbertas, setContestacoesAbertas] = useState<number | null>(null);
+  const [msg, setMsg] = useState<{ comando: string; indicativo: string | null; texto: string; faturas: FaturaAberta[] } | null>(null);
+
+  const carregar = async () => {
+    setCarregando(true);
+    try {
+      const b = await carregarBase();
+      setBase(b); setAtualizadoEm(new Date().toLocaleString('pt-BR'));
+      listarCobrancas().then(setCobrancas).catch(() => setCobrancas([]));
+      listarContestacoes().then(c => setContestacoesAbertas(c.filter(x => x.status !== 'ENCERRADA').length)).catch(() => setContestacoesAbertas(null));
+    } catch (e) { notify.fail('Erro ao carregar', e); } finally { setCarregando(false); }
+  };
+  useEffect(() => { carregar(); }, []);
+
+  const h = hoje();
+  const setoresMaterial = useMemo(() => (base?.par.setores_material || 'DGMM').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), [base]);
+  const abertas = useMemo(() => {
+    if (!base) return [];
+    return faturasAbertas(base.invoices).filter(f => grupo === 'todos' || (grupo === 'material') === setoresMaterial.includes(f.setor.toUpperCase()));
+  }, [base, grupo, setoresMaterial]);
+  const q = useMemo(() => quadroAberto(abertas, h), [abertas, h]);
+  // quadro como na planilha: sem extra-MB e sem contestadas (abas próprias), salvo se marcado
+  const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => (qExtra || !/EXTRA/i.test(f.setor)) && (qContest || !f.contestada)), h), [abertas, h, qExtra, qContest]);
+  const linha = (f: FaturaAberta) => (linhaPor === 'setor' ? f.setor : linhaPor === 'comando' ? f.comando : f.cliente);
+  const blocos = [
+    ...qQuadro.porExercicio.map(e => ({ titulo: `Faturas vencidas ${e.ano}`, fs: e.faturas })),
+    { titulo: 'Faturas vencidas — total', fs: qQuadro.vencidas }, { titulo: 'Faturas a vencer', fs: qQuadro.aVencer }, { titulo: 'Faturas em aberto — total', fs: qQuadro.todas },
+  ].map(b => ({ ...b, p: pivo(b.fs, linha, f => f.tipo) }));
+
+  const exportarExcel = () => {
+    const wb = XLSX.utils.book_new();
+    blocos.forEach(b => {
+      const aoa = [[`MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE`], [b.titulo, '', `Atualizado em: ${atualizadoEm}`], [],
+        [linhaPor.toUpperCase(), ...b.p.colunas, 'Total geral'], ...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => b.p.valores[l][c] || null), b.p.totLinha[l]]),
+        ['Total geral', ...b.p.colunas.map(c => b.p.totColuna[c]), b.p.total]];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), b.titulo.replace(/[—/]/g, '-').slice(0, 31));
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Setor', 'Comando', 'Cliente', 'Fatura', 'Tipo', 'Data-limite', 'Saldo', 'Contestada'],
+      ...abertas.map(f => [f.setor, f.comando, f.cliente, f.numero, f.tipo, br(f.vencimento), f.saldo, f.contestada ? 'SIM' : ''])]), 'Detalhe');
+    XLSX.writeFile(wb, `faturas_em_aberto_${h}.xlsx`);
+  };
+  const exportarPdf = () => {
+    const doc = new jsPDF('l');
+    doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
+    doc.text(`Atualizado em: ${atualizadoEm}`, 283, 12, { align: 'right' });
+    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${grupo !== 'todos' ? ` (${grupo === 'material' ? 'Setor do Material' : 'demais setores'})` : ''}`, 14, 19);
+    let y = 24;
+    blocos.forEach(b => {
+      doc.setFontSize(10); doc.text(b.titulo.toUpperCase(), 14, y + 4);
+      autoTable(doc, { startY: y + 6, head: [[linhaPor.toUpperCase(), ...b.p.colunas, 'Total']], body: [...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => (b.p.valores[l][c] ? brl(b.p.valores[l][c]) : '')), brl(b.p.totLinha[l])]), ['Total geral', ...b.p.colunas.map(c => brl(b.p.totColuna[c])), brl(b.p.total)]], styles: { fontSize: 7 }, headStyles: { fillColor: [30, 41, 59] } });
+      y = (doc as any).lastAutoTable.finalY + 4;
+      if (y > 175) { doc.addPage(); y = 14; }
+    });
+    doc.save(`faturas_em_aberto_${h}.pdf`);
+  };
+
+  // ------------- mensagens de cobrança
+  const vencidasPorComando = useMemo(() => {
+    const m = new Map<string, FaturaAberta[]>();
+    q.vencidas.filter(f => incluirContestadas || !f.contestada).forEach(f => m.set(f.comando, [...(m.get(f.comando) || []), f]));
+    return [...m.entries()].map(([c, fs]) => ({ comando: c, fs, total: fs.reduce((s, f) => s + f.saldo, 0), maisAntiga: fs.reduce((a, f) => (f.vencimento < a ? f.vencimento : a), '9999') }))
+      .sort((a, b) => b.total - a.total);
+  }, [q, incluirContestadas]);
+  const ultimaCobranca = (c: string) => cobrancas.filter(x => x.comando === c).map(x => x.enviadaEm).sort().pop();
+
+  // ------------- painel
+  const divida = useMemo(() => dividaPorCondomino(abertas, h), [abertas, h]);
+  const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60) : []), [base, h]);
+  const adiant = useMemo(() => (base ? adiantamentosComSaldo(base) : []), [base]);
+  const totVencido = q.vencidas.reduce((s, f) => s + f.saldo, 0), totContestado = abertas.filter(f => f.contestada).reduce((s, f) => s + f.saldo, 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-between items-start gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Cobrança</h2>
+          <p className="text-slate-500 text-sm">Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando; painel do Encarregado. {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
+      </div>
+      <div className="flex space-x-1 border-b border-slate-200">
+        {([['quadro', 'Faturas em aberto'], ['mensagens', 'Mensagens de cobrança'], ['painel', 'Painel do Encarregado']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 ${aba === k ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500'}`}>{l}</button>
+        ))}
+      </div>
+      {!base && carregando && <p className="text-sm text-slate-500">Carregando...</p>}
+
+      {base && (aba === 'quadro' || aba === 'painel') && (
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="text-xs text-slate-600">Setores
+            <select className={`${sel} block mt-1`} value={grupo} onChange={e => setGrupo(e.target.value as any)} aria-label="Setores">
+              <option value="todos">Todos</option><option value="material">Setor do Material ({setoresMaterial.join(', ')})</option><option value="demais">Demais setores</option>
+            </select>
+          </label>
+          {aba === 'quadro' && <>
+            <label className="text-xs text-slate-600">Linhas por
+              <select className={`${sel} block mt-1`} value={linhaPor} onChange={e => setLinhaPor(e.target.value as any)} aria-label="Linhas por">
+                <option value="setor">Setor</option><option value="comando">Comando</option><option value="cliente">OM cliente</option>
+              </select>
+            </label>
+            <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={qExtra} onChange={e => setQExtra(e.target.checked)} /> Incluir extra-MB</label>
+            <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={qContest} onChange={e => setQContest(e.target.checked)} /> Incluir contestadas</label>
+            <Button variant="secondary" onClick={exportarExcel}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
+            <Button variant="secondary" onClick={exportarPdf}><FileText size={16} className="mr-1" />PDF</Button>
+          </>}
+        </div>
+      )}
+
+      {base && aba === 'quadro' && <div className="space-y-4">{blocos.map(b => <TabelaPivo key={b.titulo} titulo={b.titulo} p={b.p} rotuloLinha={linhaPor === 'setor' ? 'Setor' : linhaPor === 'comando' ? 'Comando' : 'OM cliente'} />)}</div>}
+
+      {base && aba === 'mensagens' && (
+        <div className="space-y-3">
+          <label className="text-sm flex items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Comando', 'Indicativo', 'Faturas vencidas', 'Total', 'Mais antiga', 'Última cobrança', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {vencidasPorComando.map(v => {
+                  const c = comandoDoTexto(v.comando, base.comandos);
+                  return (
+                    <tr key={v.comando}>
+                      <td className="px-3 py-2 max-w-[280px] truncate" title={v.comando}>{v.comando}</td>
+                      <td className="px-3 py-2 text-xs">{c.indicativo || <span className="text-amber-700">cadastrar</span>}</td>
+                      <td className="px-3 py-2">{v.fs.length}</td>
+                      <td className="px-3 py-2 tabular-nums font-semibold">{brl(v.total)}</td>
+                      <td className="px-3 py-2 text-xs">{br(v.maisAntiga)}</td>
+                      <td className="px-3 py-2 text-xs">{br(ultimaCobranca(v.comando))}</td>
+                      <td className="px-3 py-2 text-right"><button className="text-primary-700 underline text-xs" onClick={() => setMsg({ comando: v.comando, indicativo: c.indicativo, faturas: v.fs, texto: mensagemCobranca(c, v.fs, h) })}><Mail size={12} className="inline mr-1" />gerar mensagem</button></td>
+                    </tr>
+                  );
+                })}
+                {!vencidasPorComando.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">Nenhuma fatura vencida.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {base && aba === 'painel' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[['Em aberto', brl(q.todas.reduce((s, f) => s + f.saldo, 0))], ['Vencido', brl(totVencido)], ['Em contestação', `${brl(totContestado)}${contestacoesAbertas != null ? ` (${contestacoesAbertas})` : ''}`],
+              ['Adiantamentos disponíveis', brl(adiant.reduce((s, a) => s + a.saldo, 0))], ['ALTCRED com saldo parado', `${parados.length} · ${brl(parados.reduce((s, p) => s + p.doc.availableValue, 0))}`]].map(([r, v]) => (
+              <div key={r} className="p-3 rounded-lg border border-slate-200 bg-white"><div className="text-[11px] uppercase font-semibold text-slate-500">{r}</div><div className="text-lg font-bold tabular-nums">{v}</div></div>
+            ))}
+          </div>
+          <section className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">Dívida por condômino e idade (dias após a data-limite)</h3>
+            <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500 uppercase sticky top-0"><tr><th className="px-3 py-2 text-left">OM</th><th className="px-3 py-2 text-left">Comando</th>{FAIXAS.map(f => <th key={f.rotulo} className="px-3 py-2 text-right">{f.rotulo}</th>)}<th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2 text-left">Mais antiga</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {divida.map(d => (
+                    <tr key={d.chave}>
+                      <td className="px-3 py-1.5 font-medium max-w-[220px] truncate" title={d.cliente}>{d.cliente}{d.contestado > 0 && <span className="ml-1 text-amber-700">(contest. {brl(d.contestado)})</span>}</td>
+                      <td className="px-3 py-1.5 max-w-[200px] truncate text-slate-500" title={d.comando}>{d.comando}</td>
+                      {FAIXAS.map((f, i) => <td key={f.rotulo} className={`px-3 py-1.5 text-right tabular-nums ${i >= 4 && d.porFaixa[f.rotulo] ? 'text-red-700 font-semibold' : ''}`}>{d.porFaixa[f.rotulo] ? brl(d.porFaixa[f.rotulo]) : ''}</td>)}
+                      <td className="px-3 py-1.5 text-right tabular-nums font-bold">{brl(d.total)}</td>
+                      <td className="px-3 py-1.5">{br(d.maisAntiga)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <div className="grid md:grid-cols-2 gap-4">
+            <section className="bg-white rounded-lg border border-slate-200">
+              <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">ALTCRED/GRU com saldo parado (mais de {Number(base.par.dias_saldo_parado) || 60} dias)</h3>
+              <table className="min-w-full text-xs"><tbody className="divide-y divide-slate-100">
+                {parados.slice(0, 15).map(p => <tr key={p.doc.id}><td className="px-3 py-1.5 font-mono">{p.doc.documentNumber}</td><td className="px-3 py-1.5 truncate max-w-[180px]">{p.doc.client}</td><td className="px-3 py-1.5 text-right tabular-nums font-semibold">{brl(p.doc.availableValue)}</td><td className="px-3 py-1.5 text-slate-500">{p.dias} dias</td></tr>)}
+                {!parados.length && <tr><td className="px-3 py-4 text-center text-slate-400">Nenhum.</td></tr>}
+              </tbody></table>
+            </section>
+            <section className="bg-white rounded-lg border border-slate-200">
+              <h3 className="px-4 py-2 font-semibold text-slate-800 border-b border-slate-200">Adiantamentos disponíveis por cliente</h3>
+              <table className="min-w-full text-xs"><tbody className="divide-y divide-slate-100">
+                {Object.entries(adiant.reduce<Record<string, number>>((m, a) => ({ ...m, [a.cliente]: (m[a.cliente] || 0) + a.saldo }), {})).sort((a, b) => b[1] - a[1]).slice(0, 15)
+                  .map(([c, v]) => <tr key={c}><td className="px-3 py-1.5 truncate max-w-[260px]">{c}</td><td className="px-3 py-1.5 text-right tabular-nums font-semibold text-emerald-700">{brl(v)}</td></tr>)}
+                {!adiant.length && <tr><td className="px-3 py-4 text-center text-slate-400">Nenhum.</td></tr>}
+              </tbody></table>
+            </section>
+          </div>
+        </div>
+      )}
+
+      <Modal isOpen={!!msg} onClose={() => setMsg(null)} title={`Mensagem de cobrança — ${msg?.comando ?? ''}`} maxWidth="max-w-3xl"
+        footer={<div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => { navigator.clipboard?.writeText(msg!.texto); notify.success('Mensagem copiada.'); }}><Copy size={14} className="mr-1" />Copiar</Button>
+          {podeEditar && <Button onClick={async () => {
+            try {
+              await registrarCobranca({ comando: msg!.comando, indicativo: msg!.indicativo, faturas: msg!.faturas.map(f => f.numero), valor: msg!.faturas.reduce((s, f) => s + f.saldo, 0), texto: msg!.texto, usuario: user?.name || user?.email || '' });
+              notify.success('Cobrança registrada.'); setMsg(null); setCobrancas(await listarCobrancas());
+            } catch (e) { notify.fail('Não foi possível registrar', e); }
+          }}>Enviada — registrar</Button>}
+        </div>}>
+        <p className="text-xs text-slate-500 mb-2">Texto pronto para o SIGAD; ajuste ao padrão de mensagens antes de enviar.</p>
+        <textarea className="w-full h-80 font-mono text-xs border border-slate-300 rounded p-2" value={msg?.texto ?? ''} onChange={e => setMsg(m => (m ? { ...m, texto: e.target.value } : m))} aria-label="Texto da cobrança" />
+      </Modal>
+    </div>
+  );
+};

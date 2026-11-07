@@ -128,7 +128,8 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     await page.getByText(/Usuário 1SG Teste criado/).waitFor();
     assert(true, 'novo usuário criado com mensagem de sucesso');
     const created = (await page.evaluate(() => 1), null);
-    assert(await page.getByRole('cell', { name: /1SG Teste/ }).isVisible(), 'novo usuário aparece na lista');
+    await page.getByRole('cell', { name: /1SG Teste/ }).first().waitFor({ timeout: 10000 }).catch(() => {});
+    assert(await page.getByRole('cell', { name: /1SG Teste/ }).first().isVisible(), 'novo usuário aparece na lista');
 
     await page.getByRole('button', { name: 'Liberar como Operador' }).click();
     await page.getByText(/Acesso de MN Pendente liberado/).waitFor();
@@ -142,7 +143,8 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     await page.getByText('Modo limitado: API de usuários não configurada').waitFor();
     assert(true, 'aviso de modo limitado exibido');
     assert(await page.getByRole('button', { name: 'Novo Usuário' }).isDisabled(), 'botão Novo Usuário desabilitado');
-    assert(await page.getByRole('cell', { name: /SG Leitor/ }).isVisible(), 'lista vem dos perfis do banco');
+    await page.getByRole('cell', { name: /SG Leitor/ }).first().waitFor({ timeout: 10000 }).catch(() => {});
+    assert(await page.getByRole('cell', { name: /SG Leitor/ }).first().isVisible(), 'lista vem dos perfis do banco');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/admin-modo-limitado.png` });
   });
 

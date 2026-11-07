@@ -65,3 +65,9 @@ inválido recusado, fatura mantida ao excluir o lote, e preços/atracações rem
 Com 001–007 aplicados: `psql -d sb -f tests/sql/fase4_008_tests.sql`. Esperado: uma contestação ABERTA (origem
 MIGRACAO) para a fatura já contestada, mesmo rodando o script duas vezes; decisão inválida, mês inválido e taxa absurda
 recusados; lote CORRECAO aceito; contestação removida junto com a fatura.
+
+## Script 009 (Fase 5 - cobrança, relatórios e fluxo de caixa)
+
+Com 001–008 aplicados: `psql -d sb -f tests/sql/fase5_009_tests.sql`. Esperado: saídas antigas classificadas pela rubrica
+digitada ("14" → rubrica 14/CONDOMINIO; "Água e Esgoto" → AGUA; outro texto → OUTROS); categoria inválida recusada; uma
+rubrica por ano/número e número fora da faixa recusado; cobrança registrada.

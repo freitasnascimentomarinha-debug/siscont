@@ -372,6 +372,11 @@ SUBSTITUÍDA. Cancelamento simples com motivo obrigatório.
 
 ### Fase 5 — Cobrança e relatórios gerenciais
 
+> **Situação (07/11/2026)**: **Fases 5 e 5-A concluídas** (script 009, menus Cobrança e Fluxo de Caixa). Quadro de
+> faturas em aberto conferido com a planilha (vencidas 2025: R$ 289.821,23, célula a célula; em aberto total
+> R$ 8.083.843,53); mensagens de cobrança por comando com registro; painel do Encarregado com idade da dívida; receita e
+> condomínio por rubrica; notas de empenho classificadas e importáveis; saldo mensal com transporte; disponível R.901.16.
+
 5.1 **Quadro de faturas em aberto**: vencidas por exercício (2025, 2026), a vencer, total — por setor
 ("Setor Material" × demais), comando e tipo; "Atualizado em".
 5.2 **Mensagem de cobrança de faturas em atraso** por comando (texto pronto para o SIGAD).

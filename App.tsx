@@ -3,6 +3,7 @@ import { PontosAtencaoPage } from './pages/PontosAtencao';
 import { Conciliacao } from './pages/Conciliacao';
 import { Faturamento } from './pages/Faturamento';
 import { Contestacoes } from './pages/Contestacoes';
+import { Cobranca } from './pages/Cobranca';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
@@ -20,7 +21,7 @@ import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
 
-export type PageID = 'dashboard' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'conciliacao' | 'contestacoes' | 'pontos' | 'cadastros' | 'admin';
+export type PageID = 'dashboard' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'cobranca' | 'conciliacao' | 'contestacoes' | 'pontos' | 'cadastros' | 'admin';
 
 const AuthenticatedApp = () => {
   const { user } = useAuth();
@@ -33,6 +34,7 @@ const AuthenticatedApp = () => {
       case 'faturamento': return <Faturamento />;
       case 'received': return <ReceivedBalances />;
       case 'cashflow': return <CashFlow />;
+      case 'cobranca': return <Cobranca />;
       case 'conciliacao': return <Conciliacao />;
       case 'contestacoes': return <Contestacoes />;
       case 'pontos': return <PontosAtencaoPage />;

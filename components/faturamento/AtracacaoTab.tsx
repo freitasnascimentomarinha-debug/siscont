@@ -28,10 +28,10 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
       const at = (await listarAtracacoes([comp])).filter(a => a.previsao === previsao);
       const g: Record<string, string[]> = {}, ge: Record<string, string> = {};
       at.forEach(a => { g[a.omId] = Array.from({ length: n }, (_, i) => a.dias[i] || ''); if (a.gerencia) ge[a.omId] = a.gerencia; });
-      setGrade(g); setSalvo(g); setGerencia(ge); setPendentes([]);
+      setGrade(prev => ({ ...g, ...prev })); setSalvo(g); setGerencia(p => ({ ...ge, ...p })); setPendentes([]); // preserva o digitado durante a carga
     } catch (e) { notify.fail('Erro ao carregar o mapa', e); }
   };
-  useEffect(() => { carregar(); }, [comp, previsao]);
+  useEffect(() => { setGrade({}); setSalvo({}); setGerencia({}); carregar(); }, [comp, previsao]);
 
   const navios = useMemo(() => ctx.omsFat.filter(o => (o.tipo === 'NAVIO' && o.ativo) || grade[o.id])
     .filter(o => !busca || o.nome.toLowerCase().includes(busca.toLowerCase()))

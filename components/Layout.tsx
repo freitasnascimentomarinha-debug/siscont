@@ -18,6 +18,7 @@ import {
   Scale,
   Receipt,
   MessageSquareWarning,
+  Megaphone,
 } from 'lucide-react';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole } from '../types';
@@ -55,6 +56,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     { id: 'faturamento' as PageID, label: 'Faturamento', icon: Receipt },
     { id: 'received' as PageID, label: 'Saldos Recebidos', icon: Wallet },
     { id: 'cashflow' as PageID, label: 'Fluxo de Caixa', icon: ArrowLeftRight },
+    { id: 'cobranca' as PageID, label: 'Cobrança', icon: Megaphone },
     { id: 'conciliacao' as PageID, label: 'Extrato de Conciliação', icon: Scale },
     { id: 'contestacoes' as PageID, label: 'Contestações', icon: MessageSquareWarning },
     { id: 'pontos' as PageID, label: 'Pontos de Atenção', icon: AlertTriangle },
@@ -96,12 +98,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       `}>
         <div className="flex flex-col h-full">
           {/* Logo Header */}
-          <div className="p-6 text-center border-b border-slate-800/50">
-            <div className="flex justify-center mb-4">
+          <div className="p-4 text-center border-b border-slate-800/50 shrink-0">
+            <div className="flex justify-center mb-2">
               <img
                 src="https://upload.wikimedia.org/wikipedia/commons/6/61/Logo_of_the_Brazilian_Navy_%28symbol%29.png"
                 alt="Brasão Marinha"
-                className="h-16 w-auto drop-shadow-2xl"
+                className="h-12 w-auto drop-shadow-2xl"
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
@@ -110,7 +112,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           </div>
 
           {/* User Profile */}
-          <div className="px-6 py-4">
+          <div className="px-6 py-3 shrink-0">
             <button
               onClick={() => { setIsAccountOpen(true); setIsMobileMenuOpen(false); }}
               className="w-full text-left p-4 bg-slate-800/40 rounded-xl border border-slate-700/30 hover:bg-slate-800 transition-colors group"
@@ -126,13 +128,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto custom-scrollbar pb-6">
+          <nav className="flex-1 min-h-0 px-4 space-y-1 overflow-y-auto custom-scrollbar pb-4">
             {navItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => navigateTo(item.id)}
                 className={`
-                  w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group
+                  w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group
                   ${currentPage === item.id
                     ? 'bg-primary-600 text-white shadow-lg shadow-primary-900/40 font-semibold scale-[1.02]'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
@@ -154,7 +156,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           </nav>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t border-slate-800/50">
+          <div className="p-4 border-t border-slate-800/50 shrink-0">
             <button
               onClick={logout}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200 text-sm font-medium"

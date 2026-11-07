@@ -7,12 +7,15 @@ import { CashFlowItem, CashFlowExit, DocumentType, UserRole } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
+import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError } from '../services/relatoriosService';
+import { importarNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
+import { Rubrica, lerNE } from '../utils/relatorios';
 import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash2, Search, X, Ban } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-export const CashFlow: React.FC = () => {
+const Lancamentos: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = user?.role === UserRole.READ_ONLY;
 
@@ -29,6 +32,25 @@ export const CashFlow: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<CashFlowExit>>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [classe, setClasse] = useState('');
+  const [rubricasAno, setRubricasAno] = useState<Rubrica[]>([]);
+  const [classes, setClasses] = useState<Map<string, string>>(new Map());
+  const neRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    listarRubricas(new Date().getFullYear()).then(setRubricasAno).catch(() => setRubricasAno([]));
+    listarSaidas().then(ss => setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || ''])))).catch(() => {});
+  }, []);
+  const classeDe = (item: CashFlowItem) => classes.get(item.id) || '';
+  const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
+  const neInvalida = formData.documentType !== 'ALTCRED' && !!formData.documentNumber && !lerNE(formData.documentNumber);
+  const importarPlanilhaNE = async (files: FileList | null) => {
+    if (!files?.length) return;
+    try {
+      const r = await importarNE(files[0], items.filter(i => i.type === 'EXIT').map(i => i.documentNumber));
+      notify.success(`${r.novas} nota(s) de empenho importada(s)${r.repetidas ? `; ${r.repetidas} já existiam` : ''}${r.ignoradas.length ? `; ${r.ignoradas.length} linha(s) sem nº de NE válido` : ''}.`);
+      await refresh();
+    } catch (e) { notify.fail('Erro ao importar notas de empenho', e); } finally { if (neRef.current) neRef.current.value = ''; }
+  };
 
   // File Import Ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,8 +119,10 @@ export const CashFlow: React.FC = () => {
       isCanceled: formData.isCanceled || false,
     };
 
+    const cls = classe ? (classe.startsWith('R') ? { rubricaNumero: Number(classe.slice(1)), categoria: 'CONDOMINIO' } : { rubricaNumero: null, categoria: classe }) : { rubricaNumero: null, categoria: null };
     try {
-      await db.saveExit(payload);
+      try { await salvarSaidas([{ ...payload, rubric: payload.rubric || rotuloClasse(classe), ...cls }]); }
+      catch (e) { if (e instanceof Fase5NaoInstaladaError) await db.saveExit(payload); else throw e; }
       closeModal();
       notify.success('Saída salva.');
       await refresh();
@@ -122,6 +146,7 @@ export const CashFlow: React.FC = () => {
       isCanceled: item.isCanceled
     });
     setEditingId(item.id);
+    setClasse(classeDe(item));
     setIsModalOpen(true);
   };
 
@@ -142,6 +167,7 @@ export const CashFlow: React.FC = () => {
     setIsModalOpen(false);
     setFormData({});
     setEditingId(null);
+    setClasse('');
   };
 
   // ... (Export functions remain unchanged) ...
@@ -260,12 +286,15 @@ export const CashFlow: React.FC = () => {
       {/* ... (Keep existing header and charts) ... */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Fluxo de Caixa</h2>
-          <p className="text-slate-500">Gestão de entradas e saídas financeiras</p>
+          <p className="text-slate-500 text-sm">Entradas: ALTCRED/GRU recebidas (automáticas). Saídas: notas de empenho por rubrica ou categoria.</p>
         </div>
         <div className="flex gap-2">
           {!isReadOnly && (
             <>
+              <input type="file" ref={neRef} onChange={e => importarPlanilhaNE(e.target.files)} accept=".xlsx,.xls,.ods" className="hidden" />
+              <Button variant="secondary" size="sm" onClick={() => neRef.current?.click()}>
+                <Upload className="w-4 h-4 mr-2" /> Importar NE (planilha)
+              </Button>
               <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
               <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" /> Importar
@@ -418,7 +447,14 @@ export const CashFlow: React.FC = () => {
 
           <CurrencyInput label="Valor Saída" value={formData.value} onChange={val => setFormData({ ...formData, value: val })} disabled={isReadOnly} />
 
-          <Input label="Rubrica" value={formData.rubric || ''} onChange={e => setFormData({ ...formData, rubric: e.target.value })} disabled={isReadOnly} />
+          <Select label="Rubrica / categoria" value={classe} onChange={e => setClasse(e.target.value)} disabled={isReadOnly}
+            options={[
+              ...rubricasAno.map(r => ({ label: `${r.numero} — ${r.descricao}`, value: `R${r.numero}` })),
+              ...(!rubricasAno.length ? Array.from({ length: 33 }, (_, i) => ({ label: `Rubrica ${i + 1} (condomínio)`, value: `R${i + 1}` })) : []),
+              { label: 'Energia', value: 'ENERGIA' }, { label: 'Água e esgoto', value: 'AGUA' }, { label: 'Telefonia', value: 'TELEFONIA' },
+              { label: 'Condomínio/diária/viatura (sem rubrica)', value: 'CONDOMINIO' }, { label: 'Outros', value: 'OUTROS' },
+            ]} />
+          {neInvalida && <p className="md:col-span-2 text-xs text-amber-700">Número fora do padrão da NE: UG (6) + gestão (5) + ano (4) + "NE" + número (6), ex.: 740015000012026NE000122.</p>}
           <Input label="Observação" className="md:col-span-2" value={formData.observation || ''} onChange={e => setFormData({ ...formData, observation: e.target.value })} disabled={isReadOnly} />
           <Input label="Descrição" className="md:col-span-2" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} disabled={isReadOnly} />
 
@@ -446,6 +482,30 @@ export const CashFlow: React.FC = () => {
         title="Excluir Lançamento"
         message="Tem certeza que deseja excluir este lançamento de saída? O saldo será recalculado."
       />
+    </div>
+  );
+};
+
+type AbaFluxo = 'lancamentos' | 'mensal' | 'condominio' | 'disponivel' | 'rubricas';
+export const CashFlow: React.FC = () => {
+  const { user } = useAuth();
+  const [aba, setAba] = useState<AbaFluxo>('lancamentos');
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-800">Fluxo de Caixa</h2>
+        <p className="text-slate-500 text-sm">Seção de Contabilidade de Custos: créditos recebidos × notas de empenho, saldo mensal, condomínio por rubrica e disponível na AI R.901.16.</p>
+      </div>
+      <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto">
+        {([['lancamentos', 'Lançamentos'], ['mensal', 'Saldo mensal'], ['condominio', 'Condomínio por rubrica'], ['disponivel', 'Disponível R.901.16'], ['rubricas', 'Rubricas']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === k ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500'}`}>{l}</button>
+        ))}
+      </div>
+      {aba === 'lancamentos' && <Lancamentos />}
+      {aba === 'mensal' && <SaldoMensal />}
+      {aba === 'condominio' && <CondominioRubrica />}
+      {aba === 'disponivel' && <Disponivel />}
+      {aba === 'rubricas' && <Rubricas podeEditar={user?.role !== UserRole.READ_ONLY} />}
     </div>
   );
 };

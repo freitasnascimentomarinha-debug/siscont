@@ -25,7 +25,7 @@ function novoBanco() {
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
-    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [],
+    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], cash_flow_exits: [],
   };
 }
 
@@ -619,6 +619,90 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const corr = db.invoices.find(i => i.acerto_de === '40032-RB-08-2026-004-0');
     ok(corr && Number(corr.adjustment_addition) === 271.24 && /^40032-RB-10-2026-\d{3}-0$/.test(corr.invoice_number) && /6\.2/.test(corr.observation), `fatura de correção ${corr && corr.invoice_number} (acréscimo R$ 271,24)`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-correcao.png'), fullPage: true });
+  });
+
+  await cenario('Fase 5: quadro em aberto, cobrança por comando, painel, rubricas, NE classificada e disponível', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', indicativo_naval: 'DIMRJ', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd);
+    const fat = (n, v, venc, ano, tipo, extra = {}) => ({ id: uid(), ug: n.slice(0, 5), sector: 'DGMM', command: '40030 - Diretoria Industrial da Marinha', client: n.startsWith('40032') ? 'Navio-Patrulha Mangaratiba' : 'Diretoria Industrial da Marinha', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: venc, due_date: venc, month_competence: 8, year_competence: ano, competence: `08/${ano}`, type: tipo, service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, contestada: false, pontos_atencao: [], ...extra });
+    const tcPaga = fat('40030-TC-08-2026-014-0', 19615.73, '2026-09-29', 2026, 'Taxa Condominial');
+    db.invoices = [
+      fat('40030-TC-09-2025-014-0', 19615.73, '2025-10-31', 2025, 'Taxa Condominial'),
+      fat('40032-EL-08-2026-039-0', 2058.64, '2026-09-29', 2026, 'Eletricidade'),
+      fat('40032-RB-08-2026-004-0', 45207.21, '2026-09-29', 2026, 'Rebocador', { contestada: true }),
+      fat('40030-AE-10-2026-004-0', 24114.60, '2099-12-31', 2026, 'Água e Esgoto'),
+      tcPaga,
+    ];
+    const doc = { id: uid(), document_number: 'G424.2026.AC.00343', document_type: 'ALTCRED', total_value: 30000, date: '2026-09-10', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030', comando_id: cmd.id, exercicio: 2026 };
+    db.received_documents.push(doc);
+    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: tcPaga.id, amount: 19615.73, date: '2026-09-15', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Cobrança' }).first().click();
+    await page.getByRole('heading', { name: 'Cobrança' }).waitFor();
+    await page.getByText('Faturas vencidas 2025').waitFor();
+    const bloco2025 = page.locator('section').filter({ hasText: 'Faturas vencidas 2025' });
+    ok((await bloco2025.innerText()).includes('R$ 19.615,73'), 'vencidas 2025 por setor × tipo (TC R$ 19.615,73)');
+    const totalAberto = page.locator('section').filter({ hasText: 'Faturas em aberto — total' });
+    ok((await totalAberto.innerText()).includes('R$ 45.788,97'), 'em aberto total sem contestadas: R$ 45.788,97');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-quadro.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Mensagens de cobrança' }).click();
+    await page.getByRole('button', { name: /gerar mensagem/ }).first().click();
+    const texto = await page.getByLabel('Texto da cobrança').inputValue();
+    ok(/^PARA: DIMRJ/.test(texto) && /40030-TC-09-2025-014-0/.test(texto) && !/40032-RB/.test(texto), 'mensagem de cobrança: indicativo, vencidas, sem a contestada');
+    await page.getByRole('button', { name: /registrar/ }).click();
+    await page.getByText('Cobrança registrada.').waitFor();
+    ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');
+    await page.getByRole('button', { name: 'Painel do Encarregado' }).click();
+    await page.getByText('Dívida por condômino e idade').waitFor();
+    ok(await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'painel do Encarregado com dívida por idade e saldos parados');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });
+
+    // Fluxo de caixa: rubricas, NE classificada, importação de NE, condomínio e disponível
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-f5-'));
+    const prop = path.join(pasta, 'proposta.xlsx'), nes = path.join(pasta, 'fluxo.xlsx');
+    let wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº DE ORDEM', 'Conta Contábil', 'DESCRIÇÃO CONTAS', 'DESPESAS', 'VALOR PARA 2026 (R$)', '%RUB', 'VALOR 2025', 'VAR', 'DESCONTOS', 'VALOR RUBRICA ATUALIZADO'],
+      [1, '8.9.9.1.1.08.02', 'DEMAIS', 'Manutenção de Telhados', 200000, '2,17%', 0, 0, 53903.08, 146096.92], [14, '', '', 'Serviço de Dedetização', 150000, '', 0, 0, 27639.27, 122360.73]]), 'Despesas_NOVO');
+    XLSX.writeFile(wb, prop);
+    wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['DATA', 'ALTCRED/NE', 'CLIENTE', 'ENTRADA', 'SAÍDA', 'SALDO', 'RUBRICA', 'DESCRIÇÃO'], ['Saldo Anterior'],
+      ['10/10/2026', '740015000012026NE000122', 'AGUAS DO RIO 4 SPE S.A', '', 'R$ 94.860,00', '', 'Água e Esgoto', 'CONTRATACAO DOS SERVICOS'],
+      ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', '']]), 'OUT2026');
+    XLSX.writeFile(wb, nes);
+    await page.getByRole('button', { name: 'Fluxo de Caixa' }).first().click();
+    await page.getByRole('button', { name: 'Rubricas', exact: true }).click();
+    await page.getByLabel('Exercício das rubricas').fill('2026');
+    await page.locator('input[type=file]').setInputFiles(prop);
+    await page.getByText(/2 rubricas lidas/).waitFor();
+    await page.getByRole('button', { name: 'Gravar' }).click();
+    await page.getByText('Rubricas gravadas.').waitFor();
+    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).valor_anual) === 146096.92, 'rubricas importadas da proposta (valor atualizado)');
+    await page.getByRole('button', { name: 'Lançamentos' }).click();
+    await page.getByRole('button', { name: 'Nova Saída' }).click();
+    await page.getByLabel('Data', { exact: true }).fill('2026-10-05');
+    await page.getByLabel('Número Documento').fill('2026NE0001');
+    ok(await page.getByText(/Número fora do padrão da NE/).isVisible(), 'número de NE fora do padrão é apontado');
+    await page.getByLabel('Número Documento').fill('740015000012026NE000123');
+    await page.getByLabel('Cliente', { exact: true }).fill('DETOX DEDETIZADORA LTDA');
+    await page.getByLabel('Valor Saída').fill('5040000'); // campo em centavos: R$ 50.400,00
+    await page.getByLabel('Rubrica / categoria').selectOption('R14');
+    await page.getByRole('button', { name: 'Salvar Lançamento' }).click();
+    await page.getByText('Saída salva.').waitFor();
+    const ne = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000123');
+    ok(ne && ne.rubrica_numero === 14 && ne.categoria === 'CONDOMINIO' && Number(ne.value) === 50400, 'NE de R$ 50.400,00 gravada na rubrica 14');
+    await page.locator('input[type=file][accept*="xlsx"]').first().setInputFiles(nes);
+    await page.getByText(/1 nota\(s\) de empenho importada/).waitFor();
+    ok(db.cash_flow_exits.some(e => e.document_number === '740015000012026NE000122' && e.categoria === 'AGUA'), 'NE importada da planilha e classificada como água');
+    await page.getByRole('button', { name: 'Condomínio por rubrica' }).click();
+    await page.getByLabel('Exercício do condomínio').fill('2026');
+    await page.getByText(/Taxa condominial recebida em 2026/).waitFor();
+    ok((await page.getByText(/Taxa condominial recebida em 2026/).innerText()).includes('R$ 19.615,73'), 'TC recebida em 2026 = baixa da fatura TC');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-condominio.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Disponível R.901.16' }).click();
+    await page.getByLabel('Exercício do disponível').fill('2026');
+    const disp = await page.locator('table').last().innerText();
+    ok(disp.includes('R$ 19.615,73') && disp.includes('R$ 10.384,27') && disp.includes('R$ 94.860,00'), 'disponível: entrada condomínio 19.615,73, sem indicação 10.384,27, saída água 94.860,00');
   });
 
   if (extras.length) {

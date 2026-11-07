@@ -42,10 +42,10 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
       todas.filter(m => m.competencia === comp && m.sigla === sigla).forEach(m => {
         doMes[m.omId] = { quantidade: txt(m.quantidade), quantidade2: txt(m.quantidade2), valor: txt(m.valor), estimada: !!m.estimada, detalhe: m.detalhe, origem: m.origem };
       });
-      setLinhas(doMes); setSalvo(doMes); setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport([]);
+      setLinhas(prev => ({ ...doMes, ...prev })); setSalvo(doMes); // preserva o que foi digitado durante a carga setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport([]);
     } catch (e) { notify.fail('Erro ao carregar medições', e); } finally { setCarregando(false); }
   };
-  useEffect(() => { carregar(); }, [comp, sigla]);
+  useEffect(() => { setLinhas({}); setSalvo({}); carregar(); }, [comp, sigla]);
 
   const oms = useMemo(() => ctx.omsFat.filter(o => o.ativo || historico.some(h => h.omId === o.id) || linhas[o.id])
     .sort((a, b) => a.setor.localeCompare(b.setor) || a.nome.localeCompare(b.nome)), [ctx.omsFat, historico, linhas]);

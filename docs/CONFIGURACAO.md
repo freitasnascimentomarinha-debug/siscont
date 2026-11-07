@@ -158,6 +158,30 @@ ganham uma contestação ABERTA), **taxas mensais da poupança** e o lote de cor
   faturas com pagamento feito depois da data-limite (dentro dos 10 dias úteis não há correção, OI 6.1), calcula a
   correção dia a dia pela taxa diária equivalente e emite as faturas de correção (linha 03, acréscimo).
 
+### 1-I. Cobrança, relatórios e fluxo de caixa — Fase 5 (script 009)
+
+Execute [`supabase/migrations/009_relatorios_fase5.sql`](../supabase/migrations/009_relatorios_fase5.sql): rubricas da taxa
+condominial por exercício, classificação das notas de empenho (rubrica 1–33 ou categoria energia/água/telefonia/
+condomínio-diária-viatura/outros — as saídas antigas são classificadas pela rubrica digitada) e registro das cobranças.
+
+- **Cobrança** (menu):
+  - *Faturas em aberto*: quadro como o "Quadro Resumo" da planilha — vencidas por exercício, vencidas total, a vencer e
+    total, por setor/comando/OM × tipo; filtro "Setor do Material" × demais (parâmetro `setores_material`); por padrão
+    sem extra-MB e sem contestadas (como na planilha); Excel e PDF com "Atualizado em".
+  - *Mensagens de cobrança*: por comando, com o indicativo naval, as faturas vencidas e os dias de atraso; texto pronto
+    para o SIGAD e registro da cobrança enviada.
+  - *Painel do Encarregado*: em aberto, vencido, em contestação, dívida por condômino por idade (a vencer, 1–30, 31–90,
+    91–180, 181–365, mais de 1 ano), ALTCRED com saldo parado (parâmetro `dias_saldo_parado`) e adiantamentos disponíveis.
+- **Fluxo de Caixa** (abas):
+  - *Lançamentos*: entradas automáticas (ALTCRED/GRU) e saídas = notas de empenho, com rubrica/categoria e o número
+    validado (UG + gestão + ano + NE + nº); **Importar NE (planilha)** no formato das abas mensais do fluxo de caixa.
+  - *Saldo mensal*: saldo anterior, entradas, saídas e saldo de cada mês, com transporte entre meses e exercícios.
+  - *Condomínio por rubrica*: valor vigente, %RUB, taxa condominial recebida distribuída (receita por rubrica),
+    empenhado, % executado, saldo em conta e a receber.
+  - *Disponível R.901.16*: entradas, saídas e saldo por categoria (energia, água, telefonia, condomínio/diária/viatura,
+    sem indicação).
+  - *Rubricas*: catálogo do exercício; **Importar proposta (Despesas)** lê a aba Despesas_NOVO da proposta anual.
+
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 
 | Variável | Onde obter | Observação |

@@ -30,10 +30,10 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
       const ps = (await listarPrecos([ano])).filter(p => p.sigla === sigla);
       const v: Valores = {};
       ps.forEach(p => { v[p.omId ?? ''] = fmt(p.valor); });
-      setVals(v); setSalvo(v); setSemPar([]);
+      setVals(prev => ({ ...v, ...prev })); setSalvo(v); setSemPar([]); // preserva o que foi digitado durante a carga
     } catch (e) { notify.fail('Erro ao carregar os preços', e); }
   };
-  useEffect(() => { carregar(); }, [ano, sigla]);
+  useEffect(() => { setVals({}); setSalvo({}); carregar(); }, [ano, sigla]);
 
   const porOm = sigla === 'TC' || sigla === 'DA';
   const lista = useMemo(() => ctx.omsFat

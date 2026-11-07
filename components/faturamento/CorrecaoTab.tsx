@@ -13,6 +13,7 @@ import { Aviso, Campo, br, brl, compAtual, entrada } from './comum';
 export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; usuario: string; onEmitido: () => Promise<void> }> = ({ ctx, podeEditar, usuario, onEmitido }) => {
   const [taxas, setTaxas] = useState<Record<string, string>>({});
   const [salvas, setSalvas] = useState<Record<string, string>>({});
+  const salvasRef = React.useRef<Record<string, string>>({});
   const [anoTaxas, setAnoTaxas] = useState(new Date().getFullYear());
   const [base, setBase] = useState(30);
   const [cands, setCands] = useState<CandidatoCorrecao[] | null>(null);
@@ -26,7 +27,9 @@ export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     try {
       const [t, par] = await Promise.all([listarTaxas(), cadastroService.listParametros()]);
       const m = Object.fromEntries(t.map(x => [x.mes, String(x.taxa).replace('.', ',')]));
-      setTaxas(m); setSalvas(m); setBase(Number(par.find(p => p.chave === 'correcao_base_dias')?.valor) || 30);
+      // preserva o que foi digitado e ainda não gravado (o carregamento pode terminar depois da digitação)
+      setTaxas(prev => ({ ...m, ...Object.fromEntries(Object.entries(prev).filter(([k, v]) => v !== (salvasRef.current[k] ?? undefined) && v.trim() !== '')) }));
+      salvasRef.current = m; setSalvas(m); setBase(Number(par.find(p => p.chave === 'correcao_base_dias')?.valor) || 30);
     } catch (e) { if (e instanceof Fase4NaoInstaladaError) setNaoInstalado(true); else notify.fail('Erro ao carregar taxas', e); }
   };
   useEffect(() => { carregarTaxas(); }, []);
@@ -79,8 +82,8 @@ export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         </div>
         <div className="grid grid-cols-3 md:grid-cols-6 lg:grid-cols-12 gap-2">
           {Array.from({ length: 12 }, (_, i) => `${anoTaxas}-${pad(i + 1)}`).map(m => (
-            <label key={m} className="text-[11px] text-slate-600">{referencia(m)}
-              <input disabled={!podeEditar} aria-label={`Taxa ${referencia(m)}`} className={`${entrada} text-right ${taxas[m] !== salvas[m] ? 'border-primary-400 bg-primary-50' : ''}`} value={taxas[m] ?? ''} placeholder="0,5000" onChange={e => setTaxas({ ...taxas, [m]: e.target.value })} />
+            <label key={m} className="text-[11px] text-slate-600 min-w-0">{referencia(m)}
+              <input disabled={!podeEditar} aria-label={`Taxa ${referencia(m)}`} className={`${entrada} w-full min-w-0 text-right ${taxas[m] !== salvas[m] ? 'border-primary-400 bg-primary-50' : ''}`} value={taxas[m] ?? ''} placeholder="0,5000" onChange={e => setTaxas({ ...taxas, [m]: e.target.value })} />
             </label>
           ))}
         </div>
