@@ -885,7 +885,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Faturas vencidas' }).waitFor();
     ok((await page.locator('table').last().innerText()).includes('40030-TC-05-2024-001-0'), 'clicar no cartão abre a lista das faturas vencidas');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-lista.png') });
-    ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'lista ordenada por vencimento (mais antigo primeiro)');
+    ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'lista começa pela de maior valor em aberto');
     const cab = page.locator('th button', { hasText: 'Em aberto' }); await cab.click(); if (!(await cab.innerText()).includes('▼')) await cab.click();
     ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'ordenar por valor em aberto ao clicar no cabeçalho (maior primeiro)');
     await page.keyboard.press('Escape');
@@ -894,6 +894,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('option', { name: 'Diretoria Industrial da Marinha' }).click();
     await page.keyboard.press('Escape'); await page.getByRole('heading', { name: 'Painel inicial' }).click();
     ok(await page.getByTitle('Remover filtro').isVisible() && (await page.getByTitle('Remover filtro').innerText()).includes('todos exceto Diretoria Industrial da Marinha'), 'filtro "todos exceto" com etiqueta removível');
+    ok(await page.getByText('não são o total geral').isVisible(), 'aviso bem visível de filtro ativo');
     ok((await valorDe('Total em aberto')).includes('R$ 450,00'), 'sem a DIM: em aberto R$ 450,00 (CPMM 50 + AMRJ 400)');
     await page.getByTitle('Remover filtro').click();
     ok((await valorDe('Total em aberto')).includes('R$ 950,00'), 'filtro removido volta a R$ 950,00');

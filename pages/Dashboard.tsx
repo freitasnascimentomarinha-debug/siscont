@@ -12,7 +12,7 @@ import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, ReceivedDocument } from '../types';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
-import { MultiFiltro, useExcluidosLembrados } from '../components/ui/MultiFiltro';
+import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resumoPainel, taxaCondominial } from '../utils/painel';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
@@ -101,12 +101,12 @@ export const Dashboard: React.FC = () => {
   const [carregando, setCarregando] = useState(true);
   const hoje = hojeIso();
   const [ano, setAno] = useState(new Date().getFullYear());
-  // filtros de múltipla escolha (guardam os EXCLUÍDOS; lembrados neste navegador)
-  const [exSetor, setExSetor] = useExcluidosLembrados('siscont.painel.setor');
-  const [exComando, setExComando] = useExcluidosLembrados('siscont.painel.comando');
-  const [exCliente, setExCliente] = useExcluidosLembrados('siscont.painel.cliente');
-  const [exServico, setExServico] = useExcluidosLembrados('siscont.painel.servico');
-  const [ordem, setOrdem] = useState<{ campo: 'vencimento' | 'saldo' | 'total' | 'numero' | 'cliente' | 'atraso'; asc: boolean }>({ campo: 'vencimento', asc: true });
+  // filtros de múltipla escolha (guardam os EXCLUÍDOS). Não são lembrados: ao abrir a página, tudo volta a "Todos".
+  const [exSetor, setExSetor] = useState<Set<string>>(new Set());
+  const [exComando, setExComando] = useState<Set<string>>(new Set());
+  const [exCliente, setExCliente] = useState<Set<string>>(new Set());
+  const [exServico, setExServico] = useState<Set<string>>(new Set());
+  const [ordem, setOrdem] = useState<{ campo: 'vencimento' | 'saldo' | 'total' | 'numero' | 'cliente' | 'atraso'; asc: boolean }>({ campo: 'saldo', asc: false });
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaPainel[] } | null>(null);
   const [buscaLista, setBuscaLista] = useState('');
   const [verTodasTc, setVerTodasTc] = useState(false);
@@ -124,7 +124,7 @@ export const Dashboard: React.FC = () => {
   };
   useEffect(() => { carregar(); }, []);
 
-  const todas = useMemo(() => invoices.map(i => paraPainel(i, nomeCompleto)), [invoices, nomeCompleto]);
+  const todas = useMemo(() => invoices.map(i => paraPainel(i, new Map())), [invoices]);
   const filtradas = useMemo(() => todas.filter(f => !exSetor.has(f.setor) && !exComando.has(f.comando) && !exCliente.has(f.cliente) && !exServico.has(f.tipo)), [todas, exSetor, exComando, exCliente, exServico]);
   const setCliente = (c: string) => setExCliente(new Set(opcoes('cliente').filter(o => o !== c)));
   const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
@@ -240,6 +240,13 @@ export const Dashboard: React.FC = () => {
         )}
       </div>
 
+      {filtrosAtivos.length > 0 && (
+        <div className="p-3 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 text-sm flex flex-wrap items-center gap-3" role="status">
+          <AlertTriangle size={18} className="shrink-0" />
+          <span className="flex-1"><b>Filtro ativo</b> — os valores abaixo <b>não são o total geral</b>: {filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(' · ')}.</span>
+          <button onClick={() => { setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setExServico(new Set()); }} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Limpar filtros (ver total geral)</button>
+        </div>
+      )}
       {/* Números de cara: linha 1 = o essencial; linha 2 = detalhamento das vencidas e a taxa condominial */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <Cartao titulo={`Faturado em ${ano}`} valor={r.faturadoAno.valor} qtd={r.faturadoAno.qtd} icone={Receipt} cor={COR.faturado} destaque

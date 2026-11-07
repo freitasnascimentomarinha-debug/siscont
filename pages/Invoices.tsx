@@ -1,4 +1,5 @@
 
+import { ORDEM_PADRAO, Ordem, ordenarFaturas } from '../utils/ordenarFaturas';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
@@ -85,6 +86,7 @@ export const Invoices: React.FC = () => {
   const [historicoDe, setHistoricoDe] = useState<Invoice | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [pagina, setPagina] = useState(0);
+  const [ordem, setOrdem] = useState<Ordem>(ORDEM_PADRAO);
   const [porPagina, setPorPagina] = useState(50);
 
   // Master Data
@@ -576,7 +578,7 @@ export const Invoices: React.FC = () => {
     });
   }, [advanceDocs, selectedAdvances, advanceSearchText]);
   const filteredInvoices = useMemo(() => {
-    return invoices.filter(inv => {
+    return ordenarFaturas(invoices.filter(inv => {
       const search = searchText.toLowerCase();
       const matchesSearch = !searchText || 
         inv.client.toLowerCase().includes(search) || 
@@ -590,8 +592,8 @@ export const Invoices: React.FC = () => {
       const abertos = pendentes(inv.pontos);
       const matchesPontos = !filterPontos || (filterPontos === 'any' ? abertos.length > 0 : abertos.some(p => p.gravidade === filterPontos));
       return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos;
-    });
-  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos]);
+    }), ordem);
+  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem]);
 
   const totalCount = filteredInvoices.length;
   
@@ -611,7 +613,7 @@ export const Invoices: React.FC = () => {
 
   const totals = useMemo(() => calculateTotals(filteredInvoices), [filteredInvoices, calcPorFatura]);
   // volta para a 1ª página quando os filtros mudam
-  useEffect(() => { setPagina(0); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina]);
+  useEffect(() => { setPagina(0); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina, ordem]);
   const totalPaginas = Math.max(1, Math.ceil(filteredInvoices.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
   const faturasDaPagina = filteredInvoices.slice(paginaAtual * porPagina, (paginaAtual + 1) * porPagina);
@@ -918,6 +920,14 @@ export const Invoices: React.FC = () => {
               <Select label="Mês" options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
             </div>
             <div className="w-full md:w-24">
+              <Select label="Ordenar por" options={[
+                { label: 'Competência (mais recente) › vencimento › A–Z', value: 'competencia|0' },
+                { label: 'Competência (mais antiga) › vencimento › A–Z', value: 'competencia|1' },
+                { label: 'Vencimento (mais antigo primeiro)', value: 'vencimento|1' },
+                { label: 'Vencimento (mais recente primeiro)', value: 'vencimento|0' },
+                { label: 'Cliente (A–Z)', value: 'cliente|1' },
+                { label: 'Número da fatura', value: 'numero|1' },
+              ]} value={`${ordem.campo}|${ordem.asc ? 1 : 0}`} onChange={e => { const [c, a] = e.target.value.split('|'); setOrdem({ campo: c as any, asc: a === '1' }); }} />
               <Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y }))} value={filterYear} onChange={e => setFilterYear(e.target.value)} />
             </div>
             <div className="w-full md:w-40">
@@ -942,12 +952,12 @@ export const Invoices: React.FC = () => {
                   <tr>
                     <th className="px-2 py-3 text-left"></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Comp.</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'competencia' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'competencia', asc: o.campo === 'competencia' ? !o.asc : false }))}>Comp.{ordem.campo === 'competencia' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">UG</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Cliente</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fatura</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'cliente' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'cliente', asc: o.campo === 'cliente' ? !o.asc : true }))}>Cliente{ordem.campo === 'cliente' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'numero' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'numero', asc: o.campo === 'numero' ? !o.asc : true }))}>Fatura{ordem.campo === 'numero' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Tipo</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Vencimento</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'vencimento' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'vencimento', asc: o.campo === 'vencimento' ? !o.asc : true }))}>Vencimento{ordem.campo === 'vencimento' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Vl Serviço Prestado</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Acres.</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Deb.</th>
