@@ -1,372 +1,414 @@
-
-import React, { useState, useEffect } from 'react';
-import { db } from '../services/db';
-import { notify } from '../utils/notify';
-import { Invoice, ReceivedDocument, InvoiceStatus, InvoiceType } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Download, Filter, TrendingUp, AlertCircle, CheckCircle, Wallet, FileText } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, Download, FileText, HelpCircle, Landmark, RefreshCw, Receipt, Search, Wallet, X } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+// @ts-ignore - pacote xlsx sem tipos completos no build
+import * as XLSX from 'xlsx';
+import { db } from '../services/db';
+import { cadastroService } from '../services/cadastroService';
+import { listarPrecos } from '../services/faturamentoService';
+import { notify } from '../utils/notify';
+import { Invoice, InvoiceStatus, ReceivedDocument } from '../types';
 import { Button } from '../components/ui/Button';
-import { Select, Input } from '../components/ui/Input';
+import { Modal } from '../components/ui/Modal';
+import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resumoPainel, taxaCondominial } from '../utils/painel';
 
-const COLORS = ['#0ea5e9', '#22c55e', '#ef4444', '#eab308', '#8b5cf6', '#ec4899', '#f97316', '#64748b'];
+// Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
+const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
+const RAMPA_IDADE = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+const corIdade = (faixa: string) => (faixa === 'A vencer' ? COR.aVencer : RAMPA_IDADE[FAIXAS_IDADE.indexOf(faixa as any) - 1]);
+
+const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const compacto = (n: number) => {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `R$ ${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} mi`;
+  if (a >= 1e3) return `R$ ${(n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
+  return brl(n);
+};
+const br = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
+const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const totalDe = (i: Invoice) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
+
+const paraPainel = (i: Invoice): FaturaPainel => ({
+  id: i.id, numero: i.invoiceNumber, cliente: i.client, setor: i.sector, comando: i.command, tipo: i.type || i.serviceAcronym || '—',
+  ano: i.yearCompetence, mes: i.monthCompetence, emissao: i.issueDate, vencimento: i.dueDate,
+  total: totalDe(i), pago: i.paidAmount || 0,
+  saldo: i.isCanceled || i.status === InvoiceStatus.PAID ? 0 : i.saldoAPagar ?? Math.max(0, totalDe(i) - (i.paidAmount || 0)),
+  cancelada: !!i.isCanceled, contestada: !!i.contestada,
+});
+
+/** Dica ao passar o mouse (ou focar com o teclado). */
+const Dica: React.FC<{ texto: string }> = ({ texto }) => (
+  <span className="relative group inline-flex align-middle" tabIndex={0} aria-label={texto}>
+    <HelpCircle size={14} className="text-slate-400" />
+    <span role="tooltip" className="pointer-events-none absolute z-30 left-1/2 -translate-x-1/2 top-5 w-64 rounded-lg bg-slate-800 text-white text-xs font-normal normal-case tracking-normal p-2 opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity shadow-lg">{texto}</span>
+  </span>
+);
+
+const Cartao: React.FC<{
+  titulo: string; valor: number; qtd?: number; detalhe?: string; dica: string; icone: React.ElementType; cor: string; destaque?: boolean; onClick?: () => void;
+}> = ({ titulo, valor, qtd, detalhe, dica, icone: Icone, cor, destaque, onClick }) => (
+  <button type="button" onClick={onClick} disabled={!onClick}
+    className={`text-left bg-white rounded-xl border p-4 shadow-sm transition-all ${onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'} ${destaque ? 'border-slate-300 ring-1 ring-slate-200' : 'border-slate-200'}`}
+    style={{ borderTop: `4px solid ${cor}` }} aria-label={`${titulo}: ${brl(valor)}${qtd !== undefined ? `, ${qtd} faturas` : ''}. Clique para ver a lista.`}>
+    <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+      <Icone size={15} style={{ color: cor }} /> <span className="flex-1">{titulo}</span> <Dica texto={dica} />
+    </div>
+    <div className={`mt-2 font-bold text-slate-900 tabular-nums ${destaque ? 'text-2xl' : 'text-xl'}`}>{brl(valor)}</div>
+    <div className="mt-1 text-xs text-slate-500">{qtd !== undefined && <>{qtd.toLocaleString('pt-BR')} fatura(s)</>}{detalhe && <>{qtd !== undefined ? ' · ' : ''}{detalhe}</>}</div>
+    {onClick && <div className="mt-2 text-[11px] font-semibold text-primary-700">Ver faturas →</div>}
+  </button>
+);
+
+const Painel: React.FC<{ titulo: string; subtitulo?: string; dica?: string; children: React.ReactNode; acoes?: React.ReactNode; className?: string }> = ({ titulo, subtitulo, dica, children, acoes, className }) => (
+  <section className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 ${className || ''}`}>
+    <div className="flex items-start justify-between gap-2 mb-3">
+      <div>
+        <h3 className="font-bold text-slate-800 flex items-center gap-2">{titulo}{dica && <Dica texto={dica} />}</h3>
+        {subtitulo && <p className="text-xs text-slate-500">{subtitulo}</p>}
+      </div>
+      {acoes}
+    </div>
+    {children}
+  </section>
+);
+
+const DicaGrafico: React.FC<any> = ({ active, payload, label, rotulo }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-2 text-xs">
+      <div className="font-semibold text-slate-800 mb-1">{rotulo ? rotulo(label, payload) : label}</div>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2 text-slate-700">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: p.color || p.payload?.cor }} />
+          <span className="flex-1">{p.name}</span><b className="tabular-nums">{brl(p.value)}</b>
+        </div>
+      ))}
+      {payload[0]?.payload?.qtd !== undefined && <div className="text-slate-500 mt-1">{payload[0].payload.qtd} fatura(s) · clique para ver</div>}
+    </div>
+  );
+};
 
 export const Dashboard: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
+  const [precos, setPrecos] = useState<{ ano: number; sigla: string; omId?: string | null; valor: number }[]>([]);
+  const [nomesOM, setNomesOM] = useState<Map<string, string>>(new Map());
+  const [carregando, setCarregando] = useState(true);
+  const hoje = hojeIso();
+  const [ano, setAno] = useState(new Date().getFullYear());
+  const [setor, setSetor] = useState('');
+  const [comando, setComando] = useState('');
+  const [cliente, setCliente] = useState('');
+  const [lista, setLista] = useState<{ titulo: string; faturas: FaturaPainel[] } | null>(null);
+  const [buscaLista, setBuscaLista] = useState('');
+  const [verTodasTc, setVerTodasTc] = useState(false);
 
-  // Filters
-  const [filterSector, setFilterSector] = useState('');
-  const [filterCommand, setFilterCommand] = useState('');
-  const [filterClient, setFilterClient] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-
-  const loadData = async () => {
+  const carregar = async () => {
+    setCarregando(true);
     try {
-      const [invs, docs] = await Promise.all([
-        db.getInvoices(),
-        db.getDocuments()
-      ]);
-      setInvoices(invs);
-      setDocuments(docs);
-    } catch (err) {
-      notify.fail('Erro ao carregar o painel', err);
-    }
+      const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]);
+      setInvoices(invs); setDocuments(docs);
+      const a = new Date().getFullYear();
+      const [p, oms] = await Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => [])]);
+      setPrecos(p); setNomesOM(new Map((oms as any[]).map(o => [o.id as string, (o.sigla || o.nome) as string] as [string, string])));
+    } catch (err) { notify.fail('Erro ao carregar o painel', err); } finally { setCarregando(false); }
   };
+  useEffect(() => { carregar(); }, []);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const todas = useMemo(() => invoices.map(paraPainel), [invoices]);
+  const filtradas = useMemo(() => todas.filter(f => (!setor || f.setor === setor) && (!comando || f.comando === comando) && (!cliente || f.cliente === cliente)), [todas, setor, comando, cliente]);
+  const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
+  const tc = useMemo(() => taxaCondominial(precos, nomesOM, ano), [precos, nomesOM, ano]);
+  const anos = useMemo(() => [...new Set([new Date().getFullYear(), ...todas.map(f => f.ano).filter(Boolean)])].sort((a, b) => b - a), [todas]);
+  const opcoes = (k: 'setor' | 'comando' | 'cliente') => [...new Set(todas.filter(f => (k === 'setor' || !setor || f.setor === setor) && (k !== 'cliente' || !comando || f.comando === comando)).map(f => f[k]).filter(Boolean))].sort();
 
-  // --- Filtering Logic ---
-  // GLOBAL RULE: Dashboard ignores canceled invoices for calculations
-  const filteredInvoices = invoices.filter(inv => {
-    if (inv.isCanceled) return false;
+  const abrir = (titulo: string, g: Grupo) => { setBuscaLista(''); setLista({ titulo, faturas: doGrupo(filtradas, g, ano, hoje) }); };
+  const abrirFiltro = (titulo: string, f: (x: FaturaPainel) => boolean) => { setBuscaLista(''); setLista({ titulo, faturas: filtradas.filter(f) }); };
+  const filtrosAtivos = [setor && ['Setor', setor, () => setSetor('')], comando && ['Comando', comando, () => setComando('')], cliente && ['Cliente', cliente, () => setCliente('')]].filter(Boolean) as [string, string, () => void][];
 
-    const matchesSector = !filterSector || inv.sector === filterSector;
-    const matchesCommand = !filterCommand || inv.command === filterCommand;
-    const matchesClient = !filterClient || inv.client === filterClient;
+  // composição do em aberto (barra 100%)
+  const composicao = [
+    { nome: `Vencidas até ${ano - 1}`, valor: r.vencidasAnteriores.valor, cor: '#8f1d1d', grupo: 'VENCIDAS_ANTERIORES' as Grupo },
+    { nome: `Vencidas de ${ano}`, valor: r.vencidasAno.valor, cor: COR.vencido, grupo: 'VENCIDAS_ANO' as Grupo },
+    { nome: 'A vencer', valor: r.aVencer.valor, cor: COR.aVencer, grupo: 'A_VENCER' as Grupo },
+  ];
+  const variacao = r.faturadoAnterior ? Math.round(((r.faturadoAno.valor - r.faturadoAnterior) / r.faturadoAnterior) * 1000) / 10 : null;
 
-    let matchesDate = true;
-    if (startDate && endDate) {
-      matchesDate = inv.issueDate >= startDate && inv.issueDate <= endDate;
-    }
-
-    return matchesSector && matchesCommand && matchesClient && matchesDate;
-  });
-
-  const filteredDocs = documents.filter(doc => {
-    return (!filterSector || doc.sector === filterSector) &&
-      (!filterCommand || doc.command === filterCommand) &&
-      (!filterClient || doc.client === filterClient);
-  });
-
-  // --- KPI Calculations ---
-  // Helper to get Total Invoice Value (Base + Adj)
-  const getInvoiceTotal = (i: Invoice) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
-
-  const totalValue = filteredInvoices.reduce((acc, curr) => acc + getInvoiceTotal(curr), 0);
-  const totalPaid = filteredInvoices.reduce((acc, curr) => acc + curr.paidAmount, 0);
-
-  const totalOpen = filteredInvoices
-    .filter(i => i.status !== InvoiceStatus.PAID)
-    .reduce((acc, curr) => acc + (getInvoiceTotal(curr) - curr.paidAmount), 0);
-
-  const totalOverdue = filteredInvoices
-    .filter(i => i.status === InvoiceStatus.OVERDUE)
-    .reduce((acc, curr) => acc + (getInvoiceTotal(curr) - curr.paidAmount), 0);
-
-  const sumOpenAndOverdue = totalOpen;
-
-  // --- Matrix Calculation (Sector vs Type) ---
-  const invoiceTypes = Object.values(InvoiceType);
-  const sectorsUnique = Array.from(new Set(filteredInvoices.map(i => i.sector))).sort();
-
-  const matrixData = sectorsUnique.map(sector => {
-    const row: any = { sector };
-    let sectorTotalDebt = 0;
-
-    invoiceTypes.forEach(type => {
-      const debt = filteredInvoices
-        .filter(i => i.sector === sector && i.type === type && i.status !== InvoiceStatus.PAID)
-        .reduce((sum, i) => sum + (getInvoiceTotal(i) - i.paidAmount), 0);
-      row[type] = debt;
-      sectorTotalDebt += debt;
-    });
-    row.total = sectorTotalDebt;
-    return row;
-  });
-
-  // Calculate Totals per Column (Type)
-  const columnTotals: Record<string, number> = {};
-  let grandTotal = 0;
-  invoiceTypes.forEach(t => columnTotals[t] = 0);
-
-  matrixData.forEach(row => {
-    invoiceTypes.forEach(t => {
-      columnTotals[t] += (row[t] || 0);
-    });
-    grandTotal += row.total;
-  });
-
-  // --- Overdue Table Data ---
-  const overdueInvoices = filteredInvoices.filter(i => i.status === InvoiceStatus.OVERDUE);
-
-  // --- PDF Exports ---
-  const exportDebtSummaryPDF = () => {
+  // ------------------------------------------------------------- exportações
+  const listaFiltrada = useMemo(() => {
+    if (!lista) return [];
+    const b = buscaLista.trim().toLowerCase();
+    return lista.faturas.filter(f => !b || `${f.numero} ${f.cliente} ${f.setor} ${f.tipo}`.toLowerCase().includes(b)).sort((a, b2) => b2.saldo - a.saldo || b2.total - a.total);
+  }, [lista, buscaLista]);
+  const exportarLista = () => {
+    if (!lista) return;
+    const ws = XLSX.utils.json_to_sheet(listaFiltrada.map(f => ({
+      Fatura: f.numero, Cliente: f.cliente, Setor: f.setor, Comando: f.comando, Serviço: f.tipo, Competência: `${String(f.mes).padStart(2, '0')}/${f.ano}`,
+      Emissão: br(f.emissao), Vencimento: br(f.vencimento), Valor: f.total, Pago: f.pago, 'Saldo em aberto': f.saldo, Contestada: f.contestada ? 'sim' : '',
+    })));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Faturas');
+    XLSX.writeFile(wb, `${lista.titulo.replace(/[^\wÀ-ú]+/g, '_')}.xlsx`);
+  };
+  const exportarResumoPDF = () => {
     const doc = new jsPDF('l');
-    doc.text("Resumo de Dívidas (Aberto + Vencido) por Setor e Tipo - SISCONT", 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Filtros: ${filterSector || 'Todos'} | ${filterCommand || 'Todos'} | ${filterClient || 'Todos'}`, 14, 22);
-
-    const head = [['Setor', ...invoiceTypes, 'TOTAL']];
-    const body = matrixData.map(row => [
-      row.sector,
-      ...invoiceTypes.map(t => `R$ ${row[t]?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}`),
-      `R$ ${row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-    ]);
-
-    // Add Totals Row to PDF
-    const totalRowPDF = [
-      'TOTAL GERAL',
-      ...invoiceTypes.map(t => `R$ ${columnTotals[t]?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}`),
-      `R$ ${grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-    ];
-    body.push(totalRowPDF);
-
+    doc.setFontSize(13); doc.text(`SISCONT — Painel de faturamento ${ano}`, 14, 15);
+    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)}${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 21);
     autoTable(doc, {
-      startY: 25,
-      head: head,
-      body: body,
-      styles: { fontSize: 8 },
+      startY: 26, head: [['Indicador', 'Valor', 'Faturas']],
+      body: [
+        [`Faturado em ${ano}`, brl(r.faturadoAno.valor), String(r.faturadoAno.qtd)],
+        [`Vencidas até ${ano - 1}`, brl(r.vencidasAnteriores.valor), String(r.vencidasAnteriores.qtd)],
+        [`Vencidas de ${ano}`, brl(r.vencidasAno.valor), String(r.vencidasAno.qtd)],
+        ['Total vencidas', brl(r.vencidas.valor), String(r.vencidas.qtd)],
+        ['A vencer', brl(r.aVencer.valor), String(r.aVencer.qtd)],
+        ['Total em aberto', brl(r.emAberto.valor), String(r.emAberto.qtd)],
+        ...(tc.ano ? [[`Taxa condominial ${tc.ano} (mensal / anual)`, `${brl(tc.mensal)} / ${brl(tc.anual)}`, `${tc.oms.length} OM`]] : []),
+      ],
+      styles: { fontSize: 9 },
     });
-
-    doc.save("resumo_dividas_siscont.pdf");
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 6, head: [['Em aberto por setor', 'Vencido', 'A vencer', 'Total']],
+      body: r.porSetor.map(s => [s.nome, brl(s.vencido), brl(s.aVencer), brl(s.total)]), styles: { fontSize: 8 },
+    });
+    doc.save(`painel_siscont_${ano}.pdf`);
   };
-
-  const exportBalanceExtractPDF = () => {
+  const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
-    doc.text("Extrato de Saldos Disponíveis e Faturas em Aberto - SISCONT", 14, 15);
-
-    // Part 1: Balances
-    doc.text("Saldos Disponíveis (Documentos Recebidos)", 14, 25);
-    const balanceRows = filteredDocs.filter(d => d.availableValue > 0).map(d => [
-      d.sector, d.command, d.client, d.documentNumber, d.operation, `R$ ${d.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-    ]);
-
-    autoTable(doc, {
-      startY: 30,
-      head: [['Setor', 'Comando', 'Cliente', 'Doc', 'Operação', 'Saldo Disp.']],
-      body: balanceRows,
-    });
-
-    // Part 2: Open Invoices
-    const finalY = (doc as any).lastAutoTable.finalY + 15;
-    doc.text("Faturas em Aberto (Compromissos)", 14, finalY);
-
-    const invoiceRows = filteredInvoices.filter(i => i.status !== InvoiceStatus.PAID).map(i => [
-      i.sector, i.client, i.type, i.invoiceNumber, i.competence, `R$ ${(getInvoiceTotal(i) - i.paidAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-    ]);
-
-    autoTable(doc, {
-      startY: finalY + 5,
-      head: [['Setor', 'Cliente', 'Tipo', 'Fatura', 'Comp.', 'Valor Aberto']],
-      body: invoiceRows,
-    });
-
-    doc.save("extrato_saldos_siscont.pdf");
+    doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15);
+    const docs = documents.filter(d => d.availableValue > 0 && (!setor || d.sector === setor) && (!comando || d.command === comando) && (!cliente || d.client === cliente));
+    autoTable(doc, { startY: 22, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => [d.sector, d.command, d.client, d.documentNumber, d.operation, brl(d.availableValue)]), styles: { fontSize: 8 } });
+    autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
+    doc.save('extrato_saldos_siscont.pdf');
   };
 
-  // Dropdown options
-  const sectors = Array.from(new Set(invoices.map(i => i.sector))).map(s => ({ label: s, value: s }));
-  const commands = Array.from(new Set(invoices.map(i => i.command))).map(s => ({ label: s, value: s }));
-  const clients = Array.from(new Set(invoices.map(i => i.client))).map(s => ({ label: s, value: s }));
-
-  // Chart Data
-  const monthlyDataMap = new Map<string, number>();
-  filteredInvoices.forEach(inv => {
-    const key = inv.competence;
-    const current = monthlyDataMap.get(key) || 0;
-    monthlyDataMap.set(key, current + getInvoiceTotal(inv));
-  });
-  const barChartData = Array.from(monthlyDataMap.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const pieChartData = invoiceTypes.map(type => ({
-    name: type,
-    value: filteredInvoices.filter(i => i.type === type).reduce((acc, c) => acc + getInvoiceTotal(c), 0)
-  })).filter(d => d.value > 0);
+  const devedores = r.porCliente.slice(0, 10);
+  const tiposAbertos = r.porTipo.slice(0, 8);
+  const tcVisiveis = verTodasTc ? tc.oms : tc.oms.slice(0, 12);
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-5">
+      {/* Cabeçalho e filtros (uma linha) */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-3xl font-bold text-slate-800">Dashboard Analítico</h2>
-          <p className="text-slate-500">Visão consolidada de indicadores contábeis</p>
+          <h2 className="text-2xl font-bold text-slate-800">Painel inicial</h2>
+          <p className="text-slate-500 text-sm">Posição em <b>{br(hoje)}</b>. Clique em qualquer cartão ou barra para ver as faturas.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={exportDebtSummaryPDF}>
-            <FileText className="w-4 h-4 mr-2" /> Resumo Dívidas (PDF)
-          </Button>
-          <Button variant="secondary" size="sm" onClick={exportBalanceExtractPDF}>
-            <Wallet className="w-4 h-4 mr-2" /> Extrato Saldos (PDF)
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />}Atualizar</Button>
+          <Button size="sm" variant="secondary" onClick={exportarResumoPDF}><FileText size={14} className="mr-1" />Resumo (PDF)</Button>
+          <Button size="sm" variant="secondary" onClick={exportarSaldosPDF}><Wallet size={14} className="mr-1" />Extrato de saldos (PDF)</Button>
         </div>
       </div>
-
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-        <Select label="Setor" options={sectors} value={filterSector} onChange={e => setFilterSector(e.target.value)} />
-        <Select label="Comando" options={commands} value={filterCommand} onChange={e => setFilterCommand(e.target.value)} />
-        <Select label="Cliente" options={clients} value={filterClient} onChange={e => setFilterClient(e.target.value)} />
-        <div className="flex gap-2 col-span-2">
-          <Input label="De" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-          <Input label="Até" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-        </div>
+      <div className="flex flex-wrap items-end gap-3 bg-white p-3 rounded-xl border border-slate-200">
+        <label className="text-xs font-semibold text-slate-600">Ano de referência
+          <select className="block mt-1 text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Ano de referência">
+            {anos.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+        {([['Setor', setor, setSetor, 'setor'], ['Comando', comando, setComando, 'comando'], ['Cliente (OM)', cliente, setCliente, 'cliente']] as const).map(([rot, v, set, k]) => (
+          <label key={k} className="text-xs font-semibold text-slate-600">{rot}
+            <select className="block mt-1 text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white max-w-[260px]" value={v} onChange={e => (set as any)(e.target.value)} aria-label={rot}>
+              <option value="">Todos</option>{opcoes(k).map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+        ))}
+        {filtrosAtivos.length > 0 && (
+          <div className="flex flex-wrap gap-1 pb-1">
+            {filtrosAtivos.map(([rot, v, limpar]) => (
+              <button key={rot} onClick={limpar} className="text-xs bg-primary-50 text-primary-800 border border-primary-200 rounded-full px-2 py-1 flex items-center gap-1" title="Remover filtro">{rot}: {v} <X size={12} /></button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
-          <p className="text-sm font-medium text-slate-500">Total Faturado</p>
-          <h3 className="text-2xl font-bold text-slate-800">R$ {totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
-          <p className="text-sm font-medium text-slate-500">Total Pago</p>
-          <h3 className="text-2xl font-bold text-slate-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
-          <p className="text-sm font-medium text-slate-500">Dívida Total (Aberto + Vencido)</p>
-          <h3 className="text-2xl font-bold text-slate-800">R$ {sumOpenAndOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-red-500">
-          <p className="text-sm font-medium text-slate-500">Somente Vencidos</p>
-          <h3 className="text-2xl font-bold text-red-600">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-        </div>
+      {/* Números de cara: linha 1 = o essencial; linha 2 = detalhamento das vencidas e a taxa condominial */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <Cartao titulo={`Faturado em ${ano}`} valor={r.faturadoAno.valor} qtd={r.faturadoAno.qtd} icone={Receipt} cor={COR.faturado} destaque
+          detalhe={`${r.percentualPago.toLocaleString('pt-BR')}% já pago${variacao !== null ? ` · ${variacao >= 0 ? '+' : ''}${variacao.toLocaleString('pt-BR')}% vs ${ano - 1}` : ''}`}
+          dica={`Soma de todas as faturas emitidas com competência em ${ano} (sem as canceladas).`} onClick={() => abrir(`Faturas de ${ano}`, 'FATURADAS_ANO')} />
+        <Cartao titulo="Total vencidas" valor={r.vencidas.valor} qtd={r.vencidas.qtd} icone={AlertTriangle} cor={COR.vencido} destaque
+          detalhe={r.emAberto.valor ? `${Math.round((r.vencidas.valor / r.emAberto.valor) * 100)}% do em aberto` : undefined}
+          dica="Faturas em aberto cujo vencimento já passou (soma das vencidas de anos anteriores e do ano)." onClick={() => abrir('Faturas vencidas', 'VENCIDAS')} />
+        <Cartao titulo="A vencer" valor={r.aVencer.valor} qtd={r.aVencer.qtd} icone={CheckCircle2} cor={COR.aVencer} destaque
+          detalhe="ainda dentro do prazo"
+          dica="Faturas em aberto ainda dentro do prazo de vencimento (emissão + 30 dias)." onClick={() => abrir('Faturas a vencer', 'A_VENCER')} />
+        <Cartao titulo="Total em aberto" valor={r.emAberto.valor} qtd={r.emAberto.qtd} icone={Wallet} cor="#475569" destaque
+          detalhe={`= vencidas + a vencer${r.contestadas.qtd ? ` · inclui ${brl(r.contestadas.valor)} em contestação` : ''}`}
+          dica="Tudo o que ainda falta receber: saldo das faturas não pagas (já descontados pagamentos e adiantamentos)." onClick={() => abrir('Faturas em aberto', 'EM_ABERTO')} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Cartao titulo={`Vencidas até ${ano - 1}`} valor={r.vencidasAnteriores.valor} qtd={r.vencidasAnteriores.qtd} icone={CalendarClock} cor="#8f1d1d"
+          detalhe={r.anosVencidos.filter(a => a.ano < ano).slice(0, 3).map(a => `${a.ano}: ${compacto(a.valor)}`).join(' · ')}
+          dica={`Faturas vencidas de competência de exercícios anteriores a ${ano}.`} onClick={() => abrir(`Vencidas de anos anteriores a ${ano}`, 'VENCIDAS_ANTERIORES')} />
+        <Cartao titulo={`Vencidas de ${ano}`} valor={r.vencidasAno.valor} qtd={r.vencidasAno.qtd} icone={Clock} cor={COR.vencido}
+          dica={`Faturas vencidas de competência ${ano}.`} onClick={() => abrir(`Vencidas de ${ano}`, 'VENCIDAS_ANO')} />
+        <Cartao titulo={`Taxa condominial ${tc.ano ?? ''} (mensal)`.trim()} valor={tc.mensal} icone={Landmark} cor={COR.faturado}
+          detalhe={tc.ano ? `${tc.oms.length} OM · anual ${compacto(tc.anual)}` : 'tabela ainda não publicada'}
+          dica="Soma da taxa condominial mensal de todas as OM (tabela vigente). O valor de cada OM está mais abaixo."
+          onClick={tc.oms.length ? () => document.getElementById('painel-tc')?.scrollIntoView({ behavior: 'smooth' }) : undefined} />
       </div>
 
-      {/* Matrix Table: Sectors vs Types (Debt) */}
-      <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
-          <h3 className="font-bold text-lg text-slate-800">Matriz de Dívidas (Em Aberto/Vencido) por Setor e Tipo</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-xs">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-slate-500 uppercase">Setor</th>
-                {invoiceTypes.map(t => <th key={t} className="px-4 py-3 text-right font-medium text-slate-500 uppercase whitespace-nowrap">{t}</th>)}
-                <th className="px-4 py-3 text-right font-bold text-slate-700 uppercase">TOTAL</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {matrixData.map((row) => (
-                <tr key={row.sector} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">{row.sector}</td>
-                  {invoiceTypes.map(t => (
-                    <td key={t} className="px-4 py-3 text-right text-slate-600">
-                      {row[t] > 0 ? `R$ ${row[t].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                  ))}
-                  <td className="px-4 py-3 text-right font-bold text-slate-800 bg-slate-50">
-                    R$ {row.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
+      {/* Composição do em aberto */}
+      <Painel titulo="De que é feito o em aberto" subtitulo="Cada faixa é clicável. Vermelho escuro = mais antigo." dica="A barra soma 100% do total em aberto, dividido entre vencidas de anos anteriores, vencidas do ano e a vencer.">
+        {r.emAberto.valor > 0 ? (
+          <>
+            <div className="flex h-9 w-full rounded-lg overflow-hidden gap-[2px] bg-white" role="img" aria-label="Composição do total em aberto">
+              {composicao.filter(c => c.valor > 0).map(c => (
+                <button key={c.nome} title={`${c.nome}: ${brl(c.valor)} (${Math.round((c.valor / r.emAberto.valor) * 100)}%)`} aria-label={`Faixa da barra — ${c.nome}, ${Math.round((c.valor / r.emAberto.valor) * 100)}%`} onClick={() => abrir(c.nome, c.grupo)}
+                  className="h-full hover:opacity-80 transition-opacity first:rounded-l-lg last:rounded-r-lg" style={{ width: `${(c.valor / r.emAberto.valor) * 100}%`, background: c.cor, minWidth: 6 }} />
               ))}
-              {/* Total Row */}
-              <tr className="bg-slate-200 font-bold border-t-2 border-slate-300">
-                <td className="px-4 py-3 text-slate-900 uppercase">TOTAIS</td>
-                {invoiceTypes.map(t => (
-                  <td key={t} className="px-4 py-3 text-right text-slate-900">
-                    R$ {columnTotals[t].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
-                ))}
-                <td className="px-4 py-3 text-right text-slate-900">
-                  R$ {grandTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-xs">
+              {composicao.map(c => (
+                <span key={c.nome} className="flex items-center gap-1.5 text-slate-700"><span className="w-3 h-3 rounded-sm" style={{ background: c.cor }} />{c.nome}: <b className="tabular-nums">{brl(c.valor)}</b><span className="text-slate-500">({r.emAberto.valor ? Math.round((c.valor / r.emAberto.valor) * 100) : 0}%)</span></span>
+              ))}
+            </div>
+          </>
+        ) : <p className="text-sm text-emerald-700 flex items-center gap-2"><CheckCircle2 size={16} />Nenhuma fatura em aberto com os filtros escolhidos.</p>}
+      </Painel>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow border border-slate-200">
-          <h3 className="font-bold text-lg text-slate-800 mb-4">Evolução Mensal (Faturamento)</h3>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Painel titulo={`Faturado por mês — ${ano}`} subtitulo="Barras azuis: valor faturado na competência · laranja: quanto dessas faturas já foi pago" dica="Clique numa barra para ver as faturas daquela competência.">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barChartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(val: number) => `R$ ${val.toLocaleString('pt-BR')}`} />
-                <Bar dataKey="value" fill="#0ea5e9" name="Faturado" radius={[4, 4, 0, 0]} />
+              <BarChart data={r.porMes} margin={{ top: 4, right: 8, left: 8, bottom: 0 }} barGap={2}
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) abrirFiltro(`Faturas de ${r.porMes[Number(i)].mes}/${ano}`, f => !f.cancelada && f.ano === ano && f.mes === Number(i) + 1); }}>
+                <CartesianGrid vertical={false} stroke={COR.grade} />
+                <XAxis dataKey="mes" tick={{ fontSize: 11, fill: COR.eixo }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} width={78} />
+                <Tooltip content={<DicaGrafico rotulo={(l: string) => `${l}/${ano}`} />} cursor={{ fill: '#f1f5f9' }} />
+                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} formatter={(v: any) => <span style={{ color: '#334155' }}>{v}</span>} />
+                <Bar dataKey="faturado" name="Faturado" fill={COR.faturado} radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={22} />
+                <Bar dataKey="pago" name="Já pago" fill={COR.pago} radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={22} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Painel>
 
-        <div className="bg-white p-6 rounded-lg shadow border border-slate-200">
-          <h3 className="font-bold text-lg text-slate-800 mb-4">Distribuição de Dívida por Tipo</h3>
+        <Painel titulo="Idade da dívida" subtitulo="Quanto tempo o valor em aberto está vencido" dica="Verde: ainda no prazo. Tons de azul cada vez mais escuros: vencidas há mais tempo. Clique numa barra para ver as faturas.">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieChartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {pieChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(val: number) => `R$ ${val.toLocaleString('pt-BR')}`} />
-                <Legend />
-              </PieChart>
+              <BarChart data={r.idade.map(i => ({ ...i, cor: corIdade(i.faixa) }))} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) { const fx = r.idade[Number(i)].faixa; abrirFiltro(`Em aberto: ${fx}`, f => emAberto(f) && faixaIdade(f, hoje) === fx); } }}>
+                <CartesianGrid vertical={false} stroke={COR.grade} />
+                <XAxis dataKey="faixa" tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} interval={0} />
+                <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} width={78} />
+                <Tooltip content={<DicaGrafico />} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" name="Em aberto" radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={48}>
+                  {r.idade.map(i => <Cell key={i.faixa} fill={corIdade(i.faixa)} />)}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </Painel>
+
+        <Painel titulo="Maiores devedores" subtitulo="As 10 OM/clientes com maior valor em aberto" dica="Vermelho: parte vencida · verde: parte a vencer. Clique para filtrar o painel por esse cliente.">
+          <div style={{ height: Math.max(180, devedores.length * 30 + 40) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={devedores} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }} barCategoryGap={6}
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) setCliente(devedores[Number(i)].nome); }}>
+                <CartesianGrid horizontal={false} stroke={COR.grade} />
+                <XAxis type="number" tickFormatter={compacto} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nome" width={170} tick={{ fontSize: 11, fill: '#334155' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => (v.length > 26 ? `${v.slice(0, 25)}…` : v)} />
+                <Tooltip content={<DicaGrafico />} cursor={{ fill: '#f1f5f9' }} />
+                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} formatter={(v: any) => <span style={{ color: '#334155' }}>{v}</span>} />
+                <Bar dataKey="vencido" name="Vencido" stackId="d" fill={COR.vencido} stroke="#ffffff" strokeWidth={1} cursor="pointer" />
+                <Bar dataKey="aVencer" name="A vencer" stackId="d" fill={COR.aVencer} stroke="#ffffff" strokeWidth={1} radius={[0, 4, 4, 0]} cursor="pointer" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Painel>
+
+        <Painel titulo="Em aberto por serviço" subtitulo="Água, energia, taxa condominial, diárias..." dica="Clique numa barra para ver as faturas em aberto daquele serviço.">
+          <div style={{ height: Math.max(180, tiposAbertos.length * 30 + 40) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={tiposAbertos} layout="vertical" margin={{ top: 0, right: 12, left: 0, bottom: 0 }} barCategoryGap={6}
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) { const t = tiposAbertos[Number(i)].nome; abrirFiltro(`Em aberto: ${t}`, f => f.tipo === t && emAberto(f)); } }}>
+                <CartesianGrid horizontal={false} stroke={COR.grade} />
+                <XAxis type="number" tickFormatter={compacto} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nome" width={170} tick={{ fontSize: 11, fill: '#334155' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => (v.length > 26 ? `${v.slice(0, 25)}…` : v)} />
+                <Tooltip content={<DicaGrafico />} cursor={{ fill: '#f1f5f9' }} />
+                <Legend iconType="square" wrapperStyle={{ fontSize: 12 }} formatter={(v: any) => <span style={{ color: '#334155' }}>{v}</span>} />
+                <Bar dataKey="vencido" name="Vencido" stackId="t" fill={COR.vencido} stroke="#ffffff" strokeWidth={1} cursor="pointer" />
+                <Bar dataKey="aVencer" name="A vencer" stackId="t" fill={COR.aVencer} stroke="#ffffff" strokeWidth={1} radius={[0, 4, 4, 0]} cursor="pointer" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Painel>
       </div>
 
-      {/* Overdue Specific Table */}
-      {overdueInvoices.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-red-200 overflow-hidden">
-          <div className="p-4 bg-red-50 border-b border-red-100 flex items-center gap-2">
-            <AlertCircle className="text-red-600" size={20} />
-            <h3 className="font-bold text-lg text-red-800">Faturas Vencidas (Atenção Necessária)</h3>
+      {/* Taxa condominial */}
+      <div id="painel-tc" />
+      <Painel titulo={`Taxa condominial ${tc.ano ?? ''}`.trim()} subtitulo={tc.ano && tc.ano !== ano ? `Tabela de ${ano} ainda não publicada: mostrando a de ${tc.ano}.` : 'Valor mensal cobrado de cada OM (tabela vigente publicada)'}
+        dica="Vem dos Preços do ano (publicados pela tela Taxa condominial e diárias)." acoes={<Landmark size={18} className="text-slate-400" />}>
+        {tc.oms.length ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">Total mensal (todas as OM)</div><div className="text-2xl font-bold text-slate-900 tabular-nums">{brl(tc.mensal)}</div></div>
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">Total anual</div><div className="text-xl font-bold text-slate-900 tabular-nums">{brl(tc.anual)}</div></div>
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">OM que pagam a taxa</div><div className="text-xl font-bold text-slate-900">{tc.oms.length}</div></div>
+            </div>
+            <div className="lg:col-span-2">
+              <div style={{ height: tcVisiveis.length * 26 + 30 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={tcVisiveis} layout="vertical" margin={{ top: 0, right: 90, left: 0, bottom: 0 }} barCategoryGap={4}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="nome" width={150} tick={{ fontSize: 11, fill: '#334155' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 21)}…` : v)} />
+                    <Tooltip content={<DicaGrafico rotulo={(l: string, p: any[]) => `${l} · ${p[0]?.payload?.percentual}% do total · anual ${brl(p[0]?.payload?.anual)}`} />} cursor={{ fill: '#f1f5f9' }} />
+                    <Bar dataKey="mensal" name="Mensal" fill={COR.faturado} radius={[0, 4, 4, 0]}
+                      label={{ position: 'right', fontSize: 11, fill: '#334155', formatter: (v: any) => brl(Number(v)) }} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              {tc.oms.length > 12 && <button className="text-xs text-primary-700 font-semibold mt-1" onClick={() => setVerTodasTc(!verTodasTc)}>{verTodasTc ? 'Mostrar só as 12 maiores' : `Mostrar todas as ${tc.oms.length} OM`}</button>}
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-red-50/50">
-                <tr>
-                  <th className="px-4 py-3 text-left">Vencimento</th>
-                  <th className="px-4 py-3 text-left">Cliente</th>
-                  <th className="px-4 py-3 text-left">Fatura</th>
-                  <th className="px-4 py-3 text-right">Valor Aberto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overdueInvoices.map(inv => (
-                  <tr key={inv.id} className="border-b border-red-50">
-                    <td className="px-4 py-3 font-medium text-red-600">{new Date(inv.dueDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-slate-700">{inv.client}</td>
-                    <td className="px-4 py-3 text-slate-500">{inv.invoiceNumber}</td>
-                    <td className="px-4 py-3 text-right font-bold text-red-700">R$ {(getInvoiceTotal(inv) - inv.paidAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        ) : <p className="text-sm text-slate-500">Nenhuma tabela de taxa condominial publicada. Publique em <b>Contabilidade de custos → Taxa condominial e diárias</b>.</p>}
+      </Painel>
+
+      {/* Lista de faturas (abre ao clicar) */}
+      <Modal isOpen={!!lista} onClose={() => setLista(null)} title={lista?.titulo || ''} maxWidth="max-w-5xl">
+        {lista && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-sm text-slate-600"><b>{listaFiltrada.length}</b> fatura(s) · em aberto <b>{brl(listaFiltrada.reduce((s, f) => s + f.saldo, 0))}</b> · valor <b>{brl(listaFiltrada.reduce((s, f) => s + f.total, 0))}</b></div>
+              <div className="flex-1" />
+              <label className="relative"><Search size={14} className="absolute left-2 top-2.5 text-slate-400" /><input className="pl-7 pr-2 py-1.5 text-sm border border-slate-300 rounded-md" placeholder="Buscar fatura, cliente..." value={buscaLista} onChange={e => setBuscaLista(e.target.value)} aria-label="Buscar na lista" /></label>
+              <Button size="sm" variant="secondary" onClick={exportarLista}><Download size={14} className="mr-1" />Excel</Button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>
+                  <th className="px-2 py-2 text-left">Fatura</th><th className="px-2 text-left">Cliente</th><th className="px-2 text-left">Serviço</th><th className="px-2">Comp.</th>
+                  <th className="px-2">Vencimento</th><th className="px-2 text-right">Atraso</th><th className="px-2 text-right">Valor</th><th className="px-2 text-right">Em aberto</th>
+                </tr></thead>
+                <tbody>
+                  {listaFiltrada.slice(0, 500).map(f => {
+                    const atraso = f.saldo > 0.009 && f.vencimento && f.vencimento < hoje ? Math.floor((Date.parse(hoje) - Date.parse(f.vencimento.slice(0, 10))) / 86400000) : 0;
+                    return (
+                      <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-2 py-1.5 font-mono whitespace-nowrap">{f.numero}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1">contestada</span>}</td>
+                        <td className="px-2 max-w-[220px] truncate" title={f.cliente}>{f.cliente}</td>
+                        <td className="px-2">{f.tipo}</td>
+                        <td className="px-2 text-center">{String(f.mes).padStart(2, '0')}/{f.ano}</td>
+                        <td className="px-2 text-center">{br(f.vencimento)}</td>
+                        <td className={`px-2 text-right ${atraso ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{atraso ? `${atraso} dias` : '—'}</td>
+                        <td className="px-2 text-right tabular-nums">{brl(f.total)}</td>
+                        <td className="px-2 text-right tabular-nums font-semibold">{brl(f.saldo)}</td>
+                      </tr>
+                    );
+                  })}
+                  {!listaFiltrada.length && <tr><td colSpan={8} className="px-2 py-6 text-center text-slate-400">Nenhuma fatura.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            {listaFiltrada.length > 500 && <p className="text-xs text-slate-500">Mostrando as 500 de maior valor; o Excel traz todas.</p>}
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 };
+

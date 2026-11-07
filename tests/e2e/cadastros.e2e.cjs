@@ -797,6 +797,51 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'lembrete leva à Administração');
   });
 
+  await cenario('Página inicial: números de cara, composição do em aberto, gráficos, lista ao clicar e taxa condominial', [], async (page, db) => {
+    const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
+    const sec = { id: uid(), codigo: '40002', nome: 'SecNSNQ', tipo: 'TERRA', ativo: true };
+    db.oms.push(amrj, sec);
+    db.precos.push({ id: uid(), ano: 2026, sigla: 'TC', om_id: amrj.id, valor: 101673.7, unidade: 'MÊS' }, { id: uid(), ano: 2026, sigla: 'TC', om_id: sec.id, valor: 10057.36, unidade: 'MÊS' });
+    const fat = (n, cli, tipo, ano, mes, venc, valor, extra = {}) => ({
+      id: uid(), ug: '40030', sector: 'DGMM', command: '40030 - DIM', client: cli, invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${ano}-${String(mes).padStart(2, '0')}-15`, due_date: venc, month_competence: mes, year_competence: ano, competence: '', type: tipo, service_acronym: n.split('-')[1],
+      is_canceled: false, siplad_settled: false, om_id: null, origem: 'Planilha', quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [], ...extra,
+    });
+    db.invoices = [
+      fat('40030-TC-05-2024-001-0', 'Diretoria Industrial da Marinha', 'Taxa Condominial', 2024, 5, '2024-07-15', 300),
+      fat('40031-AE-09-2025-001-0', 'Centro de Perícias Médicas', 'Água e Esgoto', 2025, 9, '2025-11-14', 80),
+      fat('40030-EL-09-2026-001-0', 'Diretoria Industrial da Marinha', 'Energia Elétrica', 2026, 9, '2026-10-15', 200),
+      fat('81100-TC-10-2026-001-0', 'Arsenal de Marinha do Rio de Janeiro', 'Taxa Condominial', 2026, 10, '2099-12-15', 400, { contestada: true }),
+      fat('40030-AE-01-2026-001-0', 'Diretoria Industrial da Marinha', 'Água e Esgoto', 2026, 1, '2026-03-02', 1000),
+      fat('40030-AE-02-2026-001-0', 'Diretoria Industrial da Marinha', 'Água e Esgoto', 2026, 2, '2026-04-02', 999, { is_canceled: true }),
+    ];
+    const doc = { id: uid(), document_number: 'G424.2026.AC.00001', document_type: 'ALTCRED', total_value: 1030, date: '2026-03-01', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030' };
+    db.received_documents.push(doc);
+    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: db.invoices[4].id, amount: 1000, date: '2026-03-01', service_type: 'AE', tipo_baixa: 'PAGAMENTO' },
+      { id: uid(), document_id: doc.id, invoice_id: db.invoices[1].id, amount: 30, date: '2026-03-01', service_type: 'AE', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Painel inicial' }).click();
+    await page.getByLabel('Ano de referência').selectOption('2026');
+    const valorDe = async t => (await page.getByRole('button', { name: new RegExp(`^${t}:`) }).innerText()).replace(/\s+/g, ' ');
+    await page.getByRole('button', { name: /^Faturado em 2026:/ }).waitFor();
+    ok((await valorDe('Faturado em 2026')).includes('R$ 1.600,00'), 'faturado em 2026 = R$ 1.600,00 (sem a cancelada)');
+    ok((await valorDe('Vencidas até 2025')).includes('R$ 350,00'), 'vencidas até 2025 = R$ 350,00 (2024 + saldo parcial de 2025)');
+    ok((await valorDe('Vencidas de 2026')).includes('R$ 200,00'), 'vencidas de 2026 = R$ 200,00');
+    ok((await valorDe('Total vencidas')).includes('R$ 550,00'), 'total vencidas = R$ 550,00');
+    ok((await valorDe('A vencer')).includes('R$ 400,00'), 'a vencer = R$ 400,00');
+    ok((await valorDe('Total em aberto')).includes('R$ 950,00') && (await valorDe('Total em aberto')).includes('contestação'), 'total em aberto = R$ 950,00, com aviso da contestada');
+    ok(await page.getByText('Total mensal (todas as OM)').isVisible() && (await page.getByText('R$ 111.731,06').count()) > 0, 'taxa condominial geral mensal R$ 111.731,06');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-inicial.png'), fullPage: true });
+    if (SHOTS) { for (const [k, y] of [[2, 700], [3, 1400]]) { await page.locator('main .overflow-y-auto').first().evaluate((el, yy) => el.scrollTo(0, yy), y); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `painel-inicial-${k}.png`) }); } await page.locator('main .overflow-y-auto').first().evaluate(el => el.scrollTo(0, 0)); }
+    await page.getByRole('button', { name: /^Total vencidas:/ }).click();
+    await page.getByRole('heading', { name: 'Faturas vencidas' }).waitFor();
+    ok((await page.locator('table').last().innerText()).includes('40030-TC-05-2024-001-0'), 'clicar no cartão abre a lista das faturas vencidas');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-lista.png') });
+    await page.keyboard.press('Escape');
+    await page.getByLabel('Setor').selectOption('DGMM');
+    ok(await page.getByTitle('Remover filtro').isVisible(), 'filtro ativo aparece como etiqueta removível');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();
