@@ -43,6 +43,16 @@ describe('resumo: setor responsável por serviço (cadastrado, não fixo no cód
   });
 });
 
+describe('resumo: aviso das faturas da competência em primeiro lugar', () => {
+  it('com faturas já existentes, o aviso é o primeiro item; sem elas, o item informativo também', () => {
+    const a = resumoDoMes({ ...base, faturasDaCompetencia: 106 });
+    expect(a[0]).toMatchObject({ id: 'lote', status: 'aviso', rotulo: 'Faturas de OUT26' });
+    expect(a[0].detalhe).toBe('Já existem 106 fatura(s) desta competência (migradas ou emitidas fora do sistema). Confira para não emitir em duplicidade.');
+    expect(resumoDoMes(base)[0].id).toBe('lote');
+    expect(resumoDoMes({ ...base, lotes: [{ competencia: '2026-10', tipo: 'MENSAL', qtd: 9 }] })[0]).toMatchObject({ id: 'lote', status: 'info' });
+  });
+});
+
 describe('lotes emitidos: filtros', () => {
   const l = (competencia: string, tipo: string) => ({ id: competencia + tipo, competencia, tipo, qtd: 1, total: 1 });
   const lotes = [l('2025-10', 'MENSAL'), l('2026-09', 'MENSAL'), l('2026-10', 'OND'), l('2026-03', 'CORRECAO')];

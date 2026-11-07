@@ -54,10 +54,11 @@ export function resumoDoMes(d: DadosResumo): ItemResumo[] {
     out.push({ id: `medicao-${s.sigla}`, rotulo: `Medição de ${s.nome} (${s.sigla}) de ${ref}`, aba: 'medicoes',
       status: n ? 'ok' : 'pendente', detalhe: n ? `${n} OM com medição lançada.` : `Nenhuma medição lançada.${resp(s.sigla)}` });
   });
+  // o aviso das faturas da competência (lote já emitido ou faturas já existentes) vem sempre em primeiro lugar
   const mensal = d.lotes.filter(l => l.competencia === d.comp && l.tipo === 'MENSAL');
-  if (mensal.length) out.push({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: `Já emitido pelo sistema: ${mensal.reduce((s, l) => s + l.qtd, 0)} fatura(s).` });
-  else if (d.faturasDaCompetencia) out.push({ id: 'lote', rotulo: `Faturas de ${ref}`, aba: 'lote', status: 'aviso', detalhe: `Já existem ${d.faturasDaCompetencia} fatura(s) desta competência (migradas ou emitidas fora do sistema). Confira para não emitir em duplicidade.` });
-  else out.push({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: 'Ainda não emitido.' });
+  if (mensal.length) out.unshift({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: `Já emitido pelo sistema: ${mensal.reduce((s, l) => s + l.qtd, 0)} fatura(s).` });
+  else if (d.faturasDaCompetencia) out.unshift({ id: 'lote', rotulo: `Faturas de ${ref}`, aba: 'lote', status: 'aviso', detalhe: `Já existem ${d.faturasDaCompetencia} fatura(s) desta competência (migradas ou emitidas fora do sistema). Confira para não emitir em duplicidade.` });
+  else out.unshift({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: 'Ainda não emitido.' });
   return out;
 }
 
