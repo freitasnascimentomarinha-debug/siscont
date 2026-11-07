@@ -1033,6 +1033,77 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'depois das correções o cadastro confere com a lista');
   });
 
+  await cenario('Planilha de água e esgoto: conferência, regra do HCM, ligação e lançamento', [], async (page, db) => {
+    const om = (codigo, nome, tipo = 'TERRA', extra = {}) => { const o = { id: uid(), codigo, nome, tipo, comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [], ...extra }; db.oms.push(o); return o; };
+    const amrj = om('41000', 'Arsenal de Marinha do Rio de Janeiro'), bnic = om('40015', 'Base Naval da Ilha das Cobras');
+    const cpmm = om('65730', 'Centro de Perícias Médicas da Marinha'), hcm = om('65701', 'Hospital Central da Marinha');
+    const pres = om('81940', 'Presídio da Marinha'), btl = om('31050', 'Batalhão Naval');
+    const bahia = om('40015', 'Navio de Desembarque Multipropósito Bahia', 'NAVIO', { codigo_proprio: false });
+    db.service_definitions.push(
+      { id: uid(), name: 'Eletricidade', unit_measure: 'KWH', acronym: 'EL', nome_oficial: 'FORNECIMENTO DE ENERGIA ELÉTRICA', ordem: 30, ativo: true },
+      { id: uid(), name: 'Água e Esgoto', unit_measure: 'M³', acronym: 'AE', nome_oficial: 'FORNECIMENTO DE ÁGUA POTÁVEL E COLETA DE ESGOTO', ordem: 20, ativo: true });
+    // planilha fictícia no formato da divisão
+    const P = 21.5, T = 0.02, U = P * 2 * (1 + T), v = m => Math.round(m * U * 100) / 100;
+    const L = c => { const l = Array(21).fill(null); Object.entries(c).forEach(([k, x]) => { l[k.charCodeAt(0) - 65] = x; }); return l; };
+    const cab = L({ B: 'CONSUMIDOR', E: 'CÓDIGO DA OM', F: 'HIDRÔMETRO', I: 'LEITURA ATUAL', K: 'LEITURA ANTERIOR', N: 'CONSUMO (M³)', Q: 'CONSUMO (DIAS)', R: 'CONSUMO TOTAL (M³)', T: 'TOTAL A PAGAR' });
+    const med = 100 + 20 + 350 + 100 + 50 + 40 + 7, conta = 2000 * U, resto = conta - v(med);
+    const linhas = [
+      L({ B: 'PLANILHA DE FATURAMENTO DE ÁGUA DOCE E TRATAMENTO DE ESGOTO' }),
+      L({ B: 'DATA DA LEITURA ANTERIOR 28/08/2026', F: 'DATA DA LEITURA ATUAL 28/09/26', L: 'MEDIÇÃO 09/2026', R: 'VENCIMENTO 23/10/2026' }),
+      L({ B: 'OM', F: 'MATRÍCULAS', I: 'VALOR DO CONSUMO  (R$)', O: 'VOLUME  CONSUMIDO (M³)', R: 'VALOR DO (M³)', U: P }),
+      L({ A: 'BNIC', F: '400000001-0', I: conta, O: 2000 }),
+      L({ A: 'ARES-MAS (FORA DO RATEIO)', F: '400000003-2', I: 900, O: 20 }),
+      L({ R: 'TAXAS (%)', U: T }),
+      L({ B: 'OMs APOIADAS' }), cab,
+      L({ B: 'AMRJ', E: 41000, F: 'Consumidores não hidrometrados', N: 0.38 * (2000 - med), R: 0.38 * (2000 - med), T: 0.38 * resto }),
+      L({ F: 'H-17 (Ed.17)', I: 1100, K: 1000, N: 100, R: 100, T: v(100) }),
+      L({ B: 'BNIC', E: 40015, F: 'Consumidores não hidrometrados', N: 0.62 * (2000 - med), R: 0.62 * (2000 - med), T: 0.62 * resto }),
+      L({ B: 'CPMM', E: 65730, F: 'H-66', I: 320, K: 300, N: 20, R: 20, T: v(20) }),
+      L({ B: 'HCM', E: 65701, F: 'H-67', I: 1500, K: 1000, N: 500, R: 350, T: v(350) }),
+      L({ B: 'PRESÍDIO DA MARINHA', E: 81940, F: 'H-68', I: 200, K: 120, N: 80, R: 100, T: v(100) }),
+      L({ F: 'H-69', I: 70, K: 50, N: 20 }),
+      L({ B: 'BATALHÃO NAVAL', E: 31050, F: 'H-70', I: 150, K: 100, N: 50, R: 50, T: v(50) }),
+      L({ B: 'CAIS DA PORTUGUESA' }), cab,
+      L({ B: 'NDM Bahia', E: '*******', F: 'H-23', I: 140, K: 100, N: 40, Q: 31, R: 40, T: v(40) }),
+      L({ B: 'SEM CONEXÃO', E: '*******', F: 'H-46 (Ed.51)', I: 17, K: 10, N: 7, R: 7, T: v(7) }),
+      L({ A: 'ARES-MAS (FORA DO RATEIO – BATALHÃO NAVAL)' }), cab,
+      L({ B: 'ARES-MAS (BATALHÃO NAVAL)', E: 31050, F: 'MAT. 400000003-2', R: 20, T: 900 }),
+      L({ A: 'Obs.:' }),
+      L({ A: 'Consumo do HCM = H67 (entrada do HCM) – H66 (CPMM) – H68 – H69 (PRESÍDIO) – H70 (BATALHÃO)' }),
+    ];
+    const arq = path.join(os.tmpdir(), `siscont-agua-${Date.now()}.xlsx`);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'SETEMBRO 2026'); XLSX.writeFile(wb, arq);
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Faturamento' }).waitFor();
+    await page.getByRole('button', { name: 'Medições do mês' }).click();
+    await page.getByLabel('Competência das medições').fill('2026-08');
+    await page.getByLabel('Serviço', { exact: true }).selectOption('EL');
+    await page.locator('input[type=file]').setInputFiles(arq);
+    const dlg = page.getByRole('dialog', { name: 'Conferir planilha de água e esgoto' });
+    await dlg.waitFor();
+    ok(await dlg.getByText('Confere', { exact: false }).first().isVisible(), 'totais da planilha conferem com as contas da concessionária');
+    ok(await dlg.getByText(/pela observação \(H67 − H66 − H68 − H69 − H70\)/).isVisible(), 'observação do HCM conferida com as leituras');
+    ok(await dlg.getByText(/H-46 \(Ed\.51\).*ninguém seria cobrado/).isVisible(), 'aponta consumo sem dono ("SEM CONEXÃO")');
+    ok(await dlg.getByText(/ligada pelo nome: Navio de Desembarque Multipropósito Bahia/).isVisible(), 'navio sem código ligado pelo nome');
+    await dlg.getByLabel('OM da linha 20').selectOption(bnic.id);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'agua-conferencia.png'), fullPage: false });
+    await dlg.getByRole('button', { name: 'Lançar nas medições' }).click();
+    await page.getByText(/Planilha de água lida: 7 OM/).waitFor();
+    ok(await page.getByLabel('Competência das medições').inputValue() === '2026-09' && await page.getByLabel('Serviço', { exact: true }).inputValue() === 'AE', 'tela passa para a competência e o serviço da planilha');
+    await page.getByRole('button', { name: /Gravar \(7\)/ }).click();
+    await page.getByText('7 medição(ões) gravada(s).').waitFor();
+    const m = id => db.medicoes.find(x => x.om_id === id && x.competencia === '2026-09' && x.sigla === 'AE');
+    ok(Number(m(hcm.id).quantidade) === 330 && Math.abs(Number(m(hcm.id).valor) - v(330)) < 0.02, 'HCM pela observação: 350 − 20 (CPMM) = 330 m³');
+    ok(Number(m(btl.id).valor) === Math.round((v(50) + 900) * 100) / 100, 'Batalhão Naval: hidrômetro + ARES-MAS (fora do rateio)');
+    ok(Number(m(bahia.id).quantidade) === 40, 'NDM Bahia lançado');
+    const total = db.medicoes.filter(x => x.competencia === '2026-09').reduce((s, x) => s + Number(x.valor), 0);
+    ok(Math.abs(total - (conta + 900)) < 0.05, `total lançado = contas da concessionária (${total.toFixed(2)})`);
+    ok(Math.abs(Number(m(amrj.id).valor) - (0.38 * resto + v(100) + 0.38 * v(20))) < 0.05, 'diferença do HCM volta para AMRJ (38%) e BNIC (62%)');
+    ok(m(cpmm.id) && m(pres.id) && (m(hcm.id).detalhe || []).length === 1, 'detalhe por hidrômetro guardado');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

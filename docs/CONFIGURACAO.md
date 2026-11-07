@@ -129,6 +129,15 @@ Menu **Faturamento**:
 2. **Medições do mês** — por serviço; **Importar rateio da divisão** (formato "DADOS BNIC-41": código, consumo,
    demanda, R$; prédios da mesma OM são somados), conferência com a conta da concessionária, OM sem leitura com
    "estimar" (média das 3 últimas, Anexo J).
+   - **Planilha de água e esgoto da divisão** (aba do mês, seções OM apoiadas / Extra-Marinha / Cais / Diques /
+     ARES-MAS): o mesmo botão reconhece o formato e abre a **conferência** antes de lançar — totais × contas da
+     concessionária (matrículas, R$ e m³), conta "fora do rateio" (ARES-MAS) somada à OM indicada, regras do rodapé
+     (ex.: "Consumo do HCM = H67 – H66 – H68 – H69 – H70") conferidas com as leituras e, se marcado, aplicadas (a
+     diferença volta para os não hidrometrados AMRJ/BNIC na mesma proporção; o total continua igual à conta), pontos
+     de atenção (consumo digitado sem leitura, valor "SEM CONEXÃO" sem dono, código fora do padrão, mesmo código
+     para clientes diferentes) e a OM do cadastro de cada linha (pelo código com zeros à esquerda, pelo nome ou nome
+     alternativo; navio sem código pelo nome). Ligações feitas à mão podem ficar guardadas como nome alternativo.
+     Ao lançar, a tela vai para a competência da planilha e o serviço AE; confira e clique em **Gravar**.
 3. **Atracação (BNIC-35)** — grade dia a dia (A atracado, D docado: não paga) ou **Importar mapas (G1…G6)**;
    "Previsão" para o lote OND (OUT–DEZ).
 4. **Lote de faturas** — Mensal, **Estimado OND** (3 × média JAN–AGO ÷ 8; TC = 3 × tabela; DA = diária × dias

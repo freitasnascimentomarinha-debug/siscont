@@ -4,6 +4,9 @@ import * as XLSX from 'xlsx';
 import { ContextoFaturamento, listarMedicoes, salvarMedicoes } from '../../services/faturamentoService';
 import { MedicaoFat, pad, partes, referencia } from '../../utils/faturamento';
 import { agruparRateio, lerRateio } from '../../utils/importMedicoes';
+import { AvisoAgua, PlanilhaAgua, RegraObservacao, avisosAgua, conferirObservacoes, ehPlanilhaAgua, lerPlanilhaAgua } from '../../utils/importAgua';
+import { cadastroService } from '../../services/cadastroService';
+import { ImportarAguaModal, ResultadoAgua } from './ImportarAguaModal';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { BaixarModelo } from '../ui/BaixarModelo';
@@ -35,6 +38,9 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   const [contaConcess, setContaConcess] = useState('');
   const [relImport, setRelImport] = useState<string[]>([]);
   const ref = useRef<HTMLInputElement>(null);
+  const [agua, setAgua] = useState<{ planilha: PlanilhaAgua; regras: RegraObservacao[]; avisos: AvisoAgua[]; arquivo: string } | null>(null);
+  // lançamento da planilha de água que espera a troca de competência/serviço terminar de carregar
+  const pendente = useRef<{ linhas: Record<string, Linha>; rel: string[]; conta: string } | null>(null);
 
   const carregar = async () => {
     setCarregando(true);
@@ -45,7 +51,9 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         doMes[m.omId] = { quantidade: txt(m.quantidade), quantidade2: txt(m.quantidade2), valor: txt(m.valor), estimada: !!m.estimada, detalhe: m.detalhe, origem: m.origem };
       });
       // preserva o que foi digitado durante a carga
-      setLinhas(prev => ({ ...doMes, ...prev })); setSalvo(doMes); setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport([]);
+      const p = pendente.current; pendente.current = null;
+      setLinhas(prev => ({ ...doMes, ...prev, ...(p?.linhas || {}) })); setSalvo(doMes); setHistorico(todas.filter(m => m.sigla === sigla && m.competencia !== comp)); setRelImport(p?.rel || []);
+      if (p) setContaConcess(p.conta);
     } catch (e) { notify.fail('Erro ao carregar medições', e); } finally { setCarregando(false); }
   };
   useEffect(() => { setLinhas({}); setSalvo({}); carregar(); }, [comp, sigla]);
@@ -73,6 +81,15 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     if (!files?.length) return;
     try {
       const wb = XLSX.read(new Uint8Array(await lerArquivo(files[0])), { dense: true, cellFormula: false, cellStyles: false });
+      // planilha de água e esgoto da divisão (seções por cais, hidrômetros, observações): conferência própria
+      for (const n of wb.SheetNames) {
+        const mat = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any;
+        if (!ehPlanilhaAgua(mat)) continue;
+        const planilha = lerPlanilhaAgua(mat);
+        if (!planilha.linhas.length) throw new Error(`A aba ${n} parece a planilha de água, mas não achei consumidores.`);
+        setAgua({ planilha, regras: conferirObservacoes(mat, planilha), avisos: avisosAgua(planilha), arquivo: `${files[0].name} (aba ${n})` });
+        return;
+      }
       const aba = wb.SheetNames.find(n => /bnic-?41|dados/i.test(n)) ?? wb.SheetNames.find(n => lerRateio(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any).length) ?? wb.SheetNames[0];
       const grupos = agruparRateio(lerRateio(XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any));
       if (!grupos.length) throw new Error('Não achei as colunas CÓDIGO e CONSUMO/VALOR TOTAL na planilha.');
@@ -91,6 +108,34 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
       setLinhas(novas); setRelImport(rel);
       notify.success('Rateio lido. Confira e clique em Gravar.');
     } catch (e) { notify.fail('Erro ao ler o rateio', e); } finally { if (ref.current) ref.current.value = ''; }
+  };
+
+  const lancarAgua = async (r: ResultadoAgua) => {
+    setAgua(null);
+    const novas: Record<string, Linha> = {};
+    r.grupos.forEach(g => {
+      novas[g.omId] = {
+        quantidade: txt(g.consumo), quantidade2: '', valor: txt(g.valor), estimada: false, origem: `Planilha de água ${r.competencia || ''}`.trim(),
+        detalhe: g.linhas.map(l => ({ sigla: [l.consumidor, l.hidrometro].filter(Boolean).join(' · '), dias: l.dias, consumo: l.consumo, demanda: null, valor: l.valor, linha: l.linha, secao: l.secao, atual: l.atual, anterior: l.anterior })),
+      };
+    });
+    const conta = txt(r.conta);
+    const siglaAgua = medidos.find(s => s.sigla === 'AE')?.sigla ?? sigla;
+    const novaComp = r.competencia || comp;
+    if (novaComp !== comp || siglaAgua !== sigla) {
+      pendente.current = { linhas: novas, rel: r.relatorio, conta };
+      setComp(novaComp); setSigla(siglaAgua);
+    } else {
+      setLinhas(p => ({ ...p, ...novas })); setRelImport(r.relatorio); setContaConcess(conta);
+    }
+    // nomes ligados à mão viram nome alternativo da OM (a próxima planilha liga sozinha)
+    let lembrados = 0;
+    for (const { omId, nome } of r.lembrar) {
+      const o = ctx.oms.find(x => x.id === omId);
+      if (!o || (o.nomesAlternativos || []).some(n => n.trim().toLowerCase() === nome.trim().toLowerCase())) continue;
+      try { await cadastroService.saveOM({ ...o, nomesAlternativos: [...(o.nomesAlternativos || []), nome] }); o.nomesAlternativos = [...(o.nomesAlternativos || []), nome]; lembrados++; } catch { /* sem permissão: segue sem lembrar */ }
+    }
+    notify.success(`Planilha de água lida: ${r.grupos.length} OM. Confira e clique em Gravar.${lembrados ? ` ${lembrados} nome(s) guardado(s) no cadastro.` : ''}`);
   };
 
   const gravar = async () => {
@@ -129,7 +174,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>
-      {(() => { const sv = medidos.find(s => s.sigla === sigla); return <p className="text-xs text-slate-500">Responsável pelos dados de <b>{sv?.nome || sigla}</b>: {sv?.responsavel ? <b>{sv.responsavel}</b> : <span className="text-amber-700">não informado</span>}{sv?.telefone ? ` · ${sv.telefone}` : ''} — altere em Cadastros › Serviços. Baixe a planilha modelo, envie à divisão e importe a devolvida.</p>; })()}
+      {(() => { const sv = medidos.find(s => s.sigla === sigla); return <p className="text-xs text-slate-500">Responsável pelos dados de <b>{sv?.nome || sigla}</b>: {sv?.responsavel ? <b>{sv.responsavel}</b> : <span className="text-amber-700">não informado</span>}{sv?.telefone ? ` · ${sv.telefone}` : ''} — altere em Cadastros › Serviços. Baixe a planilha modelo, envie à divisão e importe a devolvida. A planilha de água e esgoto da divisão (seções por cais, hidrômetros e observações) também pode ser importada direto: o sistema confere com a conta da concessionária antes de lançar.</p>; })()}
 
       <div className="grid md:grid-cols-3 gap-3">
         <Aviso tom="slate">Soma do rateio em {referencia(comp)}: <b>{brl(soma)}</b> · {Object.keys(linhas).filter(lancada).length} OM lançadas.</Aviso>
@@ -139,6 +184,8 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         </div>
         {semLeitura.length > 0 && <Aviso>{semLeitura.length} OM com leitura nos meses anteriores e sem leitura agora. Use "estimar" (média das 3 últimas, Anexo J 1.2/1.4) ou confirme com a divisão.</Aviso>}
       </div>
+      <ImportarAguaModal planilha={agua?.planilha ?? null} regras={agua?.regras ?? []} avisos={agua?.avisos ?? []} arquivo={agua?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp}
+        onFechar={() => setAgua(null)} onLancar={lancarAgua} />
       {relImport.length > 0 && <Aviso tom="slate"><ul className="list-disc pl-5 text-xs">{relImport.map(r => <li key={r}>{r}</li>)}</ul></Aviso>}
 
       <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
