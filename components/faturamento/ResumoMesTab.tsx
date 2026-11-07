@@ -32,6 +32,7 @@ export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; se
         medicoes: med.map(m => ({ sigla: m.sigla, omId: m.omId })),
         atracacoesRealizadas: atr.filter(a => !a.previsao && (a.diasAtracado ?? 0) > 0).map(a => ({ omId: a.omId })),
         precos: precos.map(p => ({ sigla: p.sigla, omId: p.omId })), nomeOM: id => nomes.get(id) || 'OM',
+        responsavel: sigla => ctx.servicos.find(x => x.sigla === sigla)?.responsavel ?? null,
         lotes: lotes.map(l => ({ competencia: l.competencia, tipo: l.tipo, qtd: l.qtd })),
         faturasDaCompetencia: ctx.invoices.filter(i => !i.isCanceled && i.yearCompetence === ano && i.monthCompetence === mes).length,
       }));

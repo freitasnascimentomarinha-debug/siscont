@@ -16,13 +16,13 @@ import { Button } from '../components/ui/Button';
 
 type Aba = AbaFaturamento;
 // na ordem do trabalho: ver o que falta → preços → medições → atracação → lote → correção
-const ABAS: { id: Aba; label: string }[] = [
+const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; label: string }[] => [
   { id: 'resumo', label: 'Resumo do mês' },
   { id: 'precos', label: 'Preços do ano' },
   { id: 'medicoes', label: 'Medições do mês' },
-  { id: 'atracacao', label: 'Atracação (BNIC-35)' },
+  { id: 'atracacao', label: 'Atracação' },
   { id: 'lote', label: 'Lote de faturas' },
-  { id: 'correcao', label: 'Correção por atraso (OI 6.2)' },
+  { id: 'correcao', label: `Correção por atraso (${n.nome}, item ${n.itemCorrecao})` },
 ];
 
 export const Faturamento: React.FC = () => {
@@ -71,15 +71,15 @@ export const Faturamento: React.FC = () => {
       {ctx && !naoInstalado && (
         <>
           <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto">
-            {ABAS.map(a => (
+            {rotulosAbas(ctx.normas).map(a => (
               <button key={a.id} onClick={() => irPara(a.id)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === a.id ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{a.label}</button>
             ))}
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 space-y-6">
             {abertas.has('resumo') && <div role="tabpanel" hidden={aba !== 'resumo'}><ResumoMesTab ctx={ctx} comp={comp} setComp={setComp} ativa={aba === 'resumo'} irPara={irPara} /></div>}
             {abertas.has('precos') && <div role="tabpanel" hidden={aba !== 'precos'}><PrecosTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
-            {abertas.has('medicoes') && <div role="tabpanel" hidden={aba !== 'medicoes'}><MedicoesTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
-            {abertas.has('atracacao') && <div role="tabpanel" hidden={aba !== 'atracacao'}><AtracacaoTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} /></div>}
+            {abertas.has('medicoes') && <div role="tabpanel" hidden={aba !== 'medicoes'}><MedicoesTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} recarregarCtx={carregar} /></div>}
+            {abertas.has('atracacao') && <div role="tabpanel" hidden={aba !== 'atracacao'}><AtracacaoTab ctx={ctx} podeEditar={podeEditar} comp={comp} setComp={setComp} recarregarCtx={carregar} /></div>}
             {abertas.has('lote') && <div role="tabpanel" hidden={aba !== 'lote'} className="space-y-6">
               <LoteTab ctx={ctx} usuario={user?.name || user?.email || ''} podeEditar={podeEditar} onEmitido={carregar} comp={comp} setComp={setComp} />
               <LotesEmitidos ctx={ctx} podeEditar={podeEditar} versao={versao} recarregar={carregar} />

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { PARAM_NORMAS, normasDe } from '../../utils/normas';
 import { Edit, Plus, Save, Trash2 } from 'lucide-react';
 import { Feriado, OM, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
 import { PARAM_EMISSORA, PARAM_EMISSORA_RATEIO, resolverEmissora } from '../../utils/emissora';
@@ -38,7 +39,7 @@ export const ServicosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center gap-2">
-        <p className="text-xs text-slate-500">Textos usados na fatura (modelo FR-172, Anexos A–I da OI 40-04) e prazos de envio dos dados pelas divisões.</p>
+        <p className="text-xs text-slate-500">Textos usados na fatura (modelo FR-172, anexos da norma vigente), setor responsável e prazos de envio dos dados de cada serviço.</p>
         {podeEditar && <Button size="sm" onClick={() => { setErro(null); setForm({ ativo: true, ordem: 200 }); }}><Plus size={14} className="mr-1" /> Novo serviço</Button>}
       </div>
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
@@ -86,6 +87,40 @@ export const ServicosTab: React.FC<Props> = ({ dados, podeEditar, recarregar }) 
           </div>
         )}
       </Modal>
+    </div>
+  );
+};
+
+// --------------------------------------------------- Norma (OI) citada nos textos do faturamento
+const NormaCard: React.FC<{ params: Parametro[]; podeEditar: boolean; gravado: () => void }> = ({ params, podeEditar, gravado }) => {
+  const atual = normasDe(params);
+  const [n, setN] = useState(atual);
+  const [salvando, setSalvando] = useState(false);
+  // só recarrega o que veio do banco enquanto o usuário não digitou (senão a digitação se perderia)
+  const [digitou, setDigitou] = useState(false);
+  useEffect(() => { if (!digitou) setN(normasDe(params)); }, [params, digitou]);
+  const edita = (p: Partial<typeof n>) => { setDigitou(true); setN(x => ({ ...x, ...p })); };
+  const mudou = n.nome !== atual.nome || n.itemPrazo !== atual.itemPrazo || n.itemCorrecao !== atual.itemCorrecao;
+  const gravar = async () => {
+    if (!n.nome.trim()) return notify.error('Informe o nome da norma.');
+    setSalvando(true);
+    try {
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.nome, valor: n.nome.trim(), descricao: 'Norma (OI) citada nos textos do faturamento' });
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.itemPrazo, valor: n.itemPrazo.trim(), descricao: 'Item da norma sobre o prazo de certificação' });
+      await cadastroService.saveParametro({ chave: PARAM_NORMAS.itemCorrecao, valor: n.itemCorrecao.trim(), descricao: 'Item da norma sobre a correção por atraso' });
+      notify.success('Norma gravada.'); setDigitou(false); gravado();
+    } catch (e) { notify.fail('Erro ao gravar a norma', e); } finally { setSalvando(false); }
+  };
+  return (
+    <div className="p-4 rounded-lg border border-slate-200 bg-white">
+      <h4 className="text-sm font-semibold text-slate-800 mb-1">Norma citada nas faturas e no faturamento</h4>
+      <p className="text-xs text-slate-500 mb-3">A norma (OI) e seus itens mudam; aqui você atualiza o nome e os itens citados nos textos das faturas, no PDF e nas telas. O setor responsável de cada lançamento é cadastrado em <b>Serviços</b> (ou direto na aba de medições e de atracação).</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <Input label="Norma (nome)" value={n.nome} onChange={e => edita({ nome: e.target.value })} disabled={!podeEditar} placeholder="OI 40-04" />
+        <Input label="Item do prazo de certificação" value={n.itemPrazo} onChange={e => edita({ itemPrazo: e.target.value })} disabled={!podeEditar} placeholder="6.1" />
+        <Input label="Item da correção por atraso" value={n.itemCorrecao} onChange={e => edita({ itemCorrecao: e.target.value })} disabled={!podeEditar} placeholder="6.2" />
+      </div>
+      {podeEditar && <div className="mt-3 flex justify-end"><Button size="sm" onClick={gravar} isLoading={salvando} disabled={!mudou}>Gravar norma</Button></div>}
     </div>
   );
 };
@@ -143,7 +178,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ p
           {podeEditar && <Button size="sm" onClick={salvarParams} isLoading={salvando} disabled={Object.keys(editados).length === 0}><Save size={14} className="mr-1" /> Salvar alterações</Button>}
         </div>
         <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO).map(p => (
+          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO && !Object.values(PARAM_NORMAS).includes(p.chave as any)).map(p => (
             <div key={p.chave} className="p-3 grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
               <div className="md:col-span-2"><div className="text-sm font-medium text-slate-800">{p.descricao || p.chave}</div><div className="text-[11px] font-mono text-slate-400">{p.chave}</div></div>
               <input
@@ -159,6 +194,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ p
         </div>
 
         <EmissoraCard oms={oms} params={params} podeEditar={podeEditar} gravado={carregar} />
+        <NormaCard params={params} podeEditar={podeEditar} gravado={carregar} />
 
         <div className="p-4 rounded-lg border border-sky-200 bg-sky-50/60">
           <h4 className="text-sm font-semibold text-sky-900 mb-2">Certificação e vencimento da fatura</h4>

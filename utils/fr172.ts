@@ -4,6 +4,7 @@
  * contato da divisão, "Baixa na ALTCRED", "cancela e substitui", instruções de pagamento e responsável.
  * Textos institucionais vêm dos Parâmetros e do catálogo de Serviços (editáveis em Cadastros).
  */
+import { citarCorrecao, obterNormas } from './normas';
 import jsPDF from 'jspdf';
 import { mesesDoAno } from './faturamento';
 
@@ -28,7 +29,7 @@ export function detalhamento(d: DadosFr172): [string, string][] {
   if (d.acertoDe && b.tipo === 'CORRECAO') return [
     ['FATURA PAGA COM ATRASO', d.acertoDe], ['VENCIMENTO DA FATURA', String(b.dataLimite || '').split('-').reverse().join('/')],
     ...((b.pagamentos || []) as any[]).map(p => [`PAGO EM ${String(p.data).split('-').reverse().join('/')} (${p.dias} dias): ${brl(p.valor)}`, `+ ${brl(p.correcao)}`] as [string, string]),
-    ['CORREÇÃO (POUPANÇA, OI 6.2)', brl(d.acrescimo)],
+    [`CORREÇÃO (POUPANÇA, ${obterNormas().nome}, ${obterNormas().itemCorrecao})`, brl(d.acrescimo)],
   ];
   if (d.acertoDe) return [['FATURA ESTIMADA (OND)', d.acertoDe], ['VALOR ESTIMADO', brl(Number(b.estimado) || 0)], ['VALOR REAL (OUT–DEZ)', brl(Number(b.real) || 0)]];
   if (d.estimado) {
@@ -93,7 +94,7 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   }
   d.altcreds.forEach(a => linha(`Baixa na ALTCRED ${a}.`, 8, true));
   if (d.acertoDe) linha((d.base as any)?.tipo === 'CORRECAO'
-    ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (OI 40-04, item 6.2).`
+    ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`
     : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}.`, 8, true);
   if (d.substitui) linha(`Esta fatura cancela e substitui a de nº ${d.substitui}.`, 8, true);
   y += 3;

@@ -11,6 +11,7 @@ import {
   AtracacaoFat, DadosLote, DocAdiantDisp, FaturaHist, ItemLote, MedicaoFat, OMFat, PrecoFat, ServicoFat, TipoLote, partes, pad,
 } from '../utils/faturamento';
 import { lerFatura } from '../utils/cadastroImport';
+import { Normas, citarCorrecao, definirNormas, normasDe } from '../utils/normas';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 export class Fase3NaoInstaladaError extends Error {
@@ -78,7 +79,7 @@ export async function excluirMedicao(competencia: string, sigla: string, omId: s
   checar(error);
 }
 
-// ------------------------------------------------------------------ atracação (BNIC-35)
+// ------------------------------------------------------------------ atracação (mapa de atracação)
 export async function listarAtracacoes(competencias: string[]): Promise<(AtracacaoFat & { id: string; dias: string[]; gerencia?: string | null })[]> {
   const rows = await tudo('atracacoes', q => q.in('competencia', competencias));
   return rows.map(r => ({ id: r.id, competencia: r.competencia, omId: r.om_id, previsao: r.previsao, dias: r.dias || [], diasAtracado: r.dias_atracado, diasDocado: r.dias_docado, gerencia: r.gerencia }));
@@ -100,6 +101,8 @@ export interface ContextoFaturamento {
   invoices: Invoice[]; feriados: string[]; prazo: number; prazoVencimento: number; diaEmissao: number;
   /** OM emissora (BNIC): entra nos rateios só para controle, nunca recebe fatura. */
   emissora: Emissora;
+  /** norma (OI) citada nos textos; vem dos parâmetros */
+  normas: Normas;
 }
 
 export async function carregarContexto(): Promise<ContextoFaturamento> {
@@ -120,10 +123,12 @@ export async function carregarContexto(): Promise<ContextoFaturamento> {
     };
   });
   const param = (k: string, d: number) => Number(parametros.find(p => p.chave === k)?.valor) || d;
+  const normas = normasDe(parametros);
+  definirNormas(normas);
   return {
     oms, omsFat, comandos, setores, invoices,
     servicos: servicos.filter(s => s.ativo !== false).map(s => ({ sigla: s.acronym.toUpperCase(), nome: s.name, unidade: s.unitMeasure || '', ordem: s.ordem ?? 999, responsavel: s.setorResponsavel ?? null, telefone: s.telefoneSetor ?? null })),
-    emissora: resolverEmissora(oms, parametros),
+    emissora: resolverEmissora(oms, parametros), normas,
     feriados: feriados.map(f => f.data), prazo: param('prazo_certificacao_dias_uteis', 10), prazoVencimento: param('prazo_vencimento_dias_corridos', 30), diaEmissao: param('dia_emissao', 15),
   };
 }
@@ -192,7 +197,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
     const mes = lido.competencia % 100, ano = Math.floor(lido.competencia / 100);
     const obs = [
       ...(i.adiantamentos || []).map(a => `Baixa na ALTCRED ${a.numero}.`),
-      i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (OI 40-04, item 6.2).` : `Acerto da fatura ${i.acertoDe} (estimado OND).`) : '',
+      i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (${citarCorrecao()}).` : `Acerto da fatura ${i.acertoDe} (estimado OND).`) : '',
       i.estimado ? 'Faturamento estimado de fim de exercício (OND): será acertado com o consumo real.' : '',
     ].filter(Boolean).join(' ');
     return {

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { citarCorrecao } from '../utils/normas';
 import { supabase } from './supabase';
 import { db } from './db';
 import { Invoice, PaymentAllocation, ReceivedDocument } from '../types';
@@ -173,7 +174,7 @@ export async function emitirCorrecoes(cands: CandidatoCorrecao[], ctx: ContextoF
       chave: f.id, omId: om.id, om, sigla, servico: f.type, unidade: '-', quantidade: null, quantidade2: null,
       valor: 0, acrescimo: c.correcao.total, debito: 0, acertoDe: f.invoiceNumber, avisos: [],
       base: {
-        tipo: 'CORRECAO', regra: 'Correção por pagamento com atraso (OI 40-04, 6.2): taxa diária equivalente à poupança',
+        tipo: 'CORRECAO', regra: `Correção por pagamento com atraso (${citarCorrecao()}): taxa diária equivalente à poupança`,
         faturaCorrigida: f.invoiceNumber, dataLimite: f.dueDate, diasMax: c.correcao.diasMax,
         pagamentos: c.correcao.pagamentos.map(p => ({ data: p.data, valor: p.valor, dias: p.dias, correcao: p.correcao })),
       },

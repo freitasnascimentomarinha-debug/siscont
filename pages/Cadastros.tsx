@@ -42,7 +42,7 @@ export const Cadastros: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Cadastros</h2>
           <p className="text-slate-500 text-sm">
-            Setor → Comando → OM, classes de navio, serviços da OI 40-04, parâmetros e feriados.
+            Setor → Comando → OM, classes de navio, serviços, parâmetros e feriados.
             {!carregando && !naoInstalado && <> {ativas} OM ativas de {dados.oms.length} · {dados.comandos.length} comandos · {dados.classes.length} classes.</>}
           </p>
         </div>

@@ -425,16 +425,16 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
       const lidos = [...new Set(h.map(x => x.ano))].sort();
       notify.success(`Histórico lido: anos ${lidos.join(', ')}; ${n} classe(s)/ano ligadas${sem.length ? `; ${sem.length} sem classe no cadastro` : ''}. Confira e grave.`);
       const faltam = anos.filter(a => !lidos.includes(a));
-      if (faltam.length) notify.error(`O arquivo não tem aba para ${faltam.join(', ')}. Informe esses anos à mão ou puxe do BNIC-35.`);
+      if (faltam.length) notify.error(`O arquivo não tem aba para ${faltam.join(', ')}. Informe esses anos à mão ou calcule pelos mapas de atracação.`);
     } catch (e) { notify.fail('Erro ao ler o histórico', e); }
     if (ref.current) ref.current.value = '';
   };
   const puxarBnic = async () => {
     try {
       const m = await diasDoBnic35(anoBnic, dados.oms);
-      if (!m.size) { notify.error(`Não há mapa de atracação (BNIC-35) realizado gravado em ${anoBnic}.`); return; }
+      if (!m.size) { notify.error(`Não há mapa de atracação realizado gravado em ${anoBnic}.`); return; }
       dados.classes.forEach(c => set(anoBnic, c.id, { dias: String(m.get(c.id) || 0), navios: String(navAtivos(c.id, anoBnic)) }));
-      notify.success(`Dias de ${anoBnic} calculados pelos mapas BNIC-35 (${m.size} classe(s) com atracação). Confira e grave.`);
+      notify.success(`Dias de ${anoBnic} calculados pelos mapas de atracação (${m.size} classe(s) com atracação). Confira e grave.`);
     } catch (e) { notify.fail('Erro ao ler os mapas', e); }
   };
   const gravar = async () => {
@@ -456,7 +456,7 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
         <Campo rotulo="Ano">
           <select className={entrada} value={anoBnic} onChange={e => setAnoBnic(Number(e.target.value))} aria-label="Ano a calcular pelos mapas">{anos.map(a => <option key={a}>{a}</option>)}</select>
         </Campo>
-        <Button variant="secondary" onClick={puxarBnic}>Calcular pelos mapas BNIC-35</Button>
+        <Button variant="secondary" onClick={puxarBnic}>Calcular pelos mapas de atracação</Button>
         <Button onClick={gravar} isLoading={gravando} disabled={!alterados.size}><Save size={16} className="mr-1" />Gravar ({alterados.size})</Button>
       </div>}
       {pend.length > 0 && <Aviso>

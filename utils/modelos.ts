@@ -51,13 +51,13 @@ export function modeloHistorico(exercicio: number, classes: string[] = []): Mode
     arquivo: `MODELO_historico_trienal_${exercicio}.xlsx`, titulo: `Histórico trienal de atracação (${anos[0]}–${anos[2]})`,
     instrucoes: [
       'Uma aba por ano (o nome da aba começa pelo ano).', 'CLASSE NAVIO só na primeira linha de cada classe; uma linha por navio com os dias atracados ("A") em cada mês.',
-      'Dias docados ("D") não contam.', 'Alternativa: a média trienal também pode ser calculada pelos mapas BNIC-35 gravados no Faturamento.',
+      'Dias docados ("D") não contam.', 'Alternativa: a média trienal também pode ser calculada pelos mapas de atracação gravados no Faturamento.',
     ],
     abas: anos.map(a => ({ nome: String(a), larguras: [40, 30, ...MESES.map(() => 6), 8], linhas: [[`NÚMERO DE DIAS DOS NAVIOS ATRACADOS — ${a}`], cab, ...linhasClasses] })),
   };
 }
 
-/** Rateio da divisão responsável (BNIC-41): já vem com as OM a medir; a divisão preenche consumo/valor. */
+/** Rateio da divisão responsável pelos dados: já vem com as OM a medir; a divisão preenche consumo/valor. */
 export function modeloRateio(sigla: string, competencia: string, oms: { codigo: string; nome: string; sigla?: string | null }[], responsavel?: string | null): Modelo {
   const [y, m] = [Number(competencia.slice(0, 4)), Number(competencia.slice(5, 7))];
   return {
@@ -75,7 +75,7 @@ export function modeloRateio(sigla: string, competencia: string, oms: { codigo: 
   };
 }
 
-/** Mapa de atracação (BNIC-35) do mês, com os navios: "A" atracado, "D" docado. */
+/** Mapa de atracação do mês, com os navios: "A" atracado, "D" docado. */
 export function modeloMapaAtracacao(competencia: string, navios: string[], gerencia = 'G1'): Modelo {
   const [y, m] = [Number(competencia.slice(0, 4)), Number(competencia.slice(5, 7))];
   const n = diasNoMes(competencia);

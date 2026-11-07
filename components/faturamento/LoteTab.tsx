@@ -58,7 +58,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       if (tipo !== 'ACERTO') {
         const [med, atr] = await Promise.all([listarMedicoes([compLote]), listarAtracacoes([compLote])]);
         MEDIDOS.filter(s => siglas.has(s)).forEach(s => { if (!med.some(m => m.sigla === s)) p.push(`Nenhuma medição de ${s} lançada para ${referencia(compLote)}.`); });
-        if (siglas.has('DA') && tipo === 'MENSAL' && !atr.some(a => !a.previsao)) p.push(`Mapa de atracação (BNIC-35) de ${referencia(compLote)} não lançado.`);
+        if (siglas.has('DA') && tipo === 'MENSAL' && !atr.some(a => !a.previsao)) p.push(`Mapa de atracação de ${referencia(compLote)} não lançado${ctx.servicos.find(x => x.sigla === 'DA')?.responsavel ? ` (responsável: ${ctx.servicos.find(x => x.sigla === 'DA')!.responsavel})` : ''}.`);
         if (tipo === 'OND' && siglas.has('DA') && !atr.some(a => a.previsao)) {
           const prev = await listarAtracacoes([10, 11, 12].map(m => `${compLote.slice(0, 4)}-${pad(m)}`));
           if (!prev.some(a => a.previsao)) p.push('Previsão de atracação de OUT–DEZ não lançada: o OND sairá sem diárias.');

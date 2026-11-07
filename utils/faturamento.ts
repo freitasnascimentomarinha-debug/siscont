@@ -124,7 +124,7 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
     const avisos = p ? [] : [`Sem diária de atracação ${ano} cadastrada para ${om.nome}.`];
     itens.push(item(om, 'DA', {
       quantidade: a.diasAtracado, unidade: 'DIA', valor: (p?.valor ?? 0) * a.diasAtracado, avisos,
-      base: { regra: 'Diária × dias atracado (BNIC-35); dias docado não pagam', diaria: p?.valor ?? null, diasAtracado: a.diasAtracado, diasDocado: a.diasDocado },
+      base: { regra: 'Diária × dias atracado (mapa de atracação); dias docado não pagam', diaria: p?.valor ?? null, diasAtracado: a.diasAtracado, diasDocado: a.diasDocado },
     }));
   });
 

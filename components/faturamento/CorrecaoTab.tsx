@@ -9,7 +9,7 @@ import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { Aviso, Campo, br, brl, compAtual, entrada } from './comum';
 
-/** OI 40-04, 6.2: fatura da diferença entre o valor pago com atraso e o valor corrigido (taxa diária da poupança). */
+/** Norma configurável (item de correção): fatura da diferença entre o valor pago com atraso e o valor corrigido (taxa diária da poupança). */
 export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; usuario: string; onEmitido: () => Promise<void> }> = ({ ctx, podeEditar, usuario, onEmitido }) => {
   const [taxas, setTaxas] = useState<Record<string, string>>({});
   const [salvas, setSalvas] = useState<Record<string, string>>({});
@@ -69,7 +69,7 @@ export const CorrecaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   return (
     <div className="space-y-5">
       <Aviso tom="slate">
-        <b>OI 40-04, 6.1 e 6.2:</b> nos 10 dias úteis após a apresentação da fatura é proibido corrigir o valor; paga depois da data-limite, a BNIC pode
+        <b>{ctx.normas.nome}, itens {ctx.normas.itemPrazo} e {ctx.normas.itemCorrecao}:</b> nos 10 dias úteis após a apresentação da fatura é proibido corrigir o valor; paga depois da data-limite, a BNIC pode
         emitir nova fatura com a diferença até a data do pagamento, pela <b>taxa diária equivalente à taxa mensal da poupança</b> (rendimento do 1º dia de
         cada mês). Cálculo: cada pagamento feito após a data-limite × [∏ (1 + taxa do mês)^(1/{base}) − 1], dia a dia.
       </Aviso>

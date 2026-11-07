@@ -32,6 +32,17 @@ describe('quadro de pendências do mês', () => {
   });
 });
 
+describe('resumo: setor responsável por serviço (cadastrado, não fixo no código)', () => {
+  it('mostra o responsável cadastrado; sem cadastro avisa; o rótulo do mapa não cita setor', () => {
+    const resp = (s: string) => ({ EL: 'Divisão de Eletricidade', DA: 'Gerência Portuária' } as Record<string, string>)[s] ?? null;
+    const r = resumoDoMes({ ...base, responsavel: resp });
+    expect(r.find(i => i.id === 'medicao-EL')!.detalhe).toContain('Responsável: Divisão de Eletricidade.');
+    expect(r.find(i => i.id === 'medicao-AE')!.detalhe).toContain('Responsável não cadastrado.');
+    expect(r.find(i => i.id === 'atracacao')!.detalhe).toContain('Responsável: Gerência Portuária.');
+    expect(r.find(i => i.id === 'atracacao')!.rotulo).not.toMatch(/BNIC/i);
+  });
+});
+
 describe('lotes emitidos: filtros', () => {
   const l = (competencia: string, tipo: string) => ({ id: competencia + tipo, competencia, tipo, qtd: 1, total: 1 });
   const lotes = [l('2025-10', 'MENSAL'), l('2026-09', 'MENSAL'), l('2026-10', 'OND'), l('2026-03', 'CORRECAO')];

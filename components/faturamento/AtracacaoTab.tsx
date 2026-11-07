@@ -9,11 +9,12 @@ import { acharNavio, lerMapaAtracacao } from '../../utils/importMedicoes';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { Aviso, Campo, entrada, lerArquivo } from './comum';
+import { ResponsavelServico } from './ResponsavelServico';
 
 const CICLO: Record<string, string> = { '': 'A', A: 'D', D: '' };
 const COR: Record<string, string> = { A: 'bg-emerald-500 text-white', D: 'bg-amber-400 text-slate-900', '': 'bg-white text-slate-300' };
 
-export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {
+export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void; recarregarCtx: () => Promise<void> | void }> = ({ ctx, podeEditar, comp, setComp, recarregarCtx }) => {
   const [previsao, setPrevisao] = useState(false);
   const [grade, setGrade] = useState<Record<string, string[]>>({});
   const [salvo, setSalvo] = useState<Record<string, string[]>>({});
@@ -91,11 +92,12 @@ export const AtracacaoTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: bool
 
   return (
     <div className="space-y-4">
+      <ResponsavelServico ctx={ctx} sigla="DA" podeEditar={podeEditar} onSalvo={recarregarCtx} />
       <div className="flex flex-wrap gap-3 items-end">
         <Campo rotulo="Competência"><input className={entrada} type="month" value={comp} onChange={e => setComp(e.target.value)} aria-label="Competência do mapa" /></Campo>
         <Campo rotulo="Mapa">
           <select className={entrada} value={previsao ? 'P' : 'R'} onChange={e => setPrevisao(e.target.value === 'P')} aria-label="Tipo de mapa">
-            <option value="R">Realizado (BNIC-35)</option><option value="P">Previsão (lote OND: OUT–DEZ)</option>
+            <option value="R">Realizado (mapa do mês)</option><option value="P">Previsão (lote OND: OUT–DEZ)</option>
           </select>
         </Campo>
         <Campo rotulo="Buscar navio"><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>

@@ -11,6 +11,7 @@ import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloRateio } from '../../utils/modelos';
+import { ResponsavelServico } from './ResponsavelServico';
 import { Aviso, Campo, brl, compAtual, entrada, lerArquivo } from './comum';
 
 type Linha = { quantidade: string; quantidade2: string; valor: string; estimada: boolean; detalhe?: any[]; origem?: string | null };
@@ -24,7 +25,7 @@ const anteriores = (comp: string, n: number) => {
   return Array.from({ length: n }, (_, i) => { const d = new Date(Date.UTC(ano, mes - 2 - i, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; });
 };
 
-export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {
+export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void; recarregarCtx: () => Promise<void> | void }> = ({ ctx, podeEditar, comp, setComp, recarregarCtx }) => {
   const medidos = ctx.servicos.filter(s => !['TC', 'DA'].includes(s.sigla));
   const [sigla, setSigla] = useState(medidos.find(s => s.sigla === 'EL')?.sigla || medidos[0]?.sigla || 'EL');
   const [linhas, setLinhas] = useState<Record<string, Linha>>({});
@@ -152,6 +153,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   const conta = nOuNull(contaConcess);
   return (
     <div className="space-y-4">
+      <ResponsavelServico ctx={ctx} sigla={sigla} podeEditar={podeEditar} onSalvo={recarregarCtx} />
       <div className="flex flex-wrap gap-3 items-end">
         <Campo rotulo="Competência"><input className={entrada} type="month" value={comp} onChange={e => setComp(e.target.value)} aria-label="Competência das medições" /></Campo>
         <Campo rotulo="Serviço">

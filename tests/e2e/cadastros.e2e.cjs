@@ -538,13 +538,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('2 medição(ões) gravada(s).').waitFor();
     ok(db.medicoes.length === 2 && Number(db.medicoes.find(m => m.om_id === dim.id).valor) === 10134.19, 'rateio importado: 2 OM, código desconhecido apontado');
     // atracação
-    await page.getByRole('button', { name: 'Atracação (BNIC-35)', exact: true }).click();
+    await page.getByRole('button', { name: 'Atracação', exact: true }).click();
     await page.getByLabel('Competência do mapa').fill('2026-08');
     ok(await page.getByText(/Nenhum navio com mapa lançado/).isVisible() && await page.getByRole('button', { name: /Navio-Patrulha Mangaratiba dia 1$/ }).count() === 0, 'atracação: grade vazia até lançar o mapa (não lista todos os navios ativos)');
     await page.getByRole('tabpanel').locator('input[type=file]').setInputFiles(mapa);
     await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
     await page.getByText('1 navio(s) gravado(s).').waitFor();
     ok(db.atracacoes[0].dias_atracado === 31 && db.atracacoes[0].om_id === npa.id, 'mapa BNIC-35 importado: Mangaratiba 31 dias atracado');
+    // setor responsável pelo lançamento: cadastrado na própria aba (não fixo no código), sem apagar os outros campos do serviço
+    ok(await page.getByRole('tabpanel').getByText(/Responsável pelos dados de Diária de Atracação:/).isVisible() && await page.getByRole('tabpanel').getByText('não cadastrado').isVisible(), 'atracação: responsável aparece como não cadastrado');
+    await page.getByRole('button', { name: /cadastrar/ }).click();
+    await page.getByLabel('Setor responsável de DA').fill('Gerência Portuária');
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText('Responsável de DA gravado.').waitFor();
+    const da = db.service_definitions.find(x => x.acronym === 'DA');
+    ok(da.setor_responsavel === 'Gerência Portuária' && da.nome_oficial === 'DIÁRIA DE ATRACAÇÃO' && da.emitida_de_acordo_com === 'DIÁRIA ESTABELECIDA', 'responsável gravado no cadastro do serviço sem apagar os outros campos');
+    await page.getByRole('tabpanel').getByText(/Gerência Portuária/).waitFor();
+    ok(true, 'responsável cadastrado aparece na aba');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-atracacao.png') });
     // lote
     await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
@@ -584,6 +594,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF FR-172/ }).click()]);
     ok(/\.zip$/.test(dl.suggestedFilename()), `ZIP de PDF FR-172 gerado (${dl.suggestedFilename()})`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase3-lotes.png'), fullPage: true });
+  });
+
+  await cenario('Norma (OI) configurável: parâmetro e rótulos do Faturamento', [], async (page, db) => {
+    await page.getByRole('button', { name: 'Parâmetros e feriados', exact: true }).click();
+    await page.getByLabel('Norma (nome)').waitFor();
+    await page.getByLabel('Norma (nome)').fill('OI 41-02');
+    await page.getByLabel('Item da correção por atraso').fill('7.3');
+    await page.getByRole('button', { name: 'Gravar norma' }).click();
+    await page.getByText('Norma gravada.').waitFor();
+    await page.waitForTimeout(500);
+    ok(db.parametros.find(p => p.chave === 'norma_nome')?.valor === 'OI 41-02' && db.parametros.find(p => p.chave === 'norma_item_correcao')?.valor === '7.3', 'norma gravada nos parâmetros');
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Correção por atraso (OI 41-02, item 7.3)', exact: true }).waitFor();
+    ok(true, 'aba de correção cita a norma cadastrada');
+    ok(await page.getByRole('button', { name: 'Atracação', exact: true }).isVisible() && !(await page.getByText(/BNIC-35/).count()), 'nenhum setor fixo (BNIC-35) nas abas do Faturamento');
   });
 
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {
@@ -644,7 +671,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(el.is_canceled && el.cancelamento_motivo === 'Emitida em duplicidade' && el.cancelada_por === 'CC Admin', 'cancelamento registra motivo e responsável');
     // 4) correção por atraso: RB paga em 29/10 com data-limite 29/09
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('button', { name: 'Correção por atraso (OI 6.2)', exact: true }).click();
+    await page.getByRole('button', { name: 'Correção por atraso (OI 40-04, item 6.2)', exact: true }).click();
     await page.getByLabel('Taxa SET26').fill('0,6');
     await page.getByLabel('Taxa OUT26').fill('0,6');
     await page.getByRole('button', { name: /Gravar \(2\)/ }).click();

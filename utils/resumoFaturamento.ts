@@ -20,6 +20,8 @@ export interface DadosResumo {
   /** preços do ano da competência */
   precos: { sigla: string; omId: string | null }[];
   nomeOM: (id: string) => string;
+  /** setor responsável pelos dados do serviço (cadastro de serviços) */
+  responsavel?: (sigla: string) => string | null;
   lotes: { competencia: string; tipo: string; qtd: number }[];
   faturasDaCompetencia: number;
 }
@@ -28,6 +30,7 @@ export function resumoDoMes(d: DadosResumo): ItemResumo[] {
   const out: ItemResumo[] = [];
   const tem = (s: string) => d.servicos.some(x => x.sigla === s);
   const ref = referencia(d.comp);
+  const resp = (sigla: string) => { const r = d.responsavel?.(sigla); return r ? ` Responsável: ${r}.` : ' Responsável não cadastrado.'; };
 
   if (tem('TC')) {
     const com = new Set(d.precos.filter(p => p.sigla === 'TC' && p.omId).map(p => p.omId!));
@@ -43,13 +46,13 @@ export function resumoDoMes(d: DadosResumo): ItemResumo[] {
     out.push({ id: 'preco-DA', rotulo: `Diária de atracação ${partes(d.comp).ano}`, aba: 'precos',
       status: comPreco.size === 0 ? 'pendente' : sem.length ? 'aviso' : 'ok',
       detalhe: comPreco.size === 0 ? 'Nenhuma diária carregada.' : sem.length ? `${sem.length} navio(s) com atracação lançada sem diária: ${sem.slice(0, 4).map(d.nomeOM).join(', ')}${sem.length > 4 ? '…' : ''}.` : `${comPreco.size} navio(s) com diária.` });
-    out.push({ id: 'atracacao', rotulo: `Mapa de atracação (BNIC-35) de ${ref}`, aba: 'atracacao',
-      status: navios.length ? 'ok' : 'pendente', detalhe: navios.length ? `${navios.length} navio(s) com dias lançados.` : 'Mapa não lançado: o lote sairá sem diárias.' });
+    out.push({ id: 'atracacao', rotulo: `Mapa de atracação de ${ref}`, aba: 'atracacao',
+      status: navios.length ? 'ok' : 'pendente', detalhe: navios.length ? `${navios.length} navio(s) com dias lançados.` : 'Mapa não lançado: o lote sairá sem diárias.' + (navios.length ? '' : resp('DA')) });
   }
   d.servicos.filter(s => SERVICOS_MEDIDOS.includes(s.sigla)).forEach(s => {
     const n = new Set(d.medicoes.filter(m => m.sigla === s.sigla).map(m => m.omId)).size;
     out.push({ id: `medicao-${s.sigla}`, rotulo: `Medição de ${s.nome} (${s.sigla}) de ${ref}`, aba: 'medicoes',
-      status: n ? 'ok' : 'pendente', detalhe: n ? `${n} OM com medição lançada.` : 'Nenhuma medição lançada.' });
+      status: n ? 'ok' : 'pendente', detalhe: n ? `${n} OM com medição lançada.` : `Nenhuma medição lançada.${resp(s.sigla)}` });
   });
   const mensal = d.lotes.filter(l => l.competencia === d.comp && l.tipo === 'MENSAL');
   if (mensal.length) out.push({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: `Já emitido pelo sistema: ${mensal.reduce((s, l) => s + l.qtd, 0)} fatura(s).` });
