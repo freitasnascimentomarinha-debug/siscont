@@ -86,7 +86,7 @@ com filtros, exportação em CSV e o botão para marcar como resolvido/ciente co
   nas abas, baixa para fatura inexistente, ALTCRED criada pelas baixas, utilizado diferente da planilha.
 
 Se a migração já tinha sido gravada antes do 005: em **Migrar faturas**, selecione de novo as planilhas e clique
-em **Gravar pontos nos já migrados**.
+em **Atualizar os já migrados** (grava os pontos de atenção e marca as ALTCRED cuja sobra foi para adiantamento).
 
 ### 1-F. Recebimentos e conciliação — Fase 2 (script 006)
 
@@ -107,6 +107,14 @@ No sistema:
 - **Extrato de Conciliação** (menu): por comando ou OM, os 4 quadros — Saldo ALTCRED, Adiantamentos utilizados,
   Faturas pagas (por data de situação) e Faturas em aberto — com PDF e Excel.
 - **Pontos de Atenção**: passa a acusar baixa fora da destinação e baixa sem documento.
+- **Saldos Recebidos → Adiantamentos**: *Resumo de adiantamentos por cliente* (equivalente às abas ADIANTAMENTOS e
+  RESUMO ADIANTAMENTO): por comando → cliente → ALTCRED, o valor enviado para adiantamento (a ALTCRED inteira ou a
+  sobra de um pagamento), o utilizado e o saldo disponível, com as faturas que usaram cada saldo; exporta em Excel.
+
+**Se você já migrou antes desta versão**: em **Cadastros → Migrar faturas**, selecione de novo a Pagamento 2026 e o
+Faturamento. A leitura passa a usar também a aba **ADIANTAMENTOS** e o consolidado **FATURAMENTO AAAA**; grave a
+migração (acrescenta só o que faltava, ligando as baixas novas às ALTCRED já gravadas) e clique em **Atualizar os já
+migrados**.
 
 ## 2. Chave de servidor (Vercel → Settings → Environment Variables)
 

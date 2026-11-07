@@ -145,7 +145,7 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
         <div className="p-3 rounded-lg bg-white border border-slate-200 text-primary-700 self-start"><Database size={26} /></div>
         <div className="flex-1 text-sm text-slate-600 space-y-1">
           <p className="font-semibold text-slate-800">Migrar faturas, ALTCRED e baixas das planilhas</p>
-          <p>Selecione a planilha <b>Pagamento 2026</b> (abas FATURAS, Faturas Pagas, Faturas Extra-MB, ALTCRED, LANÇAMENTOS e RESUMO ADIANTAMENTO) e, se quiser, os livros de <b>Faturamento</b> (abas JAN26, FEV26...), que completam serviço, adiantamento, acréscimo e débito. Cada fatura é ligada à OM do cadastro. Nada é gravado antes da sua confirmação, e faturas ou documentos com número já existente são ignorados.</p>
+          <p>Selecione a planilha <b>Pagamento 2026</b> (abas FATURAS, Faturas Pagas, Faturas Extra-MB, ALTCRED, LANÇAMENTOS, ADIANTAMENTOS e RESUMO ADIANTAMENTO) e, se quiser, os livros de <b>Faturamento</b> (abas JAN26, FEV26... e o consolidado FATURAMENTO 2026), que completam serviço, adiantamento, acréscimo e débito. Cada fatura é ligada à OM do cadastro. Nada é gravado antes da sua confirmação, e faturas ou documentos com número já existente são ignorados.</p>
         </div>
         <input ref={inputRef} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => processar(e.target.files)} />
         <Button onClick={() => inputRef.current?.click()} isLoading={!!lendo} disabled={!!gravando || semCadastro}>{!lendo && <Upload size={16} className="mr-2" />}{lendo || 'Selecionar planilhas'}</Button>
@@ -189,7 +189,7 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card rotulo="Faturas a gravar" valor={int(plano.faturas.length)} detalhe={r.ignoradasExistentes ? `${int(r.ignoradasExistentes)} já existentes ignoradas` : undefined} />
             <Card rotulo="ALTCRED / GRU" valor={int(plano.documentos.length)} />
-            <Card rotulo="Baixas" valor={int(plano.baixas.length)} />
+            <Card rotulo="Baixas" valor={int(plano.baixas.length)} detalhe={r.baixasEmExistentes ? `${int(r.baixasEmExistentes)} ligadas a registros já gravados` : undefined} />
             <Card rotulo="Faturas em aberto" valor={int(r.abertas)} detalhe={brl(r.valorAberto)} />
           </div>
 
@@ -216,6 +216,10 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
                   {r.abertoOutras > 0 && <tr><td className="py-1 text-slate-600">Outras em aberto</td><td className="py-1 text-right tabular-nums">{brl(r.abertoOutras)}</td></tr>}
                   <tr><td className="py-1 text-slate-600">Saldo por fatura igual ao da planilha</td><td className="py-1 text-right tabular-nums">{int(r.conferidasFaturas)} de {int(r.conferidasFaturas + r.divergentesFaturas)}</td></tr>
                   <tr><td className="py-1 text-slate-600">Utilizado da ALTCRED igual ao da planilha</td><td className="py-1 text-right tabular-nums">{int(r.conferidasAltcred)} de {int(r.conferidasAltcred + r.divergentesAltcred)}</td></tr>
+                  {r.conferidasAdiant + r.divergentesAdiant > 0 && (<>
+                    <tr><td className="py-1 text-slate-600">Aba ADIANTAMENTOS: enviado, utilizado e saldo iguais</td><td className="py-1 text-right tabular-nums">{int(r.conferidasAdiant)} de {int(r.conferidasAdiant + r.divergentesAdiant)}</td></tr>
+                    <tr><td className="py-1 text-slate-600">Saldo de adiantamentos (planilha × sistema)</td><td className={`py-1 text-right tabular-nums ${Math.abs(r.saldoAdiantPlanilha - r.saldoAdiantSistema) < 0.01 ? 'text-emerald-700' : 'text-amber-700'}`}>{brl(r.saldoAdiantPlanilha)} × {brl(r.saldoAdiantSistema)}</td></tr>
+                  </>)}
                 </tbody>
               </table>
             </div>
@@ -228,8 +232,8 @@ export const MigrarFaturasTab: React.FC<{ dados: DadosCadastro; podeEditar: bool
 
           {planoCompleto && r.ignoradasExistentes > 0 && podeEditar && (
             <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 text-sm text-slate-700 flex flex-col md:flex-row md:items-center gap-2">
-              <span className="flex-1">{int(r.ignoradasExistentes)} registro(s) desta planilha já estão no sistema. Para marcar neles os pontos de atenção que a migração encontrou (ícone ⚠ nas faturas e documentos):</span>
-              <Button size="sm" variant="secondary" onClick={gravarPontos} isLoading={!!gravandoPontos} disabled={!!gravando}>{gravandoPontos || 'Gravar pontos nos já migrados'}</Button>
+              <span className="flex-1">{int(r.ignoradasExistentes)} registro(s) desta planilha já estão no sistema. Para atualizar neles os pontos de atenção (ícone ⚠) e as ALTCRED cuja sobra foi para adiantamento (aba ADIANTAMENTOS):</span>
+              <Button size="sm" variant="secondary" onClick={gravarPontos} isLoading={!!gravandoPontos} disabled={!!gravando}>{gravandoPontos || 'Atualizar os já migrados'}</Button>
             </div>
           )}
 

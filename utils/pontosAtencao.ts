@@ -69,6 +69,8 @@ export const TIPOS_PONTO: Record<string, DefTipo> = {
   // ---- documentos: anotados pela migração
   BAIXA_SEM_FATURA: { alvo: 'documento', gravidade: 'alta', titulo: 'Baixa para fatura inexistente', comoCorrigir: 'A planilha baixava, com este documento, uma fatura que não existe em nenhuma lista. Descubra o número correto e lance a baixa manualmente.' },
   ALTCRED_DIVERGENTE: { alvo: 'documento', gravidade: 'alta', titulo: 'Utilizado diferente da planilha', comoCorrigir: 'O valor baixado no sistema difere do VALOR UTILIZADO da aba ALTCRED. Confira as baixas deste documento.' },
+  ADIANTAMENTO_DIVERGENTE: { alvo: 'documento', gravidade: 'alta', titulo: 'Adiantamento diferente da planilha', comoCorrigir: 'Valor enviado para adiantamento, utilizado ou saldo diferente da aba ADIANTAMENTOS. Confira as faturas que usaram este adiantamento (RESUMO ADIANTAMENTO).' },
+  ADIANTAMENTO_NAO_ENVIADO: { alvo: 'documento', gravidade: 'alta', titulo: 'Usada como adiantamento sem envio', comoCorrigir: 'A ALTCRED foi usada como adiantamento sem constar na aba ADIANTAMENTOS (provável uso em duplicidade: pagou faturas e também abateu adiantamentos). Desfaça as baixas indevidas.' },
   ALTCRED_CRIADA: { alvo: 'documento', gravidade: 'media', titulo: 'ALTCRED criada pelas baixas', comoCorrigir: 'Não constava na aba ALTCRED; criada com o valor somado das baixas. Confira o valor real no SIPLAD e ajuste.' },
 };
 

@@ -6,6 +6,7 @@ import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao
 import { pendentes } from '../utils/pontosAtencao';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
 import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
+import { ResumoAdiantamentos } from '../components/recebimentos/ResumoAdiantamentos';
 import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
 import { carregarCadastro } from '../services/recebimentosService';
 import { notify, friendlyError } from '../utils/notify';
@@ -134,7 +135,8 @@ export const ReceivedBalances: React.FC = () => {
   // --- Filtering Logic ---
   const filteredDocs = documents.filter(d => {
     // 1. Tab Filter
-    if (d.operation !== activeTab) return false;
+    // sobra de ALTCRED de pagamento enviada para adiantamento aparece também na aba Adiantamentos
+    if (d.operation !== activeTab && !(activeTab === OperationType.ADIANTAMENTO && d.sobraAdiantamento)) return false;
 
     // 2. Date Filter
     const dDate = new Date(d.date);
@@ -573,6 +575,8 @@ export const ReceivedBalances: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {activeTab === OperationType.ADIANTAMENTO && <ResumoAdiantamentos documentos={documents} baixas={allocations} faturas={invoices} />}
 
       {/* Hierarchical List: Sector > Command > Client > Documents */}
       <div className="space-y-6">

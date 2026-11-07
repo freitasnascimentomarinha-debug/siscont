@@ -435,6 +435,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(bx.length === 2 && bx.every(b => b.tipo_baixa === 'PAGAMENTO'), '2 baixas de pagamento gravadas');
     ok(db.received_documents.find(x => x.id === d.id).sobra_adiantamento === true, 'sobra de R$ 250,00 marcada como adiantamento');
 
+    // resumo de adiantamentos (aba Adiantamentos): a sobra aparece com saldo disponível
+    await page.getByRole('button', { name: 'Adiantamentos', exact: true }).click();
+    const resumo = page.getByTestId('resumo-adiantamentos');
+    await resumo.waitFor();
+    await resumo.getByText('12345 - ComTeste').first().click();
+    ok(await resumo.getByText('sobra de pagamento (ALTCRED R$ 1.000,00)').isVisible(), 'resumo lista a ALTCRED cuja sobra foi para adiantamento');
+    ok((await resumo.locator('tbody tr').first().innerText()).includes('R$ 250,00'), 'saldo disponível de adiantamento do cliente: R$ 250,00');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-adiantamentos.png'), fullPage: false });
+
     // extrato de conciliação
     await page.getByRole('button', { name: 'Extrato de Conciliação' }).click();
     await page.getByPlaceholder(/Digite o código/).fill('12345');

@@ -153,3 +153,79 @@ describe('auditoria (2.6)', () => {
     expect(r.faturas.get('f2')!.map(p => p.tipo)).toContain('BAIXA_SEM_DOCUMENTO');
   });
 });
+
+import { listaAdiantamentos, resumoPorCliente } from '../utils/adiantamentos';
+import { planejarMigracao, planilhasVazias } from '../utils/faturasImport';
+
+describe('adiantamentos (abas ADIANTAMENTOS e RESUMO ADIANTAMENTO)', () => {
+  const docs = [
+    { id: 'a', documentNumber: 'ADT1', client: 'DIM', sector: 'DGMM', command: '40030', date: '2026-02-26', totalValue: 1000, operation: 'ADIANTAMENTO' },
+    { id: 'p', documentNumber: 'PAG1', client: 'DIM', sector: 'DGMM', command: '40030', date: '2026-08-19', totalValue: 44000, operation: 'PAGAMENTO', sobraAdiantamento: true },
+    { id: 'x', documentNumber: 'PAG2', client: 'ETAM', sector: 'DGMM', command: '40030', date: '2026-08-19', totalValue: 500, operation: 'PAGAMENTO' },
+  ];
+  const fat = [{ id: 'f1', invoiceNumber: 'F1', client: 'DIM' }, { id: 'f2', invoiceNumber: 'F2', client: 'DIM' }, { id: 'fc', invoiceNumber: 'FC', client: 'DIM', isCanceled: true }];
+  const bx = [
+    { id: 'b1', documentId: 'p', invoiceId: 'f1', amount: 23542.26, date: '2026-08-19', tipoBaixa: 'PAGAMENTO' as const },
+    { id: 'b2', documentId: 'p', invoiceId: 'f2', amount: 16674.41, date: '2026-08-20', tipoBaixa: 'ADIANTAMENTO' as const },
+    { id: 'b3', documentId: 'a', invoiceId: 'f2', amount: 300, date: '2026-03-01' },
+    { id: 'b4', documentId: 'a', invoiceId: 'fc', amount: 100, date: '2026-03-01' },
+  ];
+  it('enviado, utilizado e saldo por ALTCRED (sobra = valor − pagamentos; cancelada não conta)', () => {
+    const l = listaAdiantamentos(docs, bx, fat);
+    expect(l.map(x => x.numero)).toEqual(['ADT1', 'PAG1']);
+    expect(l[0]).toMatchObject({ origem: 'ADIANTAMENTO', enviado: 1000, utilizado: 300, saldo: 700 });
+    expect(l[1]).toMatchObject({ origem: 'SOBRA', enviado: 20457.74, utilizado: 16674.41, saldo: 3783.33 });
+    expect(l[1].usos.map(u => u.fatura)).toEqual(['F2']);
+    const g = resumoPorCliente(l);
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ cliente: 'DIM', saldo: 4483.33 });
+  });
+});
+
+describe('migração: aba ADIANTAMENTOS e livro consolidado', () => {
+  const ctx = {
+    resolverOM: () => null, resolverComando: () => null, servicos: [], feriados: [], prazoDiasUteis: 10,
+    faturasExistentes: new Set<string>(), documentosExistentes: new Set<string>(), hoje: '2026-11-07',
+    novoId: (() => { let i = 0; return () => `id${++i}`; })(),
+  };
+  const montar = () => {
+    const p = planilhasVazias();
+    p.faturas.push([['SETOR', 'COMANDO', 'Cliente', 'Fatura', 'Valor', 'Data Emis.', 'Data Venc.', 'STATUS'],
+      ['DGMM', '40030 - DIM', 'DIM', '40030-EL-08-2026-010-0', 100, 46280, 46295, 'PAGO']]);
+    p.altcred.push([['Data de situação', 'COMANDO', 'Cliente', 'NºALTCRED', 'TIPO', 'Valor ALTCRED', 'VALOR UTILIZADO'],
+      [46253, 'DGMM', '40030 - DIM', 'G1.2026.AC.00001', 'PAGAMENTO', 500, 500]]);
+    p.lancamentos.push([['Data de situação', 'COMANDO', 'CLIENTE', 'NºALTCRED', 'NºFATURA', 'VALOR UTILIZADO'],
+      [46253, 'DGMM', '40030 - DIM', 'G1.2026.AC.00001', '40030-EL-08-2026-010-0', 100],
+      [46253, 'DGMM', '40030 - DIM', 'G1.2026.AC.00001', 'ADIANTAMENTO', 400]]);
+    p.resumoAdiantamento.push([['DATA', 'COMANDO', 'CLIENTE', 'ALTCRED', 'FATURA', 'VALOR'],
+      [46260, 'DGMM', '40030 - DIM', 'G1.2026.AC.00001', '40030-TC-05-2026-014-0', 250],
+      [46260, 'DGMM', '40030 - DIM', 'G9.2026.AC.00009', '40030-TC-05-2026-014-0', 50]]);
+    p.adiantamentos.push([['Data de situação', 'COMANDO', 'Cliente', 'Nº ALTCRED', 'TIPO', 'Valor ALTCRED', 'VALOR UTILIZADO', 'SALDO'],
+      [46253, 'DGMM', '40030 - DIM', 'G1.2026.AC.00001', 'ADIANTAMENTO', 400, 250, 150],
+      [46300, 'DGMM', '40030 - DIM', 'G8.2026.AC.00008', 'ADIANTAMENTO', 1000, 0, 1000]]);
+    // fatura só no consolidado do ano (não está na aba do mês)
+    p.livroConsolidado.push([['SETOR', 'COMANDO', 'CLIENTE', 'FATURA', 'Valor serv. prest.', 'Valor do adiantamento', 'Valor final', 'Data Emis.', 'Data Venc.'],
+      ['DGMM', '40030 - DIM', 'DIM', '40030-TC-05-2026-014-0', 300, 300, 0, 46188, 46218]]);
+    return p;
+  };
+  it('lê o consolidado, marca a sobra, cria ALTCRED só da aba ADIANTAMENTOS e confere saldos', () => {
+    const plano = planejarMigracao(montar(), ctx);
+    const tc = plano.faturas.find(f => f.numero === '40030-TC-05-2026-014-0');
+    expect(tc).toMatchObject({ valor: 300 });
+    expect(plano.documentos.find(d => d.numero === 'G1.2026.AC.00001')!.sobraAdiantamento).toBe(true);
+    expect(plano.documentos.find(d => d.numero === 'G8.2026.AC.00008')).toMatchObject({ operacao: 'ADIANTAMENTO', valor: 1000 });
+    expect(plano.resumo.conferidasAdiant).toBe(2);
+    expect(plano.resumo.saldoAdiantPlanilha).toBe(1150);
+    // G9 usada no RESUMO sem constar em ADIANTAMENTOS
+    expect(plano.avisos.find(a => a.tipo === 'ADIANTAMENTO_NAO_ENVIADO')!.exemplos).toEqual(['G9.2026.AC.00009']);
+  });
+  it('migração complementar liga baixas novas a documentos já gravados, sem duplicar', () => {
+    const p1 = planejarMigracao(montar(), ctx);
+    const docs = new Map(p1.documentos.map(d => [d.numero, d.id]));
+    const ja = p1.faturas.filter(f => f.numero !== '40030-TC-05-2026-014-0');
+    const p2 = planejarMigracao(montar(), { ...ctx, faturasExistentes: new Set(ja.map(f => f.numero)), documentosExistentes: new Set(docs.keys()), idFaturaExistente: n => ja.find(f => f.numero === n)?.id, idDocumentoExistente: n => docs.get(n) });
+    expect(p2.faturas.map(f => f.numero)).toEqual(['40030-TC-05-2026-014-0']);
+    expect(p2.baixas.map(b => [b.documentoId, b.valor])).toEqual([[docs.get('G1.2026.AC.00001'), 250], [docs.get('G9.2026.AC.00009'), 50]]);
+    expect(p2.resumo.baixasEmExistentes).toBe(2);
+  });
+});

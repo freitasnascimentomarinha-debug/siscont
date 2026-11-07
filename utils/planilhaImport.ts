@@ -1,7 +1,7 @@
 // @ts-ignore - pacote xlsx sem tipos completos no build
 import * as XLSX from 'xlsx';
 import { extrairClasses, extrairLinhasDeFatura, LinhaFatura, Matriz, chave } from './cadastroImport';
-import { ABAS_FATURAS, ehAbaDoLivro, PlanilhasFaturas, planilhasVazias } from './faturasImport';
+import { ABAS_FATURAS, ehAbaDoLivro, ehLivroConsolidado, PlanilhasFaturas, planilhasVazias } from './faturasImport';
 
 /** Opções de leitura econômicas: sem fórmulas, estilos nem HTML (planilhas de 7 MB com abas de 300 colunas). */
 export const OPCOES_LEITURA = {
@@ -51,7 +51,7 @@ export function lerPlanilhaCompleta(buffer: ArrayBuffer, nomeArquivo: string): {
   const faturas = planilhasVazias();
   const abasFaturas: string[] = [];
   for (const nome of wb.SheetNames) {
-    const alvo = ABAS_FATURAS[chave(nome)] || (ehAbaDoLivro(nome) ? 'livro' : null);
+    const alvo = ABAS_FATURAS[chave(nome)] || (ehAbaDoLivro(nome) ? 'livro' : ehLivroConsolidado(nome) ? 'livroConsolidado' : null);
     if (!alvo) continue;
     faturas[alvo as keyof PlanilhasFaturas].push(matrizDe(wb.Sheets[nome], undefined, true));
     abasFaturas.push(`${nomeArquivo} › ${nome}`);

@@ -44,6 +44,8 @@ export async function carregarContexto(proposta: PropostaCadastro): Promise<{ ct
     };
   });
   const cmdPorCodigo = new Map(comandos.filter(c => c.codigo).map(c => [c.codigo!, c]));
+  const idFat = new Map(faturas.map(f => [(f.invoiceNumber || '').trim().toUpperCase(), f.id]));
+  const idDoc = new Map(documentos.map(d => [(d.documentNumber || '').trim().toUpperCase(), d.id]));
   const prazo = Number(parametros.find(p => p.chave === 'prazo_certificacao_dias_uteis')?.valor) || 10;
   return {
     omsCadastradas: oms.length,
@@ -59,6 +61,8 @@ export async function carregarContexto(proposta: PropostaCadastro): Promise<{ ct
       prazoDiasUteis: prazo,
       faturasExistentes: new Set(faturas.map(f => (f.invoiceNumber || '').trim().toUpperCase())),
       documentosExistentes: new Set(documentos.map(d => (d.documentNumber || '').trim().toUpperCase())),
+      idFaturaExistente: (n => idFat.get(n)),
+      idDocumentoExistente: (n => idDoc.get(n)),
       hoje: new Date().toISOString().slice(0, 10),
       novoId: () => crypto.randomUUID(),
     },
@@ -143,7 +147,7 @@ export async function gravarPontosEmExistentes(plano: PlanoMigracao, onProgresso
   const chave = (n: string) => (n || '').trim().toUpperCase();
   const idFat = new Map(faturas.map(f => [chave(f.invoiceNumber), f]));
   const idDoc = new Map(documentos.map(d => [chave(d.documentNumber), d]));
-  const tarefas: { tabela: string; id: string; pontos: RegistroPonto[] }[] = [];
+  const tarefas: { tabela: string; id: string; pontos: RegistroPonto[]; extra?: Record<string, any> }[] = [];
   const mesclar = (atuais: RegistroPonto[] = [], novos: RegistroPonto[]) => {
     const fora = atuais.filter(r => r.origem !== 'migracao');
     const res = novos.map(n => atuais.find(a => a.origem === 'migracao' && a.tipo === n.tipo && a.mensagem === n.mensagem) || n);
@@ -156,12 +160,15 @@ export async function gravarPontosEmExistentes(plano: PlanoMigracao, onProgresso
   });
   plano.documentos.forEach(d => {
     const ex = idDoc.get(chave(d.numero));
-    if (!ex || (!d.pontos.length && !(ex.pontosRegistro || []).some(r => r.origem === 'migracao'))) return;
-    tarefas.push({ tabela: 'received_documents', id: ex.id, pontos: mesclar(ex.pontosRegistro, d.pontos) });
+    if (!ex) return;
+    // sobra da ALTCRED de pagamento encaminhada para adiantamento (aba ADIANTAMENTOS)
+    const extra = d.sobraAdiantamento && ex.sobraAdiantamento === false ? { sobra_adiantamento: true } : undefined;
+    if (!extra && !d.pontos.length && !(ex.pontosRegistro || []).some(r => r.origem === 'migracao')) return;
+    tarefas.push({ tabela: 'received_documents', id: ex.id, pontos: mesclar(ex.pontosRegistro, d.pontos), extra });
   });
   for (let i = 0; i < tarefas.length; i += 10) {
     await Promise.all(tarefas.slice(i, i + 10).map(async t => {
-      const { error } = await supabase.from(t.tabela).update({ pontos_atencao: t.pontos }).eq('id', t.id);
+      const { error } = await supabase.from(t.tabela).update({ pontos_atencao: t.pontos, ...(t.extra || {}) }).eq('id', t.id);
       if (error && /pontos_atencao/.test(error.message)) throw new Error('Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase.');
       if (error) throw new Error(`Erro ao gravar pontos de atenção: ${error.message}`);
     }));

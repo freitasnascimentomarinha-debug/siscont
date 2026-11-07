@@ -108,16 +108,22 @@ const C_BAIXA: Campos = {
 export const ABAS_FATURAS: Record<string, keyof PlanilhasFaturas> = {
   faturas: 'faturas', faturaspagas: 'pagas', faturasextramb: 'extra', faturaspagasextramb: 'extraPagas',
   altcred: 'altcred', lancamentos: 'lancamentos', resumoadiantamento: 'resumoAdiantamento',
-  faturascanceladas: 'canceladas', faturascontestadas: 'contestadas',
+  faturascanceladas: 'canceladas', faturascontestadas: 'contestadas', adiantamentos: 'adiantamentos',
 };
 export const ehAbaDoLivro = (nome: string) => /^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|ond)\d{2}$/i.test(limpar(nome).replace(/\s/g, ''));
+/** Aba consolidada do ano no livro de emissão ("FATURAMENTO 2026"): usada quando a fatura não está na aba do mês. */
+export const ehLivroConsolidado = (nome: string) => /^faturamento\d{4}$/i.test(limpar(nome).replace(/\s/g, ''));
 
 export interface PlanilhasFaturas {
   faturas: Matriz[]; pagas: Matriz[]; extra: Matriz[]; extraPagas: Matriz[]; altcred: Matriz[];
   lancamentos: Matriz[]; resumoAdiantamento: Matriz[]; canceladas: Matriz[]; contestadas: Matriz[]; livro: Matriz[];
+  /** Abas "FATURAMENTO AAAA" do livro (consolidado do ano). */
+  livroConsolidado: Matriz[];
+  /** Aba ADIANTAMENTOS: ALTCRED (ou a sobra delas) encaminhadas para adiantamento. */
+  adiantamentos: Matriz[];
 }
 export const planilhasVazias = (): PlanilhasFaturas => ({
-  faturas: [], pagas: [], extra: [], extraPagas: [], altcred: [], lancamentos: [], resumoAdiantamento: [], canceladas: [], contestadas: [], livro: [],
+  faturas: [], pagas: [], extra: [], extraPagas: [], altcred: [], lancamentos: [], resumoAdiantamento: [], canceladas: [], contestadas: [], livro: [], livroConsolidado: [], adiantamentos: [],
 });
 
 // ------------------------------------------------------------- plano
@@ -134,6 +140,9 @@ export interface ContextoImportacao {
   prazoDiasUteis: number;
   faturasExistentes: Set<string>;
   documentosExistentes: Set<string>;
+  /** Para completar uma migração já gravada: id do registro existente pelo número (liga baixas novas a ele). */
+  idFaturaExistente?: (numero: string) => string | undefined;
+  idDocumentoExistente?: (numero: string) => string | undefined;
   hoje: string;
   novoId: () => string;
 }
@@ -171,6 +180,9 @@ export interface PlanoMigracao {
     abertoFaturas: number; abertoContestadas: number; abertoExtraMB: number; abertoOutras: number;
     conferidasFaturas: number; divergentesFaturas: number;
     conferidasAltcred: number; divergentesAltcred: number;
+    /** Aba ADIANTAMENTOS: ALTCRED conferidas (valor enviado, utilizado e saldo) e saldo total disponível. */
+    conferidasAdiant: number; divergentesAdiant: number; saldoAdiantPlanilha: number; saldoAdiantSistema: number;
+    baixasEmExistentes: number;
     ignoradasExistentes: number;
   };
 }
@@ -203,6 +215,11 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   p.livro.forEach(m => linhasPorCabecalho(m, C_LIVRO, ['fatura']).forEach(l => {
     const n = norm(l.fatura);
     if (lerFatura(n)) livro.set(n, l);
+  }));
+  // consolidado do ano só completa o que não está nas abas mensais
+  (p.livroConsolidado || []).forEach(m => linhasPorCabecalho(m, C_LIVRO, ['fatura']).forEach(l => {
+    const n = norm(l.fatura);
+    if (lerFatura(n) && !livro.has(n)) livro.set(n, l);
   }));
 
   // 2. Baixas (pagamentos e adiantamentos) por fatura e por ALTCRED
@@ -363,6 +380,28 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       origem: 'Planilha Pagamento 2026 › ALTCRED', utilizadoPlanilha: numero(l.utilizado), pontos: [],
     });
   }));
+  // 5-A. Aba ADIANTAMENTOS: ALTCRED encaminhadas para adiantamento (inteiras ou só a sobra)
+  type LA = { numero: string; valor: number; utilizado: number; saldo: number; cliente: string };
+  const listaAdiant: LA[] = [];
+  p.adiantamentos.forEach(m => linhasPorCabecalho(m, C_ALTCRED, ['numero', 'valor']).forEach(l => {
+    const n = norm(l.numero), v = numero(l.valor);
+    if (!n || v === null) return;
+    const u = numero(l.utilizado) ?? 0;
+    listaAdiant.push({ numero: n, valor: r2(v), utilizado: r2(u), saldo: r2(v - u), cliente: limpar(l.cliente) });
+    const d = documentos.get(n);
+    if (d) { if (d.operacao !== 'ADIANTAMENTO') d.sobraAdiantamento = true; return; }
+    if (ctx.documentosExistentes.has(n)) return;
+    const cmd = ctx.resolverComando(l.cliente);
+    documentos.set(n, {
+      id: ctx.novoId(), numero: n, tipoDocumento: 'ALTCRED', operacao: 'ADIANTAMENTO', valor: r2(v), data: data(l.data) || ctx.hoje,
+      ug: cmd?.codigo ?? lerComando(l.cliente)?.codigo ?? '', setor: cmd?.setor || normalizarSetor(l.setor).sigla || '',
+      comando: cmd?.nome ?? limpar(l.cliente), cliente: cmd?.nome ?? limpar(l.cliente), comandoId: cmd?.comandoId ?? null,
+      observacao: 'Consta só na aba ADIANTAMENTOS (não está na aba ALTCRED).', origem: 'Planilha Pagamento 2026 › ADIANTAMENTOS',
+      utilizadoPlanilha: r2(u), pontos: [], sobraAdiantamento: false,
+    });
+  }));
+  const naListaAdiant = new Set(listaAdiant.map(a => a.numero));
+
   const altcredCriadas: string[] = [];
   const usoPorAltcred = new Map<string, B[]>();
   baixasBrutas.forEach(b => { const l = usoPorAltcred.get(b.altcred) || []; l.push(b); usoPorAltcred.set(b.altcred, l); });
@@ -402,16 +441,22 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
   // 6. Baixas
   const baixas: BaixaPlano[] = [];
   const semFatura: string[] = [], semDocumento: string[] = [];
+  let baixasEmExistentes = 0;
   baixasBrutas.forEach(b => {
     const fat = faturas.get(b.fatura);
     const doc = documentos.get(b.altcred);
-    if (!fat) {
+    // migração complementar: um dos lados já está no sistema e o outro é novo → liga ao existente
+    const fatId = fat?.id ?? (doc ? ctx.idFaturaExistente?.(b.fatura) : undefined);
+    const docId = doc?.id ?? (fat ? ctx.idDocumentoExistente?.(b.altcred) : undefined);
+    if (!fatId) {
+      if (ctx.faturasExistentes.has(b.fatura)) return; // fatura e documento já existem: baixa já gravada antes
       semFatura.push(`${b.altcred} → ${b.fatura} (R$ ${b.valor.toFixed(2)})`);
       anotar(doc, 'BAIXA_SEM_FATURA', `A planilha (${b.origem.split(' (')[0]}) baixava ${rs(b.valor)} na fatura ${b.fatura}${b.data ? ` em ${br(b.data)}` : ''}, que não existe em nenhuma lista; baixa não migrada.`);
       return;
     }
-    if (!doc) { semDocumento.push(`${b.altcred} → ${b.fatura}`); return; }
-    baixas.push({ id: ctx.novoId(), documentoId: doc.id, faturaId: fat.id, valor: r2(b.valor), data: b.data || doc.data, origem: b.origem, sigla: fat.sigla });
+    if (!docId) { if (!ctx.documentosExistentes.has(b.altcred)) semDocumento.push(`${b.altcred} → ${b.fatura}`); return; }
+    if (!fat || !doc) baixasEmExistentes++;
+    baixas.push({ id: ctx.novoId(), documentoId: docId, faturaId: fatId, valor: r2(b.valor), data: b.data || doc?.data || ctx.hoje, origem: b.origem, sigla: fat?.sigla ?? lerFatura(b.fatura)?.sigla ?? '' });
   });
   gru.forEach(g => {
     const doc = documentos.get(numeroGru(g))!;
@@ -469,6 +514,37 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
     }
   });
 
+  // 7-A. Conferência da aba ADIANTAMENTOS (valor encaminhado, utilizado e saldo por ALTCRED)
+  let conferidasAdiant = 0, saldoAdiantPlanilha = 0, saldoAdiantSistema = 0;
+  const adiantDiv: string[] = [];
+  const canceladasIds = new Set([...faturas.values()].filter(f => f.cancelada).map(f => f.id));
+  const pagoDoc = new Map<string, number>(), adiantDoc = new Map<string, number>();
+  baixas.forEach(b => {
+    const m = b.origem.startsWith('RESUMO') ? adiantDoc : pagoDoc;
+    if (!canceladasIds.has(b.faturaId)) m.set(b.documentoId, r2((m.get(b.documentoId) || 0) + b.valor));
+  });
+  listaAdiant.forEach(a => {
+    const d = documentos.get(a.numero);
+    saldoAdiantPlanilha += a.saldo;
+    if (!d) return; // já existia no sistema antes desta leitura
+    const parte = d.operacao === 'ADIANTAMENTO' ? d.valor : r2(d.valor - (pagoDoc.get(d.id) || 0));
+    const usado = adiantDoc.get(d.id) || 0;
+    const saldo = r2(parte - usado);
+    saldoAdiantSistema += saldo;
+    const p: string[] = [];
+    if (Math.abs(parte - a.valor) > 0.01) p.push(`enviado para adiantamento: planilha ${rs(a.valor)} × sistema ${rs(parte)}`);
+    if (Math.abs(usado - a.utilizado) > 0.01) p.push(`utilizado: planilha ${rs(a.utilizado)} × sistema ${rs(usado)}`);
+    if (Math.abs(saldo - a.saldo) > 0.01) p.push(`saldo: planilha ${rs(a.saldo)} × sistema ${rs(saldo)}`);
+    if (!p.length) { conferidasAdiant++; return; }
+    adiantDiv.push(`${a.numero} (${a.cliente}): ${p.join('; ')}`);
+    anotar(d, 'ADIANTAMENTO_DIVERGENTE', `Aba ADIANTAMENTOS × sistema — ${p.join('; ')}.`);
+  });
+  const naoEnviadas = [...new Set(baixasBrutas.filter(b => b.origem.startsWith('RESUMO') && !naListaAdiant.has(b.altcred)).map(b => b.altcred))];
+  if (listaAdiant.length) naoEnviadas.forEach(n => anotar(documentos.get(n), 'ADIANTAMENTO_NAO_ENVIADO',
+    `Usada como adiantamento no RESUMO ADIANTAMENTO (${rs(r2(baixasBrutas.filter(b => b.altcred === n && b.origem.startsWith('RESUMO')).reduce((s2, b) => s2 + b.valor, 0)))}), mas não consta na aba ADIANTAMENTOS.`));
+  aviso('ADIANTAMENTO_DIVERGENTE', true, `${adiantDiv.length} ALTCRED da aba ADIANTAMENTOS com valor enviado, utilizado ou saldo diferente do calculado pelas baixas.`, adiantDiv);
+  if (listaAdiant.length) aviso('ADIANTAMENTO_NAO_ENVIADO', true, `${naoEnviadas.length} ALTCRED usadas como adiantamento no RESUMO sem constar na aba ADIANTAMENTOS.`, naoEnviadas);
+
   aviso('ALTCRED_ESTOURADA', true, `${altEstouro.length} ALTCRED com baixas acima do valor recebido (crédito usado a mais na planilha). Migradas como estão; corrija as baixas.`, altEstouro);
   aviso('ADIANTAMENTO_MAIOR', true, `${adiantMaior.length} fatura(s) com adiantamento usado maior que o valor do serviço.`, adiantMaior);
   aviso('PAGO_A_MAIOR', true, `${pagoMaior.length} fatura(s) com baixas acima do valor (pago a maior).`, pagoMaior);
@@ -498,6 +574,8 @@ export function planejarMigracao(p: PlanilhasFaturas, ctx: ContextoImportacao): 
       porOrigem, abertas, valorAberto: r2(valorAberto), valorAbertoPlanilha: r2(valorAbertoPlanilha),
       abertoFaturas: r2(abertoFaturas), abertoContestadas: r2(abertoContestadas), abertoExtraMB: r2(abertoExtraMB), abertoOutras: r2(abertoOutras),
       conferidasFaturas, divergentesFaturas: divergentes.length, conferidasAltcred, divergentesAltcred: altDiv.length,
+      conferidasAdiant, divergentesAdiant: adiantDiv.length, saldoAdiantPlanilha: r2(saldoAdiantPlanilha), saldoAdiantSistema: r2(saldoAdiantSistema),
+      baixasEmExistentes,
       ignoradasExistentes: existentes.length + docsExistentes.length,
     },
   };
