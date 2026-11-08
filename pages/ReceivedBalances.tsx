@@ -1,6 +1,8 @@
 
 import { dataBR, hojeISO } from '../utils/datas';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
+import { FaturasParaPagar, SelecaoPagamento } from '../components/recebimentos/FaturasParaPagar';
+import { distribuirPagamento, resumoPagamento, saldoDaFatura } from '../utils/pagamentoDocumento';
 import { criarResolvedor, Rotulo } from '../utils/documentosOM';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -63,6 +65,8 @@ export const ReceivedBalances: React.FC = () => {
   const [exCliente, setExCliente] = useState<Set<string>>(new Set());
   const [filterFatura, setFilterFatura] = useState('');
   const [pagina, setPagina] = useState(0);
+  // faturas escolhidas para pagar já na inclusão do documento
+  const [pagarNaInclusao, setPagarNaInclusao] = useState<SelecaoPagamento>({ ids: [], manuais: {} });
   const [porPagina, setPorPagina] = useState(30);
 
   // Edit Allocation Modal
@@ -273,17 +277,40 @@ export const ReceivedBalances: React.FC = () => {
       ...Object.fromEntries(CAMPOS_DOC_FASE2.map(([k]) => [k, docFormData[k]]).filter(([, v]) => v !== undefined)),
     };
 
+    // faturas escolhidas para pagar já na inclusão (só documento novo; não vale para "Outros")
+    const escolhidas = !editingId && payload.operation !== OperationType.OUTROS
+      ? pagarNaInclusao.ids.map(id => invoices.find(i => i.id === id)).filter(Boolean) as Invoice[] : [];
+    const itens = distribuirPagamento(payload.totalValue, escolhidas.map(f => ({ id: f.id, saldo: saldoDaFatura(f) })), pagarNaInclusao.manuais).filter(i => i.valor > 0.005);
+    if (resumoPagamento(payload.totalValue, itens).excedeu) {
+      setSaveError('O valor a pagar nas faturas escolhidas passa do valor do documento. Ajuste os valores.');
+      return;
+    }
+
     try {
       await db.saveDocument(payload);
     } catch (err) {
       setSaveError(`Erro ao salvar: ${friendlyError(err)}`);
       return;
     }
+    let baixas = 0;
+    try {
+      for (const it of itens) {
+        await db.saveAllocation({
+          id: uuidv4(), documentId: payload.id, invoiceId: it.id, amount: it.valor, date: payload.date,
+          siscontSettled: false, siscontDueDate: '', observation: '', serviceType: invoices.find(i => i.id === it.id)?.type || '',
+          tipoBaixa: payload.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO',
+        });
+        baixas++;
+      }
+    } catch (err) {
+      notify.fail(`Documento salvo, mas houve erro depois de ${baixas} baixa(s); confira e complete pelo botão "Pagar faturas"`, err);
+    }
     setIsDocModalOpen(false);
     setDocFormData({});
     setEditingId(null);
     setSaveError(null);
-    notify.success('Documento salvo.');
+    setPagarNaInclusao({ ids: [], manuais: {} });
+    notify.success(baixas ? `Documento salvo e ${baixas} fatura(s) baixada(s).` : 'Documento salvo.');
     await refresh();
   };
 
@@ -299,10 +326,8 @@ export const ReceivedBalances: React.FC = () => {
       const inv = invoices.find(i => i.id === invId);
       if (!inv || currentBalance <= 0) continue;
 
-      const invAllocations = allocations.filter(a => a.invoiceId === inv.id);
-      const totalUsed = invAllocations.reduce((sum, a) => sum + a.amount, 0);
-      const targetValue = inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0);
-      const debt = Math.max(0, targetValue - totalUsed);
+      const totalUsed = allocations.filter(a => a.invoiceId === inv.id).reduce((sum, a) => sum + a.amount, 0);
+      const debt = saldoDaFatura(inv, totalUsed);
 
       const payment = Math.min(debt, currentBalance);
 
@@ -550,7 +575,7 @@ export const ReceivedBalances: React.FC = () => {
             <FileText className="w-4 h-4 mr-2" /> PDF
           </Button>
           {!isReadOnly && (
-            <Button onClick={() => { setEditingId(null); setDocFormData({}); setSaveError(null); setIsDocModalOpen(true); }}>
+            <Button onClick={() => { setEditingId(null); setDocFormData({}); setSaveError(null); setPagarNaInclusao({ ids: [], manuais: {} }); setIsDocModalOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" /> Novo Documento
             </Button>
           )}
@@ -812,10 +837,10 @@ export const ReceivedBalances: React.FC = () => {
       {/* Modal - Doc Create/Edit */}
       <Modal
         isOpen={isDocModalOpen}
-        onClose={() => { setIsDocModalOpen(false); setEditingId(null); setDocFormData({}); setSaveError(null); }}
+        onClose={() => { setIsDocModalOpen(false); setEditingId(null); setDocFormData({}); setSaveError(null); setPagarNaInclusao({ ids: [], manuais: {} }); }}
         title={editingId ? "Editar Documento" : "Novo Documento"}
         maxWidth="max-w-3xl"
-        footer={<div className="flex justify-end gap-2"><Button onClick={handleSaveDoc}>Salvar</Button></div>}
+        footer={<div className="flex justify-end gap-2"><Button onClick={handleSaveDoc}>{!editingId && pagarNaInclusao.ids.length && docFormData.operation !== OperationType.OUTROS ? `Salvar e baixar ${pagarNaInclusao.ids.length} fatura(s)` : 'Salvar'}</Button></div>}
       >
         {saveError && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded flex items-start gap-2 text-red-700">
@@ -855,6 +880,11 @@ export const ReceivedBalances: React.FC = () => {
           <Input label="Observação" className="md:col-span-2" value={docFormData.observation || ''} onChange={e => setDocFormData({ ...docFormData, observation: e.target.value })} />
         </div>
         <CamposFase2 dados={docFormData} onChange={d => setDocFormData({ ...docFormData, ...d })} />
+        {!editingId && docFormData.operation !== OperationType.OUTROS && (() => {
+          const om = resolv.omDoDocumento({ client: docFormData.client || '', ug: docFormData.ug });
+          return <FaturasParaPagar faturas={openInvoices} omId={om?.id ?? null} nomeOM={om?.nome} valorDoc={Number(docFormData.totalValue) || 0}
+            selecao={pagarNaInclusao} onChange={setPagarNaInclusao} adiantamento={docFormData.operation === OperationType.ADIANTAMENTO} />;
+        })()}
       </Modal>
 
       {/* Pay Modal */}

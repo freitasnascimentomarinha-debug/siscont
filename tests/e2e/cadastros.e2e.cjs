@@ -800,7 +800,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.comandos.push(cmd); db.oms.push(amrj, skm);
     const fat = { id: uid(), invoice_number: '41000-EL-09-2025-001-0', ug: '41000', sector: 'DGMM', command: 'Arsenal', client: amrj.nome, value: 3000, adjustment_addition: 0, adjustment_deduction: 0,
       issue_date: '2025-10-15', due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: amrj.id };
-    db.invoices = [fat];
+    const fat2 = { ...fat, id: uid(), invoice_number: '41000-AE-10-2026-001-0', value: 800, issue_date: '2026-11-15', due_date: '2026-12-15', month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Água e Esgoto', service_acronym: 'AE' };
+    const fatOutra = { ...fat, id: uid(), invoice_number: '41000-TC-10-2026-009-0', client: 'SKM', om_id: skm.id, value: 50, issue_date: '2026-11-15', due_date: '2026-12-15', month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Taxa Condominial', service_acronym: 'TC' };
+    db.invoices = [fat, fat2, fatOutra];
     const docAmrj = { id: uid(), document_number: 'AMRJ.2026.AC.00001', document_type: 'ALTCRED', total_value: 1000, date: '2026-10-01', operation: 'PAGAMENTO', client: 'ARSENAL DE MARINHA DO RIO DE JANEIRO', sector: 'texto livre', command: 'texto livre', ug: '41000', observation: '' };
     const docRt = { id: uid(), document_number: 'B4D0.2026.AC.00824', document_type: 'ALTCRED', total_value: 2000, date: '2026-10-05', operation: 'PAGAMENTO', client: '40001 - RT DGMM', sector: 'DGMM', command: '40001 - RT DGMM', ug: '40001', observation: 'PAGAMENTO DE FATURAS DO AMRJ 2025' };
     db.received_documents.push(docAmrj, docRt);
@@ -817,6 +819,33 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/Mostrando 1–2 de 2 documentos/).isVisible(), 'paginação com total de documentos');
     await page.getByLabel('Fatura paga (nº)').fill('41000-EL-09-2025');
     ok(await page.getByText('B4D0.2026.AC.00824').isVisible() && await page.getByText('AMRJ.2026.AC.00001').isVisible(), 'busca pela fatura paga encontra as ALTCRED que pagaram');
+    // Novo documento já pagando faturas em aberto da OM
+    await page.getByLabel('Fatura paga (nº)').fill('');
+    await page.getByRole('button', { name: 'Novo Documento' }).click();
+    const dlgDoc = page.getByRole('dialog');
+    await dlgDoc.getByLabel('Operação').selectOption('PAGAMENTO');
+    await dlgDoc.getByLabel('Tipo Documento').selectOption('ALTCRED');
+    await dlgDoc.getByLabel('Número Documento').fill('AMRJ.2026.AC.00099');
+    await dlgDoc.getByLabel('Valor Total').fill('50000'); // campo em centavos: R$ 500,00
+    await dlgDoc.getByLabel('Data', { exact: true }).fill('2026-11-20');
+    await dlgDoc.getByLabel('Cliente', { exact: true }).fill('Arsenal');
+    await page.getByRole('option', { name: /Arsenal de Marinha do Rio de Janeiro/ }).first().click();
+    await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').waitFor();
+    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 0, 'lista primeiro só as faturas em aberto da OM do documento (a da SKM não aparece)');
+    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-EL-09-2025-001-0').count() === 0, 'fatura já quitada não aparece');
+    await dlgDoc.getByText('Mostrar faturas de todas as OM').click();
+    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 1, '"todas as OM" mostra faturas de outras OM (pagador por outra OM)');
+    await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').check();
+    ok(await dlgDoc.getByText(/fica disponível no documento/).isVisible() && (await dlgDoc.getByLabel('Valor a pagar da fatura 41000-AE-10-2026-001-0').inputValue()) === '500', 'valor do documento (R$ 500) distribuído na fatura escolhida, até o saldo');
+    await dlgDoc.getByLabel('Valor a pagar da fatura 41000-AE-10-2026-001-0').fill('600');
+    ok(await dlgDoc.getByText(/passa do valor do documento/).isVisible(), 'avisa quando o valor a pagar passa do valor do documento');
+    await dlgDoc.getByLabel('Valor a pagar da fatura 41000-AE-10-2026-001-0').fill('450');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'novo-documento-pagando.png'), fullPage: false });
+    await page.getByRole('button', { name: 'Salvar e baixar 1 fatura(s)' }).click();
+    await page.getByText(/Documento salvo e 1 fatura\(s\) baixada\(s\)/).waitFor();
+    const novoDoc = db.received_documents.find(d => d.document_number === 'AMRJ.2026.AC.00099');
+    const bxNova = db.payment_allocations.filter(b => b.document_id === novoDoc?.id);
+    ok(novoDoc && bxNova.length === 1 && Number(bxNova[0].amount) === 450 && bxNova[0].invoice_id === fat2.id && bxNova[0].date === '2026-11-20', 'documento gravado com a baixa de R$ 450 na fatura escolhida, na data do documento');
     // Extrato do Arsenal: inclui o pagamento feito pelo RT DGMM e a coluna Comando é o comando
     await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
     await page.getByPlaceholder(/Digite o código ou o nome/).fill('Arsenal');
