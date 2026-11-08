@@ -20,6 +20,7 @@ import {
   Gauge,
   Landmark,
   DatabaseBackup,
+  Briefcase,
 } from 'lucide-react';
 import { ultimoBackup } from '../services/auditoriaService';
 import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
@@ -59,6 +60,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       { id: 'received', label: 'Recebimentos (ALTCRED/GRU)', icon: Wallet, dica: 'Importar ALTCRED do SIPLAD, GRU, baixas e adiantamentos' },
       { id: 'conciliacao', label: 'Extrato de conciliação', icon: Scale, dica: 'Conferência faturado × recebido por OM' },
       { id: 'cobranca', label: 'Cobrança', icon: Megaphone, dica: 'Faturas em aberto e mensagens de cobrança' },
+      { id: 'extramb', label: 'Extra-Marinha', icon: Briefcase, dica: 'Clientes de fora da Marinha: faturas, GRU, extrato por cliente e e-mail de envio' },
     ] },
     { titulo: 'Contabilidade de custos', itens: [
       { id: 'cashflow', label: 'Fluxo de caixa', icon: ArrowLeftRight, dica: 'Saídas (NE), saldo mensal, condomínio por rubrica e disponível' },

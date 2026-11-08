@@ -1654,6 +1654,59 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await radio('MB').getAttribute('aria-checked') === 'true', 'cada tela lembra a sua escolha (painel continua em MB)');
   });
 
+  await cenario('Página Extra-Marinha: resumo, faturas, GRU, extrato por cliente e e-mail de envio', [], async (page, db) => {
+    const itau = { id: uid(), codigo: '00997', nome: 'Banco Itaú', tipo: 'EXTRA_MB', ativo: true, nomes_alternativos: [], emails: 'gerencia@itau.com.br', cnpj: '60.701.190/0001-04' };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', ativo: true, nomes_alternativos: [] };
+    db.oms.push(itau, dim);
+    const fat = (n, om, comp, venc, valor, extra = {}) => ({
+      id: uid(), ug: n.slice(0, 5), sector: om === itau ? 'EXTRA-MB' : 'DGMM', command: om === itau ? 'EXTRA-MARINHA' : '40030 - DIM', client: om.nome, invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `2026-${comp}-15`, due_date: venc, month_competence: Number(comp), year_competence: 2026, competence: `${comp}/2026`, type: 'Aluguel', service_acronym: n.split('-')[1],
+      is_canceled: false, siplad_settled: false, om_id: om.id, origem: 'Planilha', quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [], ...extra,
+    });
+    const paga = fat('40015-AL-07-2026-005-0', itau, '07', '2026-08-10', 32900);
+    const cancelada = fat('40015-AL-02-2026-005-0', itau, '02', '2026-03-15', 35093.33, { is_canceled: true });
+    db.invoices.push(paga, cancelada, fat('40015-AL-08-2026-005-0', itau, '08', '2026-09-15', 32900), fat('40015-AL-10-2026-005-0', itau, '10', '2099-11-15', 32900), fat('40030-AE-08-2026-001-0', dim, '08', '2026-09-15', 1000));
+    const gru1 = { id: uid(), document_number: 'GRU AAA111', document_type: 'GRU', total_value: 32900, date: '2026-08-05', operation: 'PAGAMENTO', client: 'Banco Itaú', sector: 'EXTRA-MB', command: 'EXTRA-MARINHA', ug: '00997', observation: '', gru_autenticacao: 'AAA111', gru_data_pagamento: '2026-08-05' };
+    const gru2 = { id: uid(), document_number: 'GRU BBB222', document_type: 'GRU', total_value: 35093.33, date: '2026-03-10', operation: 'PAGAMENTO', client: 'Banco Itaú', sector: 'EXTRA-MB', command: 'EXTRA-MARINHA', ug: '00997', observation: '', gru_autenticacao: 'BBB222', gru_data_pagamento: '2026-03-10' };
+    db.received_documents.push(gru1, gru2);
+    db.payment_allocations.push({ id: uid(), document_id: gru1.id, invoice_id: paga.id, amount: 32900, date: '2026-08-05', service_type: 'AL', tipo_baixa: 'PAGAMENTO' },
+      { id: uid(), document_id: gru2.id, invoice_id: cancelada.id, amount: 35093.33, date: '2026-03-10', service_type: 'AL', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.locator('nav').getByRole('button', { name: 'Extra-Marinha' }).click();
+    await page.getByRole('heading', { name: 'Extra-Marinha' }).waitFor();
+    await page.getByLabel('Exercício').selectOption('2026');
+    await page.getByRole('table', { name: 'Resumo por cliente' }).getByText('Banco Itaú').waitFor();
+    const tab = (await page.getByRole('table', { name: 'Resumo por cliente' }).innerText()).replace(/\s+/g, ' ');
+    ok(tab.includes('Banco Itaú') && !tab.includes('Diretoria Industrial'), 'resumo só com os clientes Extra-MB');
+    ok(tab.includes('R$ 98.700,00') && tab.includes('R$ 67.993,33') && tab.includes('R$ 65.800,00') && tab.includes('R$ 35.093,33'), 'resumo do Itaú: faturado 98.700, recebido 67.993,33, em aberto 65.800, crédito de GRU 35.093,33');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extramb-resumo.png'), fullPage: true });
+
+    await page.getByRole('button', { name: /^GRU recebidas/ }).click();
+    ok(await page.getByText(/paga fatura cancelada \(40015-AL-02-2026-005-0\)/).isVisible(), 'GRU que pagou fatura cancelada aparece com alerta');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extramb-gru.png'), fullPage: true });
+
+    await page.getByRole('button', { name: 'Faturas', exact: true }).click();
+    ok(await page.getByText('40015-AL-08-2026-005-0').isVisible() && await page.getByText('40015-AL-07-2026-005-0').count() === 0, 'faturas: em aberto por padrão (sem a paga)');
+
+    await page.getByRole('button', { name: 'Resumo', exact: true }).click();
+    await page.getByRole('button', { name: 'extrato', exact: true }).first().click();
+    const ext = (await page.getByRole('table', { name: 'Faturas do extrato' }).innerText()).replace(/\s+/g, ' ');
+    ok(ext.includes('40015-AL-07-2026-005-0') && ext.includes('GRU AAA111') && !ext.includes('40015-AL-02-2026-005-0'), 'extrato do cliente: faturas do ano com a GRU que pagou, sem a cancelada');
+    const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
+    ok(/^extrato_extra_mb_Banco_Ita_?u?_2026\.pdf$/.test(pdf.suggestedFilename()), `PDF do extrato (${pdf.suggestedFilename()})`);
+
+    await page.getByRole('button', { name: 'E-mail de envio' }).click();
+    await page.getByLabel('Competência das faturas').selectOption('08/2026');
+    await page.waitForFunction(() => (document.querySelector('textarea[aria-label="Texto do e-mail"]')?.value || '').includes('40015-AL-08-2026-005-0'), null, { timeout: 5000 }).catch(() => {});
+    const texto = await page.getByLabel('Texto do e-mail').inputValue();
+    ok(texto.startsWith('Prezado Sr (a) Gerente,') && texto.includes('Guias de Recolhimento da União (GRU)') && texto.includes('Solicito confirmar o recebimento deste e-mail') && texto.includes('40015-AL-08-2026-005-0'), 'e-mail com o texto do modelo e a fatura da competência');
+    ok((await page.getByLabel('Assunto do e-mail').inputValue()) === 'Faturas BNIC — Banco Itaú — competência 08/2026' && await page.getByText('gerencia@itau.com.br').isVisible(), 'assunto e destinatário do cadastro');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extramb-email.png'), fullPage: true });
+    await page.getByRole('button', { name: /Marcar 1 como enviada/ }).click();
+    await page.getByText(/1 fatura\(s\) marcada\(s\) como enviada/).waitFor();
+    ok(!!db.invoices.find(i => i.invoice_number === '40015-AL-08-2026-005-0').enviada_em, 'fatura marcada como enviada');
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));

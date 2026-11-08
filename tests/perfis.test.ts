@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UserRole, podeEditarDados, podeVerPagina } from '../types';
 
-const PAGINAS = ['dashboard', 'painel', 'pontos', 'faturamento', 'invoices', 'contestacoes', 'received', 'conciliacao', 'cobranca', 'cashflow', 'taxa', 'cadastros', 'auditoria', 'admin'];
+const PAGINAS = ['dashboard', 'painel', 'pontos', 'faturamento', 'invoices', 'contestacoes', 'received', 'conciliacao', 'cobranca', 'extramb', 'cashflow', 'taxa', 'cadastros', 'auditoria', 'admin'];
 const vistas = (r: UserRole) => PAGINAS.filter(p => podeVerPagina(r, p));
 
 describe('páginas por perfil', () => {
