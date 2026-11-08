@@ -1298,6 +1298,26 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Adicionar' }).click();
     await page.getByText('Desconto gravado.').waitFor();
     ok(db.descontos_tc.length === 2 && db.descontos_tc.some(d => Number(d.valor) === 23.5), 'desconto gravado');
+    // desconto do grupo NAVIOS: sai do valor destinado aos navios
+    await page.getByLabel('OM do desconto').selectOption('__NAVIOS');
+    ok((await page.getByLabel('Rubrica do desconto').locator('option').allInnerTexts()).includes('Total destinado aos navios'), 'grupo NAVIOS na lista de OM do desconto');
+    await page.getByLabel('Tipo do desconto').selectOption('VALOR');
+    await page.getByLabel('Valor do desconto').fill('10000');
+    await page.getByLabel('Justificativa do desconto').fill('Navios custeiam parte do serviço');
+    await page.getByRole('button', { name: 'Adicionar' }).click();
+    for (let i = 0; i < 40 && !db.descontos_tc.some(d => d.grupo === 'NAVIOS'); i++) await page.waitForTimeout(250);
+    const dNav = db.descontos_tc.find(d => d.grupo === 'NAVIOS');
+    ok(dNav && dNav.om_id === null && Number(dNav.valor) === 10000 && dNav.rubrica === null, 'desconto do grupo NAVIOS gravado (sem OM, no total)');
+    await page.getByRole('row').filter({ hasText: 'Grupo NAVIOS' }).first().waitFor();
+    ok((await page.getByRole('row').filter({ hasText: 'Grupo NAVIOS' }).first().innerText()).includes('R$ 10.000,00'), 'lista mostra o desconto e o efeito no grupo NAVIOS');
+    await page.getByRole('button', { name: '5. Navios' }).click();
+    await page.getByLabel('Valor destinado aos navios').waitFor();
+    const qn = (await page.getByLabel('Valor destinado aos navios').innerText()).replace(/\s+/g, ' ');
+    ok(/Descontos do grupo NAVIOS .*− R\$ 10\.000,00/.test(qn) && (await page.getByLabel('Total dos navios', { exact: true }).innerText()).includes('R$ 90.000,00'), 'aba Navios: valor destinado 100.000 − desconto 10.000 = R$ 90.000,00');
+    // tira o desconto dos navios para não mudar a conferência das diárias com a planilha
+    await page.getByRole('button', { name: '3. Descontos por OM' }).click();
+    await page.getByRole('row').filter({ hasText: 'Grupo NAVIOS' }).first().getByLabel('Excluir desconto').click();
+    for (let i = 0; i < 40 && db.descontos_tc.some(d => d.grupo === 'NAVIOS'); i++) await page.waitForTimeout(250);
     // média trienal: digitação e gravação
     await page.getByRole('button', { name: '6. Média trienal' }).click();
     await page.getByLabel('Dias Corvetas Classe Barroso 2023').fill('355');

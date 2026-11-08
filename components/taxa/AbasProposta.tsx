@@ -15,7 +15,7 @@ import {
 } from '../../services/taxaCondominialService';
 import { AREAS_CNIC, OM } from '../../types';
 import { ClienteModal } from './ClienteModal';
-import { AnoClasse, BaseNavios, CRITERIOS, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
+import { AnoClasse, BaseNavios, CRITERIOS, calcularTotalNavios, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
 import { acharPorNome, lerAbas, lerHistorico, lerSubsidios } from '../../utils/taxaCondominialImport';
 
 // lê "23,65", "23.65" (valor vindo do banco) e "1.234,56": antes "23.65" virava 2365
@@ -81,7 +81,9 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const somaNavios = r2(tTC.nav + tOG.nav);
   const linhaDA = da[0]?.l;
   const referenciaNavios = dados.proposta.naviosPlanilha ?? linhaDA?.valorPrevisto ?? null;
-  const valorDA = somaNavios;
+  // total dos navios já sem os descontos do grupo NAVIOS (aba Descontos)
+  const valorDA = calcularTotalNavios(linhas.filter(entraNaTaxa), dados.descontos, baseNavios).total;
+  void somaNavios;
   const divergentes = tc.filter(x => calc(x.l).confere === false).map(x => x.l.numero);
 
   const gravar = async () => {
@@ -305,8 +307,11 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const gruposArea = [1, 2, 3, 4, 5, 0].map(area => ({ area, oms: linhas.filter(o => (o.areaCnic || 0) === area) })).filter(g => g.oms.length || g.area === 1);
 
   const linhasTaxa = dados.rubricas.filter(entraNaTaxa).sort((a, b) => a.numero - b.numero);
-  const vaiNavios = (r: RubricaProposta) => { const c = navCfg.get(r.numero); return c ? parteNavios({ ...r, naviosModo: c.modo, percentualNavios: c.pct, valorNavios: c.valor }, baseNav) : 0; };
-  const totalNav = Math.round(linhasTaxa.reduce((t, r) => t + vaiNavios(r), 0) * 100) / 100;
+  const comCfg = (r: RubricaProposta) => { const c = navCfg.get(r.numero); return c ? { ...r, naviosModo: c.modo, percentualNavios: c.pct, valorNavios: c.valor } : r; };
+  const tnQuadro = calcularTotalNavios(linhasTaxa.map(comCfg), dados.descontos, baseNav);
+  const vaiNavios = (r: RubricaProposta) => tnQuadro.linhas.find(l => l.numero === r.numero)?.bruto ?? 0;
+  const descNavLinha = (r: RubricaProposta) => { const l = tnQuadro.linhas.find(x => x.numero === r.numero); return l ? Math.round((l.bruto - l.liquido) * 100) / 100 : 0; };
+  const totalNav = tnQuadro.total;
   const refNav = dados.proposta.naviosPlanilha ?? rubsDA[0]?.valorPrevisto ?? null;
   const quadroNavios = (
     <section className="space-y-2" aria-label="Valor destinado aos navios">
@@ -335,11 +340,13 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                   {c.modo === 'PERCENTUAL' && <input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={fmt(c.pct)} onChange={e => mudarNav(r.numero, { pct: Math.min(100, Math.max(0, n2(e.target.value) ?? 0)) })} aria-label={`Percentual dos navios na linha ${r.numero}`} />}
                   {c.modo === 'FIXO' && <input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(c.valor)} onChange={e => mudarNav(r.numero, { valor: Math.max(0, n2(e.target.value) ?? 0) })} aria-label={`Valor fixo dos navios na linha ${r.numero}`} />}
                 </span></td>
-                <td className="px-2 text-right tabular-nums font-semibold">{v ? brl(v) : '—'}</td>
+                <td className="px-2 text-right tabular-nums font-semibold">{v ? brl(v) : '—'}{descNavLinha(r) > 0 && <div className="text-[10px] font-normal text-red-700">− desconto {brl(descNavLinha(r))}</div>}</td>
               </tr>
             ); })}
           </tbody>
-          <tfoot className="bg-slate-100 font-bold"><tr>
+          <tfoot className="bg-slate-100 font-bold">
+            {tnQuadro.descontos > 0 && <tr className="font-normal text-red-700"><td colSpan={4} className="px-2 py-1">(−) Descontos do grupo NAVIOS (aba Descontos)</td><td className="px-2 text-right tabular-nums">− {brl(tnQuadro.descontos)}</td></tr>}
+            <tr>
             <td colSpan={4} className="px-2 py-1.5">Total dos navios: {linhasTaxa.filter(r => vaiNavios(r) > 0).length} linha(s){refNav != null && (Math.abs(refNav - totalNav) < 0.01 ? <span className="text-emerald-700 ml-2 font-normal" title="confere com a planilha">✓ confere com a planilha</span> : <span className="text-amber-700 ml-2 font-normal">⚠ planilha: {brl(refNav)}</span>)}</td>
             <td className="px-2 text-right tabular-nums" aria-label="Total dos navios">{brl(totalNav)}</td>
           </tr></tfoot>
@@ -560,13 +567,23 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
   const [gravando, setGravando] = useState(false);
   const participantes = resultado.oms;
   const nomeOM = (id: string | null) => dados.oms.find(o => o.id === id)?.nome || '—';
+  const NAV = '__NAVIOS';
+  const ehNavios = (d: Desconto) => d.grupo === 'NAVIOS';
+  const linhasTaxa = dados.rubricas.filter(entraNaTaxa);
+  const baseNav = dados.proposta.baseNavios || 'PREVISTO';
+  const tnSem = calcularTotalNavios(linhasTaxa, dados.descontos.filter(d => !ehNavios(d)), baseNav);
   const efeito = (d: Desconto) => {
+    if (ehNavios(d)) {
+      // efeito do desconto do grupo NAVIOS: sobre a parte dos navios na linha, ou sobre o total
+      const base = d.rubrica === null ? tnSem.total : tnSem.linhas.find(l => l.numero === d.rubrica)?.bruto ?? 0;
+      return Math.round(Math.min(base, d.tipo === 'PERCENTUAL' ? base * d.valor / 100 : d.valor) * 100) / 100;
+    }
     const o = resultado.oms.find(x => x.omId === d.omId);
     if (!o) return null;
     if (d.rubrica === null) return o.anualBruto - o.anual;
     return o.parcelas.find(p => p.rubrica === d.rubrica)?.desconto ?? 0;
   };
-  const erro = !novo.omId ? 'Escolha a OM.' : !(Number(n2(valorTxt)) > 0) ? 'Informe o valor.' : novo.tipo === 'PERCENTUAL' && Number(n2(valorTxt)) > 100 ? 'Percentual acima de 100%.' : !novo.justificativa.trim() ? 'A justificativa é obrigatória.' : '';
+  const erro = !novo.omId && novo.grupo !== 'NAVIOS' ? 'Escolha a OM ou o grupo NAVIOS.' : !(Number(n2(valorTxt)) > 0) ? 'Informe o valor.' : novo.tipo === 'PERCENTUAL' && Number(n2(valorTxt)) > 100 ? 'Percentual acima de 100%.' : !novo.justificativa.trim() ? 'A justificativa é obrigatória.' : '';
   const gravar = async () => {
     setGravando(true);
     try { await salvarDesconto(ano, { ...novo, valor: Number(n2(valorTxt)) }); setNovo(vazio); setValorTxt(''); notify.success('Desconto gravado.'); recarregar(); }
@@ -574,14 +591,17 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
   };
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">Desconto concedido a uma OM (ex.: SecNSNQ — parte do edifício mantida pela própria OM), numa rubrica ou no total da taxa. O valor descontado não é redistribuído às demais OM. Desconto que vale para todas as OM fica na aba Rubricas (desconto geral).</p>
+      <p className="text-xs text-slate-500">Desconto concedido a uma OM (ex.: SecNSNQ — parte do edifício mantida pela própria OM), numa rubrica ou no total da taxa. O valor descontado não é redistribuído às demais OM. Desconto que vale para todas as OM fica na aba Rubricas (desconto geral). <b>⚓ Grupo NAVIOS</b>: o desconto sai do valor destinado aos navios (numa linha de que eles participam ou no total) e reduz as diárias; não mexe nas OM.</p>
       {podeEditar && (
         <div className="flex flex-wrap gap-2 items-end p-3 rounded-lg border border-slate-200 bg-slate-50">
-          <Campo rotulo="OM"><select className={entrada} value={novo.omId || ''} onChange={e => setNovo({ ...novo, omId: e.target.value || null })} aria-label="OM do desconto">
-            <option value="">escolher...</option>{participantes.map(o => <option key={o.omId} value={o.omId}>{o.nome}</option>)}
+          <Campo rotulo="OM"><select className={entrada} value={novo.grupo === 'NAVIOS' ? NAV : novo.omId || ''} onChange={e => setNovo({ ...novo, omId: e.target.value && e.target.value !== NAV ? e.target.value : null, grupo: e.target.value === NAV ? 'NAVIOS' : null })} aria-label="OM do desconto">
+            <option value="">escolher...</option>
+            <option value={NAV}>⚓ Grupo NAVIOS (diárias)</option>
+            {participantes.map(o => <option key={o.omId} value={o.omId}>{o.nome}</option>)}
           </select></Campo>
           <Campo rotulo="Aplicar em"><select className={entrada} value={novo.rubrica ?? ''} onChange={e => setNovo({ ...novo, rubrica: e.target.value ? Number(e.target.value) : null })} aria-label="Rubrica do desconto">
-            <option value="">Total da taxa da OM</option>{dados.rubricas.map(r => <option key={r.numero} value={r.numero}>{r.numero} – {r.descricao}</option>)}
+            <option value="">{novo.grupo === 'NAVIOS' ? 'Total destinado aos navios' : 'Total da taxa da OM'}</option>
+            {(novo.grupo === 'NAVIOS' ? linhasTaxa.filter(r => (tnSem.linhas.find(l => l.numero === r.numero)?.bruto ?? 0) > 0) : dados.rubricas).map(r => <option key={r.numero} value={r.numero}>{r.numero} – {r.descricao}</option>)}
           </select></Campo>
           <Campo rotulo="Tipo"><select className={entrada} value={novo.tipo} onChange={e => setNovo({ ...novo, tipo: e.target.value as Desconto['tipo'] })} aria-label="Tipo do desconto"><option value="PERCENTUAL">%</option><option value="VALOR">R$ (anual)</option></select></Campo>
           <Campo rotulo={novo.tipo === 'PERCENTUAL' ? 'Percentual' : 'Valor anual (R$)'}><input className={`${entrada} w-28 text-right`} inputMode="decimal" value={valorTxt} onChange={e => setValorTxt(e.target.value)} aria-label="Valor do desconto" /></Campo>
@@ -595,15 +615,15 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
         <tbody>
           {dados.descontos.map(d => (
             <tr key={d.id} className="border-t border-slate-100">
-              <td className="px-2 py-1.5">{nomeOM(d.omId)}</td>
-              <td className="px-2">{d.rubrica === null ? 'Total da taxa' : `${d.rubrica} – ${dados.rubricas.find(r => r.numero === d.rubrica)?.descricao || ''}`}</td>
+              <td className="px-2 py-1.5">{ehNavios(d) ? <b>⚓ Grupo NAVIOS</b> : nomeOM(d.omId)}</td>
+              <td className="px-2">{d.rubrica === null ? (ehNavios(d) ? 'Total destinado aos navios' : 'Total da taxa') : `${d.rubrica} – ${dados.rubricas.find(r => r.numero === d.rubrica)?.descricao || ''}`}</td>
               <td className="px-2 text-right">{d.tipo === 'PERCENTUAL' ? pct(d.valor) : brl(d.valor)}</td>
               <td className="px-2 text-right">{efeito(d) === null ? <span className="text-amber-700 text-xs">OM fora do rateio</span> : brl(efeito(d)!)}</td>
               <td className="px-2 text-xs text-slate-600">{d.justificativa}</td>
               <td className="px-2">{podeEditar && <button aria-label="Excluir desconto" className="text-slate-400 hover:text-red-600" onClick={async () => { try { await excluirDesconto(d.id); recarregar(); } catch (e) { notify.fail('Erro ao excluir', e); } }}><Trash2 size={14} /></button>}</td>
             </tr>
           ))}
-          {!dados.descontos.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhum desconto por OM.</td></tr>}
+          {!dados.descontos.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhum desconto.</td></tr>}
         </tbody>
       </table>
     </div>

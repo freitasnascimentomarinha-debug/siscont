@@ -323,3 +323,28 @@ describe('lista de navios do Histórico Trienal × cadastro', () => {
     expect(r).toMatchObject({ naLista: 1, ativos: 1, desativados: 1, reativar: 1, trienal: { '2022': 2, '2023': 1, '2024': 1 } });
   });
 });
+
+import { calcularTotalNavios } from '../utils/taxaCondominial';
+describe('desconto do grupo NAVIOS', () => {
+  const terra = [{ omId: 'a', nome: 'A', tipo: 'TERRA' as const, lotacao: 100, dias: 30 }];
+  const navios = [{ omId: 'n', nome: 'N', tipo: 'NAVIO' as const, lotacao: 100, dias: 10 }];
+  const rubs = [{ numero: 1, descricao: 'R1', valorPrevisto: 1000, descontoGeral: 0, naviosModo: 'INTEGRAL' as const }, { numero: 2, descricao: 'R2', valorPrevisto: 500, descontoGeral: 0, naviosModo: 'INTEGRAL' as const }];
+  const m = new Set(['1|a', '2|a']);
+  it('na linha (R$) e no total (%): reduz só o valor destinado aos navios, não as OM', () => {
+    const d = [
+      { id: '1', omId: null, grupo: 'NAVIOS' as const, rubrica: 1, tipo: 'VALOR' as const, valor: 200, justificativa: 'x' },
+      { id: '2', omId: null, grupo: 'NAVIOS' as const, rubrica: null, tipo: 'PERCENTUAL' as const, valor: 10, justificativa: 'x' },
+    ];
+    const t = calcularTotalNavios(rubs, d);
+    expect(t.bruto).toBe(1500);
+    expect(t.total).toBe(1170); // (800 + 500) − 10%
+    expect(t.descontos).toBe(330);
+    const r = ratearProposta(rubs, terra, navios, m, d);
+    expect(r.totalNavios).toBe(1170);
+    expect(r.tc.total).toBe(1500); // as OM continuam pagando tudo
+    expect(r.da.oms[0].anual).toBe(1170);
+  });
+  it('desconto não passa do valor', () => {
+    expect(calcularTotalNavios(rubs, [{ id: '1', omId: null, grupo: 'NAVIOS', rubrica: 2, tipo: 'VALOR', valor: 9999, justificativa: 'x' }]).total).toBe(1000);
+  });
+});

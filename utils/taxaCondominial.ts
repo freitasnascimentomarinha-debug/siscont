@@ -66,7 +66,8 @@ export interface RubricaTC {
   valorRateio?: number;
 }
 export interface Participante { omId: string; nome: string; tipo: 'TERRA' | 'NAVIO'; lotacao: number; dias: number; semHistorico?: boolean; area?: number | null; pesoManual?: number | null }
-export interface Desconto { id: string; omId: string | null; rubrica: number | null; tipo: 'PERCENTUAL' | 'VALOR'; valor: number; justificativa: string }
+/** Desconto de uma OM (omId) ou do grupo NAVIOS (grupo), numa linha (rubrica) ou no total (rubrica vazia). */
+export interface Desconto { id: string; omId: string | null; grupo?: 'NAVIOS' | null; rubrica: number | null; tipo: 'PERCENTUAL' | 'VALOR'; valor: number; justificativa: string }
 
 export interface ParcelaRubrica { rubrica: number; bruto: number; desconto: number; liquido: number }
 export interface ResultadoOM {
@@ -180,11 +181,25 @@ export function montarParticipantes(
  *    das OM; NÃO diminui a parte das OM (a mesma linha é rateada entre as OM e também vai para os navios);
  *  - a soma das partes dos navios é rateada entre os navios (lotação × dias) e vira a diária de cada um.
  */
-export interface PorRubrica { numero: number; baseOM: number; navios: number }
+export interface PorRubrica { numero: number; baseOM: number; navios: number; /** parte dos navios antes dos descontos do grupo NAVIOS */ naviosBruto?: number }
+/** Desconto do grupo NAVIOS sobre um valor (de uma linha, ou do total quando rubrica = null). */
+export function descontoGrupoNavios(descontos: Desconto[], rubrica: number | null, valor: number): number {
+  return r2(Math.min(valor, descontos.filter(d => d.grupo === 'NAVIOS' && d.rubrica === rubrica)
+    .reduce((s, d) => s + (d.tipo === 'PERCENTUAL' ? valor * d.valor / 100 : d.valor), 0)));
+}
+/** Valor destinado aos navios: soma das partes das linhas, menos os descontos do grupo NAVIOS (por linha e no total). */
+export function calcularTotalNavios(rubricas: RubricaTC[], descontos: Desconto[], baseNavios: BaseNavios = 'PREVISTO') {
+  const linhas = rubricas.map(r => { const bruto = parteNavios(r, baseNavios); return { numero: r.numero, bruto, liquido: r2(bruto - descontoGrupoNavios(descontos, r.numero, bruto)) }; });
+  const soma = r2(linhas.reduce((s, l) => s + l.liquido, 0));
+  const noTotal = descontoGrupoNavios(descontos, null, soma);
+  return { linhas, bruto: r2(linhas.reduce((s, l) => s + l.bruto, 0)), descontos: r2(linhas.reduce((s, l) => s + l.bruto - l.liquido, 0) + noTotal), total: r2(soma - noTotal) };
+}
 export function ratearProposta(rubricas: RubricaTC[], terra: Participante[], navios: Participante[], matriz: Set<string>, descontos: Desconto[], baseNavios: BaseNavios = 'PREVISTO') {
-  const porRubrica: PorRubrica[] = rubricas.map(r => ({ numero: r.numero, baseOM: r2(valorVigente(r) * (r.percentualOM ?? 100) / 100), navios: parteNavios(r, baseNavios) }));
+  const tn = calcularTotalNavios(rubricas, descontos, baseNavios);
+  const porRubrica: PorRubrica[] = rubricas.map((r, i) => ({ numero: r.numero, baseOM: r2(valorVigente(r) * (r.percentualOM ?? 100) / 100), navios: tn.linhas[i].liquido, naviosBruto: tn.linhas[i].bruto }));
   const tc = ratear(rubricas.map((r, i) => ({ ...r, valorRateio: porRubrica[i].baseOM })), terra, matriz, descontos);
-  const totalNavios = r2(porRubrica.reduce((s, x) => s + x.navios, 0));
+  // desconto do grupo NAVIOS no total sai do valor destinado (as linhas ficam com a parte de cada uma)
+  const totalNavios = tn.total;
   const da = ratear([{ numero: 0, descricao: 'Navios (soma das partes dos navios nas rubricas)', valorPrevisto: totalNavios, descontoGeral: 0 }],
     navios, new Set(navios.map(n => `0|${n.omId}`)), []);
   return { tc, da, porRubrica, totalNavios };

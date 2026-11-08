@@ -91,7 +91,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     })),
     lotacoes: (lot.data || []).map(l => ({ omId: l.om_id, lotacao: Number(l.lotacao), lotacaoAnterior: l.lotacao_anterior == null ? null : Number(l.lotacao_anterior), dias: l.dias === null || l.dias === undefined ? null : Number(l.dias), area: l.area == null ? null : Number(l.area), peso: l.peso == null ? null : Number(l.peso) })),
     matriz: new Set((mat.data || []).map(m => `${m.rubrica}|${m.om_id}`)),
-    descontos: (desc.data || []).map(d => ({ id: d.id, omId: d.om_id, rubrica: d.rubrica, tipo: d.tipo, valor: Number(d.valor), justificativa: d.justificativa || '' })),
+    descontos: (desc.data || []).map(d => ({ id: d.id, omId: d.om_id, grupo: d.grupo === 'NAVIOS' ? 'NAVIOS' as const : null, rubrica: d.rubrica, tipo: d.tipo, valor: Number(d.valor), justificativa: d.justificativa || '' })),
     atracacaoAnual: (atr.data || []).map(a => ({ ano: a.ano, classeId: a.classe_id, dias: Number(a.dias), navios: a.navios })),
     oms, classes,
     pendentes: pend.error ? [] : (pend.data || []).map(x => ({
@@ -165,7 +165,10 @@ export async function salvarMatriz(ano: number, matriz: Set<string>) {
 }
 
 export async function salvarDesconto(ano: number, d: Desconto) {
-  const { error } = await supabase.from('descontos_tc').upsert({ id: d.id || uuidv4(), ano, om_id: d.omId, rubrica: d.rubrica, tipo: d.tipo, valor: d.valor, justificativa: d.justificativa });
+  const reg: any = { id: d.id || uuidv4(), ano, om_id: d.grupo === 'NAVIOS' ? null : d.omId, rubrica: d.rubrica, tipo: d.tipo, valor: d.valor, justificativa: d.justificativa };
+  if (d.grupo === 'NAVIOS') reg.grupo = 'NAVIOS';
+  const { error } = await supabase.from('descontos_tc').upsert(reg);
+  if (error && d.grupo === 'NAVIOS' && /grupo|om_id|not-null|null value/.test(error.message || '')) throw new Error('Para dar desconto ao grupo NAVIOS, execute o script supabase/migrations/023_desconto_grupo_navios.sql no Supabase.');
   checar(error);
 }
 /** Descontos por OM vindos da planilha: substitui os importados antes (os lançados à mão ficam). */
