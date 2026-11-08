@@ -1309,6 +1309,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await page.getByRole('row').filter({ hasText: 'Corveta Barroso' }).first().innerText()).includes('R$ 297,62'), 'diária da Corveta Barroso R$ 297,62 (custo militar-dia × lotação)');
     ok(await page.getByText(/valores de diária conferem/).isVisible(), 'diárias conferem com a aba PROPOSTA');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-diarias.png'), fullPage: true });
+    // dias com ponto decimal (como vêm do banco: "23.65"): antes viravam 2365 e o banco recusava ("rode o script 010")
+    await page.getByRole('button', { name: '5. Navios' }).click();
+    await page.getByLabel('Dias de Corveta Barroso').fill('28.00');
+    await page.getByRole('button', { name: 'Gravar navios' }).click();
+    await page.getByText('Navios gravados.').waitFor();
+    ok(Number(db.lotacoes_tc.find(l => l.om_id === bar.id).dias) === 28, 'Gravar navios com dias "28.00" grava 28 (não 2800)');
     // aprovar e publicar
     await page.getByRole('button', { name: 'Aprovar proposta' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();

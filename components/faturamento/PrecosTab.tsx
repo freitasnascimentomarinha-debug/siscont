@@ -1,3 +1,4 @@
+import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useState } from 'react';
 import { obterNormas } from '../../utils/normas';
 import { Copy, Save } from 'lucide-react';
@@ -8,7 +9,7 @@ import { Aviso, Campo, brl, entrada } from './comum';
 
 type Valores = Record<string, string>; // chave = omId ou '' (valor geral)
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const parse = (s: string) => (s.trim() === '' ? null : Number(s.replace(/\./g, '').replace(',', '.')));
+const parse = (s: string) => numeroDigitado(s);
 const fmt = (n: number) => String(n).replace('.', ',');
 
 export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean; comp: string; setComp: (c: string) => void }> = ({ ctx, podeEditar, comp, setComp }) => {

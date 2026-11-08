@@ -12,8 +12,16 @@ export class Fase6NaoInstaladaError extends Error {
 }
 const checar = (error: any) => {
   if (!error) return;
-  if (/propostas_tc|lotacoes_tc|matriz_tc|descontos_tc|atracacao_anual|valor_previsto|desconto_geral|gasto_anterior/.test(error.message || '')) throw new Fase6NaoInstaladaError();
-  if (/pendentes_tc|destino|desconto_planilha/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/012_clientes_taxas.sql no Supabase.');
+  const msg = error.message || '';
+  // regras do banco (valor fora do permitido): mensagem clara em vez de "execute o script"
+  if (/lotacoes_tc_dias_check/.test(msg)) throw new Error('Dias atracados por mês de algum navio fora do permitido (de 0 a 31). Confira a coluna Dias/mês.');
+  if (/lotacoes_tc_lotacao_check|lotacao >= 0/.test(msg)) throw new Error('Lotação negativa: confira a coluna Lotação.');
+  if (/rubricas_desconto_ck/.test(msg)) throw new Error('Desconto geral maior que o valor previsto em alguma rubrica.');
+  if (/descontos_tc_valor_check|descontos_tc_check/.test(msg)) throw new Error('Desconto inválido: o valor deve ser maior que zero (e até 100 se for percentual).');
+  if (/violates check constraint|violates foreign key|violates not-null/.test(msg)) throw new Error(`O banco recusou um valor: ${msg}`);
+  // só "não existe" indica script não executado
+  if (/does not exist|schema cache|Could not find/i.test(msg) && /propostas_tc|lotacoes_tc|matriz_tc|descontos_tc|atracacao_anual|valor_previsto|desconto_geral|gasto_anterior/.test(msg)) throw new Fase6NaoInstaladaError();
+  if (/does not exist|schema cache|Could not find/i.test(msg) && /pendentes_tc|destino|desconto_planilha/.test(msg)) throw new Error('Falta executar o script supabase/migrations/012_clientes_taxas.sql no Supabase.');
   throw new Error(error.message);
 };
 

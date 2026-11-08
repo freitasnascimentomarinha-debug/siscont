@@ -1,3 +1,4 @@
+import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useRef, useState } from 'react';
 import { CheckCircle2, Download, FileText, Paperclip, Plus, Trash2, Upload } from 'lucide-react';
 import { Modal } from '../ui/Modal';
@@ -7,7 +8,8 @@ import { notify } from '../../utils/notify';
 import { CRITERIOS, Criterio } from '../../utils/taxaCondominial';
 import { Anexo, RubricaProposta, Subsidio, enviarAnexo, excluirAnexo, excluirSubsidio, linkAnexo, salvarSubsidio } from '../../services/taxaCondominialService';
 
-const n2 = (v: string) => (v.trim() === '' ? null : Number(v.replace(/\./g, '').replace(',', '.')));
+// lê "23,65", "23.65" (valor vindo do banco) e "1.234,56": antes "23.65" virava 2365
+const n2 = (v: string) => numeroDigitado(v);
 const fmt = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(Math.round(v * 100) / 100).replace('.', ','));
 const kb = (b: number | null) => (b == null ? '' : b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.ceil(b / 1024)} KB`);
 

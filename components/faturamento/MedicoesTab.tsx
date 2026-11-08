@@ -1,3 +1,4 @@
+import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { obterNormas } from '../../utils/normas';
 import { FileUp, Save } from 'lucide-react';
@@ -18,7 +19,7 @@ import { Aviso, Campo, brl, compAtual, entrada, lerArquivo } from './comum';
 type Linha = { quantidade: string; quantidade2: string; valor: string; estimada: boolean; detalhe?: any[]; origem?: string | null };
 const ROTULO2: Record<string, string> = { EL: 'Demanda (kW)', VT: 'km', TL: 'Min. móvel' };
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const nOuNull = (s: string) => (s.trim() === '' ? null : Number(s.replace(/\./g, '').replace(',', '.')));
+const nOuNull = (s: string) => numeroDigitado(s);
 const txt = (n: number | null | undefined) => (n === null || n === undefined ? '' : String(n).replace('.', ','));
 
 const anteriores = (comp: string, n: number) => {

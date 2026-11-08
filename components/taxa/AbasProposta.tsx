@@ -1,3 +1,4 @@
+import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloHistorico, modeloSubsidios } from '../../utils/modelos';
@@ -17,7 +18,8 @@ import { ClienteModal } from './ClienteModal';
 import { AnoClasse, BaseNavios, CRITERIOS, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
 import { acharPorNome, lerAbas, lerHistorico, lerSubsidios } from '../../utils/taxaCondominialImport';
 
-const n2 = (v: string) => (v.trim() === '' ? null : Number(v.replace(/\./g, '').replace(',', '.')));
+// lê "23,65", "23.65" (valor vindo do banco) e "1.234,56": antes "23.65" virava 2365
+const n2 = (v: string) => numeroDigitado(v);
 const fmt = (v: number | null | undefined, casas = 2) => (v === null || v === undefined ? '' : String(Math.round(v * 10 ** casas) / 10 ** casas));
 const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`);
 
