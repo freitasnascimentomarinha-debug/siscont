@@ -12,12 +12,12 @@ import { criarResolvedor } from '../utils/documentosOM';
 import { dataBR, hojeISO } from '../utils/datas';
 import { notify } from '../utils/notify';
 import { Button } from '../components/ui/Button';
+import { Escopo, OpcaoEscopo, SeletorEscopo } from '../components/conciliacao/SeletorEscopo';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500';
 
-interface Escopo { tipo: 'COMANDO' | 'OM'; id: string; rotulo: string }
 interface Quadro { titulo: string; colunas: string[]; linhas: { sub?: boolean; c: string[]; nota?: string }[]; total: string[] }
 
 /** Resumo da conciliação (vai na tela, no PDF e no Excel). */
@@ -77,7 +77,6 @@ export const Conciliacao: React.FC = () => {
   const [baixas, setBaixas] = useState<PaymentAllocation[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [escopos, setEscopos] = useState<Escopo[]>([]);
-  const [busca, setBusca] = useState('');
   const [exercicio, setExercicio] = useState<string>(String(new Date().getFullYear()));
   const [abertasDoExercicio, setAbertasDoExercicio] = useState(false);
   const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
@@ -92,23 +91,14 @@ export const Conciliacao: React.FC = () => {
   };
   useEffect(() => { carregar(); }, []);
 
-  const opcoes = useMemo(() => {
-    const cmds = cad.comandos.filter(c => c.codigo).map(c => ({ tipo: 'COMANDO' as const, id: c.id, rotulo: `${c.codigo} - ${c.nome}${c.sigla ? ` (${c.sigla})` : ''}` }));
-    const oms = cad.oms.map(o => ({ tipo: 'OM' as const, id: o.id, rotulo: `${o.codigo} - ${o.nome}${o.ativo ? '' : ' (desativada)'}` }));
-    return [...cmds.sort((a, b) => a.rotulo.localeCompare(b.rotulo)), ...oms.sort((a, b) => a.rotulo.localeCompare(b.rotulo))];
+  const opcoes = useMemo<OpcaoEscopo[]>(() => {
+    const setorDe = (id?: string | null) => (id && cad.setores.find(x => x.id === id)?.sigla) || '';
+    const cmdDe = new Map(cad.comandos.map(c => [c.id, c]));
+    const cmds = cad.comandos.filter(c => c.codigo).map(c => ({ tipo: 'COMANDO' as const, id: c.id, rotulo: `${c.codigo} - ${c.nome}${c.sigla ? ` (${c.sigla})` : ''}`, codigo: c.codigo || '', nome: c.nome, sigla: c.sigla, setor: setorDe(c.setorId), ativo: c.ativo !== false }));
+    const oms = cad.oms.map(o => ({ tipo: 'OM' as const, id: o.id, rotulo: `${o.codigo} - ${o.nome}`, codigo: o.codigo, nome: o.nome, sigla: o.sigla, setor: setorDe(o.setorId) || setorDe(o.comandoId ? cmdDe.get(o.comandoId)?.setorId : null) || (o.tipo === 'EXTRA_MB' ? 'EXTRA-MB' : ''), ativo: o.ativo }));
+    return [...cmds.sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome)), ...oms.sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome))];
   }, [cad]);
-  const q = busca.trim().toLowerCase();
-  const filtradas = q ? opcoes.filter(o => o.rotulo.toLowerCase().includes(q) && !escopos.some(e => e.tipo === o.tipo && e.id === o.id)).slice(0, 200) : [];
   const anos = useMemo(() => [...new Set(docs.map(d => String(d.exercicio ?? d.date?.slice(0, 4))).filter(Boolean))].sort().reverse(), [docs]);
-  const adicionar = (o: Escopo) => { setEscopos(l => (l.some(e => e.tipo === o.tipo && e.id === o.id) ? l : [...l, o])); setBusca(''); };
-
-  // sugestões: as OM com mais valor em aberto (atalho para não precisar digitar)
-  const sugestoes = useMemo(() => {
-    const m = new Map<string, number>();
-    faturas.forEach(f => { if (f.omId && !f.isCanceled && (f.saldoAPagar ?? 0) > 0.005) m.set(f.omId, (m.get(f.omId) || 0) + (f.saldoAPagar ?? 0)); });
-    const omDe = new Map(cad.oms.map(o => [o.id, o]));
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([id, v]) => { const o = omDe.get(id); return o ? { escopo: { tipo: 'OM' as const, id, rotulo: `${o.codigo} - ${o.nome}` }, valor: v } : null; }).filter(Boolean) as { escopo: Escopo; valor: number }[];
-  }, [faturas, cad]);
 
   const extrato = useMemo<Extrato | null>(() => {
     if (!escopos.length) return null;
@@ -213,19 +203,7 @@ export const Conciliacao: React.FC = () => {
 
       <div className="bg-white p-4 rounded-lg border border-slate-200 space-y-3">
         <div className="flex flex-wrap gap-3 items-end">
-          <label className="flex-1 min-w-[260px] text-xs text-slate-600">Adicionar comando ou OM
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o código ou o nome (ex.: 40030, DIM)..." className={`${sel} w-full mt-1`} aria-label="Buscar comando ou OM" />
-            {q && (
-              <div className="mt-1 max-h-56 overflow-y-auto border border-slate-200 rounded-md bg-white shadow-sm">
-                {filtradas.map(o => (
-                  <button key={o.tipo + o.id} type="button" className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50" onClick={() => adicionar(o)}>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 mr-2">{o.tipo === 'COMANDO' ? 'Comando' : 'OM'}</span>{o.rotulo}
-                  </button>
-                ))}
-                {!filtradas.length && <div className="px-3 py-2 text-sm text-slate-400">Nada encontrado.</div>}
-              </div>
-            )}
-          </label>
+          <SeletorEscopo opcoes={opcoes} selecionados={escopos} onChange={setEscopos} />
           <label className="text-xs text-slate-600">Exercício (ALTCRED e pagamentos)
             <select value={exercicio} onChange={e => setExercicio(e.target.value)} className={`${sel} block mt-1`} aria-label="Exercício do extrato">
               {[...new Set([String(new Date().getFullYear()), ...anos])].map(a => <option key={a} value={a}>{a}</option>)}
@@ -248,16 +226,6 @@ export const Conciliacao: React.FC = () => {
               </button>
             ))}
             <button type="button" className="text-primary-700 underline text-xs" onClick={() => setEscopos([])}>limpar</button>
-          </div>
-        )}
-        {!escopos.length && sugestoes.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Sugestões de OM">
-            <span className="text-slate-500">OM com mais valor em aberto:</span>
-            {sugestoes.map(s => (
-              <button key={s.escopo.id} type="button" onClick={() => adicionar(s.escopo)} className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50">
-                {s.escopo.rotulo} <span className="text-slate-500">· {brl(s.valor)}</span>
-              </button>
-            ))}
           </div>
         )}
       </div>

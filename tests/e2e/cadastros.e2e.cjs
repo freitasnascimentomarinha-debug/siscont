@@ -473,8 +473,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
 
     // extrato de conciliação
     await page.getByRole('button', { name: 'Extrato de conciliação' }).click();
-    await page.getByPlaceholder(/Digite o código/).fill('12345');
-    await page.getByRole('button', { name: /12345 - Comando Teste/ }).click();
+    await page.getByRole('button', { name: /^Escolher comandos e OM/ }).click();
+    await page.getByLabel('Buscar comando ou OM').fill('12345');
+    await page.getByRole('checkbox', { name: /Comando 12345 - Comando Teste/ }).check();
+    await page.getByRole('button', { name: 'fechar' }).click();
     await page.getByRole('heading', { name: 'Faturas pagas (por data de situação)' }).waitFor();
     ok(await page.getByRole('cell', { name: 'ADIANTAMENTO' }).isVisible(), 'extrato mostra a sobra enviada para adiantamento');
     ok(await page.getByRole('cell', { name: '12346-TL-07-2026-001-0' }).isVisible(), 'fatura em aberto da OM subordinada aparece');
@@ -858,8 +860,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(novoDoc && bxNova.length === 1 && Number(bxNova[0].amount) === 450 && bxNova[0].invoice_id === fat2.id && bxNova[0].date === '2026-11-20', 'documento gravado com a baixa de R$ 450 na fatura escolhida, na data do documento');
     // Extrato do Arsenal: inclui o pagamento feito pelo RT DGMM e a coluna Comando é o comando
     await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
-    await page.getByPlaceholder(/Digite o código ou o nome/).fill('Arsenal');
-    await page.getByRole('button', { name: /OM41000 - Arsenal de Marinha do Rio de Janeiro/ }).click();
+    ok(await page.getByText(/OM com mais valor em aberto/).count() === 0, 'sem a linha de sugestões (OM com mais valor em aberto)');
+    await page.getByRole('button', { name: /^Escolher comandos e OM/ }).click();
+    await page.getByLabel('Buscar comando ou OM').fill('41000');
+    await page.getByRole('radio', { name: 'Comandos' }).click();
+    ok(await page.getByRole('checkbox', { name: /^OM / }).count() === 0 && await page.getByRole('checkbox', { name: /^Comando 41000/ }).count() === 1, 'filtro por tipo: só comandos');
+    await page.getByRole('radio', { name: 'OM', exact: true }).click();
+    ok(await page.getByRole('checkbox', { name: /^OM 41000 - / }).count() === 2, 'filtro por tipo: só OM (Arsenal e SKM, mesmo código)');
+    ok((await page.getByLabel('Setor', { exact: true }).locator('option').allInnerTexts()).join('|') === 'Todos os setores|DGMM', 'a lista de setores mostra só os setores em uso');
+    await page.getByLabel('Setor', { exact: true }).selectOption('DGMM');
+    ok(await page.getByRole('checkbox', { name: /^OM 41000 - / }).count() === 2, 'filtro por setor (DGMM tem as duas)');
+    await page.getByLabel('Setor', { exact: true }).selectOption('');
+    await page.getByRole('checkbox', { name: 'OM 41000 - Arsenal de Marinha do Rio de Janeiro' }).check();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-filtro.png') });
+    await page.getByRole('button', { name: 'fechar' }).click();
     await page.getByLabel('Exercício do extrato').selectOption('2026');
     await page.getByText('B4D0.2026.AC.00824').first().waitFor();
     ok(true, 'extrato do Arsenal inclui o pagamento feito pelo RT DGMM (outra UG)');
@@ -873,16 +887,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-arsenal.png'), fullPage: true });
     // Extrato da SKM (mesmo código 41000): não puxa a ALTCRED do Arsenal
     await page.getByLabel('Comandos e OM do extrato').getByRole('button', { name: 'limpar' }).click();
-    await page.getByPlaceholder(/Digite o código ou o nome/).fill('SKM');
-    await page.getByRole('button', { name: /OM41000 - SKM/ }).click();
+    await page.getByRole('button', { name: /^Escolher comandos e OM/ }).click();
+    await page.getByLabel('Buscar comando ou OM').fill('SKM');
+    await page.getByRole('checkbox', { name: 'OM 41000 - SKM' }).check();
+    await page.getByRole('button', { name: 'fechar' }).click();
     await page.waitForTimeout(500);
     const quadroSaldo = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Saldo ALTCRED', exact: true }) });
     const quadroPagas = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Faturas pagas (por data de situação)' }) });
     ok(await quadroSaldo.getByText('AMRJ.2026.AC.00001').count() === 0, 'código compartilhado (41000) não põe a ALTCRED do Arsenal no saldo da SKM');
     ok(await quadroPagas.getByText('AMRJ.2026.AC.00001').count() === 1 && await quadroPagas.getByText('pago por outro pagador').count() === 1, 'no extrato da SKM, a fatura paga pela ALTCRED do Arsenal aparece como paga por outro pagador');
     // vários comandos/OM no mesmo extrato
-    await page.getByPlaceholder(/Digite o código ou o nome/).fill('Arsenal');
-    await page.getByRole('button', { name: /OM41000 - Arsenal de Marinha do Rio de Janeiro/ }).click();
+    await page.getByRole('button', { name: /^Escolher comandos e OM/ }).click();
+    await page.getByLabel('Buscar comando ou OM').fill('Arsenal');
+    await page.getByRole('checkbox', { name: 'OM 41000 - Arsenal de Marinha do Rio de Janeiro' }).check();
+    await page.getByRole('button', { name: 'fechar' }).click();
     ok(await page.getByLabel('Comandos e OM do extrato').getByRole('button').count() === 3, 'extrato com mais de uma OM (SKM + Arsenal, e o botão limpar)');
     ok(await quadroSaldo.getByText('AMRJ.2026.AC.00001').count() === 1, 'com o Arsenal junto, a ALTCRED dele entra no saldo');
   });
