@@ -335,7 +335,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
     <div className="space-y-3">
       {navioModo
         ? <p className="text-xs text-slate-500">Navios que pagam diária de atracação: lotação (TLA + DLA) e dias atracados por mês. Dias em branco = média trienal da classe (aba Média trienal). O valor rateado é o total dos navios: a parte dos navios de cada linha da taxa (coluna "Navios" da aba Rubricas ou coluna NAVIOS da matriz), sem os descontos das OM{rubsDA.length ? ` · total da planilha importada, para conferência: ${brl(valorVigente(rubsDA[0]))}` : ''}.</p>
-        : <p className="text-xs text-slate-500">OM que pagam a taxa condominial, organizadas pela área do CNIC (cadastro da OM; navios ficam na parte baixa interna): lotação (TLA + DLA) e de quais linhas cada uma participa (X). Peso no rateio = lotação × 30 dias. Clique no número da linha para marcar/desmarcar a coluna inteira, ou na caixa da área para marcar a área toda naquela linha.{todasOM.length ? ` Rateadas entre todas as OM da taxa (sem marcação): ${todasOM.map(r => `${r.numero} – ${r.descricao}`).join('; ')}.` : ''}</p>}
+        : <p className="text-xs text-slate-500">OM que pagam a taxa condominial, organizadas pela área do CNIC (cadastro da OM; navios ficam na parte baixa interna): lotação (TLA + DLA) e de quais linhas cada uma participa (X). Peso no rateio = lotação × 30 dias. Clique no número da linha para marcar/desmarcar a coluna inteira. A área (zona) só organiza a lista; a participação é marcada em cada OM.{todasOM.length ? ` Rateadas entre todas as OM da taxa (sem marcação): ${todasOM.map(r => `${r.numero} – ${r.descricao}`).join('; ')}.` : ''}</p>}
       {!navioModo && !rubs.length && <Aviso>Cadastre as rubricas primeiro (aba Rubricas ou "Importar proposta").</Aviso>}
       {navioModo && (() => { const sem = linhas.filter(o => !o.classeId && lot[o.id]?.lotacao); return sem.length ? <Aviso>{sem.length} navio(s) com lotação e <b>sem classe</b> ({sem.map(o => o.nome).join(', ')}): sem média trienal, a diária sai pela lotação. Ajuste a classe em <b>Cadastros › Lista de navios</b>.</Aviso> : null; })()}
       {semLotacao.length > 0 && <Aviso tom="red">Marcadas na matriz mas sem lotação (ficam fora do rateio): {semLotacao.map(nomeDe).join(', ')}.</Aviso>}
@@ -374,13 +374,10 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
           </tr></thead>
           <tbody>
             {(navioModo ? [{ area: 0, oms: linhas }] : gruposArea).map(g => (<React.Fragment key={g.area}>
-              {!navioModo && <tr className="border-t-2 border-slate-300 bg-slate-100">
-                <td className="px-2 py-1 sticky left-0 bg-slate-100 font-bold text-slate-700" colSpan={1}>{g.area ? AREAS_CNIC[g.area] : 'Sem área definida no cadastro'} <span className="font-normal text-slate-500">({g.oms.length})</span></td>
-                <td colSpan={2 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0)}></td>
-                {rubs.map(r => { const todos = g.oms.length > 0 && g.oms.every(o => matriz.has(`${r}|${o.id}`)); const algum = g.oms.some(o => matriz.has(`${r}|${o.id}`)); return (
-                  <td key={r} className="text-center"><input type="checkbox" disabled={!podeEditar || !g.oms.length} checked={todos} ref={el => { if (el) el.indeterminate = algum && !todos; }} onChange={() => g.oms.forEach(o => marcar(r, o.id, !todos))} aria-label={`Marcar a área ${g.area || 'sem área'} na linha ${r}`} title="Marcar/desmarcar a área toda nesta linha" /></td>
-                ); })}
-                <td></td>
+              {!navioModo && <tr className="border-t-2 border-slate-300 bg-slate-100" aria-label={`Zona: ${g.area ? AREAS_CNIC[g.area] : 'sem área definida'}`}>
+                {/* só zoneamento (área do CNIC no cadastro da OM): não marca participação */}
+                <td className="px-2 py-1 sticky left-0 bg-slate-100 font-bold text-slate-700 whitespace-nowrap">📍 {g.area ? AREAS_CNIC[g.area] : 'Sem área definida no cadastro'} <span className="font-normal text-slate-500">({g.oms.length} OM)</span></td>
+                <td colSpan={3 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0) + rubs.length} className="bg-slate-100"></td>
               </tr>}
               {!navioModo && g.area === 1 && rubs.length + linhasNav.length > 0 && navRow}
               {g.oms.map(o => {

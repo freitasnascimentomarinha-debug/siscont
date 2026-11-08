@@ -1262,6 +1262,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const txtMatriz = (await page.locator('table').last().innerText()).replace(/\s+/g, ' ');
     ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('NAVIOS (grupo)') && txtMatriz.indexOf('NAVIOS (grupo)') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta'), 'matriz por área: AMRJ e NAVIOS na parte baixa interna, SecNSNQ na parte alta');
     ok(txtMatriz.includes('Edifício Almirante Tamandaré'), 'edifício da OM aparece na matriz');
+    ok(await page.getByLabel(/^Zona: Área 2 – Parte alta/).locator('input[type=checkbox]').count() === 0, 'linha da área é só zoneamento (sem caixas de participação)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-matriz-areas.png'), fullPage: true });
     await page.getByRole('button', { name: 'Escolher correspondente' }).click();
     await page.getByRole('button', { name: 'Criar novo cliente' }).click();
