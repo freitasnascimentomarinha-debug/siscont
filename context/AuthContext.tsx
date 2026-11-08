@@ -63,7 +63,7 @@ export const translateAuthError = (err: any): Error => {
 };
 
 const normalizeRole = (role: unknown): UserRole =>
-  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY
+  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY || role === UserRole.ENCARREGADO
     ? (role as UserRole)
     : UserRole.READ_ONLY;
 

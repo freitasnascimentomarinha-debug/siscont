@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { notify } from '../utils/notify';
-import { CashFlowItem, CashFlowExit, DocumentType, UserRole } from '../types';
+import { CashFlowItem, CashFlowExit, DocumentType, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
@@ -20,7 +20,7 @@ import autoTable from 'jspdf-autotable';
 
 const Lancamentos: React.FC = () => {
   const { user } = useAuth();
-  const isReadOnly = user?.role === UserRole.READ_ONLY;
+  const isReadOnly = !podeEditarDados(user?.role);
 
   const [items, setItems] = useState<CashFlowItem[]>([]);
 
@@ -509,7 +509,7 @@ export const CashFlow: React.FC = () => {
       {aba === 'mensal' && <SaldoMensal />}
       {aba === 'condominio' && <CondominioRubrica />}
       {aba === 'disponivel' && <Disponivel />}
-      {aba === 'rubricas' && <Rubricas podeEditar={user?.role !== UserRole.READ_ONLY} />}
+      {aba === 'rubricas' && <Rubricas podeEditar={podeEditarDados(user?.role)} />}
     </div>
   );
 };

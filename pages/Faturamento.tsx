@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { podeEditarDados } from '../types';
 import { ContextoFaturamento, Fase3NaoInstaladaError, carregarContexto, listarLotes } from '../services/faturamentoService';
 import { LoteTab } from '../components/faturamento/LoteTab';
 import { MedicoesTab } from '../components/faturamento/MedicoesTab';
@@ -27,7 +27,7 @@ const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; labe
 
 export const Faturamento: React.FC = () => {
   const { user } = useAuth();
-  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const podeEditar = podeEditarDados(user?.role);
   const [aba, setAba] = useState<Aba>('resumo');
   // abas já abertas continuam montadas (escondidas): trocar de aba não apaga a prévia nem o que foi digitado
   const [abertas, setAbertas] = useState<Set<Aba>>(new Set(['resumo']));

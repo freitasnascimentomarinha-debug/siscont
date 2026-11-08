@@ -12,15 +12,17 @@ import { Input, Select } from '../ui/Input';
 import { Modal } from '../ui/Modal';
 
 const ROLE_OPTIONS = [
-  { label: 'Administrador — acesso total, inclusive esta tela', value: UserRole.ADMIN },
-  { label: 'Operador — inclui, edita e exclui lançamentos', value: UserRole.USER },
-  { label: 'Consulta — apenas visualiza e exporta', value: UserRole.READ_ONLY },
+  { label: 'Administrador — vê todas as páginas, inclusive esta tela', value: UserRole.ADMIN },
+  { label: 'Operador — todas as páginas, exceto Administração; inclui, edita e exclui lançamentos', value: UserRole.USER },
+  { label: 'Consulta — só o Painel inicial (visualiza e exporta)', value: UserRole.READ_ONLY },
+  { label: 'Encarregado — Painel inicial e Painel do Encarregado (visualiza e exporta)', value: UserRole.ENCARREGADO },
 ];
 
 const ROLE_BADGE: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'bg-indigo-100 text-indigo-700',
   [UserRole.USER]: 'bg-emerald-100 text-emerald-700',
   [UserRole.READ_ONLY]: 'bg-slate-100 text-slate-600',
+  [UserRole.ENCARREGADO]: 'bg-amber-100 text-amber-800',
 };
 
 const fmtDateTime = (iso: string | null) =>
@@ -171,6 +173,7 @@ export const UsersPanel: React.FC = () => {
     admin: users.filter(u => u.role === UserRole.ADMIN).length,
     user: users.filter(u => u.role === UserRole.USER).length,
     readOnly: users.filter(u => u.role === UserRole.READ_ONLY).length,
+    encarregado: users.filter(u => u.role === UserRole.ENCARREGADO).length,
     blocked: users.filter(u => !u.active).length,
   }), [users]);
 
@@ -318,6 +321,7 @@ export const UsersPanel: React.FC = () => {
             { key: UserRole.ADMIN, label: `Administradores (${counts.admin})` },
             { key: UserRole.USER, label: `Operadores (${counts.user})` },
             { key: UserRole.READ_ONLY, label: `Consulta (${counts.readOnly})` },
+            { key: UserRole.ENCARREGADO, label: `Encarregado (${counts.encarregado})` },
             { key: 'BLOCKED' as const, label: `Bloqueados/Pendentes (${counts.blocked})` },
           ].map(f => (
             <button

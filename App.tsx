@@ -16,7 +16,7 @@ import { CashFlow } from './pages/CashFlow';
 import { Admin } from './pages/Admin';
 import { Cadastros } from './pages/Cadastros';
 import { ResetPassword } from './pages/ResetPassword';
-import { UserRole } from './types';
+import { UserRole, podeVerPagina } from './types';
 import { cadastroService } from './services/cadastroService';
 import { definirNormas, normasDe } from './utils/normas';
 import { isSupabaseConfigured } from './services/supabase';
@@ -33,6 +33,8 @@ const AuthenticatedApp = () => {
   useEffect(() => { cadastroService.listParametros().then(p => definirNormas(normasDe(p))).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
 
   const renderPage = () => {
+    // página que o perfil não vê: volta ao Painel inicial (todos os perfis veem)
+    if (!podeVerPagina(user?.role, currentPage)) return <Dashboard />;
     switch (currentPage) {
       case 'dashboard': return <Dashboard />;
       case 'invoices': return <Invoices />;

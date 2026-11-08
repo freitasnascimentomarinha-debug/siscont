@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clock, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Invoice, ServicoCatalogo, UserRole } from '../types';
+import { Invoice, ServicoCatalogo, podeEditarDados } from '../types';
 import { db } from '../services/db';
 import { cadastroService } from '../services/cadastroService';
 import { Fase4NaoInstaladaError, anotar, decidir, encaminhar, listarContestacoes, responder } from '../services/fase4Service';
@@ -23,7 +23,7 @@ const DECISAO: Record<string, string> = { RATIFICADA: 'Ratificada (mantida)', RE
 export const Contestacoes: React.FC = () => {
   const { user } = useAuth();
   const usuario = user?.name || user?.email || '';
-  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const podeEditar = podeEditarDados(user?.role);
   const [lista, setLista] = useState<Contestacao[]>([]);
   const [faturas, setFaturas] = useState<Invoice[]>([]);
   const [servicos, setServicos] = useState<ServicoCatalogo[]>([]);

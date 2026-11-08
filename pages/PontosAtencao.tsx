@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Auditoria } from './Auditoria';
 import { Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { podeEditarDados } from '../types';
 import { db } from '../services/db';
 import { notify } from '../utils/notify';
 import { Gravidade, PontoAtencao, TIPOS_PONTO } from '../utils/pontosAtencao';
@@ -18,7 +18,7 @@ const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white foc
 
 const PontosLista: React.FC = () => {
   const { user } = useAuth();
-  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const podeEditar = podeEditarDados(user?.role);
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [fGrav, setFGrav] = useState<'' | Gravidade>('');

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { obterNormas } from '../utils/normas';
 import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Parametro, UserRole } from '../types';
+import { Parametro, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { ConfirmModal } from '../components/ui/Modal';
 import { Campo, br, brl, entrada } from '../components/faturamento/comum';
@@ -32,7 +32,7 @@ const COR: Record<StatusProposta, string> = { PROPOSTA: 'bg-amber-100 text-amber
 
 export const TaxaCondominial: React.FC = () => {
   const { user } = useAuth();
-  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const podeEditar = podeEditarDados(user?.role);
   const [ano, setAno] = useState(new Date().getFullYear() + (new Date().getMonth() >= 6 ? 1 : 0));
   const [aba, setAba] = useState<Aba>('rubricas');
   const [dados, setDados] = useState<DadosProposta | null>(null);

@@ -6,7 +6,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { podeEditarDados } from '../types';
 import {
   adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro, saldosParados,
 } from '../services/relatoriosService';
@@ -53,7 +53,7 @@ const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = (
 export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'cobranca' }) => {
   const soPainel = modo === 'painel';
   const { user } = useAuth();
-  const podeEditar = user?.role !== UserRole.READ_ONLY;
+  const podeEditar = podeEditarDados(user?.role);
   const [aba, setAba] = useState<Aba>(soPainel ? 'painel' : 'quadro');
   const [base, setBase] = useState<Base | null>(null);
   const [carregando, setCarregando] = useState(true);

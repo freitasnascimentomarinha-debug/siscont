@@ -84,11 +84,15 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
       'admin@mb.br': { id: 'a1', email: 'admin@mb.br', password: 'senha12345' },
       'leitor@mb.br': { id: 'r1', email: 'leitor@mb.br', password: 'senha12345' },
       'bloq@mb.br': { id: 'b1', email: 'bloq@mb.br', password: 'senha12345' },
+      'enc@mb.br': { id: 'e1', email: 'enc@mb.br', password: 'senha12345' },
+      'op@mb.br': { id: 'o1', email: 'op@mb.br', password: 'senha12345' },
     },
     profiles: [
       { id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true },
       { id: 'r1', name: 'SG Leitor', email: 'leitor@mb.br', role: 'READ_ONLY', active: true },
       { id: 'b1', name: 'CB Bloqueado', email: 'bloq@mb.br', role: 'USER', active: false },
+      { id: 'e1', name: 'CF Encarregado', email: 'enc@mb.br', role: 'ENCARREGADO', active: true },
+      { id: 'o1', name: '3SG Operador', email: 'op@mb.br', role: 'USER', active: true },
     ],
     managed: [
       { id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true, createdAt: '2026-01-01', lastSignInAt: '2026-11-05T12:00:00Z', emailConfirmed: true },
@@ -148,11 +152,42 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/admin-modo-limitado.png` });
   });
 
-  await scenario('Usuário de Consulta não vê Administração', baseState(), async page => {
+  const menu = async page => (await page.locator('nav button').allInnerTexts()).map(t => t.trim()).filter(Boolean);
+  await scenario('Consulta vê só o Painel inicial', baseState(), async page => {
     await login(page, 'leitor@mb.br', 'senha12345');
-    await page.getByRole('button', { name: 'Faturas emitidas' }).waitFor({ timeout: 10000 });
-    assert(!(await page.getByRole('button', { name: 'Administração' }).count()), 'menu Administração oculto');
+    await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
+    const m = await menu(page);
+    assert(m.length === 1 && m[0] === 'Painel inicial', `menu só com o Painel inicial (${m.join(', ')})`);
     assert(await page.getByText('Consulta', { exact: true }).first().isVisible(), 'perfil "Consulta" exibido');
+  });
+
+  await scenario('Encarregado vê Painel inicial e Painel do Encarregado', baseState(), async page => {
+    await login(page, 'enc@mb.br', 'senha12345');
+    await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
+    const m = await menu(page);
+    assert(m.join('|') === 'Painel inicial|Painel do Encarregado', `menu com os dois painéis (${m.join(', ')})`);
+    assert(await page.getByText('Encarregado', { exact: true }).first().isVisible(), 'perfil "Encarregado" exibido');
+    await page.locator('nav').getByRole('button', { name: 'Painel do Encarregado' }).click();
+    await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
+    assert(!(await page.getByText('definir grupo…').count()), 'encarregado não edita o grupo de setores (só visualiza)');
+  });
+
+  await scenario('Operador vê todas as páginas, menos Administração', baseState(), async page => {
+    await login(page, 'op@mb.br', 'senha12345');
+    await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
+    const m = await menu(page);
+    assert(!m.includes('Administração') && m.includes('Cadastros') && m.includes('Faturas emitidas') && m.includes('Cobrança') && m.length >= 12, `menu completo sem Administração (${m.length} itens)`);
+  });
+
+  await scenario('Administrador vê todas as páginas e cadastra o perfil Encarregado', baseState(), async page => {
+    await login(page, 'admin@mb.br', 'senha12345');
+    await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
+    const m = await menu(page);
+    assert(m.includes('Administração') && m.length >= 13, `menu com Administração (${m.length} itens)`);
+    await page.getByRole('button', { name: 'Administração' }).click();
+    await page.getByRole('button', { name: 'Novo Usuário' }).click();
+    const opts = await page.getByLabel('Perfil de Acesso').locator('option').allInnerTexts();
+    assert(opts.some(o => o.startsWith('Encarregado')) && opts.some(o => o.startsWith('Consulta — só o Painel inicial')), 'opção Encarregado no cadastro de usuário');
   });
 
   await scenario('Usuário bloqueado/pendente é barrado no login', baseState(), async page => {

@@ -817,6 +817,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Ano').selectOption('2026');
     await page.getByText('AMRJ.2026.AC.00001').waitFor();
     ok(true, 'filtro de mês: a ALTCRED de 01/10/2026 aparece em outubro (antes caía em setembro)');
+    await page.getByText('Comando: 41000 - Arsenal de Marinha do Rio de Janeiro').first().waitFor({ timeout: 10000 }).catch(() => {});
     ok(await page.getByText('Comando: 41000 - Arsenal de Marinha do Rio de Janeiro').first().isVisible() && await page.getByText('Comando: texto livre').count() === 0, 'agrupado pelo comando do cadastro, não pelo texto digitado');
     ok(await page.getByText(/Mostrando 1–2 de 2 documentos/).isVisible(), 'paginação com total de documentos');
     await page.getByLabel('Fatura paga (nº)').fill('41000-EL-09-2025');

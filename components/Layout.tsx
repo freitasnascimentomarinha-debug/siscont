@@ -24,7 +24,7 @@ import {
 import { ultimoBackup } from '../services/auditoriaService';
 import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
 import { PageID } from '../App';
-import { ROLE_LABELS, UserRole } from '../types';
+import { ROLE_LABELS, UserRole, podeVerPagina } from '../types';
 import { AccountModal } from './AccountModal';
 
 interface LayoutProps {
@@ -44,7 +44,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
    *  → Contabilidade de custos (fluxo de caixa e taxa anual) → Configuração.
    */
   type Item = { id: PageID; label: string; icon: React.ElementType; dica: string };
-  const grupos: { titulo: string; itens: Item[] }[] = [
+  const todosGrupos: { titulo: string; itens: Item[] }[] = [
     { titulo: 'Visão geral', itens: [
       { id: 'dashboard', label: 'Painel inicial', icon: LayoutDashboard, dica: 'Resumo geral do sistema' },
       { id: 'painel', label: 'Painel do Encarregado', icon: Gauge, dica: 'Indicadores de cobrança, saldos parados e adiantamentos' },
@@ -66,9 +66,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     ] },
     { titulo: 'Configuração', itens: [
       { id: 'cadastros', label: 'Cadastros', icon: Building2, dica: 'OM, comandos, setores, classes de navio, serviços, parâmetros e feriados' },
-      ...(user?.role === UserRole.ADMIN ? [{ id: 'admin' as PageID, label: 'Administração', icon: Users, dica: 'Usuários, backup e restauração' }] : []),
+      { id: 'admin', label: 'Administração', icon: Users, dica: 'Usuários, backup e restauração' },
     ] },
   ];
+  // cada perfil vê só as páginas dele (ver PAGINAS_DO_PERFIL em types.ts)
+  const grupos = todosGrupos.map(g => ({ ...g, itens: g.itens.filter(i => podeVerPagina(user?.role, i.id)) })).filter(g => g.itens.length > 0);
 
   // Lembrete de backup (administrador): mais de 7 dias sem backup completo
   const [diasBackup, setDiasBackup] = useState<number | null | undefined>(undefined);

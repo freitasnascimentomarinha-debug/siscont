@@ -11,7 +11,7 @@ import { aceitaAdiantamento, ehAdiantamento } from '../utils/baixas';
 import { baixarPdfFr172 } from '../services/fr172Service';
 import { AcaoFatura, AcoesFaturaModais } from '../components/fase4/AcoesFaturaModais';
 import { notify } from '../utils/notify';
-import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole } from '../types';
+import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
@@ -35,7 +35,7 @@ function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
 
 export const Invoices: React.FC = () => {
   const { user } = useAuth();
-  const isReadOnly = user?.role === UserRole.READ_ONLY;
+  const isReadOnly = !podeEditarDados(user?.role);
   const isAdmin = user?.role === UserRole.ADMIN;
 
   // Navigation State

@@ -5,6 +5,7 @@ export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER',
   READ_ONLY = 'READ_ONLY', // Added: Perfil de Consulta
+  ENCARREGADO = 'ENCARREGADO', // vê o Painel inicial e o Painel do Encarregado
 }
 
 export enum InvoiceStatus {
@@ -45,6 +46,27 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'Administrador',
   [UserRole.USER]: 'Operador',
   [UserRole.READ_ONLY]: 'Consulta',
+  [UserRole.ENCARREGADO]: 'Encarregado',
+};
+
+/**
+ * Páginas que cada perfil vê:
+ *  - Administrador: todas;  - Operador: todas, exceto Administração;
+ *  - Consulta: só o Painel inicial;  - Encarregado: Painel inicial e Painel do Encarregado.
+ * (null = todas as páginas, menos as listadas em `exceto`)
+ */
+export const PAGINAS_DO_PERFIL: Record<UserRole, { somente?: string[]; exceto?: string[] }> = {
+  [UserRole.ADMIN]: {},
+  [UserRole.USER]: { exceto: ['admin'] },
+  [UserRole.READ_ONLY]: { somente: ['dashboard'] },
+  [UserRole.ENCARREGADO]: { somente: ['dashboard', 'painel'] },
+};
+/** Só administrador e operador incluem, alteram e excluem (Consulta e Encarregado só visualizam e exportam). */
+export const podeEditarDados = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.USER;
+export const podeVerPagina = (role: UserRole | undefined | null, pagina: string): boolean => {
+  const r = PAGINAS_DO_PERFIL[role as UserRole] ?? PAGINAS_DO_PERFIL[UserRole.READ_ONLY];
+  if (r.somente) return r.somente.includes(pagina);
+  return !(r.exceto || []).includes(pagina);
 };
 
 export interface User {
