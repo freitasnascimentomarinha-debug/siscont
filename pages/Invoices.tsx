@@ -1018,7 +1018,7 @@ export const Invoices: React.FC = () => {
 
       {/* --- ANALYTICAL MAP TAB --- */}
       {activeTab === 'map' && (
-        <MapaAnaliticoTab invoices={invoices} docs={allDocs} clients={clients}
+        <MapaAnaliticoTab invoices={invoices} docs={allDocs} baixas={allocations} clients={clients}
           onVerFaturas={nome => { setSearchText(nome); setActiveTab('list'); }} />
       )}
 

@@ -3,9 +3,9 @@ import { ChevronDown, ChevronRight, FileCheck, FileSpreadsheet, FileText, Networ
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Client, Invoice, InvoiceStatus, ReceivedDocument } from '../../types';
+import { Client, Invoice, InvoiceStatus, PaymentAllocation, ReceivedDocument } from '../../types';
 import { Button } from '../ui/Button';
-import { CreditoMapa, FaturaMapa, NoMapa, OMRef, OrdemMapa, idsDoMapa, linhasMapa, montarMapa } from '../../utils/mapaAnalitico';
+import { FaturaMapa, NoMapa, OMRef, OrdemMapa, creditosDoMapa, idsDoMapa, linhasMapa, montarMapa } from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -19,7 +19,7 @@ const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'nor
 );
 
 /** Mapa Analítico de Contas: posição líquida por Setor › Comando › OM, com o crédito de cada OM abatendo só a dívida dela. */
-export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDocument[]; clients: Client[]; onVerFaturas: (nome: string) => void }> = ({ invoices, docs, clients, onVerFaturas }) => {
+export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDocument[]; baixas: PaymentAllocation[]; clients: Client[]; onVerFaturas: (nome: string) => void }> = ({ invoices, docs, baixas, clients, onVerFaturas }) => {
   const [busca, setBusca] = useState('');
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
@@ -29,9 +29,11 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const faturas = useMemo<FaturaMapa[]>(() => invoices
     .filter(i => !i.isCanceled && (i.status === InvoiceStatus.OPEN || i.status === InvoiceStatus.OVERDUE) && (i.saldoAPagar ?? 0) > 0.005)
     .map(i => ({ id: i.id, omId: i.omId ?? null, client: i.client, sector: i.sector, command: i.command, numero: i.invoiceNumber, tipo: i.type, vencimento: i.dueDate, saldo: i.saldoAPagar ?? 0, contestada: i.contestada })), [invoices]);
-  const creditos = useMemo<CreditoMapa[]>(() => docs.filter(d => d.availableValue > 0.005)
-    .map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, valor: d.availableValue })), [docs]);
   const oms = useMemo<OMRef[]>(() => clients.filter(c => c.omId).map(c => ({ omId: c.omId!, nome: c.name, setor: c.sector, comando: c.command })), [clients]);
+  const creditos = useMemo(() => creditosDoMapa(
+    docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
+    baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
+    invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
   const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor }), [faturas, creditos, oms, hoje, ordem, busca, soComValor]);
 
   const padrao = useMemo(() => new Set(idsDoMapa(mapa, 'setor')), [mapa]);
@@ -101,7 +103,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           ))}
           {n.creditos!.map(c => (
             <tr key={c.id} className="bg-white text-xs text-green-700 border-l-4 border-l-green-200">
-              <td className="py-1 pl-24 pr-2 font-medium"><FileCheck size={12} className="inline mr-1" />ALTCRED/GRU: {c.numero}</td>
+              <td className="py-1 pl-24 pr-2 font-medium"><FileCheck size={12} className="inline mr-1" />ALTCRED/GRU: {c.numero}{c.origem && <span className="ml-2 font-normal text-green-800/80">({c.origem})</span>}</td>
               <td></td><td></td><td></td><td></td>
               <td className="px-2 py-1 text-right tabular-nums">{brl(c.valor)}</td><td></td>
             </tr>

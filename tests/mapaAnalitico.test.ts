@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreditoMapa, FaturaMapa, OMRef, idsDoMapa, linhasMapa, montarMapa } from '../utils/mapaAnalitico';
+import { CreditoMapa, FaturaMapa, OMRef, creditosDoMapa, idsDoMapa, linhasMapa, montarMapa } from '../utils/mapaAnalitico';
 
 const oms: OMRef[] = [
   { omId: 'a', nome: 'Diretoria Industrial da Marinha', setor: 'DGMM', comando: '40030 - Diretoria Industrial da Marinha' },
@@ -60,5 +60,27 @@ describe('mapa analítico', () => {
     const l = linhasMapa(m);
     expect(l[0][0]).toBe('Setor'); expect(l[l.length - 1][0]).toBe('TOTAL'); expect(l[1][6]).toBe(100);
     expect(idsDoMapa(m, 'cliente')).toHaveLength(3); expect(idsDoMapa(m, 'setor')).toHaveLength(1);
+  });
+});
+
+describe('crédito devolvido por fatura cancelada pertence à OM da fatura', () => {
+  const doc = (id: string, client: string, available: number) => ({ id, client, sector: 'DGMM', command: client, numero: `AC-${id}`, availableValue: available });
+  const fat = [{ id: 'f1', invoiceNumber: '41000-TC-09-2025-002-0', omId: 'b', client: 'Arsenal de Marinha do Rio de Janeiro', isCanceled: true }, { id: 'f2', omId: 'a', client: 'Diretoria Industrial da Marinha', isCanceled: false }];
+  it('RT DGMM (sem OM) paga fatura do Arsenal que foi cancelada: o crédito é do Arsenal', () => {
+    const c = creditosDoMapa([doc('d1', '40001 - RT DGMM', 5210.74)], [{ documentId: 'd1', invoiceId: 'f1', amount: 5210.74 }], fat, oms);
+    expect(c).toHaveLength(1);
+    expect(c[0]).toMatchObject({ client: 'Arsenal de Marinha do Rio de Janeiro', valor: 5210.74 });
+    expect(c[0].origem).toContain('41000-TC-09-2025-002-0');
+    const m = montarMapa([], c, oms, { hoje });
+    expect(m.setores[0].filhos[0].filhos[0]).toMatchObject({ nome: 'Arsenal de Marinha do Rio de Janeiro', sobra: 5210.74, semCadastro: false });
+  });
+  it('parte devolvida vai para a OM da fatura e o resto continua com o cliente do documento', () => {
+    const c = creditosDoMapa([doc('d1', 'Comando Alfa', 100)], [{ documentId: 'd1', invoiceId: 'f1', amount: 60 }, { documentId: 'd1', invoiceId: 'f2', amount: 500 }], fat, oms);
+    expect(c.map(x => [x.client, x.valor])).toEqual([['Arsenal de Marinha do Rio de Janeiro', 60], ['Comando Alfa', 40]]);
+  });
+  it('sem baixa em fatura cancelada o crédito fica todo com o cliente do documento; nunca passa do saldo', () => {
+    expect(creditosDoMapa([doc('d1', 'Comando Alfa', 70)], [{ documentId: 'd1', invoiceId: 'f2', amount: 10 }], fat, oms).map(x => [x.client, x.valor])).toEqual([['Comando Alfa', 70]]);
+    const c = creditosDoMapa([doc('d1', 'Comando Alfa', 30)], [{ documentId: 'd1', invoiceId: 'f1', amount: 60 }], fat, oms);
+    expect(c.map(x => [x.client, x.valor])).toEqual([['Arsenal de Marinha do Rio de Janeiro', 30]]);
   });
 });

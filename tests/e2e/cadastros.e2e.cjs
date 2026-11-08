@@ -723,6 +723,29 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await page.getByLabel('Busca').inputValue()).length > 0, '"ver faturas na lista" leva à lista já filtrada pela OM');
   });
 
+  await cenario('Mapa analítico: crédito devolvido por fatura cancelada é da OM da fatura (RT DGMM paga o Arsenal)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmdB = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const amrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', tipo: 'TERRA', comando_id: cmdB.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmdB); db.oms.push(amrj);
+    const fat = { id: uid(), invoice_number: '41000-TC-09-2025-002-0', ug: '41000', sector: 'DGMM', command: 'Arsenal', client: amrj.nome, value: 19707.4, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2025-10-15', due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: true, siplad_settled: false, om_id: amrj.id };
+    db.invoices = [fat];
+    const doc = { id: uid(), document_number: 'B4D0.2026.AC.00824', document_type: 'ALTCRED', total_value: 5210.74, date: '2026-08-19', operation: 'PAGAMENTO', client: '40001 - RT DGMM', sector: 'DGMM', command: '40001 - RT DGMM', ug: '40001', observation: 'PAGAMENTO DE FATURAS DO AMRJ 2025' };
+    db.received_documents.push(doc);
+    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: fat.id, amount: 5210.74, date: '2026-08-19', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
+    await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).click();
+    await page.getByText('Crédito que sobra').waitFor();
+    const cartao = async (rot) => (await page.locator('div[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
+    ok(/R\$ 5\.210,74/.test(await cartao('Crédito que sobra')), 'o crédito de R$ 5.210,74 aparece como sobra');
+    await page.getByRole('button', { name: 'expandir tudo' }).click();
+    ok(await page.getByText('Arsenal de Marinha do Rio de Janeiro').first().isVisible() && await page.getByText(/devolvido da fatura cancelada 41000-TC-09-2025-002-0/).isVisible(), 'crédito está na OM Arsenal, com a origem (fatura cancelada)');
+    ok(await page.getByText(/crédito sem OM no cadastro/).count() === 0 && await page.getByText(/40001 - RT DGMM/).count() === 0, 'não aparece mais como "sem OM no cadastro" nem em nome do RT DGMM');
+  });
+
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', setor_id: setor.id, ativo: true };

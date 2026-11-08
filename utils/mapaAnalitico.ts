@@ -13,7 +13,7 @@ const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86400000);
 
 export interface FaturaMapa { id: string; omId?: string | null; client: string; sector: string; command: string; numero: string; tipo: string; vencimento: string; saldo: number; contestada?: boolean }
-export interface CreditoMapa { id: string; client: string; sector: string; command: string; numero: string; valor: number }
+export interface CreditoMapa { id: string; client: string; sector: string; command: string; numero: string; valor: number; /** de onde veio, quando não é o cliente do próprio documento */ origem?: string }
 export interface OMRef { omId: string; nome: string; setor: string; comando: string }
 export type OrdemMapa = 'liquido' | 'divida' | 'nome';
 export interface Totais { qtd: number; divida: number; vencido: number; aVencer: number; credito: number; liquido: number; sobra: number }
@@ -111,5 +111,47 @@ export function linhasMapa(m: MapaAnalitico): any[][] {
   const out: any[][] = [CAB_MAPA];
   m.setores.forEach(s => s.filhos.forEach(c => c.filhos.forEach(x => out.push([s.nome, c.nome, x.nome, x.qtd, x.vencido, x.aVencer, x.divida, x.credito, x.liquido, x.sobra]))));
   out.push(['TOTAL', '', '', m.total.qtd, m.total.vencido, m.total.aVencer, m.total.divida, m.total.credito, m.total.liquido, m.total.sobra]);
+  return out;
+}
+
+
+// ------------------------------------------------------------------ crédito devolvido por fatura cancelada
+export interface DocMapa { id: string; client: string; sector: string; command: string; numero: string; availableValue: number }
+export interface BaixaMapa { documentId: string; invoiceId: string; amount: number }
+export interface FaturaRef { id: string; invoiceNumber?: string; omId?: string | null; client: string; isCanceled?: boolean }
+
+/**
+ * Créditos do mapa. Quando uma fatura é cancelada, o valor baixado nela volta para a ALTCRED, mas o dinheiro foi
+ * pago para a OM daquela fatura: o crédito é DELA, e não do pagador (ex.: o RT DGMM paga faturas do Arsenal; se uma
+ * fatura do Arsenal é cancelada, o saldo devolvido é crédito do Arsenal). O que sobra do documento fica com o
+ * cliente do próprio documento.
+ */
+export function creditosDoMapa(docs: DocMapa[], baixas: BaixaMapa[], faturas: FaturaRef[], oms: OMRef[]): CreditoMapa[] {
+  const fat = new Map(faturas.map(f => [f.id, f]));
+  const omPorId = new Map(oms.map(o => [o.omId, o]));
+  const porDoc = new Map<string, BaixaMapa[]>();
+  baixas.forEach(b => porDoc.set(b.documentId, [...(porDoc.get(b.documentId) || []), b]));
+  const out: CreditoMapa[] = [];
+  docs.forEach(d => {
+    let resta = r2(d.availableValue);
+    if (resta <= 0.005) return;
+    const liberado = new Map<string, { nome: string; valor: number; faturas: string[] }>();
+    (porDoc.get(d.id) || []).forEach(b => {
+      const f = fat.get(b.invoiceId);
+      if (!f?.isCanceled) return;
+      const chave = f.omId || `n:${norm(f.client)}`;
+      const nome = (f.omId && omPorId.get(f.omId)?.nome) || f.client;
+      const g = liberado.get(chave) || { nome, valor: 0, faturas: [] };
+      g.valor = r2(g.valor + b.amount); if (f.invoiceNumber && !g.faturas.includes(f.invoiceNumber)) g.faturas.push(f.invoiceNumber);
+      liberado.set(chave, g);
+    });
+    [...liberado.entries()].sort((a, b) => b[1].valor - a[1].valor).forEach(([chave, g]) => {
+      const v = r2(Math.min(g.valor, resta));
+      if (v <= 0.005) return;
+      out.push({ id: `${d.id}:${chave}`, client: g.nome, sector: d.sector, command: d.command, numero: d.numero, valor: v, origem: `devolvido da fatura cancelada ${g.faturas.join(', ')}` });
+      resta = r2(resta - v);
+    });
+    if (resta > 0.005) out.push({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.numero, valor: resta });
+  });
   return out;
 }
