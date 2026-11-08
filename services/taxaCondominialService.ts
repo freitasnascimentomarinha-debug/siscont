@@ -26,7 +26,7 @@ const checar = (error: any) => {
 };
 
 export type StatusProposta = 'PROPOSTA' | 'APROVADA' | 'DIVULGADA';
-export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null; /** total do grupo Navios na planilha importada (conferência) */ naviosPlanilha?: number | null; /** valor da linha usado para os navios: previsto − desconto geral (padrão) ou só o previsto */ baseNavios?: BaseNavios }
+export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null; /** total do grupo Navios na planilha importada (conferência) */ naviosPlanilha?: number | null; /** valor da linha usado para os navios: o valor sugerido/previsto (padrão) ou o sugerido − desconto geral */ baseNavios?: BaseNavios }
 export type Destino = 'TC' | 'DA' | 'PAR' | 'OG';
 /** linhas que entram na taxa condominial (rateadas entre as OM): rubricas e outros gastos */
 export const entraNaTaxa = (r: { destino: Destino }) => r.destino === 'TC' || r.destino === 'OG';
@@ -76,7 +76,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
   const N = (v: any) => (v == null ? null : Number(v));
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
   return {
-    proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao, naviosPlanilha: p.data.navios_planilha == null ? null : Number(p.data.navios_planilha), baseNavios: p.data.base_navios === 'PREVISTO' ? 'PREVISTO' : 'VIGENTE' } : { ano, status: 'PROPOSTA', baseNavios: 'VIGENTE' },
+    proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao, naviosPlanilha: p.data.navios_planilha == null ? null : Number(p.data.navios_planilha), baseNavios: p.data.base_navios === 'VIGENTE' ? 'VIGENTE' : 'PREVISTO' } : { ano, status: 'PROPOSTA', baseNavios: 'PREVISTO' },
     rubricas: (rub.data || []).map(r => ({
       numero: r.numero, descricao: r.descricao, contaContabil: r.conta_contabil, valorPrevisto: Number(r.valor_previsto ?? r.valor_anual ?? 0),
       descontoGeral: Number(r.desconto_geral ?? 0), gastoAnterior: r.gasto_anterior === null || r.gasto_anterior === undefined ? null : Number(r.gasto_anterior), justificativa: r.justificativa_desconto,
@@ -108,7 +108,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
 export async function salvarProposta(p: Proposta) {
   const reg: any = { ano: p.ano, status: p.status, aprovada_em: p.aprovadaEm ?? null, divulgada_em: p.divulgadaEm ?? null, observacao: p.observacao ?? null, ...(p.naviosPlanilha !== undefined ? { navios_planilha: p.naviosPlanilha } : {}), ...(p.baseNavios ? { base_navios: p.baseNavios } : {}) };
   let { error } = await supabase.from('propostas_tc').upsert(reg);
-  if (error && /base_navios/.test(error.message || '')) { if (p.baseNavios === 'PREVISTO') throw new Error('Para usar o valor previsto na parte dos navios, execute o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase.'); delete reg.base_navios; ({ error } = await supabase.from('propostas_tc').upsert(reg)); }
+  if (error && /base_navios/.test(error.message || '')) { if (p.baseNavios === 'VIGENTE') throw new Error('Para usar o valor sugerido − desconto geral na parte dos navios, execute o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase.'); delete reg.base_navios; ({ error } = await supabase.from('propostas_tc').upsert(reg)); }
   if (error && /navios_planilha/.test(error.message || '')) { delete reg.navios_planilha; ({ error } = await supabase.from('propostas_tc').upsert(reg)); }
   checar(error);
 }

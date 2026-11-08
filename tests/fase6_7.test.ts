@@ -252,17 +252,17 @@ describe('critério de rateio por rubrica', () => {
     expect(r.da.oms[0].anual).toBe(672);
     expect(r.da.oms[0].diaria).toBe(5.6); // 672 ÷ (100 × 10 × 12) × 100
   });
-  it('navios INTEGRAL: o valor da linha (previsto − desconto geral) vai inteiro para os navios, sem diminuir as OM', () => {
+  it('navios INTEGRAL: o VALOR SUGERIDO da linha vai inteiro para os navios, sem diminuir as OM', () => {
     const r = ratearProposta(rub({ descontoGeral: 200, naviosModo: 'INTEGRAL' }), terra, navios, m, []);
-    expect(r.tc.total).toBe(1000); // OM rateiam 1.200 − 200
-    expect(r.totalNavios).toBe(1000); // e os navios recebem os mesmos 1.000
+    expect(r.tc.total).toBe(1000); // OM rateiam 1.200 − 200 de desconto geral
+    expect(r.totalNavios).toBe(1200); // os navios recebem o valor sugerido (1.200), sem o desconto geral
     // descontos das OM não mexem na parte dos navios
     const d = ratearProposta(rub({ naviosModo: 'INTEGRAL' }), terra, navios, m, [{ id: 'x', omId: 'a', rubrica: 1, tipo: 'VALOR', valor: 100, justificativa: 'x' }]);
     expect(d.tc.total).toBe(1100);
     expect(d.totalNavios).toBe(1200);
   });
-  it('navios: base só o previsto, valor fixo e não entra', () => {
-    expect(ratearProposta(rub({ descontoGeral: 200, naviosModo: 'INTEGRAL' }), terra, navios, m, [], 'PREVISTO').totalNavios).toBe(1200);
+  it('navios: base sugerido − desconto geral (opção), valor fixo e não entra', () => {
+    expect(ratearProposta(rub({ descontoGeral: 200, naviosModo: 'INTEGRAL' }), terra, navios, m, [], 'VIGENTE').totalNavios).toBe(1000); // opção: sugerido − desconto geral
     expect(ratearProposta(rub({ naviosModo: 'FIXO', valorNavios: 350 }), terra, navios, m, []).totalNavios).toBe(350);
     expect(ratearProposta(rub({ naviosModo: 'NAO', percentualNavios: 50 }), terra, navios, m, []).totalNavios).toBe(0);
   });

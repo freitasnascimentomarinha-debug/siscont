@@ -50,8 +50,8 @@ export const CRITERIOS: Record<Criterio, string> = {
 export type ModoNavios = 'SEPARADO' | 'CONJUNTO';
 /**
  * Parte dos NAVIOS (diária de atracação) numa linha: não entra, o valor INTEGRAL da linha, um PERCENTUAL dele ou um
- * valor FIXO. O valor da linha é o previsto − desconto geral (ou só o previsto: "base" da proposta) e NÃO tem os
- * descontos das OM. A parte dos navios não diminui o que é rateado entre as OM.
+ * valor FIXO. O valor da linha é o VALOR SUGERIDO (previsto) da rubrica — ou, se a proposta escolher, o sugerido −
+ * desconto geral — e NÃO tem os descontos das OM. A parte dos navios não diminui o que é rateado entre as OM.
  */
 export type NaviosModo = 'NAO' | 'INTEGRAL' | 'PERCENTUAL' | 'FIXO';
 export const NAVIOS_MODOS: Record<NaviosModo, string> = { NAO: 'Não entra', INTEGRAL: 'Integral', PERCENTUAL: 'Percentual', FIXO: 'Valor fixo' };
@@ -80,7 +80,7 @@ export const valorVigente = (r: RubricaTC) => r2(Math.max(0, r.valorPrevisto - r
 /** Modo dos navios da linha (registros antigos: % dos navios > 0 = percentual). */
 export const naviosModoDe = (r: RubricaTC): NaviosModo => r.naviosModo || ((r.percentualNavios ?? 0) > 0 ? 'PERCENTUAL' : 'NAO');
 /** Quanto da linha vai para o total dos navios. */
-export function parteNavios(r: RubricaTC, base: BaseNavios = 'VIGENTE'): number {
+export function parteNavios(r: RubricaTC, base: BaseNavios = 'PREVISTO'): number {
   const valor = base === 'PREVISTO' ? r2(r.valorPrevisto) : valorVigente(r);
   switch (naviosModoDe(r)) {
     case 'INTEGRAL': return valor;
@@ -181,7 +181,7 @@ export function montarParticipantes(
  *  - a soma das partes dos navios é rateada entre os navios (lotação × dias) e vira a diária de cada um.
  */
 export interface PorRubrica { numero: number; baseOM: number; navios: number }
-export function ratearProposta(rubricas: RubricaTC[], terra: Participante[], navios: Participante[], matriz: Set<string>, descontos: Desconto[], baseNavios: BaseNavios = 'VIGENTE') {
+export function ratearProposta(rubricas: RubricaTC[], terra: Participante[], navios: Participante[], matriz: Set<string>, descontos: Desconto[], baseNavios: BaseNavios = 'PREVISTO') {
   const porRubrica: PorRubrica[] = rubricas.map(r => ({ numero: r.numero, baseOM: r2(valorVigente(r) * (r.percentualOM ?? 100) / 100), navios: parteNavios(r, baseNavios) }));
   const tc = ratear(rubricas.map((r, i) => ({ ...r, valorRateio: porRubrica[i].baseOM })), terra, matriz, descontos);
   const totalNavios = r2(porRubrica.reduce((s, x) => s + x.navios, 0));

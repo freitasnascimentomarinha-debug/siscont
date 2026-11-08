@@ -25,7 +25,7 @@ export function calcularTaxaAno(dados: DadosCalculoTC, ano: number, parametros: 
   const part = montarParticipantes(dados.oms, dados.lotacoes, medias).filter(p => !(emissora?.omId === p.omId && !emissora.participaRateio));
   const rubTC = dados.rubricas.filter(linhaDaTaxa);
   const terra = part.filter(p => p.tipo === 'TERRA'), navios = part.filter(p => p.tipo === 'NAVIO');
-  const r = ratearProposta(rubTC, terra, navios, dados.matriz, dados.descontos, dados.proposta?.baseNavios || 'VIGENTE');
+  const r = ratearProposta(rubTC, terra, navios, dados.matriz, dados.descontos, dados.proposta?.baseNavios || 'PREVISTO');
   const descontosPorOM = new Map<number, number>();
   r.tc.oms.forEach(o => o.parcelas.forEach(p => descontosPorOM.set(p.rubrica, r2((descontosPorOM.get(p.rubrica) || 0) + p.desconto))));
   return { resultado: r.tc, resultadoDA: r.da, descontosPorOM, porRubrica: r.porRubrica };

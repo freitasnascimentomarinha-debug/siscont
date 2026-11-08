@@ -189,14 +189,13 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
           const geral = r.descontoPlanilha != null ? Math.max(0, Math.round((r.descontoPlanilha - (porRub.get(r.numero) || 0)) * 100) / 100) : atuais.get(r.numero)?.descontoGeral ?? 0;
           // depois da última linha da matriz (34 a 37): outros gastos, rateados entre todas as OM da taxa
           const destino = r.destino === 'TC' && ultimaMatriz > 0 && r.numero > ultimaMatriz ? 'OG' as const : r.destino;
-          const pn = destino === 'TC' || destino === 'OG' ? parcela.get(r.numero) ?? (navMatriz.has(r.numero) && !lido.navios.length ? Math.max(0, r.valorPrevisto - geral) : null) : null;
+          const pn = destino === 'TC' || destino === 'OG' ? parcela.get(r.numero) ?? (navMatriz.has(r.numero) && !lido.navios.length ? r.valorPrevisto : null) : null;
           const pctNav = pn && r.valorPrevisto ? Math.round((pn / r.valorPrevisto) * 1e6) / 1e4 : 0;
           // rubrica que as OM não pagam (na planilha: DESCONTOS = valor inteiro) e os navios pagam: OM 0%, navios 100%
           const soNavios = geral > 0 && Math.abs(geral - r.valorPrevisto) < 0.01 && pctNav >= 99.99;
           const at = atuais.get(r.numero);
-          // parte dos navios: igual ao valor da linha (previsto − desconto geral) = integral; senão, o valor fixo da planilha
-          const vigLinha = Math.max(0, r.valorPrevisto - (soNavios ? 0 : geral));
-          const naviosModo = !pn ? 'NAO' as const : Math.abs(pn - vigLinha) < 0.01 ? 'INTEGRAL' as const : 'FIXO' as const;
+          // parte dos navios: igual ao valor sugerido da linha = integral; senão, o valor fixo da planilha
+          const naviosModo = !pn ? 'NAO' as const : Math.abs(pn - r.valorPrevisto) < 0.01 ? 'INTEGRAL' as const : 'FIXO' as const;
           return { numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorPrevisto: r.valorPrevisto, gastoAnterior: r.gastoAnterior, destino,
             naviosModo, valorNavios: naviosModo === 'FIXO' ? pn : null, rateioTodas: destino === 'OG' ? true : at?.rateioTodas ?? false,
             descontoPlanilha: r.descontoPlanilha, descontoGeral: soNavios ? 0 : geral, parcelaNavios: pn, percentualNavios: pctNav, percentualOM: soNavios ? 0 : (at?.percentualOM ?? 100),

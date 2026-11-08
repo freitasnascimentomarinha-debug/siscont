@@ -27,7 +27,7 @@ interface AbaProps { ano: number; dados: DadosProposta; podeEditar: boolean; rec
 
 // ================================================================== Rubricas
 const TITULO_GRUPO: Record<'TC' | 'OG' | 'DA' | 'PAR', { titulo: string; ajuda: string }> = {
-  TC: { titulo: 'Rubricas da taxa condominial', ajuda: 'Rubricas 1 a 33. "Critério" e "% OM" dizem como a parte das OM é dividida; "Rateio" = só as OM marcadas na matriz ou todas as OM da taxa; "Navios" = quanto da rubrica vai para o total dos navios (sem os descontos das OM e sem diminuir a parte das OM). Detalhes na Ficha.' },
+  TC: { titulo: 'Rubricas da taxa condominial', ajuda: 'Rubricas 1 a 33. "Critério" e "% OM" dizem como a parte das OM é dividida; "Rateio" = só as OM marcadas na matriz ou todas as OM da taxa; "Navios" = quanto da rubrica vai para o total dos navios (sobre o valor sugerido, sem os descontos das OM e sem diminuir a parte das OM). Detalhes na Ficha.' },
   OG: { titulo: 'Outros gastos — incorporados à taxa', ajuda: 'Não são rubricas (na planilha, 34 a 37), mas o valor entra no total rateado entre as OM da taxa. Em "Entra como" é possível tirar a linha da taxa (fora da taxa) ou transformá-la em rubrica; em "Rateio", ratear entre todas as OM ou só pela matriz.' },
   DA: { titulo: 'Total dos navios — diárias de atracação', ajuda: 'Soma das partes dos navios de cada linha (coluna "Navios"). Esse total é dividido entre os navios pela lotação × dias atracados e vira a diária de cada um.' },
   PAR: { titulo: 'Fora da taxa', ajuda: 'Linhas que não entram na taxa condominial nem nas diárias (só referência / PAR). Mude "Entra como" para incluí-las.' },
@@ -39,9 +39,9 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const [gravando, setGravando] = useState(false);
   const [ficha, setFicha] = useState<number | null>(null);
   const [importando, setImportando] = useState(false);
-  // valor da linha usado para os navios: previsto − desconto geral (padrão) ou só o previsto
-  const [baseNavios, setBaseNavios] = useState<BaseNavios>(dados.proposta.baseNavios || 'VIGENTE');
-  useEffect(() => { if (!sujo) setBaseNavios(dados.proposta.baseNavios || 'VIGENTE'); }, [dados]);
+  // valor da linha usado para os navios: o valor sugerido (previsto) — padrão — ou o sugerido − desconto geral
+  const [baseNavios, setBaseNavios] = useState<BaseNavios>(dados.proposta.baseNavios || 'PREVISTO');
+  useEffect(() => { if (!sujo) setBaseNavios(dados.proposta.baseNavios || 'PREVISTO'); }, [dados]);
   const refSub = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!sujo) setLinhas(dados.rubricas); }, [dados]);
   const mudar = (i: number, p: Partial<RubricaProposta>) => { setSujo(true); setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l))); };
@@ -89,7 +89,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     setGravando(true);
     try {
       await salvarRubricasProposta(ano, linhas);
-      if (baseNavios !== (dados.proposta.baseNavios || 'VIGENTE')) await salvarProposta({ ...dados.proposta, ano, baseNavios });
+      if (baseNavios !== (dados.proposta.baseNavios || 'PREVISTO')) await salvarProposta({ ...dados.proposta, ano, baseNavios });
       setSujo(false); notify.success('Rubricas gravadas.'); recarregar();
     } catch (e) { notify.fail('Erro ao gravar rubricas', e); throw e; } finally { setGravando(false); }
   };
@@ -202,7 +202,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <div className="flex flex-wrap gap-x-6 gap-y-1 items-baseline">
           <label className="flex items-center gap-1.5">Valor da linha para os navios:
             <select disabled={!podeEditar} className={`${entrada} text-xs`} value={baseNavios} onChange={e => { setSujo(true); setBaseNavios(e.target.value as BaseNavios); }} aria-label="Base do valor dos navios">
-              <option value="VIGENTE">previsto − desconto geral</option><option value="PREVISTO">só o previsto</option></select></label>
+              <option value="PREVISTO">valor sugerido</option><option value="VIGENTE">valor sugerido − desconto geral</option></select></label>
           <span>Linhas de que os navios participam: <b>{[...tc, ...og].filter(x => calc(x.l).navios > 0).map(x => `${x.l.numero} (${NAVIOS_MODOS[naviosModoDe(x.l)].toLowerCase()}${naviosModoDe(x.l) === 'PERCENTUAL' ? ` ${fmt(x.l.percentualNavios ?? 0)}%` : ''})`).join(', ') || 'nenhuma'}</b></span>
           <span className="ml-auto">Total dos navios: <b className="text-base">{brl(valorDA)}</b>
             {referenciaNavios != null && (Math.abs(referenciaNavios - valorDA) < 0.01 ? <span className="text-emerald-700 ml-1" title="confere com o grupo Navios da planilha">✓</span> : <span className="text-amber-700 ml-1" title={`Planilha: ${brl(referenciaNavios)}`}>⚠ planilha {brl(referenciaNavios)}</span>)}

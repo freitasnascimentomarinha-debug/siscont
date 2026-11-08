@@ -1219,10 +1219,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Taxas condominiais \(rubricas\)/.test(resumo) && /Outros gastos/.test(resumo) && /Total dos navios \(diárias\) R\$ 100\.000,00/.test(resumo) && /Total R\$/.test(resumo), `resumo: taxas condominiais + outros gastos + navios = total (${resumo})`);
     // navios INTEGRAL: o valor da linha (previsto − desconto geral) vai inteiro para os navios
     await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('INTEGRAL');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 199.500,00'), 'navios integral = previsto 200.000 − desconto geral 500 = R$ 199.500,00 (sem os descontos das OM)');
-    await page.getByLabel('Base do valor dos navios').selectOption('PREVISTO');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 200.000,00'), 'base ajustável: só o previsto = R$ 200.000,00');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 200.000,00'), 'navios integral = valor sugerido R$ 200.000,00 (sem desconto geral e sem os descontos das OM)');
     await page.getByLabel('Base do valor dos navios').selectOption('VIGENTE');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 199.500,00'), 'base ajustável: sugerido − desconto geral = R$ 199.500,00');
+    await page.getByLabel('Base do valor dos navios').selectOption('PREVISTO');
     await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('FIXO');
     await page.getByLabel('Valor fixo dos navios na linha 1').fill('100000');
     ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 100.000,00'), 'valor fixo dos navios');
