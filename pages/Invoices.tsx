@@ -989,32 +989,26 @@ export const Invoices: React.FC = () => {
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
-                    {!isReadOnly && <th className="px-2 py-3 text-left"><input type="checkbox" aria-label="Selecionar as faturas desta página" className="h-4 w-4 accent-primary-600"
+                    <th className="px-2 py-2 text-left w-16"><div className="flex items-center gap-1">{!isReadOnly && <input type="checkbox" aria-label="Selecionar as faturas desta página" className="h-4 w-4 accent-primary-600"
                       checked={faturasDaPagina.length > 0 && faturasDaPagina.every(i => selecionadas.has(i.id))}
-                      onChange={e => setSelecionadas(prev => { const n = new Set(prev); faturasDaPagina.forEach(i => (e.target.checked ? n.add(i.id) : n.delete(i.id))); return n; })} /></th>}
-                    <th className="px-2 py-3 text-left"></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'competencia' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'competencia', asc: o.campo === 'competencia' ? !o.asc : false }))}>Comp.{ordem.campo === 'competencia' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">UG</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'cliente' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'cliente', asc: o.campo === 'cliente' ? !o.asc : true }))}>Cliente{ordem.campo === 'cliente' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'numero' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'numero', asc: o.campo === 'numero' ? !o.asc : true }))}>Fatura{ordem.campo === 'numero' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Tipo</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'vencimento' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'vencimento', asc: o.campo === 'vencimento' ? !o.asc : true }))}>Vencimento{ordem.campo === 'vencimento' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Vl Serviço Prestado</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Acres.</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Deb.</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Adiant.</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Vl Fatura</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Saldo</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Ações</th>
+                      onChange={e => setSelecionadas(prev => { const n = new Set(prev); faturasDaPagina.forEach(i => (e.target.checked ? n.add(i.id) : n.delete(i.id))); return n; })} />}</div></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Status</th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'competencia' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'competencia', asc: o.campo === 'competencia' ? !o.asc : false }))}>Comp.{ordem.campo === 'competencia' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'cliente' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'cliente', asc: o.campo === 'cliente' ? !o.asc : true }))}>Cliente{ordem.campo === 'cliente' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'numero' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'numero', asc: o.campo === 'numero' ? !o.asc : true }))}>Fatura{ordem.campo === 'numero' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'vencimento' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'vencimento', asc: o.campo === 'vencimento' ? !o.asc : true }))}>Vencimento{ordem.campo === 'vencimento' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Serviço prestado</th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" title="Valor da fatura: serviço + acréscimo − débito − adiantamento">Vl fatura</th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Saldo</th>
+                    <th className="px-2 py-2 text-right text-[11px] font-medium text-slate-500 uppercase sticky right-0 bg-slate-50">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                   {carregando && invoices.length === 0 && (
-                    <tr><td colSpan={16} className="px-4 py-10 text-center text-slate-500 text-sm">Carregando faturas...</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500 text-sm">Carregando faturas...</td></tr>
                   )}
                   {!carregando && filteredInvoices.length === 0 && (
-                    <tr><td colSpan={16} className="px-4 py-10 text-center text-slate-400 text-sm">Nenhuma fatura com esses filtros.</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-400 text-sm">Nenhuma fatura com esses filtros.</td></tr>
                   )}
                   {faturasDaPagina.map((inv) => {
                     const calc = getInvoiceCalculations(inv);
@@ -1023,14 +1017,16 @@ export const Invoices: React.FC = () => {
                     return (
                       <React.Fragment key={inv.id}>
                         <tr className={`hover:bg-slate-50 ${inv.isCanceled ? 'bg-slate-50 opacity-75' : ''} ${selecionadas.has(inv.id) ? 'bg-primary-50/50' : ''}`}>
-                          {!isReadOnly && <td className="px-2 py-4"><input type="checkbox" aria-label={`Selecionar a fatura ${inv.invoiceNumber}`} className="h-4 w-4 accent-primary-600" checked={selecionadas.has(inv.id)}
-                            onChange={() => setSelecionadas(prev => { const n = new Set(prev); n.has(inv.id) ? n.delete(inv.id) : n.add(inv.id); return n; })} /></td>}
-                          <td className="px-2 py-4">
-                            <button onClick={() => setExpandedRowId(isExpanded ? null : inv.id)} className="text-slate-400 hover:text-primary-600">
-                              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                            </button>
+                          <td className="px-2 py-2 whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              {!isReadOnly && <input type="checkbox" aria-label={`Selecionar a fatura ${inv.invoiceNumber}`} className="h-4 w-4 accent-primary-600" checked={selecionadas.has(inv.id)}
+                                onChange={() => setSelecionadas(prev => { const n = new Set(prev); n.has(inv.id) ? n.delete(inv.id) : n.add(inv.id); return n; })} />}
+                              <button onClick={() => setExpandedRowId(isExpanded ? null : inv.id)} className="text-slate-400 hover:text-primary-600" aria-label={`${isExpanded ? 'Recolher' : 'Ver detalhes d'}a fatura ${inv.invoiceNumber}`} aria-expanded={isExpanded}>
+                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </button>
+                            </div>
                           </td>
-                          <td className="px-4 py-4 whitespace-nowrap">
+                          <td className="px-2 py-2 whitespace-nowrap">
                             {inv.substituidaPor
                               ? <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700" title={`Substituída por ${inv.substituidaPor}${inv.cancelamentoMotivo ? `: ${inv.cancelamentoMotivo}` : ''}`}><RefreshCcw size={12} className="mr-1" /> Substituída</span>
                               : <span title={inv.isCanceled && inv.cancelamentoMotivo ? `Motivo: ${inv.cancelamentoMotivo}` : undefined}>{getStatusBadge(inv.status)}</span>}
@@ -1042,25 +1038,27 @@ export const Invoices: React.FC = () => {
                               ))}
                             </div>}
                           </td>
-                          <td className="px-4 py-4 text-sm text-slate-500">{inv.competence}</td>
-                          <td className="px-4 py-4 text-sm text-slate-700">{inv.ug || '-'}</td>
-                          <td className="px-4 py-4 text-sm font-medium text-slate-900 truncate max-w-[150px]" title={inv.client}>{inv.client}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500 whitespace-nowrap">
+                          <td className="px-2 py-2 text-xs text-slate-500 whitespace-nowrap">{inv.competence}</td>
+                          <td className="px-2 py-2 max-w-[200px]"><div className="text-sm font-medium text-slate-900 leading-tight break-words" title={inv.client}>{inv.client}</div><div className="text-[11px] text-slate-500 truncate" title={inv.type}>UG {inv.ug || '—'} · {inv.type}</div></td>
+                          <td className="px-2 py-2 text-xs font-mono text-slate-600 whitespace-nowrap">
                             <span className="inline-flex items-center gap-1.5">
                               {inv.invoiceNumber}
                               <PontoIcone pontos={inv.pontos} onClick={() => setPontosAlvo({ alvo: 'fatura', id: inv.id, titulo: inv.invoiceNumber, subtitulo: `${inv.ug || ''} ${inv.client} · ${inv.type} · ${inv.competence}`, pontos: inv.pontos || [] })} />
                             </span>
                           </td>
-                          <td className="px-4 py-4 text-sm text-slate-500 truncate max-w-[100px]" title={inv.type}>{inv.type}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500">{dataBR(inv.dueDate)}</td>
-                          <td className="px-4 py-4 text-sm font-semibold text-slate-900">R$ {calc.valService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500">R$ {calc.add.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-sm text-slate-500">R$ {calc.ded.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-sm text-orange-600">R$ {calc.totalAdvanceUsed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-sm font-bold text-indigo-700">R$ {calc.valInvoice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-sm font-bold text-slate-800">R$ {calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex justify-end gap-2">
+                                                    <td className="px-2 py-2 text-xs text-slate-600 whitespace-nowrap">{dataBR(inv.dueDate)}</td>
+                          <td className="px-2 py-2 text-right whitespace-nowrap">
+                            <div className="text-sm font-semibold text-slate-900 tabular-nums">R$ {calc.valService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                            {(calc.add > 0 || calc.ded > 0 || calc.totalAdvanceUsed > 0) && <div className="text-[11px] leading-tight text-slate-500">
+                              {calc.add > 0 && <span title="Acréscimo">+{calc.add.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} </span>}
+                              {calc.ded > 0 && <span title="Débito">−{calc.ded.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} </span>}
+                              {calc.totalAdvanceUsed > 0 && <span className="text-orange-600" title="Adiantamento abatido">adiant. {calc.totalAdvanceUsed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
+                            </div>}
+                          </td>
+                          <td className="px-2 py-2 text-sm font-bold text-indigo-700 text-right whitespace-nowrap tabular-nums">R$ {calc.valInvoice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 text-sm font-bold text-slate-800 text-right whitespace-nowrap tabular-nums">R$ {calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)]">
+                            <div className="flex flex-wrap justify-end gap-1.5 w-[96px] ml-auto">
                               <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)" aria-label={`PDF da fatura ${inv.invoiceNumber}`}><Printer size={16} /></button>
                               <button onClick={() => setHistoricoDe(inv)} className="text-slate-400 hover:text-slate-800" title="Histórico: quem alterou e quando" aria-label={`Histórico da fatura ${inv.invoiceNumber}`}><History size={16} /></button>
                               {!inv.isCanceled && !isReadOnly && (
@@ -1077,7 +1075,16 @@ export const Invoices: React.FC = () => {
                         </tr>
                         {isExpanded && (
                           <tr className="bg-slate-50/80">
-                            <td colSpan={16} className="px-6 py-4">
+                            <td colSpan={10} className="px-6 py-4">
+                              <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Dados e valores da fatura</h4>
+                              <dl className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-x-6 gap-y-2 text-sm max-w-4xl mb-4">
+                                {([['UG', inv.ug || '—'], ['Serviço', inv.type || '—'], ['Competência', inv.competence || '—'], ['Emissão', dataBR(inv.issueDate) || '—'], ['Vencimento', dataBR(inv.dueDate) || '—'],
+                                   ['Serviço prestado', `R$ ${calc.valService.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`], ['Acréscimo (+)', `R$ ${calc.add.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`], ['Débito (−)', `R$ ${calc.ded.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
+                                   ['Adiantamento abatido', `R$ ${calc.totalAdvanceUsed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`], ['Valor da fatura', `R$ ${calc.valInvoice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`],
+                                   ['Pago', `R$ ${calc.totalPaymentUsed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`], ['Saldo a pagar', `R$ ${calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`]] as const).map(([r, v]) => (
+                                  <div key={r}><dt className="text-[11px] text-slate-500">{r}</dt><dd className="font-semibold text-slate-800 tabular-nums">{v}</dd></div>
+                                ))}
+                              </dl>
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Detalhamento de Créditos Vinculados (Adiantamentos e Pagamentos)</h4>
                               <div className="bg-white rounded border border-slate-200 overflow-hidden max-w-4xl">
                                 <table className="min-w-full text-sm">
@@ -1138,7 +1145,7 @@ export const Invoices: React.FC = () => {
                     );
                   })}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={16} className="text-center py-8 text-slate-500">Nenhuma fatura encontrada.</td></tr>
+                    <tr><td colSpan={10} className="text-center py-8 text-slate-500">Nenhuma fatura encontrada.</td></tr>
                   )}
                 </tbody>
               </table>

@@ -630,6 +630,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
     await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).waitFor();
+    // layout: a tabela cabe na largura da tela (sem arrastar para o lado) e a coluna de ações fica visível
+    const sobra = await page.locator('table').first().evaluate(t => { const c = t.parentElement; return c.scrollWidth - c.clientWidth; });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-layout.png') });
+    ok(sobra <= 1, `lista de faturas cabe na largura da tela sem rolagem horizontal (sobra ${sobra}px)`);
+    ok(await page.getByRole('button', { name: 'Editar a fatura 40030-TC-08-2026-001-0' }).isVisible(), 'ações da fatura visíveis sem arrastar a tela');
     // 1. data de vencimento sem perder 1 dia (o navegador do teste roda em fuso de Brasília)
     ok((await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).innerText()).includes('15/10/2026'), 'vencimento 15/10/2026 aparece como 15/10/2026 (sem perder 1 dia)');
     // 3. cabeçalho: ativas e canceladas, serviço sem as canceladas
