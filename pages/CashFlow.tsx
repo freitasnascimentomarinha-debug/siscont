@@ -11,7 +11,8 @@ import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError } from '../services/relatoriosService';
-import { importarNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
+import { PreviaNE, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
+import * as XLSX from 'xlsx';
 import { Rubrica, lerNE } from '../utils/relatorios';
 import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash2, Search, X, Ban } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -46,17 +47,27 @@ const Lancamentos: React.FC = () => {
   const classeDe = (item: CashFlowItem) => classes.get(item.id) || '';
   const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
   const neInvalida = formData.documentType !== 'ALTCRED' && !!formData.documentNumber && !lerNE(formData.documentNumber);
+  // importação da planilha de NE: primeiro a PRÉVIA, depois "Gravar"
+  const [previaNE, setPreviaNE] = useState<PreviaNE | null>(null);
+  const [gravandoNE, setGravandoNE] = useState(false);
   const importarPlanilhaNE = async (files: FileList | null) => {
     if (!files?.length) return;
     try {
-      const r = await importarNE(files[0], items.filter(i => i.type === 'EXIT').map(i => i.documentNumber));
-      notify.success(`${r.novas} nota(s) de empenho importada(s)${r.repetidas ? `; ${r.repetidas} já existiam` : ''}${r.ignoradas.length ? `; ${r.ignoradas.length} linha(s) sem nº de NE válido` : ''}.`);
+      const rubs = await listarRubricas(new Date().getFullYear()).then(r => r.map(x => x.numero)).catch(() => [] as number[]);
+      setPreviaNE(await lerPlanilhaNE(files[0], items.filter(i => i.type === 'EXIT').map(i => i.documentNumber), rubs));
+    } catch (e) { notify.fail('Erro ao ler a planilha de notas de empenho', e); } finally { if (neRef.current) neRef.current.value = ''; }
+  };
+  const gravarNE = async () => {
+    if (!previaNE) return;
+    setGravandoNE(true);
+    try {
+      const n = await gravarPreviaNE(previaNE);
+      notify.success(`${n} nota(s) de empenho importada(s).`);
+      setPreviaNE(null);
       await refresh();
-    } catch (e) { notify.fail('Erro ao importar notas de empenho', e); } finally { if (neRef.current) neRef.current.value = ''; }
+    } catch (e) { notify.fail('Erro ao gravar as notas de empenho', e); } finally { setGravandoNE(false); }
   };
 
-  // File Import Ref
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = async () => {
     try {
@@ -207,75 +218,17 @@ const Lancamentos: React.FC = () => {
     doc.save("fluxo_caixa_siscont.pdf");
   };
 
+  /** Excel (.xlsx) de verdade, com valores numéricos. */
   const exportExcel = () => {
-    const headers = ["Data", "Documento", "Cliente", "Descrição", "Rubrica", "Observação", "Entrada", "Saída", "Saldo Acumulado", "Status"];
-    const csvRows = filteredItems.map(item => {
-      const exitValue = item.isCanceled ? '0.00' : item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-      return [
-        item.date,
-        item.documentNumber,
-        `"${item.client}"`,
-        `"${item.description}"`,
-        `"${item.rubric || ''}"`,
-        `"${item.observation || ''}"`,
-        item.type === 'ENTRY' ? item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '0.00',
-        item.type === 'EXIT' ? exitValue : '0.00',
-        item.balanceAfter.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-        item.isCanceled ? 'CANCELADO' : 'ATIVO'
-      ].join(",");
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...csvRows].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "fluxo_caixa.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isReadOnly) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const text = evt.target?.result as string;
-        // Skipping header
-        const lines = text.split("\n").slice(1);
-        const processImport = async () => {
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const cols = line.split(",").map(s => s.replace(/"/g, ""));
-            if (cols.length >= 5) {
-              const payload: CashFlowExit = {
-                id: uuidv4(),
-                date: cols[0] || new Date().toISOString().split('T')[0],
-                documentNumber: cols[1] || 'IMP',
-                documentType: DocumentType.EMPENHO,
-                client: cols[2] || 'Importado',
-                description: cols[3] || 'Importação via CSV',
-                rubric: cols[4] || '',
-                observation: cols[5] || '',
-                value: Number(cols[7]) || 0,
-                isCanceled: false
-              };
-              if (payload.value > 0) await db.saveExit(payload);
-            }
-          }
-          await refresh();
-          alert('Importação concluída com sucesso!');
-        };
-        processImport();
-      } catch (err) {
-        alert('Erro ao importar arquivo. Verifique o formato CSV.');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    const linhas: (string | number)[][] = [['Data', 'Documento', 'Cliente', 'Descrição', 'Rubrica', 'Observação', 'Entrada', 'Saída', 'Saldo acumulado', 'Situação']];
+    filteredItems.forEach(item => linhas.push([
+      dataBR(item.date), item.documentNumber, item.client, item.description, item.rubric || '', item.observation || '',
+      item.type === 'ENTRY' ? item.value : 0, item.type === 'EXIT' && !item.isCanceled ? item.value : 0, item.balanceAfter, item.isCanceled ? 'Anulado' : 'Ativo',
+    ]));
+    const ws = XLSX.utils.aoa_to_sheet(linhas);
+    ws['!cols'] = [11, 26, 32, 40, 14, 30, 14, 14, 16, 10].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Fluxo de caixa');
+    XLSX.writeFile(wb, 'fluxo_caixa.xlsx');
   };
 
   const months = [
@@ -299,10 +252,6 @@ const Lancamentos: React.FC = () => {
                 <Upload className="w-4 h-4 mr-2" /> Importar NE (planilha)
               </Button>
               <BaixarModelo rotulo="Modelo NE" modelo={() => { const d = new Date(); return modeloNotasEmpenho(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }} />
-              <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
-              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-2" /> Importar
-              </Button>
             </>
           )}
           <Button variant="secondary" size="sm" onClick={exportExcel}>
@@ -479,6 +428,51 @@ const Lancamentos: React.FC = () => {
         </div>
       </Modal>
 
+      <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
+        footer={<div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setPreviaNE(null)}>Cancelar</Button>
+          <Button onClick={gravarNE} isLoading={gravandoNE} disabled={!previaNE?.itens.some(i => i.situacao === 'NOVA')}>Gravar {previaNE?.itens.filter(i => i.situacao === 'NOVA').length || 0} nota(s) nova(s)</Button>
+        </div>}>
+        {previaNE && (() => {
+          const novas = previaNE.itens.filter(i => i.situacao === 'NOVA');
+          const comAviso = novas.filter(i => i.avisos.length).length;
+          return (
+            <div className="space-y-3 text-sm" aria-label="Prévia das notas de empenho">
+              <div className="flex flex-wrap gap-2">
+                <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200"><b>{novas.length}</b> nova(s) · R$ {novas.reduce((t, i) => t + i.saida.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200"><b>{previaNE.itens.length - novas.length}</b> já cadastrada(s) ou repetida(s) — não serão gravadas</span>
+                <span className="px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200"><b>{previaNE.ignoradas.length}</b> linha(s) pulada(s)</span>
+                {comAviso > 0 && <span className="px-2 py-1 rounded bg-orange-50 text-orange-800 border border-orange-200"><b>{comAviso}</b> nova(s) com aviso de rubrica</span>}
+              </div>
+              <div className="max-h-[45vh] overflow-auto border border-slate-200 rounded">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr>{['Situação', 'Data', 'Nota de empenho', 'Cliente', 'Rubrica / categoria', 'Valor'].map(x => <th key={x} className={`px-2 py-1.5 ${x === 'Valor' ? 'text-right' : 'text-left'}`}>{x}</th>)}</tr></thead>
+                  <tbody>
+                    {previaNE.itens.map((i, k) => (
+                      <tr key={k} className={`border-t border-slate-100 ${i.situacao !== 'NOVA' ? 'text-slate-400' : ''}`}>
+                        <td className="px-2 py-1 whitespace-nowrap">{i.situacao === 'NOVA' ? <span className="text-emerald-700 font-semibold">nova</span> : i.situacao === 'JA_EXISTE' ? 'já cadastrada' : 'repetida na planilha'}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{dataBR(i.saida.date)}</td>
+                        <td className="px-2 py-1 font-mono whitespace-nowrap">{i.saida.documentNumber}</td>
+                        <td className="px-2 py-1 max-w-[220px] truncate" title={i.saida.client}>{i.saida.client}</td>
+                        <td className="px-2 py-1">{i.saida.rubricaNumero ? `Rubrica ${i.saida.rubricaNumero}` : (i.saida.categoria && rotuloClasse(i.saida.categoria)) || i.saida.categoria || '—'}{i.avisos.map(a => <div key={a} className="text-orange-700">⚠ {a}</div>)}</td>
+                        <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">R$ {i.saida.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                    {!previaNE.itens.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma nota de empenho encontrada na planilha.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              {previaNE.ignoradas.length > 0 && (
+                <details className="border border-amber-200 rounded bg-amber-50 p-2" open={previaNE.ignoradas.length <= 10}>
+                  <summary className="cursor-pointer font-semibold text-amber-900">Linhas puladas ({previaNE.ignoradas.length})</summary>
+                  <ul className="mt-1 space-y-0.5 text-xs text-amber-900">{previaNE.ignoradas.map((g, k) => <li key={k}>{g.aba}, linha {g.linha}: {g.motivo}</li>)}</ul>
+                </details>
+              )}
+              <p className="text-xs text-slate-500">NE com número já cadastrado não é gravada de novo. Reforço de empenho com o mesmo número: lance em <b>Nova Saída</b>.</p>
+            </div>
+          );
+        })()}
+      </Modal>
       <ConfirmModal
         isOpen={!!deleteId}
         onClose={() => setDeleteId(null)}

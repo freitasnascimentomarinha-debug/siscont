@@ -521,15 +521,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/Nenhuma medição lançada/).first().isVisible() && await page.getByText(/Mapa não lançado/).isVisible(), 'resumo do mês: medições e mapa de atracação pendentes');
     // preços
     await page.getByRole('button', { name: 'Preços do ano', exact: true }).click();
+    // TC e diária são publicadas pela página Taxa condominial e diárias; aqui só consulta
+    db.precos.push({ id: uid(), ano: 2026, sigla: 'TC', om_id: dim.id, valor: 19615.73, unidade: 'MÊS' }, { id: uid(), ano: 2026, sigla: 'DA', om_id: npa.id, valor: 95.51, unidade: 'DIA' });
     await page.getByLabel('Ano dos preços').fill('2026');
-    await page.getByLabel('TC Diretoria Industrial da Marinha').fill('19615,73');
-    await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
-    await page.getByText('Preços gravados.').first().waitFor();
+    await page.getByText(/Taxa condominial: só consulta/).waitFor();
+    await page.getByLabel('Ano dos preços').fill('2025'); await page.getByLabel('Ano dos preços').fill('2026');
+    await page.getByLabel('TC Diretoria Industrial da Marinha').getByText('R$ 19.615,73').waitFor();
+    ok(await page.getByRole('button', { name: /Importar tabela da TC|Copiar de 2025|Gravar \(/ }).count() === 0 && await page.locator('input[aria-label="TC Diretoria Industrial da Marinha"]').count() === 0, 'Preços do ano: TC só consulta (sem importar, copiar, digitar ou gravar)');
     await page.getByLabel('Serviço dos preços').selectOption('DA');
-    await page.getByLabel('DA Navio-Patrulha Mangaratiba').fill('95,51');
-    await page.getByRole('button', { name: /Gravar \(1\)/ }).click();
-    await page.waitForTimeout(400);
-    ok(db.precos.length === 2 && db.precos.some(p => p.sigla === 'DA' && Number(p.valor) === 95.51), 'TC e diária de atracação de 2026 gravadas');
+    await page.getByLabel('DA Navio-Patrulha Mangaratiba').getByText('R$ 95,51').waitFor();
+    ok(await page.locator('input[aria-label="DA Navio-Patrulha Mangaratiba"]').count() === 0, 'Preços do ano: diária só consulta');
+    await page.getByLabel('Serviço dos preços').selectOption('EL');
+    ok(await page.getByRole('button', { name: /Copiar de 2025/ }).isVisible(), 'demais serviços continuam editáveis');
     // medições: rateio
     await page.getByRole('button', { name: 'Medições do mês', exact: true }).click();
     await page.getByLabel('Competência das medições').fill('2026-08');
@@ -1086,7 +1089,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['DATA', 'ALTCRED/NE', 'CLIENTE', 'ENTRADA', 'SAÍDA', 'SALDO', 'RUBRICA', 'DESCRIÇÃO'], ['Saldo Anterior'],
       ['10/10/2026', '740015000012026NE000122', 'AGUAS DO RIO 4 SPE S.A', '', 'R$ 94.860,00', '', 'Água e Esgoto', 'CONTRATACAO DOS SERVICOS'],
-      ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', '']]), 'OUT2026');
+      ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', ''],
+      ['10/10/2026', '740015000012026NE000999', 'EXEMPLO — EMPRESA', '', 1000, '', 'Água e Esgoto', 'linha de exemplo'],
+      ['12/10/2026', '740015000012026NE000777', 'FORNECEDOR', '', -500, '', '14', 'anulação'],
+      ['13/10/2026', '740015000012026NE000123', 'DETOX DEDETIZADORA LTDA', '', 50400, '', '14', 'repetida']]), 'OUT2026');
     XLSX.writeFile(wb, nes);
     // as rubricas vêm da Taxa condominial (a aba Rubricas do fluxo é só consulta)
     db.rubricas.push({ ano: 2026, numero: 1, descricao: 'Manutenção de Telhados', destino: 'TC', valor_previsto: 200000, desconto_geral: 53903.08, valor_anual: 146096.92 },
@@ -1110,6 +1116,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const ne = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000123');
     ok(ne && ne.rubrica_numero === 14 && ne.categoria === 'CONDOMINIO' && Number(ne.value) === 50400, 'NE de R$ 50.400,00 gravada na rubrica 14');
     await page.locator('input[type=file][accept*="xlsx"]').first().setInputFiles(nes);
+    const prev = page.getByLabel('Prévia das notas de empenho');
+    await prev.waitFor();
+    const tprev = (await prev.innerText()).replace(/\s+/g, ' ');
+    ok(/1 nova\(s\)/.test(tprev) && /EXEMPLO do modelo/.test(tprev) && /valor negativo/.test(tprev) && /740015000012026NE000123/.test(tprev) && /já cadastrada/.test(tprev), 'prévia da NE: 1 nova, a já cadastrada não é regravada, EXEMPLO e anulação (negativo) pulados com o motivo');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-previa-ne.png') });
+    ok(!db.cash_flow_exits.some(e => e.document_number === '740015000012026NE000122'), 'nada gravado antes de confirmar');
+    await page.getByRole('button', { name: /Gravar 1 nota\(s\) nova\(s\)/ }).click();
     await page.getByText(/1 nota\(s\) de empenho importada/).waitFor();
     ok(db.cash_flow_exits.some(e => e.document_number === '740015000012026NE000122' && e.categoria === 'AGUA'), 'NE importada da planilha e classificada como água');
     await page.getByRole('button', { name: 'Condomínio por rubrica' }).click();
@@ -1431,6 +1444,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('option', { name: /Diretoria Industrial da Marinha/ }).first().click();
     ok(await page.getByText(/Ligado ao cadastro: 40030 · Diretoria Industrial da Marinha/).isVisible()
       && await page.getByLabel('UG (Unidade Gestora)').inputValue() === '40030' && await page.getByLabel('Setor', { exact: true }).inputValue() === 'DGMM', 'fatura: cliente escolhido no cadastro preenche UG, setor e comando');
+    // fatura avulsa de taxa condominial: o valor vem do preço publicado pela Taxa condominial (não é digitado)
+    db.service_definitions.push({ id: uid(), name: 'Taxa Condominial', unit_measure: 'MÊS', acronym: 'TC', ativo: true });
+    const dimId = db.oms.find(o => o.codigo === '40030' && o.ativo).id;
+    db.precos.push({ id: uid(), ano: 2026, sigla: 'TC', om_id: dimId, valor: 12345.67, unidade: 'MÊS' });
+    await page.keyboard.press('Escape');
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('button', { name: 'Nova Fatura' }).click();
+    await page.getByLabel('Cliente', { exact: true }).fill('industrial');
+    await page.getByRole('option', { name: /Diretoria Industrial da Marinha/ }).first().click();
+    await page.getByLabel('Tipo de Fatura').selectOption('Taxa Condominial');
+    await page.getByLabel('Ano Comp.').fill('2026');
+    await page.getByText(/Valor publicado pela Taxa condominial \(2026\)/).waitFor();
+    ok(await page.getByLabel('Valor Base').isDisabled() && /12\.345,67/.test(await page.getByLabel('Valor Base').inputValue()), 'fatura avulsa de TC: valor do preço publicado, sem digitar');
+    await page.getByLabel('Ano Comp.').fill('2027');
+    await page.getByText(/Sem taxa condominial publicada para esta OM em 2027/).waitFor();
+    ok(true, 'sem taxa publicada no ano: avisa para publicar na Taxa condominial');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Novo Documento' }).click();

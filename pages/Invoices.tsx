@@ -15,12 +15,13 @@ import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocat
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, Upload, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
+import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
 import { HistoricoModal } from '../components/auditoria/Historico';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura';
 import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
 import { MapaAnaliticoTab } from '../components/faturas/MapaAnaliticoTab';
+import { listarPrecos } from '../services/faturamentoService';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, resumoCabecalho, setorDe, temFiltroExtra } from '../utils/filtrosFaturas';
@@ -68,9 +69,6 @@ export const Invoices: React.FC = () => {
   // Multiple Advance Deduction State
   const [selectedAdvances, setSelectedAdvances] = useState<string[]>([]);
   const [advanceSearchText, setAdvanceSearchText] = useState('');
-
-  // Import Ref
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filters
   const [filterType, setFilterType] = useState('');
@@ -268,6 +266,23 @@ export const Invoices: React.FC = () => {
 
 
 
+  // Fatura de TAXA CONDOMINIAL ou DIÁRIA: o valor vem do preço publicado pela página Taxa condominial e diárias
+  const siglaForm = (formData.serviceAcronym || '').toUpperCase();
+  const ehDaTaxa = siglaForm === 'TC' || siglaForm === 'DA';
+  const [precoTaxa, setPrecoTaxa] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    setPrecoTaxa(undefined);
+    if (!isModalOpen || !ehDaTaxa || !formData.omId || !formData.yearCompetence) return;
+    let vivo = true;
+    listarPrecos([Number(formData.yearCompetence)]).then(ps => {
+      if (!vivo) return;
+      const p = ps.find(x => x.sigla === siglaForm && x.omId === formData.omId);
+      setPrecoTaxa(p ? p.valor : null);
+      if (p && !editingId) setFormData(f => (f.value === p.valor ? f : { ...f, value: p.valor }));
+    }).catch(() => vivo && setPrecoTaxa(null));
+    return () => { vivo = false; };
+  }, [isModalOpen, siglaForm, formData.omId, formData.yearCompetence, editingId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isReadOnly || isSubmitting) return;
@@ -283,6 +298,12 @@ export const Invoices: React.FC = () => {
     if (missingFields.length > 0) {
       setSaveError(`Os seguintes campos são obrigatórios: ${missingFields.join(', ')}`);
       return;
+    }
+    // fatura avulsa de TC/diária só com o valor publicado pela Taxa condominial
+    if (!editingId && ehDaTaxa) {
+      if (!formData.omId) { setSaveError(`Fatura de ${siglaForm === 'TC' ? 'taxa condominial' : 'diária'}: escolha o cliente na lista do cadastro (o valor vem do preço publicado da OM).`); return; }
+      if (precoTaxa === null) { setSaveError(`Não há ${siglaForm === 'TC' ? 'taxa condominial' : 'diária'} publicada para esta OM em ${formData.yearCompetence}. Calcule e publique na página Taxa condominial e diárias.`); return; }
+      if (precoTaxa !== undefined && Math.abs(Number(formData.value) - precoTaxa) > 0.005) { setSaveError('O valor base precisa ser o publicado pela Taxa condominial.'); return; }
     }
 
     const duplicate = invoices.find(i =>
@@ -558,50 +579,6 @@ export const Invoices: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isReadOnly) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const text = evt.target?.result as string;
-        const lines = text.split("\n").slice(1);
-        const processImport = async () => {
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const cols = line.split(",").map(s => s.replace(/"/g, ""));
-            if (cols.length >= 8) {
-              const payload: Invoice = {
-                id: uuidv4(),
-                ug: cols[0] || '',
-                client: cols[1] || 'Importado',
-                invoiceNumber: cols[2] || 'S/N',
-                type: cols[3] || 'Outros',
-                value: Number(cols[4].replace('.', '').replace(',', '.')) || 0,
-                issueDate: cols[5] || hojeISO(),
-                dueDate: cols[6] || hojeISO(),
-                monthCompetence: Number(cols[7]) || new Date().getMonth() + 1,
-                yearCompetence: Number(cols[8]) || new Date().getFullYear(),
-                competence: `${(Number(cols[7]) || 1).toString().padStart(2, '0')}/${cols[8] || 2024}`,
-                sector: 'Geral', command: 'Geral', consumption: '', unitMeasure: '',
-                paidAmount: 0, status: InvoiceStatus.OPEN, isCanceled: false, sipladSettled: false
-              };
-              await db.saveInvoice(payload);
-            }
-          }
-          await refresh();
-          alert('Importação concluída com sucesso!');
-        };
-        processImport();
-      } catch (err) {
-        alert('Erro ao importar arquivo. Verifique o formato CSV.');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const generateInvoicePDF = (inv: Invoice) => {
     const doc = new jsPDF();
     doc.setFont("helvetica", "bold");
@@ -729,14 +706,6 @@ export const Invoices: React.FC = () => {
         </div>
         <div className="flex gap-2 items-end flex-wrap">
           <SeletorPublico valor={publico} onChange={setPublico} />
-          {isAdmin && (
-            <>
-              <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
-              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-2" /> Importar CSV
-              </Button>
-            </>
-          )}
           {activeTab === 'list' && <>
             <Button variant="secondary" size="sm" onClick={exportExcel}>
               <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
@@ -1071,7 +1040,18 @@ export const Invoices: React.FC = () => {
             <Input label="Unid. Medida (Auto)" value={formData.unitMeasure || ''} onChange={e => setFormData({ ...formData, unitMeasure: e.target.value })} disabled={isReadOnly} placeholder="Ex: M³" />
           </div>
 
-          <CurrencyInput label="Valor Base" value={formData.value} onChange={val => setFormData({ ...formData, value: val })} disabled={isReadOnly} />
+          <div>
+            <CurrencyInput label="Valor Base" value={formData.value} onChange={val => setFormData({ ...formData, value: val })} disabled={isReadOnly || (!editingId && ehDaTaxa)} />
+            {ehDaTaxa && (
+              <p className={`mt-1 text-xs ${precoTaxa === null ? 'text-red-700' : 'text-slate-500'}`} role="note">
+                {!formData.omId || !formData.yearCompetence ? 'Escolha o cliente do cadastro e o ano: o valor vem da taxa publicada pela página Taxa condominial e diárias.'
+                  : precoTaxa === undefined ? 'Buscando o valor publicado...'
+                  : precoTaxa === null ? `Sem ${siglaForm === 'TC' ? 'taxa condominial' : 'diária'} publicada para esta OM em ${formData.yearCompetence}: calcule e publique na página Taxa condominial e diárias.`
+                  : editingId && Math.abs(Number(formData.value) - precoTaxa) > 0.005 ? `Atenção: o valor publicado para ${formData.yearCompetence} é R$ ${precoTaxa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
+                  : `Valor publicado pela Taxa condominial (${formData.yearCompetence}). Para mudar, ajuste e publique lá; diferenças desta fatura vão em acréscimo/débito.`}
+              </p>
+            )}
+          </div>
 
           <div className="flex gap-2">
             <CurrencyInput label="Acerto Acréscimo (+)" value={formData.adjustmentAddition} onChange={val => setFormData({ ...formData, adjustmentAddition: val })} disabled={isReadOnly} />

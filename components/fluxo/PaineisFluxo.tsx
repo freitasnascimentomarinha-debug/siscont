@@ -79,7 +79,7 @@ export const CondominioRubrica: React.FC = () => {
   const [consolidadas, setConsolidadas] = useState<Rubrica[] | null>(null);
   useEffect(() => {
     setConsolidadas(null);
-    rubricasConsolidadas(ano).then(c => setConsolidadas(c.semRateio ? null : c.rubricas.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorAnual: r.final, percentual: null }))))
+    rubricasConsolidadas(ano).then(c => setConsolidadas(c.semRateio ? null : c.rubricas.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorAnual: r.omLiquido, percentual: null }))))
       .catch(() => setConsolidadas(null));
   }, [ano]);
   const rubricas = consolidadas || rubricasVigentes;
@@ -104,7 +104,7 @@ export const CondominioRubrica: React.FC = () => {
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-600">Exercício<input type="number" className={`${sel} block mt-1 w-24`} value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Exercício do condomínio" /></label>
         <Button variant="secondary" onClick={exportar} disabled={!dados?.linhas.length}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
-        {dados && <p className="text-sm text-slate-600 pb-2">Taxa condominial recebida em {ano}: <b>{brl(dados.tc)}</b> (baixas em faturas TC, pela data da baixa), distribuída pelo %RUB de cada rubrica. {consolidadas ? 'Valores: rubrica consolidada da Taxa condominial (depois dos descontos das OM).' : 'Proposta sem rateio no ano: usando o valor vigente das rubricas.'}</p>}
+        {dados && <p className="text-sm text-slate-600 pb-2">Taxa condominial recebida em {ano}: <b>{brl(dados.tc)}</b> (baixas em faturas TC, pela data da baixa), distribuída pelo %RUB de cada rubrica. {consolidadas ? 'Valores: rubrica consolidada da Taxa condominial (parte das OM, depois dos descontos).' : 'Proposta sem rateio no ano: usando o valor vigente das rubricas.'}</p>}
       </div>
       {!rubricas.length && <p className="text-sm text-amber-700">Cadastre ou importe as rubricas de {ano} na aba Rubricas.</p>}
       {dados && rubricas.length > 0 && (
@@ -178,10 +178,14 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
   }, [ano]);
   const lista = dados?.rubricas || [];
   const total = lista.reduce((s, r) => s + r.final, 0);
+  // %RUB sobre a parte das OM (a taxa recebida vem só das faturas TC; os navios pagam por diária)
+  const totalOM = lista.reduce((s, r) => s + r.omLiquido, 0);
+  const pctDe = (r: { omLiquido: number }) => (totalOM ? (r.omLiquido / totalOM) * 100 : 0);
+  const temNavios = lista.some(r => r.navios > 0.005);
   const exportar = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº', 'Rubrica', 'Conta contábil', 'Valor final consolidado', '%RUB'],
-      ...lista.map(r => [r.numero, r.descricao, r.contaContabil || '', r.final, total ? Math.round((r.final / total) * 1000000) / 10000 : 0]), ['TOTAL', '', '', Math.round(total * 100) / 100, total ? 100 : 0]]), `Rubricas ${ano}`);
+      ...lista.map(r => [r.numero, r.descricao, r.contaContabil || '', r.final, Math.round(pctDe(r) * 10000) / 10000]), ['TOTAL', '', '', Math.round(total * 100) / 100, totalOM ? 100 : 0]]), `Rubricas ${ano}`);
     XLSX.writeFile(wb, `rubricas_consolidadas_${ano}.xlsx`);
   };
   return (
@@ -189,7 +193,7 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-600">Exercício<input type="number" className={`${sel} block mt-1 w-24`} value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Exercício das rubricas" /></label>
         <Button variant="secondary" onClick={exportar} disabled={!lista.length}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
-        <p className="text-xs text-slate-500 pb-2 max-w-2xl">Rubrica consolidada da <b>Taxa condominial e diárias</b>: valor final de cada rubrica, já descontados os descontos das OM. Só consulta: para incluir rubricas ou mudar valores, use a tela da Taxa condominial. %RUB = participação no total consolidado.</p>
+        <p className="text-xs text-slate-500 pb-2 max-w-2xl">Rubrica consolidada da <b>Taxa condominial e diárias</b>: valor final de cada rubrica, já descontados os descontos das OM. Só consulta: para incluir rubricas ou mudar valores, use a tela da Taxa condominial. %RUB = participação da rubrica no que as OM pagam (faturas TC){temNavios ? '; a parte dos navios (diárias) entra no valor final, mas não no %RUB' : ''}.</p>
       </div>
       {erro && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">{erro}</div>}
       {!dados && !erro && <p className="text-sm text-slate-500">Carregando...</p>}
@@ -207,10 +211,10 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
                 <td className="px-3 py-1.5">{r.descricao}{r.semParticipante && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Tem valor na proposta, mas nenhuma OM participa (não é cobrada)">sem participante</span>}</td>
                 <td className="px-3 py-1.5 text-xs text-slate-500">{r.contaContabil || ''}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums font-semibold" title={`Vigente ${brl(r.vigente)} − descontos das OM ${brl(r.descontosOM)}${r.navios ? ` + navios ${brl(r.navios)}` : ''}`}>{brl(r.final)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{(total ? (r.final / total) * 100 : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{pctDe(r).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
               </tr>
             ))}
-            <tr className="bg-slate-100 font-bold"><td className="px-3 py-1.5" colSpan={3}>Total consolidado {ano}</td><td className="px-3 py-1.5 text-right tabular-nums">{brl(total)}</td><td className="px-3 py-1.5 text-right">{total ? '100,00%' : '—'}</td></tr>
+            <tr className="bg-slate-100 font-bold"><td className="px-3 py-1.5" colSpan={3}>Total consolidado {ano}</td><td className="px-3 py-1.5 text-right tabular-nums">{brl(total)}</td><td className="px-3 py-1.5 text-right">{totalOM ? '100,00%' : '—'}</td></tr>
           </tbody>
         </table>
       )}
@@ -220,34 +224,61 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
 
 // ------------------------------------------------------------------ importação de notas de empenho
 /** Lê planilha de NE (formato das abas mensais do fluxo de caixa: DATA, ALTCRED/NE, CLIENTE, ENTRADA, SAÍDA, RUBRICA, DESCRIÇÃO). */
-export async function lerPlanilhaNE(f: File): Promise<{ saidas: Saida[]; ignoradas: string[] }> {
+/** Linha da planilha de NE na prévia da importação. */
+export interface ItemNE { saida: Saida; situacao: 'NOVA' | 'JA_EXISTE' | 'REPETIDA_NA_PLANILHA'; avisos: string[] }
+export interface PreviaNE { arquivo: string; itens: ItemNE[]; ignoradas: { aba: string; linha: number; motivo: string }[] }
+
+/**
+ * Lê a planilha de NE e monta a PRÉVIA (nada é gravado aqui). Pula, com o motivo: linhas de entrada (ALTCRED), linha de
+ * EXEMPLO do modelo, número que não é de NE, valor zerado ou negativo (anulação) e linha sem data.
+ * NE com número já cadastrado (ou repetido na própria planilha) aparece como "já existe" e não é gravada.
+ */
+export async function lerPlanilhaNE(f: File, existentes: string[] = [], rubricasDoAno: number[] = []): Promise<PreviaNE> {
   const wb = XLSX.read(new Uint8Array(await lerArquivo(f)), { dense: true, cellFormula: false, cellStyles: false });
-  const saidas: Saida[] = [], ignoradas: string[] = [];
+  const itens: ItemNE[] = [], ignoradas: PreviaNE['ignoradas'] = [];
+  const ja = new Set(existentes.map(x => x.trim().toUpperCase()));
+  const vistos = new Set<string>();
+  const rubs = new Set(rubricasDoAno);
   wb.SheetNames.forEach(aba => {
     const m = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any[][];
     const h = m.findIndex(r => (r || []).some(c => /^(altcred\/?ne|ne|notadeempenho|numerodane)$/.test(chave(c))));
     if (h < 0) return;
     const col = (...p: string[]) => m[h].findIndex((c: any) => p.includes(chave(c)));
     const iData = col('data'), iNe = col('altcredne', 'ne', 'notadeempenho', 'numerodane'), iCli = col('cliente', 'favorecido'), iSai = col('saida', 'valor'), iRub = col('rubrica'), iDesc = col('descricao');
-    m.slice(h + 1).forEach(r => {
+    m.slice(h + 1).forEach((r, k) => {
+      const linha = h + k + 2;
       const ne = limpar(r?.[iNe]).replace(/\s/g, '').toUpperCase(), v = numero(r?.[iSai]);
-      if (!ne || !v || v <= 0) return;
-      if (!lerNE(ne)) { ignoradas.push(`${aba}: ${ne} (não é nº de NE)`); return; }
-      const cls = classificarRubrica(limpar(r?.[iRub]));
-      saidas.push({
-        id: uuidv4(), date: dataCelula(r?.[iData]) || new Date().toISOString().slice(0, 10), documentNumber: ne, documentType: DocumentType.EMPENHO,
-        client: limpar(r?.[iCli]), value: Math.round(v * 100) / 100, rubric: limpar(r?.[iRub]), description: limpar(r?.[iDesc]), observation: `Importada de ${f.name} › ${aba}`,
-        isCanceled: false, rubricaNumero: cls.rubricaNumero, categoria: cls.categoria,
+      if (!ne) return;
+      if (!lerNE(ne)) { if (v) ignoradas.push({ aba, linha, motivo: `${ne}: não é número de NE (linha de entrada/ALTCRED ou número incompleto)` }); return; }
+      if (/^exemplo/i.test(limpar(r?.[iCli])) || /^exemplo/i.test(limpar(r?.[iDesc]))) { ignoradas.push({ aba, linha, motivo: `${ne}: linha de EXEMPLO do modelo` }); return; }
+      if (v === null || v === 0) { ignoradas.push({ aba, linha, motivo: `${ne}: sem valor de saída` }); return; }
+      if (v < 0) { ignoradas.push({ aba, linha, motivo: `${ne}: valor negativo (${brl(v)}) — anulação de empenho: registre a anulação na própria NE (Lançamentos)` }); return; }
+      const dt = dataCelula(r?.[iData]);
+      if (!dt) { ignoradas.push({ aba, linha, motivo: `${ne}: sem data` }); return; }
+      const rubTxt = limpar(r?.[iRub]);
+      const cls = classificarRubrica(rubTxt);
+      const avisos: string[] = [];
+      if (!rubTxt) avisos.push('sem rubrica/categoria');
+      else if (cls.categoria === 'OUTROS') avisos.push(`rubrica "${rubTxt}" não reconhecida (fica em Outros)`);
+      else if (cls.rubricaNumero && rubs.size && !rubs.has(cls.rubricaNumero)) avisos.push(`rubrica ${cls.rubricaNumero} não existe na taxa condominial de ${dt.slice(0, 4)}`);
+      const situacao: ItemNE['situacao'] = ja.has(ne) ? 'JA_EXISTE' : vistos.has(ne) ? 'REPETIDA_NA_PLANILHA' : 'NOVA';
+      vistos.add(ne);
+      itens.push({
+        situacao, avisos,
+        saida: {
+          id: uuidv4(), date: dt, documentNumber: ne, documentType: DocumentType.EMPENHO,
+          client: limpar(r?.[iCli]), value: Math.round(v * 100) / 100, rubric: rubTxt, description: limpar(r?.[iDesc]), observation: `Importada de ${f.name} › ${aba}`,
+          isCanceled: false, rubricaNumero: cls.rubricaNumero, categoria: cls.categoria,
+        },
       });
     });
   });
-  return { saidas, ignoradas };
+  return { arquivo: f.name, itens, ignoradas };
 }
 
-export async function importarNE(f: File, existentes: string[]) {
-  const { saidas, ignoradas } = await lerPlanilhaNE(f);
-  const ja = new Set(existentes.map(x => x.trim().toUpperCase()));
-  const novas = saidas.filter(s => !ja.has(s.documentNumber));
+/** Grava só as NE novas da prévia. */
+export async function gravarPreviaNE(p: PreviaNE) {
+  const novas = p.itens.filter(i => i.situacao === 'NOVA').map(i => i.saida);
   if (novas.length) await salvarSaidas(novas);
-  return { novas: novas.length, repetidas: saidas.length - novas.length, ignoradas };
+  return novas.length;
 }

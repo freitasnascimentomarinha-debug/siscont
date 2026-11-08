@@ -36,6 +36,8 @@ export interface RubricaConsolidada {
   descontosOM: number;
   /** parte da rubrica paga pelo grupo dos navios */
   navios: number;
+  /** parcelas líquidas das OM (o que vem nas faturas TC): base do %RUB */
+  omLiquido: number;
   /** VALOR FINAL = parcelas líquidas das OM + parte dos navios */
   final: number;
   /** tem valor e nenhuma OM participa (não é cobrada) */
@@ -50,6 +52,7 @@ export function consolidarRubricas(dados: DadosCalculoTC, calc: ReturnType<typeo
   return dados.rubricas.filter(r => r.destino === 'TC').map(r => ({
     numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil ?? null,
     vigente: r2(valorVigente(r)), descontosOM: calc.descontosPorOM.get(r.numero) || 0, navios: nav.get(r.numero) || 0,
+    omLiquido: liquido.get(r.numero) || 0,
     final: r2((liquido.get(r.numero) || 0) + (nav.get(r.numero) || 0)), semParticipante: semPart.has(r.numero),
   })).sort((a, b) => a.numero - b.numero);
 }

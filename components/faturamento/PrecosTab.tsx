@@ -1,16 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { obterNormas } from '../../utils/normas';
-import { BaixarModelo } from '../ui/BaixarModelo';
-import { modeloTabelaTC } from '../../utils/modelos';
-import { Copy, FileUp, Save } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { Copy, Save } from 'lucide-react';
 import { ContextoFaturamento, listarPrecos, salvarPrecos } from '../../services/faturamentoService';
-import { chave, limpar } from '../../utils/cadastroImport';
-import { numero } from '../../utils/faturasImport';
-import { acharNavio } from '../../utils/importMedicoes';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
-import { Aviso, Campo, brl, entrada, lerArquivo } from './comum';
+import { Aviso, Campo, brl, entrada } from './comum';
 
 type Valores = Record<string, string>; // chave = omId ou '' (valor geral)
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -27,22 +21,23 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
   const [vals, setVals] = useState<Valores>({});
   const [salvo, setSalvo] = useState<Valores>({});
   const [reajuste, setReajuste] = useState('0');
-  const [semPar, setSemPar] = useState<{ nome: string; valor: number }[]>([]);
   const [gravando, setGravando] = useState(false);
   const [busca, setBusca] = useState('');
-  const ref = useRef<HTMLInputElement>(null);
 
   const carregar = async () => {
     try {
       const ps = (await listarPrecos([ano])).filter(p => p.sigla === sigla);
       const v: Valores = {};
       ps.forEach(p => { v[p.omId ?? ''] = fmt(p.valor); });
-      setVals(prev => ({ ...v, ...prev })); setSalvo(v); setSemPar([]); // preserva o que foi digitado durante a carga
+      setVals(prev => ({ ...v, ...prev })); setSalvo(v); // preserva o que foi digitado durante a carga
     } catch (e) { notify.fail('Erro ao carregar os preços', e); }
   };
   useEffect(() => { setVals({}); setSalvo({}); carregar(); }, [ano, sigla]);
 
   const porOm = sigla === 'TC' || sigla === 'DA';
+  // TC e diária: calculadas e publicadas SÓ pela página Taxa condominial e diárias; aqui é só consulta
+  const daTaxa = porOm;
+  const editavel = podeEditar && !daTaxa;
   const lista = useMemo(() => ctx.omsFat
     .filter(o => (sigla === 'DA' ? o.tipo === 'NAVIO' : sigla === 'TC' ? o.tipo !== 'EXTRA_MB' : true) && (o.ativo || vals[o.id]))
     .filter(o => !busca || `${o.codigo} ${o.nome}`.toLowerCase().includes(busca.toLowerCase()))
@@ -58,31 +53,6 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
     ant.forEach(p => { v[p.omId ?? ''] = fmt(r2(p.valor * f)); });
     setVals(v);
     notify.success(`${ant.length} valor(es) copiados de ${ano - 1}${f !== 1 ? ` com reajuste de ${reajuste}%` : ''}. Confira e grave.`);
-  };
-
-  /** Tabela da taxa condominial (aba "TAXA CONDOMINIAL" da proposta: OM, ANUAL, MENSAL). */
-  const importarTc = async (files: FileList | null) => {
-    if (!files?.length) return;
-    try {
-      const wb = XLSX.read(new Uint8Array(await lerArquivo(files[0])), { dense: true, cellFormula: false, cellStyles: false });
-      const aba = wb.SheetNames.find(n => /taxa condominial/i.test(n)) ?? wb.SheetNames[0];
-      const m = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any[][];
-      const h = m.findIndex(r => (r || []).some(c => chave(c) === 'mensal'));
-      if (h < 0) throw new Error('Não achei a coluna MENSAL.');
-      const iOm = m[h].findIndex((c: any) => chave(c) === 'om'), iMen = m[h].findIndex((c: any) => chave(c) === 'mensal');
-      const v = { ...vals }; const sem: { nome: string; valor: number }[] = [];
-      m.slice(h + 1).forEach(r => {
-        const nome = limpar(r?.[iOm < 0 ? 0 : iOm]); const val = numero(r?.[iMen]);
-        if (!nome || val === null || /^total/i.test(nome)) return;
-        const base = nome.replace(/\(.*?\)/g, '').trim();
-        const om = ctx.omsFat.find(o => chave(o.nome) === chave(base)) ?? ctx.oms.map(o => ({ o, s: chave(o.sigla) })).find(x => x.s && x.s === chave(base))?.o
-          ?? acharNavio(base, ctx.omsFat.filter(o => o.tipo !== 'EXTRA_MB'));
-        const alvo = om ? ctx.omsFat.find(x => x.id === om.id) : undefined;
-        if (alvo) v[alvo.id] = fmt(r2(val)); else sem.push({ nome, valor: r2(val) });
-      });
-      setVals(v); setSemPar(sem);
-      notify.success(`Tabela lida (aba ${aba}).${sem.length ? ` ${sem.length} linha(s) sem OM: escolha abaixo.` : ''} Confira e grave.`);
-    } catch (e) { notify.fail('Erro ao ler a tabela', e); } finally { if (ref.current) ref.current.value = ''; }
   };
 
   const gravar = async () => {
@@ -103,37 +73,22 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
           <select className={entrada} value={sigla} onChange={e => setSigla(e.target.value)} aria-label="Serviço dos preços">{ctx.servicos.map(s => <option key={s.sigla} value={s.sigla}>{s.sigla} — {s.nome}</option>)}</select>
         </Campo>
         <Campo rotulo="Buscar OM"><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
-        {podeEditar && <>
+        {editavel && <>
           <Campo rotulo="Reajuste (%)"><input className={`${entrada} w-20`} value={reajuste} onChange={e => setReajuste(e.target.value)} /></Campo>
           <Button variant="secondary" onClick={copiarAnterior}><Copy size={16} className="mr-2" />Copiar de {ano - 1}</Button>
-          {sigla === 'TC' && <><input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importarTc(e.target.files)} />
-            <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar tabela da TC</Button>
-            <BaixarModelo modelo={() => modeloTabelaTC(ano, ctx.omsFat.filter(o => o.ativo && o.tipo !== 'NAVIO').map(o => o.nome).sort())} /></>}
           <Button onClick={gravar} isLoading={gravando} disabled={!alterados.length}><Save size={16} className="mr-2" />Gravar ({alterados.length})</Button>
         </>}
       </div>
-      <Aviso tom="slate"><b>De onde vêm os preços de TC e diária:</b> são calculados na página <b>Taxa condominial e diárias</b> e gravados aqui quando você clica em <b>Publicar</b> lá. Esta aba serve para conferir, ajustar valor de uma OM, importar a tabela da TC ou copiar do ano anterior; o lote usa sempre o que está gravado aqui.</Aviso>
+      {daTaxa
+        ? <Aviso tom="slate"><b>{sigla === 'TC' ? 'Taxa condominial' : 'Diária de atracação'}: só consulta.</b> Estes valores são calculados na página <b>Taxa condominial e diárias</b> e gravados aqui quando você clica em <b>Publicar</b> lá. Para incluir, excluir ou alterar o valor de uma OM, ajuste a proposta e publique de novo. O lote usa sempre o que está publicado aqui.</Aviso>
+        : <Aviso tom="slate">Valores dos demais serviços: confira, ajuste, copie do ano anterior e grave. O lote usa sempre o que está gravado aqui. (TC e diária são publicadas pela página <b>Taxa condominial e diárias</b>.)</Aviso>}
       {porOm && <Aviso tom="slate">{sigla === 'TC' ? `Soma mensal: ${brl(total)} · anual: ${brl(total * 12)}.` : `Diária de cada navio no ano (${obterNormas().anexoDiaria}: lotação × média trienal da classe).`} OM sem valor não recebe fatura deste serviço.</Aviso>}
       {!porOm && (
         <div className="p-3 rounded-lg border border-slate-200 bg-white flex items-center gap-3 text-sm">
           <span className="font-semibold">Valor geral do serviço {sigla} em {ano}:</span>
-          <input disabled={!podeEditar} className={`${entrada} w-36 text-right`} value={vals[''] ?? ''} onChange={e => setVals({ ...vals, '': e.target.value })} aria-label="Valor geral" />
+          <input disabled={!editavel} className={`${entrada} w-36 text-right`} value={vals[''] ?? ''} onChange={e => setVals({ ...vals, '': e.target.value })} aria-label="Valor geral" />
           <span className="text-xs text-slate-500">Usado quando a medição não traz o valor em R$ (quantidade × valor). Abaixo, valores próprios de alguma OM, se houver.</span>
         </div>
-      )}
-      {semPar.length > 0 && (
-        <Aviso>
-          <b>Linhas da tabela sem OM no cadastro</b> — escolha a OM:
-          {semPar.map((p, k) => (
-            <div key={k} className="flex items-center gap-2 mt-1 text-xs">
-              <span className="w-56 truncate">{p.nome}: {brl(p.valor)}</span>
-              <select className={`${entrada} text-xs`} defaultValue="" onChange={e => { if (!e.target.value) return; setVals(v => ({ ...v, [e.target.value]: fmt(p.valor) })); setSemPar(semPar.filter((_, i) => i !== k)); }}>
-                <option value="">escolher...</option>
-                {ctx.omsFat.filter(o => o.tipo !== 'EXTRA_MB').sort((a, b) => a.nome.localeCompare(b.nome)).map(o => <option key={o.id} value={o.id}>{o.codigo} · {o.nome}</option>)}
-              </select>
-            </div>
-          ))}
-        </Aviso>
       )}
       <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
         <table className="min-w-full text-sm">
@@ -142,7 +97,8 @@ export const PrecosTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boolean
             {lista.map(o => (
               <tr key={o.id} className={vals[o.id] !== salvo[o.id] ? 'bg-primary-50/40' : ''}>
                 <td className="px-2 py-1">{o.codigo} · {o.nome}<span className="text-[11px] text-slate-500"> {o.setor}</span></td>
-                <td className="px-2 py-1 text-right"><input disabled={!podeEditar} aria-label={`${sigla} ${o.nome}`} className="w-32 text-right border border-slate-200 rounded px-1 py-0.5" value={vals[o.id] ?? ''} onChange={e => setVals({ ...vals, [o.id]: e.target.value })} /></td>
+                <td className="px-2 py-1 text-right">{daTaxa ? <span className="tabular-nums" aria-label={`${sigla} ${o.nome}`}>{parse(vals[o.id] ?? '') !== null ? brl(parse(vals[o.id])!) : <span className="text-slate-400">—</span>}</span>
+                  : <input disabled={!editavel} aria-label={`${sigla} ${o.nome}`} className="w-32 text-right border border-slate-200 rounded px-1 py-0.5" value={vals[o.id] ?? ''} onChange={e => setVals({ ...vals, [o.id]: e.target.value })} />}</td>
                 {sigla === 'TC' && <td className="px-2 py-1 text-right tabular-nums text-slate-500">{parse(vals[o.id] ?? '') ? brl((parse(vals[o.id])! * 12)) : ''}</td>}
               </tr>
             ))}
