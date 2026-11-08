@@ -252,6 +252,12 @@ export async function publicar(ano: number, r: ResultadoRateio, usuario: string,
     ? r.oms.filter(o => o.tipo === 'TERRA' && o.mensal > 0).map(o => ({ ano, sigla: 'TC', omId: o.omId, valor: o.mensal, unidade: 'MÊS', descricao: `Proposta ${ano} publicada por ${usuario}` }))
     : r.oms.filter(o => o.tipo === 'NAVIO' && (o.diaria || 0) > 0).map(o => ({ ano, sigla: 'DA', omId: o.omId, valor: o.diaria!, unidade: 'DIA', descricao: `Proposta ${ano} publicada por ${usuario} (${o.regraDiaria === 'SEM_HISTORICO' ? 'classe sem histórico' : 'custo militar-dia × lotação'})` }));
   await salvarPrecos(precos);
+  // a tabela do ano passa a ter só quem está na proposta: preço de quem saiu da matriz (ou dos navios) é retirado,
+  // para não ser emitida fatura para OM fora da matriz
+  const sigla = parte === 'TC' ? 'TC' : 'DA';
+  const ficam = new Set(precos.map(p => p.omId));
+  const sair = (await listarPrecos([ano])).filter(p => p.sigla === sigla && p.omId && !ficam.has(p.omId));
+  if (sair.length) { const { error } = await supabase.from('precos').delete().in('id', sair.map(p => p.id)); checar(error); }
   await salvarProposta({ ano, status: 'DIVULGADA', divulgadaEm: new Date().toISOString().slice(0, 10) });
   return precos.length;
 }

@@ -299,6 +299,9 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const coluna = (r: number) => { const todos = linhas.every(o => matriz.has(`${r}|${o.id}`)); linhas.forEach(o => marcar(r, o.id, !todos)); };
   const remover = (id: string) => { setSujo(true); setLot(m => { const n = { ...m }; delete n[id]; return n; }); setMatriz(s => new Set([...s].filter(k => !k.endsWith(`|${id}`)))); setExtras(e => { const n = new Set(e); n.delete(id); return n; }); };
   const semLotacao = navioModo ? [] : [...new Set([...matriz].map(k => k.split('|')[1]))].filter(id => { const o = dados.oms.find(x => x.id === id); return o && doModo(o) && !(Number(lot[id]?.lotacao) > 0); });
+  // com lotação mas sem nenhuma linha marcada: fora da matriz, não paga taxa condominial
+  const naMatrizIds = new Set([...matriz].map(k => k.split('|')[1]));
+  const semLinha = navioModo ? [] : Object.entries(lot).filter(([id, v]) => Number(v.lotacao) > 0 && !naMatrizIds.has(id) && dados.oms.some(o => o.id === id && doModo(o))).map(([id]) => id);
   const nomeDe = (id: string) => dados.oms.find(o => o.id === id)?.nome || id;
 
   const gravar = async () => {
@@ -386,6 +389,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
       {navioModo && quadroNavios}
       {navioModo && <h4 className="font-bold text-slate-800 pt-2">Navios: lotação e dias atracados</h4>}
       {navioModo && (() => { const sem = linhas.filter(o => !o.classeId && lot[o.id]?.lotacao); return sem.length ? <Aviso>{sem.length} navio(s) com lotação e <b>sem classe</b> ({sem.map(o => o.nome).join(', ')}): sem média trienal, a diária sai pela lotação. Ajuste a classe em <b>Cadastros › Lista de navios</b>.</Aviso> : null; })()}
+      {semLinha.length > 0 && <Aviso tom="amber">Com lotação mas sem nenhuma linha marcada na matriz — <b>não pagam taxa condominial</b> (a taxa só é emitida para OM cadastrada na matriz): {semLinha.map(nomeDe).join(', ')}. Marque as linhas ou retire a OM.</Aviso>}
       {semLotacao.length > 0 && <Aviso tom="red">Marcadas na matriz mas sem lotação (ficam fora do rateio): {semLotacao.map(nomeDe).join(', ')}.</Aviso>}
       {pendentes.length > 0 && (
         <Aviso>

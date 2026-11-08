@@ -1404,9 +1404,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Aprovar proposta' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();
     await page.getByText('Proposta aprovada.').waitFor();
+    // preço de TC antigo de uma OM que não está na matriz: ao publicar, sai da tabela (não gera fatura)
+    db.precos.push({ id: 'tc-fora', ano: 2026, sigla: 'TC', om_id: 'om-fora-da-matriz', valor: 999, unidade: 'MÊS', descricao: 'antigo' });
     await page.getByRole('button', { name: 'Publicar taxa condominial' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();
     await page.getByText(/Taxa condominial 2026 publicada: 3 OM/).waitFor();
+    for (let i = 0; i < 20 && db.precos.some(p => p.id === 'tc-fora'); i++) await page.waitForTimeout(250);
+    ok(!db.precos.some(p => p.id === 'tc-fora'), 'publicar a TC retira o preço de OM fora da matriz (taxa só para OM da matriz)');
     ok(!db.precos.some(p => p.sigla === 'DA'), 'publicar a taxa não publica as diárias');
     await page.getByRole('button', { name: 'Publicar diárias' }).click();
     await page.getByRole('button', { name: 'Confirmar' }).click();

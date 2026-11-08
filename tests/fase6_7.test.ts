@@ -266,9 +266,14 @@ describe('critério de rateio por rubrica', () => {
     expect(ratearProposta(rub({ naviosModo: 'FIXO', valorNavios: 350 }), terra, navios, m, []).totalNavios).toBe(350);
     expect(ratearProposta(rub({ naviosModo: 'NAO', percentualNavios: 50 }), terra, navios, m, []).totalNavios).toBe(0);
   });
-  it('rateio entre TODAS as OM da taxa (sem marcação na matriz), como os outros gastos', () => {
-    const r = ratearProposta(rub({ rateioTodas: true }), terra, [], new Set(), []);
+  it('rateio entre TODAS as OM da taxa (as que estão na matriz), como os outros gastos', () => {
+    // a e b estão na matriz (marcadas em outra linha): dividem a linha "entre todas" sem marcação nela
+    const r = ratearProposta(rub({ rateioTodas: true }), terra, [], new Set(['7|a', '7|b']), []);
     expect([anual(r, 'a'), anual(r, 'b')]).toEqual([300, 900]);
+    // a taxa só é cobrada de OM cadastrada na matriz: b tem lotação, mas nenhuma linha marcada, e não paga
+    const so = ratearProposta(rub({ rateioTodas: true }), terra, [], new Set(['7|a']), []);
+    expect([anual(so, 'a'), anual(so, 'b')]).toEqual([1200, 0]);
+    expect(ratearProposta(rub({ rateioTodas: true }), terra, [], new Set(), []).tc.total).toBe(0); // ninguém na matriz: ninguém paga
     expect(ratearProposta(rub(), terra, [], new Set(), []).tc.total).toBe(0); // pela matriz, sem marcação: ninguém paga
   });
   it('rubrica paga só pelos navios: OM 0% e navios 100%', () => {

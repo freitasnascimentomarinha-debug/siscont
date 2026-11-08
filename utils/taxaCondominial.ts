@@ -106,10 +106,12 @@ export function ratear(rubricas: RubricaTC[], participantes: Participante[], mat
   const res = new Map<string, ResultadoOM>(participantes.map(p => [p.omId, {
     omId: p.omId, nome: p.nome, tipo: p.tipo, lotacao: p.lotacao, dias: p.dias, peso: r2(peso(p)), parcelas: [], anualBruto: 0, descontos: 0, anual: 0, mensal: 0, percentual: 0,
   }]));
+  // a taxa condominial só é cobrada de OM cadastrada na matriz (ao menos uma linha marcada)
+  const naMatriz = new Set([...matriz].map(k => k.slice(k.indexOf('|') + 1)));
   const valorRubricas = rubricas.map(r => {
     const valor = r.valorRateio !== undefined ? r2(r.valorRateio) : valorVigente(r);
-    // "entre todas": todas as OM da taxa; senão, só as marcadas na matriz
-    const part = participantes.filter(p => (r.rateioTodas || matriz.has(chave(r.numero, p.omId))) && pesoRub(r, p) > 0);
+    // "entre todas": todas as OM da taxa (as que estão na matriz, com ao menos uma linha marcada); senão, só as marcadas na linha
+    const part = participantes.filter(p => (r.rateioTodas ? naMatriz.has(p.omId) : matriz.has(chave(r.numero, p.omId))) && pesoRub(r, p) > 0);
     const soma = part.reduce((s, p) => s + pesoRub(r, p), 0);
     let distribuido = 0;
     part.forEach(p => {
