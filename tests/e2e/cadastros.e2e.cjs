@@ -792,6 +792,46 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/crédito sem OM no cadastro/).count() === 0 && await page.getByText(/40001 - RT DGMM/).count() === 0, 'não aparece mais como "sem OM no cadastro" nem em nome do RT DGMM');
   });
 
+  await cenario('Acompanhamento contábil: datas, agrupamento pelo cadastro e extrato com pagamentos de outra UG', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const amrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    const skm = { id: uid(), codigo: '41000', nome: 'SKM', tipo: 'EXTRA_MB', comando_id: cmd.id, ativo: true, codigo_proprio: false };
+    db.comandos.push(cmd); db.oms.push(amrj, skm);
+    const fat = { id: uid(), invoice_number: '41000-EL-09-2025-001-0', ug: '41000', sector: 'DGMM', command: 'Arsenal', client: amrj.nome, value: 3000, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2025-10-15', due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: amrj.id };
+    db.invoices = [fat];
+    const docAmrj = { id: uid(), document_number: 'AMRJ.2026.AC.00001', document_type: 'ALTCRED', total_value: 1000, date: '2026-10-01', operation: 'PAGAMENTO', client: 'ARSENAL DE MARINHA DO RIO DE JANEIRO', sector: 'texto livre', command: 'texto livre', ug: '41000', observation: '' };
+    const docRt = { id: uid(), document_number: 'B4D0.2026.AC.00824', document_type: 'ALTCRED', total_value: 2000, date: '2026-10-05', operation: 'PAGAMENTO', client: '40001 - RT DGMM', sector: 'DGMM', command: '40001 - RT DGMM', ug: '40001', observation: 'PAGAMENTO DE FATURAS DO AMRJ 2025' };
+    db.received_documents.push(docAmrj, docRt);
+    db.payment_allocations.push({ id: uid(), document_id: docAmrj.id, invoice_id: fat.id, amount: 1000, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docRt.id, invoice_id: fat.id, amount: 2000, date: '2026-10-05', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    // Recebimentos: documento do dia 1º não cai no mês anterior; agrupado pelo cadastro
+    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('heading', { name: 'Recebimentos (ALTCRED/GRU)' }).waitFor();
+    await page.getByLabel('Mês').selectOption('10');
+    await page.getByLabel('Ano').selectOption('2026');
+    await page.getByText('AMRJ.2026.AC.00001').waitFor();
+    ok(true, 'filtro de mês: a ALTCRED de 01/10/2026 aparece em outubro (antes caía em setembro)');
+    ok(await page.getByText('Comando: 41000 - Arsenal de Marinha do Rio de Janeiro').first().isVisible() && await page.getByText('Comando: texto livre').count() === 0, 'agrupado pelo comando do cadastro, não pelo texto digitado');
+    ok(await page.getByText(/Mostrando 1–2 de 2 documentos/).isVisible(), 'paginação com total de documentos');
+    await page.getByLabel('Fatura paga (nº)').fill('41000-EL-09-2025');
+    ok(await page.getByText('B4D0.2026.AC.00824').isVisible() && await page.getByText('AMRJ.2026.AC.00001').isVisible(), 'busca pela fatura paga encontra as ALTCRED que pagaram');
+    // Extrato do Arsenal: inclui o pagamento feito pelo RT DGMM e a coluna Comando é o comando
+    await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
+    await page.getByPlaceholder(/Digite o código ou o nome/).fill('Arsenal');
+    await page.getByRole('button', { name: /OM41000 - Arsenal de Marinha do Rio de Janeiro/ }).click();
+    await page.getByLabel('Exercício do extrato').selectOption('2026');
+    await page.getByText('B4D0.2026.AC.00824').first().waitFor();
+    ok(true, 'extrato do Arsenal inclui o pagamento feito pelo RT DGMM (outra UG)');
+    ok(await page.getByRole('cell', { name: '41000 - Arsenal de Marinha do Rio de Janeiro' }).first().isVisible(), 'coluna Comando do saldo ALTCRED mostra o comando (e não o setor)');
+    // Extrato da SKM (mesmo código 41000): não puxa a ALTCRED do Arsenal
+    await page.getByPlaceholder(/Digite o código ou o nome/).fill('SKM');
+    await page.getByRole('button', { name: /OM41000 - SKM/ }).click();
+    await page.waitForTimeout(500);
+    ok(await page.getByText('AMRJ.2026.AC.00001').count() === 0, 'código compartilhado (41000) não mistura as ALTCRED do Arsenal no extrato da SKM');
+  });
+
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', setor_id: setor.id, ativo: true };

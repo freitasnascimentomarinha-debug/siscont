@@ -229,3 +229,18 @@ describe('migração: aba ADIANTAMENTOS e livro consolidado', () => {
     expect(p2.resumo.baixasEmExistentes).toBe(2);
   });
 });
+
+describe('extrato pelas faturas do escopo (pagador de outra UG)', () => {
+  it('o pagamento feito por outro pagador aparece no extrato da OM dona da fatura', () => {
+    const docArsenal = { id: 'd1', numero: 'AC-ARSENAL', comando: '41000 - Arsenal', cliente: 'Arsenal', data: '2026-08-01', valor: 1000, saldo: 0, operacao: 'PAGAMENTO' };
+    const docRt = { id: 'd2', numero: 'B4D0.2026.AC.00824', comando: '40001 - RT DGMM', cliente: '40001 - RT DGMM', data: '2026-08-19', valor: 5000, saldo: 0, operacao: 'PAGAMENTO' };
+    const fat = [{ id: 'f1', numero: '41000-AE-09-2025-001-0', setor: 'DGMM', cliente: 'Arsenal', saldo: 0 }, { id: 'f2', numero: '41000-EL-09-2025-001-0', setor: 'DGMM', cliente: 'Arsenal', saldo: 0 }];
+    const bx = [{ documentId: 'd1', invoiceId: 'f1', valor: 1000, adiantamento: false }, { documentId: 'd2', invoiceId: 'f2', valor: 5000, adiantamento: false }, { documentId: 'd2', invoiceId: 'outra-om', valor: 7, adiantamento: false }];
+    const antigo = montarExtrato([docArsenal], fat, bx);
+    expect(antigo.pagas.map(p => p.altcred)).toEqual(['AC-ARSENAL']); // antes: só a ALTCRED da própria UG
+    const novo = montarExtrato([docArsenal], fat, bx, undefined, { porFaturasDoEscopo: true, todosDocs: [docArsenal, docRt] });
+    expect(novo.pagas.map(p => [p.altcred, p.cliente, p.valor])).toEqual([['AC-ARSENAL', 'Arsenal', 1000], ['B4D0.2026.AC.00824', '40001 - RT DGMM', 5000]]);
+    expect(novo.totais.pagas).toBe(6000);                     // a baixa do RT DGMM em fatura de outra OM não entra
+    expect(novo.saldoAltcred.map(x => x.numero)).toEqual(['AC-ARSENAL']); // saldo ALTCRED continua só das ALTCRED da OM
+  });
+});

@@ -1,5 +1,7 @@
 
-import { dataBR } from '../utils/datas';
+import { dataBR, hojeISO } from '../utils/datas';
+import { MultiFiltro } from '../components/ui/MultiFiltro';
+import { criarResolvedor, Rotulo } from '../utils/documentosOM';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/db';
@@ -10,7 +12,7 @@ import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladMo
 import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
 import { ResumoAdiantamentos } from '../components/recebimentos/ResumoAdiantamentos';
 import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
-import { carregarCadastro } from '../services/recebimentosService';
+import { carregarCadastro, Cadastro } from '../services/recebimentosService';
 import { notify, friendlyError } from '../utils/notify';
 import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole, OM, CAMPOS_DOC_FASE2 } from '../types';
 import { Button } from '../components/ui/Button';
@@ -25,6 +27,7 @@ import autoTable from 'jspdf-autotable';
 export const ReceivedBalances: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = user?.role === UserRole.READ_ONLY;
+  const isAdmin = user?.role === UserRole.ADMIN;
 
   const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -53,6 +56,14 @@ export const ReceivedBalances: React.FC = () => {
   const [sipladAberto, setSipladAberto] = useState(false);
   const [baixaDoc, setBaixaDoc] = useState<ReceivedDocument | null>(null);
   const [oms, setOms] = useState<OM[]>([]);
+  const [cad, setCad] = useState<Cadastro>({ oms: [], comandos: [], setores: [] });
+  // filtros de várias escolhas (valores EXCLUÍDOS) pelo setor/comando/cliente do cadastro, e busca pela fatura paga
+  const [exSetor, setExSetor] = useState<Set<string>>(new Set());
+  const [exComando, setExComando] = useState<Set<string>>(new Set());
+  const [exCliente, setExCliente] = useState<Set<string>>(new Set());
+  const [filterFatura, setFilterFatura] = useState('');
+  const [pagina, setPagina] = useState(0);
+  const [porPagina, setPorPagina] = useState(30);
 
   // Edit Allocation Modal
   const [isEditAllocModalOpen, setIsEditAllocModalOpen] = useState(false);
@@ -92,7 +103,7 @@ export const ReceivedBalances: React.FC = () => {
         db.getAllocations(),
         db.getClients()
       ]);
-      carregarCadastro().then(c => setOms(c.oms));
+      carregarCadastro().then(c => { setOms(c.oms); setCad(c); });
     } catch (err) {
       notify.fail('Erro ao carregar saldos', err);
       setCarregando(false);
@@ -106,6 +117,8 @@ export const ReceivedBalances: React.FC = () => {
   };
 
   useEffect(() => { refresh(); }, []);
+  // volta para a 1ª página quando os filtros ou a aba mudam
+  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterClient, filterDocNumber, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
 
   // --- Auto-fill Service Type when selecting invoice ---
   useEffect(() => {
@@ -134,6 +147,22 @@ export const ReceivedBalances: React.FC = () => {
     });
   };
 
+  // --- OM de cada documento pelo cadastro (setor/comando/cliente), não pelo texto digitado ---
+  const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
+  const rotulos = useMemo(() => new Map<string, Rotulo>(documents.map(d => [d.id, resolv.rotuloDoDocumento(d)])), [documents, resolv]);
+  const rot = (d: ReceivedDocument) => rotulos.get(d.id) || { omId: null, setor: d.sector || 'Sem setor', comando: d.command || 'Sem comando', cliente: d.client || 'Sem cliente', comandoId: null };
+  const faturasPagasPorDoc = useMemo(() => {
+    const num = new Map(invoices.map(i => [i.id, (i.invoiceNumber || '').toLowerCase()]));
+    const m = new Map<string, string[]>();
+    allocations.forEach(a => { const n = num.get(a.invoiceId); if (n) m.set(a.documentId, [...(m.get(a.documentId) || []), n]); });
+    return m;
+  }, [invoices, allocations]);
+  const daAba = (d: ReceivedDocument) => d.operation === activeTab || (activeTab === OperationType.ADIANTAMENTO && !!d.sobraAdiantamento);
+  const uniq = (l: string[]) => [...new Set(l)].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const opSetores = useMemo(() => uniq(documents.filter(daAba).map(d => rot(d).setor)), [documents, rotulos, activeTab]);
+  const opComandos = useMemo(() => uniq(documents.filter(daAba).map(d => rot(d).comando)), [documents, rotulos, activeTab]);
+  const opClientes = useMemo(() => uniq(documents.filter(daAba).map(d => rot(d).cliente)), [documents, rotulos, activeTab]);
+
   // --- Filtering Logic ---
   const filteredDocs = documents.filter(d => {
     // 1. Tab Filter
@@ -141,9 +170,9 @@ export const ReceivedBalances: React.FC = () => {
     if (d.operation !== activeTab && !(activeTab === OperationType.ADIANTAMENTO && d.sobraAdiantamento)) return false;
 
     // 2. Date Filter
-    const dDate = new Date(d.date);
-    const month = (dDate.getMonth() + 1).toString();
-    const year = dDate.getFullYear().toString();
+    // a data vem como AAAA-MM-DD: ler o texto (new Date() leria em UTC e o dia 1º cairia no mês anterior)
+    const month = String(Number((d.date || '').slice(5, 7)));
+    const year = (d.date || '').slice(0, 4);
     if (filterMonth && month !== filterMonth) return false;
     if (filterYear && year !== filterYear) return false;
 
@@ -152,10 +181,11 @@ export const ReceivedBalances: React.FC = () => {
     if (filterStatus === 'no_balance' && d.availableValue > 0) return false;
 
     // 4. Text Filters
-    if (filterClient && !d.client.toLowerCase().includes(filterClient.toLowerCase())) return false;
-    if (filterSector && !d.sector.toLowerCase().includes(filterSector.toLowerCase())) return false;
-    if (filterCommand && !d.command.toLowerCase().includes(filterCommand.toLowerCase())) return false;
-    if (filterDocNumber && !d.documentNumber.toLowerCase().includes(filterDocNumber.toLowerCase())) return false;
+    const r = rot(d);
+    if (exSetor.has(r.setor) || exComando.has(r.comando) || exCliente.has(r.cliente)) return false;
+    if (filterClient && !(d.client || '').toLowerCase().includes(filterClient.toLowerCase())) return false;
+    if (filterFatura.trim() && !(faturasPagasPorDoc.get(d.id) || []).some(n => n.includes(filterFatura.trim().toLowerCase()))) return false;
+    if (filterDocNumber && !(d.documentNumber || '').toLowerCase().includes(filterDocNumber.toLowerCase())) return false;
     if (filterUG && !(d.ug || '').toLowerCase().includes(filterUG.toLowerCase())) return false;
     if (filterPontos) {
       const abertos = pendentes(d.pontos);
@@ -173,19 +203,29 @@ export const ReceivedBalances: React.FC = () => {
     totalAvailable: filteredDocs.reduce((acc, d) => acc + d.availableValue, 0)
   };
 
-  // --- Grouping Logic (Sector > Command > Client) ---
-  const groupedDocs = filteredDocs.reduce((acc, doc) => {
-    const sector = doc.sector || 'Sem Setor';
-    const command = doc.command || 'Sem Comando';
-    const client = doc.client || 'Sem Cliente';
-
-    if (!acc[sector]) acc[sector] = {};
-    if (!acc[sector][command]) acc[sector][command] = {};
-    if (!acc[sector][command][client]) acc[sector][command][client] = [];
-
-    acc[sector][command][client].push(doc);
+  // --- Grouping Logic (Setor > Comando > Cliente do cadastro), com paginação e subtotais ---
+  const ordenados = useMemo(() => [...filteredDocs].sort((a, b) => {
+    const ra = rot(a), rb = rot(b);
+    return ra.setor.localeCompare(rb.setor, 'pt-BR') || ra.comando.localeCompare(rb.comando, 'pt-BR') || ra.cliente.localeCompare(rb.cliente, 'pt-BR') || (b.date || '').localeCompare(a.date || '');
+  }), [filteredDocs, rotulos]);
+  const totaisGrupo = useMemo(() => {
+    const m = new Map<string, { qtd: number; total: number; disponivel: number }>();
+    const add = (k: string, d: ReceivedDocument) => { const t = m.get(k) || { qtd: 0, total: 0, disponivel: 0 }; t.qtd++; t.total += d.totalValue; t.disponivel += d.availableValue; m.set(k, t); };
+    filteredDocs.forEach(d => { const r = rot(d); add(r.setor, d); add(`${r.setor}|${r.comando}`, d); add(`${r.setor}|${r.comando}|${r.cliente}`, d); });
+    return m;
+  }, [filteredDocs, rotulos]);
+  const totalPaginas = Math.max(1, Math.ceil(ordenados.length / porPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas - 1);
+  const daPagina = ordenados.slice(paginaAtual * porPagina, (paginaAtual + 1) * porPagina);
+  const groupedDocs = daPagina.reduce((acc, doc) => {
+    const r = rot(doc);
+    if (!acc[r.setor]) acc[r.setor] = {};
+    if (!acc[r.setor][r.comando]) acc[r.setor][r.comando] = {};
+    if (!acc[r.setor][r.comando][r.cliente]) acc[r.setor][r.comando][r.cliente] = [];
+    acc[r.setor][r.comando][r.cliente].push(doc);
     return acc;
   }, {} as Record<string, Record<string, Record<string, ReceivedDocument[]>>>);
+  const subtotal = (k: string) => { const t = totaisGrupo.get(k); return t ? `${t.qtd} doc · recebido R$ ${t.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} · disponível R$ ${t.disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''; };
 
   // --- Actions ---
 
@@ -225,7 +265,7 @@ export const ReceivedBalances: React.FC = () => {
       documentType: type,
       totalValue: Number(docFormData.totalValue),
       availableValue: editingId ? (docFormData.availableValue || 0) : Number(docFormData.totalValue),
-      date: docFormData.date || new Date().toISOString().split('T')[0],
+      date: docFormData.date || hojeISO(),
       informedAdvance: false,
       operation: (docFormData.operation as OperationType) || OperationType.PAGAMENTO,
       observation: docFormData.observation || '',
@@ -272,7 +312,7 @@ export const ReceivedBalances: React.FC = () => {
           documentId: activeDoc.id,
           invoiceId: inv.id,
           amount: payment,
-          date: new Date().toISOString().split('T')[0],
+          date: hojeISO(),
           siscontSettled: paymentMeta.siscontSettled,
           siscontDueDate: paymentMeta.siscontDueDate,
           observation: paymentMeta.observation,
@@ -453,7 +493,7 @@ export const ReceivedBalances: React.FC = () => {
                 documentNumber: cols[0] || 'S/N',
                 ug: cols[1] || '',
                 operation: (cols[2] as OperationType) || OperationType.PAGAMENTO,
-                date: cols[3] || new Date().toISOString().split('T')[0],
+                date: cols[3] || hojeISO(),
                 documentType: (cols[4] as DocumentType) || DocumentType.ALTCRED,
                 sector: cols[5] || 'Geral',
                 command: cols[6] || 'Geral',
@@ -486,15 +526,15 @@ export const ReceivedBalances: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Saldos Recebidos (Entradas)</h2>
-          <p className="text-slate-500">Gestão de Créditos, GRUs e Adiantamentos</p>
+          <h2 className="text-2xl font-bold text-slate-800">Recebimentos (ALTCRED/GRU)</h2>
+          <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · agrupados por setor, comando e OM do cadastro</p>
         </div>
         <div className="flex gap-2">
-          {!isReadOnly && (
+          {isAdmin && (
             <>
               <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
-              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-2" /> Importar
+              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} title="Importação antiga por CSV (a importação normal é pelo PDF do SIPLAD)">
+                <Upload className="w-4 h-4 mr-2" /> Importar CSV
               </Button>
             </>
           )}
@@ -547,15 +587,19 @@ export const ReceivedBalances: React.FC = () => {
           <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
           <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
           <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
-          <Input label="Setor" value={filterSector} onChange={e => setFilterSector(e.target.value)} placeholder="Buscar Setor..." />
-          <Input label="Comando" value={filterCommand} onChange={e => setFilterCommand(e.target.value)} placeholder="Buscar Comando..." />
-          <Input label="Cliente" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Buscar Cliente..." />
+          <Input label="Cliente (texto)" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Nome no documento..." />
+          <Input label="Fatura paga (nº)" value={filterFatura} onChange={e => setFilterFatura(e.target.value)} placeholder="Ex.: 41000-TC-09..." />
           <Input label="Nº Doc" value={filterDocNumber} onChange={e => setFilterDocNumber(e.target.value)} placeholder="Buscar Nº..." />
           <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
         </div>
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-end gap-4">
+          <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
+          <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
+          <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
+          <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={() => {
             setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
+            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos('');
           }}>
             <X size={14} className="mr-1" /> Limpar Filtros
           </Button>
@@ -585,16 +629,16 @@ export const ReceivedBalances: React.FC = () => {
         {Object.keys(groupedDocs).sort().map(sector => (
           <div key={sector} className="space-y-4">
             <h3 className="text-lg font-bold text-slate-800 border-b border-slate-300 pb-1 flex items-center">
-              <span className="w-2 h-6 bg-slate-800 rounded mr-2"></span> Setor: {sector}
+              <span className="w-2 h-6 bg-slate-800 rounded mr-2"></span> Setor: {sector}<span className="ml-3 text-xs font-normal text-slate-500">{subtotal(sector)}</span>
             </h3>
 
             {Object.keys(groupedDocs[sector]).sort().map(command => (
               <div key={command} className="pl-4 border-l-2 border-slate-200 ml-1 space-y-4">
-                <h4 className="text-md font-semibold text-slate-600 uppercase tracking-wide">Comando: {command}</h4>
+                <h4 className="text-md font-semibold text-slate-600 uppercase tracking-wide">Comando: {command}<span className="ml-2 text-xs font-normal normal-case tracking-normal text-slate-500">{subtotal(`${sector}|${command}`)}</span></h4>
 
                 {Object.keys(groupedDocs[sector][command]).sort().map(client => (
                   <div key={client} className="pl-4 space-y-2">
-                    <h5 className="text-sm font-bold text-primary-700">Cliente: {client}</h5>
+                    <h5 className="text-sm font-bold text-primary-700">Cliente: {client}<span className="ml-2 text-xs font-normal text-slate-500">{subtotal(`${sector}|${command}|${client}`)}</span></h5>
 
                     <div className="grid grid-cols-1 gap-4">
                       {groupedDocs[sector][command][client]
@@ -747,6 +791,20 @@ export const ReceivedBalances: React.FC = () => {
           <div className="text-center py-12 bg-white rounded-lg border border-slate-200 text-slate-500">
             <Search size={48} className="mx-auto mb-4 text-slate-300" />
             <p>Nenhum documento encontrado para os filtros selecionados.</p>
+          </div>
+        )}
+        {ordenados.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600" aria-label="Paginação dos documentos">
+            <span>Mostrando <b>{paginaAtual * porPagina + 1}–{Math.min((paginaAtual + 1) * porPagina, ordenados.length)}</b> de <b>{ordenados.length}</b> documentos</span>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1">Por página
+                <select aria-label="Documentos por página" value={porPagina} onChange={e => setPorPagina(Number(e.target.value))} className="border border-slate-300 rounded px-1 py-0.5">
+                  {[30, 60, 120, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                </select></label>
+              <Button size="sm" variant="secondary" onClick={() => setPagina(paginaAtual - 1)} disabled={paginaAtual === 0}>Anterior</Button>
+              <span>Página {paginaAtual + 1} de {totalPaginas}</span>
+              <Button size="sm" variant="secondary" onClick={() => setPagina(paginaAtual + 1)} disabled={paginaAtual >= totalPaginas - 1}>Próxima</Button>
+            </div>
           </div>
         )}
       </div>

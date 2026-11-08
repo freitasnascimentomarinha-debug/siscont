@@ -7,7 +7,9 @@ import { db } from '../services/db';
 import { carregarCadastro, Cadastro } from '../services/recebimentosService';
 import { Invoice, PaymentAllocation, ReceivedDocument } from '../types';
 import { ehAdiantamento } from '../utils/baixas';
-import { comSubtotais, Extrato, montarExtrato } from '../utils/extrato';
+import { comSubtotais, DocExtrato, Extrato, montarExtrato } from '../utils/extrato';
+import { criarResolvedor } from '../utils/documentosOM';
+import { dataBR, hojeISO } from '../utils/datas';
 import { notify } from '../utils/notify';
 import { Button } from '../components/ui/Button';
 
@@ -60,6 +62,8 @@ export const Conciliacao: React.FC = () => {
   const [escopo, setEscopo] = useState<Escopo | null>(null);
   const [busca, setBusca] = useState('');
   const [exercicio, setExercicio] = useState<string>(String(new Date().getFullYear()));
+  const [abertasDoExercicio, setAbertasDoExercicio] = useState(false);
+  const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
 
   const carregar = async () => {
     setCarregando(true);
@@ -82,36 +86,44 @@ export const Conciliacao: React.FC = () => {
     if (!escopo) return null;
     const omDe = new Map(cad.oms.map(o => [o.id, o]));
     let docOk: (d: ReceivedDocument) => boolean, fatOk: (f: Invoice) => boolean;
+    // a OM de cada documento vem do cadastro (nome ou outros nomes; UG só quando é de uma OM só) — códigos como 41000
+    // são usados por várias OM e não servem para dizer de quem é a ALTCRED
+    const omDoc = new Map(docs.map(d => [d.id, resolv.omDoDocumento(d)]));
     if (escopo.tipo === 'COMANDO') {
       const c = cad.comandos.find(x => x.id === escopo.id)!;
       const cod = c.codigo || '#';
-      docOk = d => d.comandoId === c.id || d.ug === cod || (d.ugCliente || '').startsWith(cod);
-      fatOk = f => (f.omId ? omDe.get(f.omId)?.comandoId === c.id : false) || f.ug === cod || (!f.omId && (f.command || '').startsWith(cod));
+      docOk = d => { const o = omDoc.get(d.id); return o ? o.comandoId === c.id : d.comandoId === c.id || d.ug === cod || (d.ugCliente || '').startsWith(cod); };
+      fatOk = f => (f.omId ? omDe.get(f.omId)?.comandoId === c.id : false) || (!f.omId && (f.ug === cod || (f.command || '').startsWith(cod)));
     } else {
       const o = omDe.get(escopo.id)!;
-      docOk = d => d.ug === o.codigo || (d.ugCliente || '').startsWith(o.codigo);
-      fatOk = f => f.omId === o.id || (!f.omId && f.ug === o.codigo);
+      const unico = resolv.codigoUnico(o.codigo);
+      docOk = d => { const od = omDoc.get(d.id); return od ? od.id === o.id : unico && (d.ug === o.codigo || (d.ugCliente || '').startsWith(o.codigo)); };
+      fatOk = f => f.omId === o.id || (!f.omId && unico && f.ug === o.codigo);
     }
     const doAno = (d: ReceivedDocument) => exercicio === 'todos' || String(d.exercicio ?? d.date?.slice(0, 4)) === exercicio;
+    const fatDoAno = (f: Invoice) => !abertasDoExercicio || exercicio === 'todos' || String(f.yearCompetence) === exercicio;
+    const paraExtrato = (d: ReceivedDocument): DocExtrato => ({ id: d.id, numero: d.documentNumber, comando: resolv.rotuloDoDocumento(d).comando, cliente: d.client, data: d.date, valor: d.totalValue, saldo: d.availableValue, sobraAdiantamento: d.sobraAdiantamento, operacao: d.operation });
     const docsEsc = docs.filter(d => docOk(d) && doAno(d));
     const docPorId = new Map(docs.map(d => [d.id, d]));
     const usado = new Map<string, number>();
     baixas.forEach(b => { if (docPorId.has(b.documentId)) usado.set(b.invoiceId, (usado.get(b.invoiceId) || 0) + b.amount); });
     const todas = new Map(faturas.map(f => [f.id, { numero: f.invoiceNumber }]));
     return montarExtrato(
-      docsEsc.map(d => ({ id: d.id, numero: d.documentNumber, comando: d.sector || '', cliente: d.client, data: d.date, valor: d.totalValue, saldo: d.availableValue, sobraAdiantamento: d.sobraAdiantamento, operacao: d.operation })),
-      faturas.filter(fatOk).map(f => ({
+      docsEsc.map(paraExtrato),
+      faturas.filter(f => fatOk(f) && fatDoAno(f)).map(f => ({
         id: f.id, numero: f.invoiceNumber, setor: f.sector, cliente: f.client, cancelada: f.isCanceled,
         saldo: f.quitacaoExterna ? 0 : r2(f.value + (f.adjustmentAddition || 0) - (f.adjustmentDeduction || 0) - (usado.get(f.id) || 0)),
       })),
       baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, valor: b.amount, adiantamento: ehAdiantamento(b, docPorId.get(b.documentId)) })),
       todas,
+      // pagamentos e adiantamentos pelas FATURAS do escopo, de qualquer pagador (ex.: RT DGMM pagando o Arsenal), no exercício escolhido
+      { porFaturasDoEscopo: true, todosDocs: docs.filter(doAno).map(paraExtrato) },
     );
-  }, [escopo, exercicio, cad, docs, faturas, baixas]);
+  }, [escopo, exercicio, abertasDoExercicio, cad, docs, faturas, baixas, resolv]);
 
   const qs = extrato ? quadros(extrato) : [];
   const titulo = escopo ? `Extrato de conciliação — ${escopo.rotulo}` : '';
-  const subtitulo = `Exercício ${exercicio === 'todos' ? 'todos' : exercicio} · faturas em aberto de qualquer exercício · gerado em ${new Date().toLocaleDateString('pt-BR')}`;
+  const subtitulo = `Exercício ${exercicio === 'todos' ? 'todos' : exercicio} · faturas em aberto ${abertasDoExercicio && exercicio !== 'todos' ? `só de ${exercicio}` : 'de qualquer exercício'} · pagamentos de qualquer pagador · gerado em ${dataBR(hojeISO())}`;
   const nomeArq = escopo ? `extrato_${escopo.rotulo.split(' - ')[0]}_${exercicio}` : 'extrato';
 
   const exportarPdf = () => {
@@ -171,11 +183,14 @@ export const Conciliacao: React.FC = () => {
             </div>
           )}
         </label>
-        <label className="text-xs text-slate-600">Exercício das ALTCRED
-          <select value={exercicio} onChange={e => setExercicio(e.target.value)} className={`${sel} block mt-1`}>
+        <label className="text-xs text-slate-600">Exercício (ALTCRED e pagamentos)
+          <select value={exercicio} onChange={e => setExercicio(e.target.value)} className={`${sel} block mt-1`} aria-label="Exercício do extrato">
             {[...new Set([String(new Date().getFullYear()), ...anos])].map(a => <option key={a} value={a}>{a}</option>)}
             <option value="todos">Todos</option>
           </select>
+        </label>
+        <label className="text-sm flex items-center gap-1.5 pb-2" title="Sem marcar, as faturas em aberto entram de qualquer exercício (dívida antiga continua aparecendo)">
+          <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abertasDoExercicio} disabled={exercicio === 'todos'} onChange={e => setAbertasDoExercicio(e.target.checked)} /> Faturas em aberto só deste exercício
         </label>
         <Button variant="secondary" onClick={exportarPdf} disabled={!extrato}><FileText size={16} className="mr-1" /> PDF</Button>
         <Button variant="secondary" onClick={exportarExcel} disabled={!extrato}><FileSpreadsheet size={16} className="mr-1" /> Excel</Button>

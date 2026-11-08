@@ -21,10 +21,24 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const soma = <T,>(l: T[], f: (x: T) => number) => r2(l.reduce((s, x) => s + f(x), 0));
 
 /** Monta os quadros com os documentos e faturas já filtrados para o cliente/comando escolhido. */
-export function montarExtrato(docs: DocExtrato[], faturas: FaturaExtrato[], baixas: BaixaExtrato[], todasFaturas?: Map<string, { numero: string }>): Extrato {
-  const docPorId = new Map(docs.map(d => [d.id, d]));
+export interface OpcoesExtrato {
+  /**
+   * Pagamentos e adiantamentos pelas FATURAS do escopo (de qualquer pagador/UG), e não pelas ALTCRED do escopo.
+   * Ex.: o RT DGMM (UG 40001) paga faturas do Arsenal: no extrato do Arsenal esses pagamentos precisam aparecer.
+   * Com esta opção, `todosDocs` traz os documentos de todos os pagadores (para mostrar número, data e pagador).
+   */
+  porFaturasDoEscopo?: boolean;
+  todosDocs?: DocExtrato[];
+}
+
+export function montarExtrato(docs: DocExtrato[], faturas: FaturaExtrato[], baixas: BaixaExtrato[], todasFaturas?: Map<string, { numero: string }>, opcoes: OpcoesExtrato = {}): Extrato {
+  const docPorId = new Map((opcoes.porFaturasDoEscopo && opcoes.todosDocs ? opcoes.todosDocs : docs).map(d => [d.id, d]));
   const numFatura = (id: string) => todasFaturas?.get(id)?.numero ?? faturas.find(f => f.id === id)?.numero ?? '(fatura excluída)';
-  const doEscopo = baixas.filter(b => docPorId.has(b.documentId));
+  const faturasEscopo = new Set(faturas.map(f => f.id));
+  const docsEscopo = new Set(docs.map(d => d.id));
+  const doEscopo = opcoes.porFaturasDoEscopo
+    ? baixas.filter(b => faturasEscopo.has(b.invoiceId) && docPorId.has(b.documentId))
+    : baixas.filter(b => docsEscopo.has(b.documentId));
 
   const saldoAltcred = docs.map(d => ({ comando: d.comando, cliente: d.cliente, numero: d.numero, valor: r2(d.valor), saldo: r2(d.saldo) }))
     .sort((a, b) => a.cliente.localeCompare(b.cliente) || a.numero.localeCompare(b.numero));
@@ -40,7 +54,7 @@ export function montarExtrato(docs: DocExtrato[], faturas: FaturaExtrato[], baix
   });
   // sobra da ALTCRED de pagamento enviada para adiantamento aparece como linha "ADIANTAMENTO"
   docs.filter(d => d.sobraAdiantamento && d.operacao !== 'ADIANTAMENTO').forEach(d => {
-    const pago = soma(doEscopo.filter(b => b.documentId === d.id && !b.adiantamento), b => b.valor);
+    const pago = soma(baixas.filter(b => b.documentId === d.id && !b.adiantamento), b => b.valor);
     const sobra = r2(d.valor - pago);
     if (sobra > 0.005) pagas.push({ data: d.data, cliente: d.cliente, altcred: d.numero, fatura: 'ADIANTAMENTO', valor: sobra });
   });

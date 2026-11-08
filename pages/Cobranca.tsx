@@ -8,18 +8,20 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
 import {
-  adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, saldosParados,
+  adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro, saldosParados,
 } from '../services/relatoriosService';
 import { listarContestacoes } from '../services/fase4Service';
 import { FaturaAberta, Pivo, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
 import { notify } from '../utils/notify';
+import { hojeISO } from '../utils/datas';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
-const hoje = () => new Date().toISOString().slice(0, 10);
+// calendário local (às 21h de Brasília o UTC já é o dia seguinte e marcaria como vencida a fatura que vence hoje)
+const hoje = () => hojeISO();
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
 type Base = Awaited<ReturnType<typeof carregarBase>>;
 type Aba = 'quadro' | 'mensagens' | 'painel';
@@ -54,7 +56,9 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const [atualizadoEm, setAtualizadoEm] = useState('');
   const [linhaPor, setLinhaPor] = useState<'setor' | 'comando' | 'cliente'>('setor');
   // setores: múltipla escolha (guarda os excluídos) + um grupo nomeado e editável (antes fixo em DGMM)
-  const [exSetores, setExSetores] = useExcluidosLembrados('siscont.cobranca.setores');
+  // filtro de setores lembrado separado para a Cobrança e para o Painel do Encarregado
+  const [exSetores, setExSetores] = useExcluidosLembrados(soPainel ? 'siscont.painel.setores' : 'siscont.cobranca.setores');
+  const [indicativos, setIndicativos] = useState<Record<string, string>>({});
   const [editarGrupo, setEditarGrupo] = useState<{ nome: string; setores: Set<string> } | null>(null);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
   const [qExtra, setQExtra] = useState(false);
@@ -77,10 +81,12 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const h = hoje();
   const setoresMaterial = useMemo(() => (base?.par.setores_material ?? 'DGMM').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), [base]);
   const nomeGrupo = base?.par.nome_grupo_setores || 'Setor do Material';
-  const todosSetores = useMemo(() => (base ? [...new Set(faturasAbertas(base.invoices).map(f => f.setor).filter(Boolean))].sort() : []), [base]);
+  // setor e comando pelo cadastro da OM (não pelo texto da fatura)
+  const abertasTodas = useMemo(() => (base ? rotularPeloCadastro(faturasAbertas(base.invoices), base) : []), [base]);
+  const todosSetores = useMemo(() => [...new Set(abertasTodas.map(f => f.setor).filter(Boolean))].sort(), [abertasTodas]);
   const abertas = useMemo(() => {
     if (!base) return [];
-    return faturasAbertas(base.invoices).filter(f => !exSetores.has(f.setor));
+    return abertasTodas.filter(f => !exSetores.has(f.setor));
   }, [base, exSetores]);
   const noGrupo = (s: string) => setoresMaterial.includes(s.toUpperCase());
   const gravarGrupo = async () => {
@@ -134,6 +140,19 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     return [...m.entries()].map(([c, fs]) => ({ comando: c, fs, total: fs.reduce((s, f) => s + f.saldo, 0), maisAntiga: fs.reduce((a, f) => (f.vencimento < a ? f.vencimento : a), '9999') }))
       .sort((a, b) => b.total - a.total);
   }, [q, incluirContestadas]);
+  /** Comando do cadastro pelo texto "40030 - Nome" (código) ou pelo nome. */
+  const comandoDe = (texto: string) => {
+    if (!base) return undefined;
+    const cod = texto.match(/^\d{4,5}/)?.[0];
+    return cod ? base.comandos.find(x => x.codigo === cod) : base.comandos.find(x => x.nome.toLowerCase() === texto.toLowerCase());
+  };
+  const semIndicativo = useMemo(() => (base ? vencidasPorComando.filter(v => !comandoDoTexto(v.comando, base.comandos).indicativo).length : 0), [vencidasPorComando, base]);
+  const gravarIndicativo = async (texto: string) => {
+    const c = comandoDe(texto); const ind = (indicativos[texto] || '').trim().toUpperCase();
+    if (!c || !ind) return;
+    try { await cadastroService.saveComando({ ...c, indicativoNaval: ind }); notify.success(`Indicativo ${ind} gravado no comando.`); setIndicativos(x => { const n = { ...x }; delete n[texto]; return n; }); carregar(); }
+    catch (e) { notify.fail('Não foi possível gravar o indicativo (somente quem edita o cadastro)', e); }
+  };
   const ultimaCobranca = (c: string) => cobrancas.filter(x => x.comando === c).map(x => x.enviadaEm).sort().pop();
 
   // ------------- painel
@@ -183,6 +202,8 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
 
       {base && aba === 'mensagens' && (
         <div className="space-y-3">
+          {semIndicativo > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semIndicativo} comando(s) com faturas vencidas não têm indicativo naval: a mensagem sairia sem o destinatário. Digite o indicativo na coluna e clique em gravar (fica no cadastro do comando).</p>}
+          {!cobrancas.length && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-2">Nenhuma cobrança registrada ainda. Depois de enviar a mensagem, clique em <b>Enviada — registrar</b> para a data aparecer em "Última cobrança".</p>}
           <label className="text-sm flex items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -193,11 +214,16 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
                   return (
                     <tr key={v.comando}>
                       <td className="px-3 py-2 max-w-[280px] truncate" title={v.comando}>{v.comando}</td>
-                      <td className="px-3 py-2 text-xs">{c.indicativo || <span className="text-amber-700">cadastrar</span>}</td>
+                      <td className="px-3 py-2 text-xs">{c.indicativo || (podeEditar && comandoDe(v.comando) ? (
+                        <span className="inline-flex items-center gap-1">
+                          <input className="w-24 border border-amber-300 rounded px-1 py-0.5 text-xs" placeholder="ex.: DIMRJ" aria-label={`Indicativo naval de ${v.comando}`}
+                            value={indicativos[v.comando] ?? ''} onChange={e => setIndicativos(x => ({ ...x, [v.comando]: e.target.value.toUpperCase() }))} />
+                          <button type="button" className="text-primary-700 underline disabled:opacity-40" disabled={!(indicativos[v.comando] || '').trim()} onClick={() => gravarIndicativo(v.comando)}>gravar</button>
+                        </span>) : <span className="text-amber-700">sem indicativo</span>)}</td>
                       <td className="px-3 py-2">{v.fs.length}</td>
                       <td className="px-3 py-2 tabular-nums font-semibold">{brl(v.total)}</td>
                       <td className="px-3 py-2 text-xs">{br(v.maisAntiga)}</td>
-                      <td className="px-3 py-2 text-xs">{br(ultimaCobranca(v.comando))}</td>
+                      <td className="px-3 py-2 text-xs">{ultimaCobranca(v.comando) ? br(ultimaCobranca(v.comando)) : <span className="text-amber-700">nunca</span>}</td>
                       <td className="px-3 py-2 text-right"><button className="text-primary-700 underline text-xs" onClick={() => setMsg({ comando: v.comando, indicativo: c.indicativo, faturas: v.fs, texto: mensagemCobranca(c, v.fs, h) })}><Mail size={12} className="inline mr-1" />gerar mensagem</button></td>
                     </tr>
                   );

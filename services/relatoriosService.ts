@@ -30,11 +30,29 @@ export function faturasAbertas(invoices: Invoice[]): FaturaAberta[] {
 }
 
 export async function carregarBase() {
-  const [invoices, docs, baixas, comandos, parametros] = await Promise.all([
+  const [invoices, docs, baixas, comandos, parametros, oms, setores] = await Promise.all([
     db.getInvoices(), db.getDocuments(), db.getAllocations(), cadastroService.listComandos().catch(() => [] as Comando[]), cadastroService.listParametros().catch(() => []),
+    cadastroService.listOMs().catch(() => []), cadastroService.listSetores().catch(() => []),
   ]);
   const par = Object.fromEntries(parametros.map(p => [p.chave, p.valor]));
-  return { invoices, docs, baixas, comandos, par };
+  return { invoices, docs, baixas, comandos, par, oms, setores };
+}
+
+/**
+ * Setor e comando das faturas pelo CADASTRO da OM (e não pelo texto gravado na fatura): duas grafias do mesmo
+ * comando viram uma linha só no quadro e na mensagem de cobrança. Fatura sem OM ligada mantém o texto.
+ */
+export function rotularPeloCadastro(fs: FaturaAberta[], cad: { oms: { id: string; nome: string; comandoId?: string | null; setorId?: string | null }[]; comandos: Comando[]; setores: { id: string; sigla: string }[] }): FaturaAberta[] {
+  const om = new Map(cad.oms.map(o => [o.id, o]));
+  const cmd = new Map(cad.comandos.map(c => [c.id, c]));
+  const set = new Map(cad.setores.map(x => [x.id, x]));
+  return fs.map(f => {
+    const o = f.omId ? om.get(f.omId) : undefined;
+    if (!o) return f;
+    const c = o.comandoId ? cmd.get(o.comandoId) : undefined;
+    const setor = (o.setorId && set.get(o.setorId)?.sigla) || (c?.setorId && set.get(c.setorId)?.sigla) || f.setor;
+    return { ...f, setor, comando: c ? `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` : f.comando, cliente: o.nome };
+  });
 }
 
 /** Comando pelo texto "40030 - Diretoria ..." (para achar o indicativo naval). */
