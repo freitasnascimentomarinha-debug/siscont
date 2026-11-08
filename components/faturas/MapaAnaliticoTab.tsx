@@ -8,7 +8,7 @@ import { Client, Invoice, InvoiceStatus, PaymentAllocation, ReceivedDocument } f
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import {
-  FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa,
+  FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDoMapa,
   idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa,
 } from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
@@ -19,12 +19,13 @@ const compacto = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} mi` : n >= 
 // verde = no prazo; azuis cada vez mais escuros = vencida há mais tempo (as mesmas cores do Painel)
 const COR_FAIXA: Record<string, string> = { 'A vencer': '#16a34a', '1–30 dias': '#93c5fd', '31–90 dias': '#60a5fa', '91–180 dias': '#3b82f6', '181–365 dias': '#1d4ed8', 'Mais de 1 ano': '#1e3a8a' };
 
-const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'normal' | 'alerta' | 'ok' | 'destaque'; onClick?: () => void }> = ({ rotulo, valor, dica, tom = 'normal', onClick }) => (
-  <button type="button" onClick={onClick} disabled={!onClick} title={dica}
-    className={`text-left p-3 rounded-lg border bg-white transition-all ${onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'} ${tom === 'alerta' ? 'border-red-200' : tom === 'destaque' ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200'}`}>
+/** Cartão que filtra a árvore: clicar liga o filtro, clicar de novo desliga. */
+const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'normal' | 'alerta' | 'ok' | 'destaque'; ativo?: boolean; onClick?: () => void }> = ({ rotulo, valor, dica, tom = 'normal', ativo, onClick }) => (
+  <button type="button" onClick={onClick} disabled={!onClick} title={dica} aria-pressed={!!ativo}
+    className={`text-left p-3 rounded-lg border transition-all ${ativo ? 'bg-primary-50 border-primary-500 ring-2 ring-primary-400' : 'bg-white'} ${onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'} ${!ativo ? (tom === 'alerta' ? 'border-red-200' : tom === 'destaque' ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200') : ''}`}>
     <div className="text-[11px] uppercase font-semibold text-slate-500">{rotulo}</div>
     <div className={`text-lg font-bold tabular-nums ${tom === 'alerta' ? 'text-red-700' : tom === 'ok' ? 'text-green-700' : 'text-slate-900'}`}>{valor}</div>
-    {onClick && <div className="text-[11px] font-semibold text-primary-700 mt-0.5">Ver detalhes →</div>}
+    {onClick && <div className="text-[11px] font-semibold text-primary-700 mt-0.5">{ativo ? 'Filtro ligado · clique para tirar' : 'Mostrar na árvore →'}</div>}
   </button>
 );
 
@@ -36,7 +37,10 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const [busca, setBusca] = useState('');
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
-  const [soVencido, setSoVencido] = useState(false);
+  const [filtroFat, setFiltroFat] = useState<string | undefined>(undefined); // 'vencidas' | 'aVencer' | faixa de atraso
+  const [semContestadas, setSemContestadas] = useState(true);
+  const [soComCredito, setSoComCredito] = useState(false);
+  const [soSobra, setSoSobra] = useState(false);
   const [foco, setFoco] = useState<{ setor?: string; om?: string }>({});
   const [abertos, setAbertos] = useState<Set<string> | null>(null); // null = só os setores abertos (padrão)
   const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
@@ -51,17 +55,21 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
-  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soVencido, ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soVencido, foco]);
+  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, filtroFat, semContestadas, foco]);
+  const contestadas = useMemo(() => faturas.filter(f => f.contestada), [faturas]);
+  const limparCartoes = () => { setFiltroFat(undefined); setSoComValor(false); setSoComCredito(false); setSoSobra(false); };
+  const alternarFat = (v: string) => setFiltroFat(x => (x === v ? undefined : v));
+  const ROTULO_FAT: Record<string, string> = { vencidas: 'Só faturas vencidas', aVencer: 'Só faturas a vencer', 'A vencer': 'Só faturas a vencer' };
 
   const padrao = useMemo(() => new Set(idsDoMapa(mapa, 'setor')), [mapa]);
-  const aberto = (id: string) => (abertos ?? padrao).has(id) || !!busca.trim() || !!foco.om;
+  const aberto = (id: string) => (abertos ?? padrao).has(id) || !!busca.trim() || !!foco.om || !!filtroFat;
   const alternar = (id: string) => setAbertos(prev => { const n = new Set(prev ?? padrao); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const t = mapa.total;
   const clientes = useMemo(() => clientesDoMapa(mapa), [mapa]);
   const semCadastro = clientes.filter(x => x.semCadastro).length;
   const top = useMemo(() => maioresOMs(mapa, 10).map(c => ({ nome: c.nome.length > 34 ? `${c.nome.slice(0, 33)}…` : c.nome, completo: c.nome, valor: c.liquido })), [mapa]);
   const idade = useMemo(() => idadeDaDivida(mapa), [mapa]);
-  const filtrado = !!(busca.trim() || soComValor || soVencido || foco.setor || foco.om);
+  const filtrado = !!(busca.trim() || soComValor || soComCredito || soSobra || filtroFat || foco.setor || foco.om);
 
   // ---------------------------------------------------------------- janelas de detalhe
   const abrir = (d: Detalhe) => { setBuscaLista(''); setDetalhe(d); };
@@ -164,16 +172,16 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     <div className="space-y-4">
       <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
         <h3 className="font-bold text-slate-700 flex items-center gap-2"><Network size={20} className="text-primary-600" />Mapa Analítico de Contas em Aberto (posição líquida)</h3>
-        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões, nas barras dos gráficos e nos nomes das OM</b> para ver os detalhes.</p>
+        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões e nas barras dos gráficos</b> para filtrar a árvore (clique de novo para tirar); clique no nome da OM para ver o detalhe dela.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar`} onClick={t.qtd ? () => abrir({ titulo: 'Faturas em aberto', faturas: faturasDoMapa(mapa) }) : undefined} />
-        <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Parte da dívida cujo vencimento já passou" onClick={t.vencido > 0 ? () => abrir({ titulo: 'Faturas vencidas', faturas: faturasDoMapa(mapa, f => f.vencimento < hoje) }) : undefined} />
-        <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Parte da dívida ainda dentro do prazo" onClick={t.aVencer > 0 ? () => abrir({ titulo: 'Faturas a vencer', faturas: faturasDoMapa(mapa, f => f.vencimento >= hoje) }) : undefined} />
-        <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Crédito das OM que abate a dívida delas" onClick={t.credito > 0 ? () => abrir({ titulo: 'Créditos (ALTCRED/GRU) das OM do mapa', creditos: creditosDoMapaLista(mapa) }) : undefined} />
-        <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Crédito de OM que ultrapassa a própria dívida (não paga fatura de outra OM)" onClick={t.sobra > 0 ? () => abrir({ titulo: 'OM com crédito que sobra', oms: clientes.filter(c => c.sobra > 0.005).sort((a, b) => b.sobra - a.sobra), modoOM: 'sobra' }) : undefined} />
-        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Soma do valor a pagar de cada OM depois de abater o crédito dela" onClick={t.liquido > 0 ? () => abrir({ titulo: 'OM com valor a pagar', oms: clientes.filter(c => c.liquido > 0.005).sort((a, b) => b.liquido - a.liquido), modoOM: 'liquido' }) : undefined} />
+        <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar. Clique para tirar os filtros dos cartões.`} ativo={!filtroFat && !soComValor && !soComCredito && !soSobra} onClick={limparCartoes} />
+        <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Clique para deixar na árvore só as faturas vencidas" ativo={filtroFat === 'vencidas'} onClick={() => alternarFat('vencidas')} />
+        <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Clique para deixar na árvore só as faturas a vencer" ativo={filtroFat === 'aVencer'} onClick={() => alternarFat('aVencer')} />
+        <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM que têm crédito" ativo={soComCredito} onClick={() => setSoComCredito(v => !v)} />
+        <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM com crédito maior que a dívida" ativo={soSobra} onClick={() => setSoSobra(v => !v)} />
+        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -197,16 +205,16 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         </section>
         <section className="bg-white rounded-xl border border-slate-200 p-4">
           <h4 className="font-semibold text-slate-800">Idade da dívida</h4>
-          <p className="text-xs text-slate-500 mb-2">Quanto tempo a dívida está vencida. <b>Clique numa barra</b> para ver as faturas da faixa.</p>
+          <p className="text-xs text-slate-500 mb-2">Quanto tempo a dívida está vencida. <b>Clique numa barra</b> para deixar na árvore só as faturas dessa faixa.</p>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={idade} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
-                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && idade[Number(i)]?.qtd) { const x = idade[Number(i)]; abrir({ titulo: `Em aberto: ${x.faixa}`, faturas: faturasDaFaixaMapa(mapa, x.faixa) }); } }}>
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && idade[Number(i)]) alternarFat(idade[Number(i)].faixa); }}>
                 <CartesianGrid vertical={false} stroke="#e2e8f0" />
                 <XAxis dataKey="faixa" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} />
                 <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} width={64} />
                 <Tooltip formatter={(v: any, _n: any, p: any) => [`${brl(Number(v))} (${p?.payload?.qtd ?? 0} fatura(s))`, 'Dívida']} cursor={{ fill: '#f1f5f9' }} />
-                <Bar dataKey="valor" name="Dívida" radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={48}>{idade.map(x => <Cell key={x.faixa} fill={COR_FAIXA[x.faixa]} />)}</Bar>
+                <Bar dataKey="valor" name="Dívida" radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={48}>{idade.map(x => <Cell key={x.faixa} fill={COR_FAIXA[x.faixa]} fillOpacity={filtroFat && filtroFat !== x.faixa && filtroFat !== 'vencidas' && filtroFat !== 'aVencer' ? 0.3 : 1} />)}</Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -222,7 +230,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
             <option value="liquido">Maior valor a pagar</option><option value="divida">Maior dívida</option><option value="nome">Nome (A–Z)</option>
           </select></label>
         <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soComValor} onChange={e => setSoComValor(e.target.checked)} /> Só OM com valor a pagar</label>
-        <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soVencido} onChange={e => setSoVencido(e.target.checked)} /> Só OM com vencido</label>
+        <label className="text-sm flex items-center gap-1.5 pb-2" title="Faturas em contestação não entram na dívida nem aparecem na árvore"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={semContestadas} onChange={e => setSemContestadas(e.target.checked)} /> Tirar as contestadas{contestadas.length ? ` (${contestadas.length} · ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))})` : ''}</label>
         <div className="flex gap-3 pb-2 text-sm">
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'cliente')))}>expandir tudo</button>
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'comando')))}>até as OM</button>
@@ -235,12 +243,16 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         </div>
       </div>
 
-      {(foco.setor || foco.om) && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Foco do mapa">
+      {(foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Filtros do mapa">
           <span className="text-slate-500">Mostrando só:</span>
-          {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover o foco">Setor {foco.setor} <X size={12} /></button>}
-          {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover o foco">OM {foco.om} <X size={12} /></button>}
-          <button type="button" className="text-primary-700 underline text-xs" onClick={() => setFoco({})}>ver todos</button>
+          {filtroFat && <button type="button" onClick={() => setFiltroFat(undefined)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">{ROTULO_FAT[filtroFat] || `Faturas com ${filtroFat} de atraso`}{semContestadas ? ' (sem contestadas)' : ''} <X size={12} /></button>}
+          {soComValor && <button type="button" onClick={() => setSoComValor(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com valor a pagar <X size={12} /></button>}
+          {soComCredito && <button type="button" onClick={() => setSoComCredito(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito <X size={12} /></button>}
+          {soSobra && <button type="button" onClick={() => setSoSobra(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito que sobra <X size={12} /></button>}
+          {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">Setor {foco.setor} <X size={12} /></button>}
+          {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM {foco.om} <X size={12} /></button>}
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); }}>ver todos</button>
         </div>
       )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}

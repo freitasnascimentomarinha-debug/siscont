@@ -118,3 +118,32 @@ describe('mapa interativo: listas, foco e gráficos', () => {
     expect(montarMapa(fs, crs, oms, { hoje, setor: 'COMOPNAV' }).total.divida).toBe(50);
   });
 });
+
+describe('cartões como filtros da árvore', () => {
+  const fs = [f('1', 'a', 'x', 1000, '2026-10-01'), f('2', 'a', 'x', 300, '2026-12-01'), f('3', 'b', 'x', 700, '2026-05-01', { contestada: true }), f('4', 'c', 'x', 50, '2026-12-31')];
+  const crs = [cr('1', 'Diretoria Industrial da Marinha', 400), cr('2', 'Arsenal de Marinha do Rio de Janeiro', 5000)];
+  const nomes = (m: ReturnType<typeof montarMapa>) => clientesDoMapa(m).map(x => x.nome).sort();
+  it('"vencidas" deixa na árvore só as faturas vencidas e sem as contestadas', () => {
+    const m = montarMapa(fs, crs, oms, { hoje, faturas: 'vencidas', semContestadas: true });
+    expect(faturasDoMapa(m).map(x => x.numero)).toEqual(['N-1']);
+    expect(nomes(m)).toEqual(['Diretoria Industrial da Marinha']); // Arsenal (só contestada + crédito) e Alfa (a vencer) saem
+    expect(m.total).toMatchObject({ divida: 1000, vencido: 1000, aVencer: 0, credito: 400, liquido: 600 });
+  });
+  it('com as contestadas, a vencida contestada volta', () => {
+    const m = montarMapa(fs, crs, oms, { hoje, faturas: 'vencidas' });
+    expect(faturasDoMapa(m).map(x => x.numero).sort()).toEqual(['N-1', 'N-3']);
+  });
+  it('"a vencer" e uma faixa de atraso', () => {
+    expect(faturasDoMapa(montarMapa(fs, crs, oms, { hoje, faturas: 'aVencer' })).map(x => x.numero).sort()).toEqual(['N-2', 'N-4']);
+    expect(faturasDoMapa(montarMapa(fs, crs, oms, { hoje, faturas: '31–90 dias' })).map(x => x.numero)).toEqual(['N-1']);
+  });
+  it('sem contestadas sem filtro de faturas: a OM com só crédito continua (mostra a sobra)', () => {
+    const m = montarMapa(fs, crs, oms, { hoje, semContestadas: true });
+    expect(nomes(m)).toContain('Arsenal de Marinha do Rio de Janeiro');
+    expect(m.total.divida).toBe(1350);
+  });
+  it('só com crédito / só com sobra', () => {
+    expect(nomes(montarMapa(fs, crs, oms, { hoje, soComCredito: true }))).toEqual(['Arsenal de Marinha do Rio de Janeiro', 'Diretoria Industrial da Marinha']);
+    expect(nomes(montarMapa(fs, crs, oms, { hoje, semContestadas: true, soSobra: true }))).toEqual(['Arsenal de Marinha do Rio de Janeiro']);
+  });
+});

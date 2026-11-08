@@ -690,7 +690,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.comandos.push(cmdA, cmdB); db.oms.push(dim, amrj);
     const f = (n, om, venc, valor) => ({ id: uid(), invoice_number: n, ug: om.codigo, sector: 'DGMM', command: 'texto livre da fatura', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
       issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false, om_id: om.id });
-    db.invoices = [f('40030-TC-08-2026-001-0', dim, '2026-10-15', 1000), f('40030-EL-08-2026-001-0', dim, '2099-12-31', 300)];
+    db.invoices = [f('40030-TC-08-2026-001-0', dim, '2026-10-15', 1000), f('40030-EL-08-2026-001-0', dim, '2099-12-31', 300), { ...f('41000-TC-05-2026-001-0', amrj, '2026-06-15', 200), contestada: true }];
     const doc = (n, nome, valor) => ({ id: uid(), document_number: n, document_type: 'ALTCRED', total_value: valor, date: '2026-09-14', operation: 'PAGAMENTO', client: nome, sector: 'DGMM', command: 'outro texto do documento', ug: '99999', observation: '' });
     db.received_documents.push(doc('G1.2026.AC.00001', 'Diretoria Industrial da Marinha', 400), doc('G1.2026.AC.00002', 'Arsenal de Marinha do Rio de Janeiro', 5000));
     await page.reload();
@@ -710,44 +710,59 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/sobra R\$ 5\.000,00/).first().isVisible() && await page.getByText(/sobra R\$ 5\.000,00/).count() === 3, 'OM com crédito maior que a dívida mostra a sobra (e ela soma no comando e no setor)');
     ok((await page.locator('tfoot').innerText()).replace(/\s+/g, ' ').includes('R$ 900,00'), 'rodapé: total a pagar R$ 900,00');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'mapa-analitico.png'), fullPage: true });
-    // ---- interatividade: cartões, detalhe da OM, foco, filtros rápidos e gráficos
-    await page.getByRole('button', { name: /^Vencido/ }).click();
+    // ---- interatividade: os cartões e as barras dos gráficos filtram a própria árvore
+    const vencido = page.getByRole('button', { name: /^Vencido/ });
+    await vencido.click();
+    ok(await vencido.getAttribute('aria-pressed') === 'true', 'cartão "Vencido" fica ligado (destacado)');
+    await page.getByText('40030-TC-08-2026-001-0').first().waitFor();
+    ok(await page.getByText('40030-EL-08-2026-001-0').count() === 0, 'clicar em "Vencido" deixa na árvore só as faturas vencidas');
+    ok(await page.getByText('41000-TC-05-2026-001-0').count() === 0 && await page.getByText('Arsenal de Marinha do Rio de Janeiro').count() === 0, 'a fatura vencida contestada não entra (e a OM que só tinha ela sai da árvore)');
+    ok(await page.getByLabel('Filtros do mapa').getByText(/Só faturas vencidas \(sem contestadas\)/).isVisible(), 'etiqueta mostra o filtro ligado');
+    if (SHOTS) { await page.waitForTimeout(1200); await page.screenshot({ path: path.join(SHOTS, 'mapa-vencidas.png'), fullPage: true }); }
+    ok((await page.locator('tfoot').innerText()).replace(/\s+/g, ' ').includes('R$ 600,00'), 'total a pagar das vencidas: R$ 1.000 − crédito R$ 400 = R$ 600');
+    await page.getByLabel(/Tirar as contestadas/).uncheck();
+    await page.getByText('41000-TC-05-2026-001-0').first().waitFor();
+    ok(true, 'desmarcando "Tirar as contestadas", a vencida contestada volta para a árvore');
+    await page.getByLabel(/Tirar as contestadas/).check();
+    await vencido.click();
+    await page.getByText('40030-EL-08-2026-001-0').first().waitFor();
+    ok(await vencido.getAttribute('aria-pressed') === 'false', 'clicar de novo em "Vencido" desliga o filtro');
+    const aVencer = page.getByRole('button', { name: /^A vencer/ });
+    await aVencer.click();
+    await page.getByText('40030-TC-08-2026-001-0').first().waitFor({ state: 'detached' });
+    ok(await page.getByText('40030-EL-08-2026-001-0').first().isVisible(), '"A vencer" deixa na árvore só as faturas a vencer');
+    await aVencer.click();
+    const sobra = page.getByRole('button', { name: /^Crédito que sobra/ });
+    await sobra.click();
+    await page.getByText('Diretoria Industrial da Marinha').first().waitFor({ state: 'detached' });
+    ok(await page.getByText('Arsenal de Marinha do Rio de Janeiro').first().isVisible(), '"Crédito que sobra" deixa na árvore só a OM com sobra');
+    await sobra.click();
+    // nome da OM abre o detalhe
+    await page.getByRole('button', { name: 'Diretoria Industrial da Marinha', exact: true }).click();
     const dlg = page.getByRole('dialog');
-    await dlg.getByText('Faturas vencidas').first().waitFor();
-    ok(await dlg.getByText('40030-TC-08-2026-001-0').isVisible() && await dlg.getByText('40030-EL-08-2026-001-0').count() === 0, 'cartão "Vencido" abre só as faturas vencidas');
-    await dlg.getByLabel('Buscar na lista do mapa').fill('zzz-nada');
-    ok(await dlg.getByText('Nenhuma fatura.').isVisible(), 'busca dentro da lista do cartão filtra');
+    await dlg.getByText('G1.2026.AC.00001').waitFor();
+    ok(await dlg.getByText('40030-TC-08-2026-001-0').isVisible(), 'clicar no nome da OM abre o detalhe com faturas e ALTCRED dela');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: /^A pagar \(líquido\)/ }).click();
-    await dlg.getByText('OM com valor a pagar').waitFor();
-    ok(await dlg.getByRole('cell', { name: /Diretoria Industrial da Marinha/ }).first().isVisible() && await dlg.getByText('R$ 900,00').first().isVisible(), 'cartão "A pagar" lista as OM com valor a pagar');
-    await dlg.getByRole('cell', { name: /Diretoria Industrial da Marinha/ }).first().click();
-    await dlg.getByText('ALTCRED/GRU').first().waitFor();
-    ok(await dlg.getByText('40030-TC-08-2026-001-0').isVisible() && await dlg.getByText('G1.2026.AC.00001').isVisible(), 'clicar na OM abre o detalhe com faturas e ALTCRED dela');
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: /^Crédito que sobra/ }).click();
-    await dlg.getByText('OM com crédito que sobra').waitFor();
-    ok(await dlg.getByRole('cell', { name: /Arsenal de Marinha do Rio de Janeiro/ }).first().isVisible(), 'cartão "Crédito que sobra" lista a OM que tem a sobra');
-    await page.keyboard.press('Escape');
-    // foco numa OM: chip, mapa só dela, e remover o foco
+    // foco numa OM
     await page.getByRole('button', { name: 'focar', exact: true }).first().click({ force: true });
-    await page.getByLabel('Foco do mapa').waitFor();
-    ok(await page.getByLabel('Foco do mapa').getByText(/OM /).isVisible(), 'foco numa OM mostra o chip do filtro');
+    await page.getByLabel('Filtros do mapa').waitFor();
+    ok(await page.getByLabel('Filtros do mapa').getByText(/^OM /).isVisible(), 'foco numa OM mostra a etiqueta do filtro');
     await page.getByRole('button', { name: 'ver todos' }).click();
-    ok(await page.getByLabel('Foco do mapa').count() === 0, 'remover o foco volta ao mapa completo');
-    // só OM com vencido: o Arsenal (só crédito) sai
-    await page.getByLabel(/Só OM com vencido/).check();
-    ok(await page.getByText('Arsenal de Marinha do Rio de Janeiro').count() === 0, '"só OM com vencido" tira a OM sem dívida vencida');
-    await page.getByLabel(/Só OM com vencido/).uncheck();
-    // gráficos clicáveis
-    const idadeBarra = page.locator('.recharts-wrapper').nth(1).locator('.recharts-bar-rectangle').first();
-    await idadeBarra.click({ force: true });
-    await dlg.getByText(/^Em aberto: /).waitFor();
-    ok(await dlg.locator('tbody tr').count() >= 1, 'clicar numa barra da idade da dívida abre as faturas da faixa');
-    await page.keyboard.press('Escape');
-    await page.locator('.recharts-wrapper').nth(0).locator('.recharts-bar-rectangle').first().click({ force: true });
-    await page.getByLabel('Foco do mapa').waitFor();
-    ok(await page.getByLabel('Foco do mapa').getByText(/OM /).isVisible(), 'clicar numa barra das maiores OM foca nessa OM');
+    ok(await page.getByLabel('Filtros do mapa').count() === 0, '"ver todos" tira os filtros');
+    // barra da idade da dívida filtra a árvore pela faixa
+    await page.locator('.recharts-wrapper').nth(1).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1500); // a animação das barras recomeça quando os filtros mudam
+    await page.locator('.recharts-wrapper').nth(1).locator('.recharts-bar-rectangle').first().click({ force: true });
+    await page.getByLabel('Filtros do mapa').waitFor();
+    ok(await page.getByLabel('Filtros do mapa').getByText(/de atraso|a vencer/i).isVisible(), 'clicar numa barra da idade da dívida filtra a árvore pela faixa');
+    await page.getByRole('button', { name: 'ver todos' }).click();
+    // barra das maiores OM foca nessa OM
+    const barraTop = page.locator('.recharts-wrapper').nth(0).locator('.recharts-bar-rectangle').first();
+    await page.locator('.recharts-wrapper').nth(0).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1500); // a animação das barras recomeça quando os filtros mudam
+    await barraTop.click({ force: true });
+    await page.getByLabel('Filtros do mapa').waitFor();
+    ok(await page.getByLabel('Filtros do mapa').getByText(/^OM /).isVisible(), 'clicar numa barra das maiores OM foca nessa OM');
     await page.getByRole('button', { name: 'ver todos' }).click();
     // busca, ordenação e exportação
     await page.getByLabel('Buscar no mapa').fill('G1.2026.AC.00002');

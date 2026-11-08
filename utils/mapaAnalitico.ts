@@ -33,6 +33,12 @@ export interface OpcoesMapa {
   soVencido?: boolean;
   /** foco: um setor ou uma OM (nome exato) escolhidos num gráfico ou cartão */
   setor?: string; om?: string;
+  /** filtro das FATURAS na árvore: só vencidas, só a vencer, ou uma faixa de atraso ("31–90 dias"...) */
+  faturas?: 'vencidas' | 'aVencer' | string;
+  /** tira as faturas em contestação (não entram na dívida nem aparecem na árvore) */
+  semContestadas?: boolean;
+  /** só OM que têm crédito / que têm crédito sobrando */
+  soComCredito?: boolean; soSobra?: boolean;
 }
 
 const zero = (): Totais => ({ qtd: 0, divida: 0, vencido: 0, aVencer: 0, credito: 0, liquido: 0, sobra: 0 });
@@ -53,8 +59,15 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
     return a;
   };
 
+  const passaFatura = (f: FaturaMapa) => {
+    if (o.semContestadas && f.contestada) return false;
+    if (!o.faturas) return true;
+    if (o.faturas === 'vencidas') return f.vencimento < o.hoje;
+    if (o.faturas === 'aVencer') return f.vencimento >= o.hoje;
+    return faixaDe(Math.max(0, diasEntre(f.vencimento, o.hoje))) === o.faturas;
+  };
   faturas.forEach(f => {
-    if (f.saldo <= 0.005) return;
+    if (f.saldo <= 0.005 || !passaFatura(f)) return;
     const om = (f.omId && porId.get(f.omId)) || porNome.get(norm(f.client));
     const a = om ? no(om.omId, om.nome, om.setor, om.comando, false) : no(`n:${norm(f.client)}`, f.client, f.sector, f.command, false);
     a.faturas.push(f);
@@ -69,6 +82,8 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   // filtros (antes de somar, para os totais acompanharem o que está na tela)
   const q = norm(o.busca || '');
   let lista = [...nos.values()];
+  // com um filtro de faturas ligado, OM sem nenhuma fatura que passe no filtro não aparece (só crédito não interessa ali)
+  if (o.faturas) lista = lista.filter(a => a.faturas.length > 0);
   if (o.setor) lista = lista.filter(a => a.setor === o.setor);
   if (o.om) lista = lista.filter(a => a.nome === o.om);
   if (q) lista = lista.filter(a => norm(`${a.nome} ${a.setor} ${a.comando}`).includes(q) || a.faturas.some(f => norm(f.numero).includes(q)) || a.creditos.some(c => norm(c.numero).includes(q)));
@@ -88,6 +103,8 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   let clientes = lista.map(a => ({ a, n: clienteNo(a) }));
   if (o.soComValor) clientes = clientes.filter(x => x.n.liquido > 0.005);
   if (o.soVencido) clientes = clientes.filter(x => x.n.vencido > 0.005);
+  if (o.soComCredito) clientes = clientes.filter(x => x.n.credito > 0.005);
+  if (o.soSobra) clientes = clientes.filter(x => x.n.sobra > 0.005);
 
   const ordem = o.ordem || 'liquido';
   const cmp = (x: { nome: string } & Totais, y: { nome: string } & Totais) =>
