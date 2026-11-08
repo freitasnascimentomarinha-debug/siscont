@@ -436,8 +436,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                     <td key={r0} className={`text-center ${corCol(r0)}`} onMouseEnter={() => setColFoco(r0)}><input type="checkbox" disabled={!podeEditar} checked={navMarcado.has(r0)} onChange={e => marcarNavios(r0, e.target.checked)}
                       title={navMarcado.has(r0) ? 'navios participam (como entra: aba Navios)' : 'navios não participam'} aria-label={`Navios participam da linha ${r0}`} /></td>
                   ))}
-                  <td className="px-2 text-[10px] text-slate-500 whitespace-nowrap">{todasOM.length ? <>{todasOM.map(r => (
-                    <label key={r.numero} className="mr-1 inline-flex items-center gap-0.5" title={r.descricao}><input type="checkbox" disabled={!podeEditar} checked={navMarcado.has(r.numero)} onChange={e => marcarNavios(r.numero, e.target.checked)} aria-label={`Navios participam da linha ${r.numero}`} />{r.numero}</label>))} · </> : null}como entra: aba Navios</td>
+                  <td className="px-2 text-[10px] text-slate-500 whitespace-nowrap">como entra: aba Navios</td>
                 </tr>
               )}
               {g.oms.map(o => {
