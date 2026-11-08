@@ -18,17 +18,25 @@ export const FaturasParaPagar: React.FC<{
   const [cliente, setCliente] = useState<string>(omId ? '__doc' : '__todas');
   useEffect(() => { setCliente(omId ? '__doc' : '__todas'); }, [omId]);
   const [busca, setBusca] = useState('');
+  const [filtroUG, setFiltroUG] = useState('');
   const abertas = useMemo(() => faturas.filter(f => saldoDaFatura(f) > 0.005), [faturas]);
   const daOM = useMemo(() => (omId ? abertas.filter(f => f.omId === omId) : []), [abertas, omId]);
   const clientes = useMemo(() => {
-    const m = new Map<string, { qtd: number; saldo: number }>();
-    abertas.forEach(f => { const c = (f.client || '').trim() || '(sem cliente)'; const x = m.get(c) || { qtd: 0, saldo: 0 }; x.qtd++; x.saldo += saldoDaFatura(f); m.set(c, x); });
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+    const m = new Map<string, { qtd: number; saldo: number; ugs: Set<string> }>();
+    abertas.forEach(f => {
+      const c = (f.client || '').trim() || '(sem cliente)';
+      const x = m.get(c) || { qtd: 0, saldo: 0, ugs: new Set<string>() };
+      x.qtd++; x.saldo += saldoDaFatura(f); if (f.ug) x.ugs.add(f.ug.trim());
+      m.set(c, x);
+    });
+    // ordenado pela UG e depois pelo nome, para achar a OM pelo código
+    return [...m.entries()].map(([c, x]) => ({ cliente: c, ug: [...x.ugs].sort().join('/'), qtd: x.qtd, saldo: x.saldo }))
+      .sort((a, b) => a.ug.localeCompare(b.ug) || a.cliente.localeCompare(b.cliente, 'pt-BR'));
   }, [abertas]);
   const base = cliente === '__doc' ? daOM : cliente === '__todas' ? abertas : abertas.filter(f => ((f.client || '').trim() || '(sem cliente)') === cliente);
   const q = busca.trim().toLowerCase();
   const visiveis = useMemo(() => base
-    .filter(f => !q || `${f.invoiceNumber} ${f.client} ${f.type}`.toLowerCase().includes(q))
+    .filter(f => !q || `${f.invoiceNumber} ${f.client} ${f.type} ${f.ug || ''}`.toLowerCase().includes(q))
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '') || a.invoiceNumber.localeCompare(b.invoiceNumber))
     .slice(0, 300), [base, q]);
   const porId = useMemo(() => new Map(abertas.map(f => [f.id, f])), [abertas]);
@@ -45,13 +53,22 @@ export const FaturasParaPagar: React.FC<{
       <div className="flex flex-wrap items-center gap-3">
         <h4 className="font-semibold text-slate-800 text-sm">{adiantamento ? 'Faturas que este adiantamento abate' : 'Faturas a pagar com este documento'} <span className="font-normal text-slate-500">(opcional)</span></h4>
         <div className="flex-1" />
+        <label className="text-xs text-slate-600 flex items-center gap-1.5">UG
+          <input className="w-20 text-xs border border-slate-300 rounded-md px-1.5 py-1" placeholder="ex.: 41000" value={filtroUG} aria-label="UG para filtrar o cliente"
+            onChange={e => {
+              const v = e.target.value; setFiltroUG(v);
+              // UG de uma OM só: já seleciona essa OM no filtro
+              const achadas = v.trim() ? clientes.filter(x => x.ug.split('/').includes(v.trim())) : [];
+              if (achadas.length === 1) setCliente(achadas[0].cliente);
+            }} /></label>
         <label className="text-xs text-slate-600 flex items-center gap-1.5">Cliente (OM)
           <select className="text-xs border border-slate-300 rounded-md px-1.5 py-1 bg-white max-w-[280px]" value={cliente} onChange={e => setCliente(e.target.value)} aria-label="Cliente das faturas a pagar">
             {omId && <option value="__doc">OM do documento: {nomeOM} ({daOM.length})</option>}
             <option value="__todas">Todas as OM ({abertas.length})</option>
-            {clientes.map(([c, x]) => <option key={c} value={c}>{c} ({x.qtd} · {brl(x.saldo)})</option>)}
+            {clientes.filter(x => !filtroUG.trim() || x.ug.includes(filtroUG.trim()) || x.cliente.toLowerCase().includes(filtroUG.trim().toLowerCase()))
+              .map(x => <option key={x.cliente} value={x.cliente}>{x.ug ? `${x.ug} · ` : ''}{x.cliente} ({x.qtd} · {brl(x.saldo)})</option>)}
           </select></label>
-        <label className="relative"><Search size={13} className="absolute left-2 top-2 text-slate-400" /><input className="pl-7 pr-2 py-1 text-xs border border-slate-300 rounded-md w-48" placeholder="Buscar fatura..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar fatura em aberto" /></label>
+        <label className="relative"><Search size={13} className="absolute left-2 top-2 text-slate-400" /><input className="pl-7 pr-2 py-1 text-xs border border-slate-300 rounded-md w-56" placeholder="Buscar fatura, cliente ou UG..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar fatura em aberto" /></label>
       </div>
       <p className="text-xs text-slate-500">
         {cliente === '__doc' ? <>Faturas em aberto de <b>{nomeOM}</b> ({daOM.length}). </> : cliente === '__todas' ? <>Todas as faturas em aberto ({abertas.length}). </> : <>Faturas em aberto de <b>{cliente}</b> ({base.length}). </>}
@@ -60,7 +77,7 @@ export const FaturasParaPagar: React.FC<{
       </p>
       <div className="max-h-64 overflow-y-auto border border-slate-200 rounded bg-white">
         <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 py-1.5 text-left">Cliente</th><th className="px-2 py-1.5 text-center">Vencimento</th><th className="px-2 py-1.5 text-right">Saldo</th><th className="px-2 py-1.5 text-right">Pagar</th></tr></thead>
+          <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 py-1.5 text-left">UG · Cliente</th><th className="px-2 py-1.5 text-center">Vencimento</th><th className="px-2 py-1.5 text-right">Saldo</th><th className="px-2 py-1.5 text-right">Pagar</th></tr></thead>
           <tbody>
             {visiveis.map(f => {
               const marcada = selecao.ids.includes(f.id);
@@ -68,7 +85,7 @@ export const FaturasParaPagar: React.FC<{
                 <tr key={f.id} className={`border-t border-slate-100 ${marcada ? 'bg-primary-50' : 'hover:bg-slate-50'}`}>
                   <td className="px-2 py-1"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={marcada} onChange={() => alternar(f.id)} aria-label={`Pagar a fatura ${f.invoiceNumber}`} /></td>
                   <td className="px-2 py-1 font-mono whitespace-nowrap">{f.invoiceNumber}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 font-sans">contestada</span>}</td>
-                  <td className="px-2 py-1 max-w-[200px] truncate" title={f.client}>{f.client}</td>
+                  <td className="px-2 py-1 max-w-[220px] truncate" title={`${f.ug || ''} · ${f.client}`}><span className="text-slate-500">{f.ug ? `${f.ug} · ` : ''}</span>{f.client}</td>
                   <td className="px-2 py-1 text-center whitespace-nowrap">{dataBR(f.dueDate)}</td>
                   <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">{brl(saldoDaFatura(f))}</td>
                   <td className="px-2 py-1 text-right">
