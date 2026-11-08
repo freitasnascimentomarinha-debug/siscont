@@ -225,19 +225,25 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
 // ------------------------------------------------------------------ importação de notas de empenho
 /** Lê planilha de NE (formato das abas mensais do fluxo de caixa: DATA, ALTCRED/NE, CLIENTE, ENTRADA, SAÍDA, RUBRICA, DESCRIÇÃO). */
 /** Linha da planilha de NE na prévia da importação. */
-export interface ItemNE { saida: Saida; situacao: 'NOVA' | 'JA_EXISTE' | 'REPETIDA_NA_PLANILHA'; avisos: string[] }
+export interface ItemNE { saida: Saida; situacao: 'NOVA' | 'REFORCO' | 'JA_EXISTE' | 'REPETIDA_NA_PLANILHA'; avisos: string[] }
+/** NE já lançada (para reconhecer reforço × linha já importada). */
+export interface NEExistente { numero: string; data: string; valor: number; client?: string; rubricaNumero?: number | null; categoria?: string | null; rubric?: string }
 export interface PreviaNE { arquivo: string; itens: ItemNE[]; ignoradas: { aba: string; linha: number; motivo: string }[] }
 
 /**
  * Lê a planilha de NE e monta a PRÉVIA (nada é gravado aqui). Pula, com o motivo: linhas de entrada (ALTCRED), linha de
  * EXEMPLO do modelo, número que não é de NE, valor zerado ou negativo (anulação) e linha sem data.
- * NE com número já cadastrado (ou repetido na própria planilha) aparece como "já existe" e não é gravada.
+ * REFORÇO de empenho = aumento do valor da MESMA NE (não é empenho novo): linha com número de NE já lançado (no
+ * sistema ou antes na planilha) e data ou valor diferentes entra como reforço daquela NE. Mesmo número, data e
+ * valor = linha já importada (não grava de novo).
  */
-export async function lerPlanilhaNE(f: File, existentes: string[] = [], rubricasDoAno: number[] = []): Promise<PreviaNE> {
+export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rubricasDoAno: number[] = []): Promise<PreviaNE> {
   const wb = XLSX.read(new Uint8Array(await lerArquivo(f)), { dense: true, cellFormula: false, cellStyles: false });
   const itens: ItemNE[] = [], ignoradas: PreviaNE['ignoradas'] = [];
-  const ja = new Set(existentes.map(x => x.trim().toUpperCase()));
-  const vistos = new Set<string>();
+  const chaveLanc = (ne: string, data: string, valor: number) => `${ne.trim().toUpperCase()}|${data}|${Math.round(valor * 100)}`;
+  const lancados = new Set(existentes.map(x => chaveLanc(x.numero, x.data, x.valor)));
+  const nes = new Set(existentes.map(x => x.numero.trim().toUpperCase()));
+  const lancadosPlanilha = new Set<string>(), nesPlanilha = new Set<string>();
   const rubs = new Set(rubricasDoAno);
   wb.SheetNames.forEach(aba => {
     const m = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any[][];
@@ -261,13 +267,17 @@ export async function lerPlanilhaNE(f: File, existentes: string[] = [], rubricas
       if (!rubTxt) avisos.push('sem rubrica/categoria');
       else if (cls.categoria === 'OUTROS') avisos.push(`rubrica "${rubTxt}" não reconhecida (fica em Outros)`);
       else if (cls.rubricaNumero && rubs.size && !rubs.has(cls.rubricaNumero)) avisos.push(`rubrica ${cls.rubricaNumero} não existe na taxa condominial de ${dt.slice(0, 4)}`);
-      const situacao: ItemNE['situacao'] = ja.has(ne) ? 'JA_EXISTE' : vistos.has(ne) ? 'REPETIDA_NA_PLANILHA' : 'NOVA';
-      vistos.add(ne);
+      const kl = chaveLanc(ne, dt, v);
+      const situacao: ItemNE['situacao'] = lancados.has(kl) ? 'JA_EXISTE' : lancadosPlanilha.has(kl) ? 'REPETIDA_NA_PLANILHA'
+        : nes.has(ne) || nesPlanilha.has(ne) ? 'REFORCO' : 'NOVA';
+      lancadosPlanilha.add(kl); nesPlanilha.add(ne);
+      if (situacao === 'REFORCO') avisos.unshift(`reforço da NE (aumenta o valor do empenho; não é empenho novo)`);
       itens.push({
         situacao, avisos,
         saida: {
           id: uuidv4(), date: dt, documentNumber: ne, documentType: DocumentType.EMPENHO,
-          client: limpar(r?.[iCli]), value: Math.round(v * 100) / 100, rubric: rubTxt, description: limpar(r?.[iDesc]), observation: `Importada de ${f.name} › ${aba}`,
+          client: limpar(r?.[iCli]), value: Math.round(v * 100) / 100, rubric: rubTxt, description: limpar(r?.[iDesc]),
+          observation: `${situacao === 'REFORCO' ? 'Reforço de empenho — ' : ''}Importada de ${f.name} › ${aba}`,
           isCanceled: false, rubricaNumero: cls.rubricaNumero, categoria: cls.categoria,
         },
       });
@@ -276,9 +286,10 @@ export async function lerPlanilhaNE(f: File, existentes: string[] = [], rubricas
   return { arquivo: f.name, itens, ignoradas };
 }
 
-/** Grava só as NE novas da prévia. */
+/** Grava as NE novas e os reforços da prévia. */
+export const entraNaGravacao = (i: ItemNE) => i.situacao === 'NOVA' || i.situacao === 'REFORCO';
 export async function gravarPreviaNE(p: PreviaNE) {
-  const novas = p.itens.filter(i => i.situacao === 'NOVA').map(i => i.saida);
+  const novas = p.itens.filter(entraNaGravacao).map(i => i.saida);
   if (novas.length) await salvarSaidas(novas);
   return novas.length;
 }

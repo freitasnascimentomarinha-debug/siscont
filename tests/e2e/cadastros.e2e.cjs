@@ -1092,7 +1092,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', ''],
       ['10/10/2026', '740015000012026NE000999', 'EXEMPLO — EMPRESA', '', 1000, '', 'Água e Esgoto', 'linha de exemplo'],
       ['12/10/2026', '740015000012026NE000777', 'FORNECEDOR', '', -500, '', '14', 'anulação'],
-      ['13/10/2026', '740015000012026NE000123', 'DETOX DEDETIZADORA LTDA', '', 50400, '', '14', 'repetida']]), 'OUT2026');
+      ['05/10/2026', '740015000012026NE000123', 'DETOX DEDETIZADORA LTDA', '', 50400, '', '14', 'já lançada à mão'],
+      ['20/10/2026', '740015000012026NE000122', 'AGUAS DO RIO 4 SPE S.A', '', 5000, '', 'Água e Esgoto', 'reforço do empenho']]), 'OUT2026');
     XLSX.writeFile(wb, nes);
     // as rubricas vêm da Taxa condominial (a aba Rubricas do fluxo é só consulta)
     db.rubricas.push({ ano: 2026, numero: 1, descricao: 'Manutenção de Telhados', destino: 'TC', valor_previsto: 200000, desconto_geral: 53903.08, valor_anual: 146096.92 },
@@ -1119,11 +1120,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const prev = page.getByLabel('Prévia das notas de empenho');
     await prev.waitFor();
     const tprev = (await prev.innerText()).replace(/\s+/g, ' ');
-    ok(/1 nova\(s\)/.test(tprev) && /EXEMPLO do modelo/.test(tprev) && /valor negativo/.test(tprev) && /740015000012026NE000123/.test(tprev) && /já cadastrada/.test(tprev), 'prévia da NE: 1 nova, a já cadastrada não é regravada, EXEMPLO e anulação (negativo) pulados com o motivo');
+    ok(/1 nova\(s\)/.test(tprev) && /1 reforço\(s\) · R\$ 5\.000,00/.test(tprev) && /EXEMPLO do modelo/.test(tprev) && /valor negativo/.test(tprev) && /740015000012026NE000123/.test(tprev) && /já importada/.test(tprev), 'prévia da NE: 1 nova, 1 reforço (mesma NE, outra data), a já lançada não é regravada, EXEMPLO e anulação pulados com o motivo');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-previa-ne.png') });
     ok(!db.cash_flow_exits.some(e => e.document_number === '740015000012026NE000122'), 'nada gravado antes de confirmar');
-    await page.getByRole('button', { name: /Gravar 1 nota\(s\) nova\(s\)/ }).click();
-    await page.getByText(/1 nota\(s\) de empenho importada/).waitFor();
+    await page.getByRole('button', { name: /Gravar 2 lançamento\(s\)/ }).click();
+    await page.getByText(/2 lançamento\(s\) importado\(s\): 1 nota\(s\) de empenho nova\(s\) e 1 reforço/).waitFor();
+    const doNE122 = db.cash_flow_exits.filter(e => e.document_number === '740015000012026NE000122');
+    ok(doNE122.length === 2 && doNE122.reduce((t, e) => t + Number(e.value), 0) === 99860 && doNE122.some(e => /^Reforço de empenho/.test(e.observation)), 'reforço gravado na mesma NE: total do empenho R$ 99.860,00');
+    ok(await page.getByText('REFORÇO', { exact: true }).first().isVisible(), 'lista marca o lançamento como REFORÇO');
+    // reforço também pela Nova Saída
+    await page.getByRole('button', { name: 'Nova Saída' }).click();
+    await page.getByLabel('Número Documento').fill('740015000012026NE000123');
+    await page.getByText(/Reforço de empenho:.*já foi lançada/).waitFor();
+    ok((await page.getByRole('note').filter({ hasText: 'Reforço de empenho' }).innerText()).includes('R$ 50.400,00'), 'Nova Saída com NE já lançada: avisa que é reforço e mostra o total atual da NE');
+    await page.keyboard.press('Escape');
     ok(db.cash_flow_exits.some(e => e.document_number === '740015000012026NE000122' && e.categoria === 'AGUA'), 'NE importada da planilha e classificada como água');
     await page.getByRole('button', { name: 'Condomínio por rubrica' }).click();
     await page.getByLabel('Exercício do condomínio').fill('2026');
@@ -1133,7 +1143,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Disponível R.901.16' }).click();
     await page.getByLabel('Exercício do disponível').fill('2026');
     const disp = await page.locator('table').last().innerText();
-    ok(disp.includes('R$ 19.615,73') && disp.includes('R$ 10.384,27') && disp.includes('R$ 94.860,00'), 'disponível: entrada condomínio 19.615,73, sem indicação 10.384,27, saída água 94.860,00');
+    ok(disp.includes('R$ 19.615,73') && disp.includes('R$ 10.384,27') && disp.includes('R$ 99.860,00'), 'disponível: entrada condomínio 19.615,73, sem indicação 10.384,27, saída água 99.860,00 (empenho 94.860 + reforço 5.000)');
   });
 
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {

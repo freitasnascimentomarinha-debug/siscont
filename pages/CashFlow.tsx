@@ -11,7 +11,7 @@ import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError } from '../services/relatoriosService';
-import { PreviaNE, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
+import { PreviaNE, NEExistente, entraNaGravacao, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
 import * as XLSX from 'xlsx';
 import { Rubrica, lerNE } from '../utils/relatorios';
 import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash2, Search, X, Ban } from 'lucide-react';
@@ -47,6 +47,17 @@ const Lancamentos: React.FC = () => {
   const classeDe = (item: CashFlowItem) => classes.get(item.id) || '';
   const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
   const neInvalida = formData.documentType !== 'ALTCRED' && !!formData.documentNumber && !lerNE(formData.documentNumber);
+  // NE já lançadas (para reconhecer o REFORÇO: aumento do valor da mesma NE, sem empenho novo)
+  const nesLancadas: NEExistente[] = items.filter(i => i.type === 'EXIT').map(i => ({ numero: i.documentNumber, data: i.date, valor: i.value, client: i.client, rubric: i.rubric }));
+  /** primeiro lançamento de cada NE (o empenho); os seguintes, com o mesmo número, são reforços */
+  const primeiroDaNE = new Map<string, string>();
+  [...items].filter(i => i.type === 'EXIT').sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id.localeCompare(b.id))
+    .forEach(i => { const k = (i.documentNumber || '').trim().toUpperCase(); if (!primeiroDaNE.has(k)) primeiroDaNE.set(k, i.id); });
+  const ehReforco = (i: CashFlowItem) => i.type === 'EXIT' && primeiroDaNE.get((i.documentNumber || '').trim().toUpperCase()) !== i.id;
+  const neDoForm = (formData.documentNumber || '').trim().toUpperCase();
+  const originalDoForm = neDoForm ? items.find(i => i.type === 'EXIT' && i.id === primeiroDaNE.get(neDoForm) && i.id !== editingId) : undefined;
+  const totalDaNE = (ne: string) => items.filter(i => i.type === 'EXIT' && !i.isCanceled && (i.documentNumber || '').trim().toUpperCase() === ne).reduce((t, i) => t + i.value, 0);
+
   // importação da planilha de NE: primeiro a PRÉVIA, depois "Gravar"
   const [previaNE, setPreviaNE] = useState<PreviaNE | null>(null);
   const [gravandoNE, setGravandoNE] = useState(false);
@@ -54,15 +65,16 @@ const Lancamentos: React.FC = () => {
     if (!files?.length) return;
     try {
       const rubs = await listarRubricas(new Date().getFullYear()).then(r => r.map(x => x.numero)).catch(() => [] as number[]);
-      setPreviaNE(await lerPlanilhaNE(files[0], items.filter(i => i.type === 'EXIT').map(i => i.documentNumber), rubs));
+      setPreviaNE(await lerPlanilhaNE(files[0], nesLancadas, rubs));
     } catch (e) { notify.fail('Erro ao ler a planilha de notas de empenho', e); } finally { if (neRef.current) neRef.current.value = ''; }
   };
   const gravarNE = async () => {
     if (!previaNE) return;
     setGravandoNE(true);
     try {
+      const ref = previaNE.itens.filter(i => i.situacao === 'REFORCO').length;
       const n = await gravarPreviaNE(previaNE);
-      notify.success(`${n} nota(s) de empenho importada(s).`);
+      notify.success(`${n} lançamento(s) importado(s): ${n - ref} nota(s) de empenho nova(s)${ref ? ` e ${ref} reforço(s)` : ''}.`);
       setPreviaNE(null);
       await refresh();
     } catch (e) { notify.fail('Erro ao gravar as notas de empenho', e); } finally { setGravandoNE(false); }
@@ -132,6 +144,8 @@ const Lancamentos: React.FC = () => {
       observation: formData.observation || '',
       isCanceled: formData.isCanceled || false,
     };
+    // mesma NE já lançada: este lançamento é um REFORÇO (aumenta o valor do empenho)
+    if (!editingId && originalDoForm && !/^Reforço de empenho/i.test(payload.observation || '')) payload.observation = `Reforço de empenho${payload.observation ? ` — ${payload.observation}` : ''}`;
 
     const cls = classe ? (classe.startsWith('R') ? { rubricaNumero: Number(classe.slice(1)), categoria: 'CONDOMINIO' } : { rubricaNumero: null, categoria: classe }) : { rubricaNumero: null, categoria: null };
     try {
@@ -350,6 +364,7 @@ const Lancamentos: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{dataBR(item.date)}</td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-900">
                     {item.documentNumber}
+                    {ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
                     {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}
                   </td>
                   <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>{item.client}</td>
@@ -407,6 +422,12 @@ const Lancamentos: React.FC = () => {
               { label: 'Energia', value: 'ENERGIA' }, { label: 'Água e esgoto', value: 'AGUA' }, { label: 'Telefonia', value: 'TELEFONIA' },
               { label: 'Condomínio/diária/viatura (sem rubrica)', value: 'CONDOMINIO' }, { label: 'Outros', value: 'OUTROS' },
             ]} />
+          {originalDoForm && (
+            <div className="md:col-span-2 p-2 rounded border border-sky-200 bg-sky-50 text-xs text-sky-900" role="note">
+              <b>Reforço de empenho:</b> a NE {originalDoForm.documentNumber} já foi lançada ({originalDoForm.client || 'sem cliente'}, total atual R$ {totalDaNE(neDoForm).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Este lançamento aumenta o valor da mesma NE — informe só o valor do reforço.
+              {(!formData.client || !classe) && <button type="button" className="ml-2 underline font-semibold" onClick={() => { setFormData(f => ({ ...f, client: f.client || originalDoForm.client, rubric: f.rubric || originalDoForm.rubric })); if (!classe) setClasse(classeDe(originalDoForm)); }}>usar cliente e rubrica da NE</button>}
+            </div>
+          )}
           {neInvalida && <p className="md:col-span-2 text-xs text-amber-700">Número fora do padrão da NE: UG (6) + gestão (5) + ano (4) + "NE" + número (6), ex.: 740015000012026NE000122.</p>}
           <Input label="Observação" className="md:col-span-2" value={formData.observation || ''} onChange={e => setFormData({ ...formData, observation: e.target.value })} disabled={isReadOnly} />
           <Input label="Descrição" className="md:col-span-2" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} disabled={isReadOnly} />
@@ -431,16 +452,18 @@ const Lancamentos: React.FC = () => {
       <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
         footer={<div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setPreviaNE(null)}>Cancelar</Button>
-          <Button onClick={gravarNE} isLoading={gravandoNE} disabled={!previaNE?.itens.some(i => i.situacao === 'NOVA')}>Gravar {previaNE?.itens.filter(i => i.situacao === 'NOVA').length || 0} nota(s) nova(s)</Button>
+          <Button onClick={gravarNE} isLoading={gravandoNE} disabled={!previaNE?.itens.some(entraNaGravacao)}>Gravar {previaNE?.itens.filter(entraNaGravacao).length || 0} lançamento(s)</Button>
         </div>}>
         {previaNE && (() => {
           const novas = previaNE.itens.filter(i => i.situacao === 'NOVA');
+          const reforcos = previaNE.itens.filter(i => i.situacao === 'REFORCO');
           const comAviso = novas.filter(i => i.avisos.length).length;
           return (
             <div className="space-y-3 text-sm" aria-label="Prévia das notas de empenho">
               <div className="flex flex-wrap gap-2">
                 <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200"><b>{novas.length}</b> nova(s) · R$ {novas.reduce((t, i) => t + i.saida.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200"><b>{previaNE.itens.length - novas.length}</b> já cadastrada(s) ou repetida(s) — não serão gravadas</span>
+                {reforcos.length > 0 && <span className="px-2 py-1 rounded bg-sky-50 text-sky-800 border border-sky-200"><b>{reforcos.length}</b> reforço(s) · R$ {reforcos.reduce((t, i) => t + i.saida.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
+                <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200"><b>{previaNE.itens.length - novas.length - reforcos.length}</b> já importada(s) — não serão gravadas de novo</span>
                 <span className="px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200"><b>{previaNE.ignoradas.length}</b> linha(s) pulada(s)</span>
                 {comAviso > 0 && <span className="px-2 py-1 rounded bg-orange-50 text-orange-800 border border-orange-200"><b>{comAviso}</b> nova(s) com aviso de rubrica</span>}
               </div>
@@ -449,8 +472,8 @@ const Lancamentos: React.FC = () => {
                   <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr>{['Situação', 'Data', 'Nota de empenho', 'Cliente', 'Rubrica / categoria', 'Valor'].map(x => <th key={x} className={`px-2 py-1.5 ${x === 'Valor' ? 'text-right' : 'text-left'}`}>{x}</th>)}</tr></thead>
                   <tbody>
                     {previaNE.itens.map((i, k) => (
-                      <tr key={k} className={`border-t border-slate-100 ${i.situacao !== 'NOVA' ? 'text-slate-400' : ''}`}>
-                        <td className="px-2 py-1 whitespace-nowrap">{i.situacao === 'NOVA' ? <span className="text-emerald-700 font-semibold">nova</span> : i.situacao === 'JA_EXISTE' ? 'já cadastrada' : 'repetida na planilha'}</td>
+                      <tr key={k} className={`border-t border-slate-100 ${!entraNaGravacao(i) ? 'text-slate-400' : ''}`}>
+                        <td className="px-2 py-1 whitespace-nowrap">{i.situacao === 'NOVA' ? <span className="text-emerald-700 font-semibold">nova</span> : i.situacao === 'REFORCO' ? <span className="text-sky-700 font-semibold">reforço</span> : i.situacao === 'JA_EXISTE' ? 'já importada' : 'repetida na planilha'}</td>
                         <td className="px-2 py-1 whitespace-nowrap">{dataBR(i.saida.date)}</td>
                         <td className="px-2 py-1 font-mono whitespace-nowrap">{i.saida.documentNumber}</td>
                         <td className="px-2 py-1 max-w-[220px] truncate" title={i.saida.client}>{i.saida.client}</td>
@@ -468,7 +491,7 @@ const Lancamentos: React.FC = () => {
                   <ul className="mt-1 space-y-0.5 text-xs text-amber-900">{previaNE.ignoradas.map((g, k) => <li key={k}>{g.aba}, linha {g.linha}: {g.motivo}</li>)}</ul>
                 </details>
               )}
-              <p className="text-xs text-slate-500">NE com número já cadastrado não é gravada de novo. Reforço de empenho com o mesmo número: lance em <b>Nova Saída</b>.</p>
+              <p className="text-xs text-slate-500"><b>Reforço</b> = mesmo número de NE com outra data ou valor: aumenta o valor do empenho (não cria empenho novo). Linha com mesmo número, data e valor de um lançamento existente já foi importada e não é gravada de novo.</p>
             </div>
           );
         })()}
