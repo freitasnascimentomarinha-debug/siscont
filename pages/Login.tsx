@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth, MIN_PASSWORD_LENGTH } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { ShieldCheck, UserPlus, ArrowLeft, Info, KeyRound, CheckCircle2 } from 'lucide-react';
+import { UserPlus, ArrowLeft, Info, KeyRound, CheckCircle2 } from 'lucide-react';
 
 type Mode = 'login' | 'register' | 'forgot';
 
@@ -76,11 +76,9 @@ export const Login: React.FC = () => {
         <div className="absolute top-0 left-0 w-full h-1.5 bg-primary-600"></div>
 
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-slate-100 text-primary-600 mb-4 shadow-inner">
-            {mode === 'forgot' ? <KeyRound size={40} /> : <ShieldCheck size={40} />}
-          </div>
-          <h2 className="text-3xl font-black text-slate-800 tracking-tighter">SISCONT</h2>
-          <p className="text-slate-500 text-sm font-medium uppercase tracking-widest mt-1">Sist. de Controle de Faturas</p>
+          <img src="/logo-siscont.png" alt="SISCONT" className="mx-auto h-36 w-auto mb-2" />
+          <p className="text-slate-500 text-sm font-medium uppercase tracking-widest">Sist. de Controle de Faturas</p>
+          {mode === 'forgot' && <KeyRound size={22} className="mx-auto mt-3 text-primary-600" aria-hidden />}
           {title && <p className="mt-3 text-sm font-bold text-primary-700">{title}</p>}
         </div>
 

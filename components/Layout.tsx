@@ -113,13 +113,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
           <div className="px-4 py-3 text-center border-b border-slate-800/50 shrink-0">
             <div className="flex justify-center mb-1">
               <img
-                src="https://upload.wikimedia.org/wikipedia/commons/6/61/Logo_of_the_Brazilian_Navy_%28symbol%29.png"
-                alt="Brasão Marinha"
-                className="h-9 w-auto drop-shadow-2xl"
+                src="/emblema-siscont.png"
+                alt="SISCONT"
+                className="h-14 w-14 drop-shadow-xl"
                 onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
-            <h1 className="font-bold text-xl tracking-tighter text-white">SISCONT</h1>
+            <h1 className="font-black text-xl tracking-tight text-white">SIS<span className="text-amber-400">CONT</span></h1>
             <p className="text-[10px] text-slate-400 font-medium italic">Base Naval da Ilha das Cobras</p>
           </div>
 
