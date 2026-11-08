@@ -20,6 +20,9 @@ import { acharPorNome, lerAbas, lerHistorico, lerSubsidios } from '../../utils/t
 
 // lê "23,65", "23.65" (valor vindo do banco) e "1.234,56": antes "23.65" virava 2365
 const n2 = (v: string) => numeroDigitado(v);
+// cores dos blocos de 5 colunas da matriz (cabeçalho mais forte, células mais claras)
+const COR_CAB = ['bg-sky-200', 'bg-emerald-200', 'bg-amber-200', 'bg-violet-200', 'bg-rose-200'];
+const COR_COL = ['bg-sky-50', 'bg-emerald-50', 'bg-amber-50', 'bg-violet-50', 'bg-rose-50'];
 const fmt = (v: number | null | undefined, casas = 2) => (v === null || v === undefined ? '' : String(Math.round(v * 10 ** casas) / 10 ** casas));
 const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`);
 
@@ -284,6 +287,15 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const pendentes = dados.pendentes.filter(p => (p.tipo === 'NAVIO') === navioModo);
   const set = (id: string, p: Partial<L>) => { setSujo(true); setLot(m => ({ ...m, [id]: { lotacao: '', anterior: '', dias: '', ...m[id], ...p } })); };
   const marcar = (r: number, id: string, v: boolean) => { setSujo(true); setMatriz(s => { const n = new Set(s); v ? n.add(`${r}|${id}`) : n.delete(`${r}|${id}`); return n; }); };
+  // visual da matriz: blocos de 5 colunas com cor própria, separador entre blocos e destaque da coluna sob o mouse
+  const [colFoco, setColFoco] = useState<number | null>(null);
+  const descR = (r: number) => dados.rubricas.find(x => x.numero === r)?.descricao || '';
+  const corCol = (r: number, cab = false) => {
+    const i = rubs.indexOf(r);
+    if (colFoco === r) return `${cab ? 'bg-yellow-300' : 'bg-yellow-200'}${i % 5 === 0 ? ' border-l-2 border-slate-400' : ''}`;
+    const bloco = Math.floor(i / 5) % 5;
+    return `${(cab ? COR_CAB : COR_COL)[bloco]}${i % 5 === 0 ? ' border-l-2 border-slate-400' : ''}`;
+  };
   const coluna = (r: number) => { const todos = linhas.every(o => matriz.has(`${r}|${o.id}`)); linhas.forEach(o => marcar(r, o.id, !todos)); };
   const remover = (id: string) => { setSujo(true); setLot(m => { const n = { ...m }; delete n[id]; return n; }); setMatriz(s => new Set([...s].filter(k => !k.endsWith(`|${id}`)))); setExtras(e => { const n = new Set(e); n.delete(id); return n; }); };
   const semLotacao = navioModo ? [] : [...new Set([...matriz].map(k => k.split('|')[1]))].filter(id => { const o = dados.oms.find(x => x.id === id); return o && doModo(o) && !(Number(lot[id]?.lotacao) > 0); });
@@ -398,14 +410,15 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
         {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
       </div>
+        {!navioModo && <div className="px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg min-h-[26px]" aria-label="Rubrica em foco">{colFoco !== null ? <>Rubrica em foco: <b className="bg-yellow-200 px-1 rounded">{colFoco}</b> {descR(colFoco)}</> : <span className="text-slate-400">Passe o mouse sobre uma coluna para ver a rubrica. As cores separam as colunas em blocos de 5 (1–5, 6–10…).</span>}</div>}
       <div className="overflow-auto border border-slate-200 rounded-lg max-h-[62vh]">
-        <table className="text-xs">
+        <table className="text-xs" onMouseLeave={() => setColFoco(null)}>
           <thead className="bg-slate-50 sticky top-0 z-10"><tr>
             <th className="px-2 py-1 text-left sticky left-0 bg-slate-50 min-w-[240px]">{navioModo ? 'Navio' : 'OM'}</th><th className="px-1">Lotação</th><th className="px-1">Lot. ant.</th>
             {navioModo && <th className="px-1" title="Vazio = média trienal da classe">Dias/mês</th>}
             {!navioModo && usaArea && <th className="px-1" title="Área ocupada, para rubricas com critério por área">Área m²</th>}
             {!navioModo && usaPeso && <th className="px-1" title="Peso, para rubricas com critério por peso informado">Peso</th>}
-            {!navioModo && rubs.map(r => <th key={r} className="w-6 text-center"><button disabled={!podeEditar} onClick={() => coluna(r)} title={dados.rubricas.find(x => x.numero === r)?.descricao} className="text-slate-600 hover:text-primary-700">{r}</button></th>)}
+            {!navioModo && rubs.map(r => <th key={r} className={`min-w-[28px] px-0.5 py-1 text-center ${corCol(r, true)}`} onMouseEnter={() => setColFoco(r)}><button disabled={!podeEditar} onClick={() => coluna(r)} title={`Linha ${r} – ${descR(r)} (clique para marcar/desmarcar a coluna)`} className="w-full font-bold text-slate-800 hover:text-primary-700">{r}</button></th>)}
             <th></th>
           </tr></thead>
           <tbody>
@@ -420,7 +433,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                   <td className="px-2 py-1 sticky left-0 bg-sky-50 font-semibold" title="Grupo de todos os navios: marque as linhas de que os navios participam">⚓ NAVIOS (grupo)</td>
                   <td className="px-1 text-[10px] text-slate-500" colSpan={2 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0)}>lotação e dias na aba Navios</td>
                   {rubs.map(r0 => (
-                    <td key={r0} className="text-center"><input type="checkbox" disabled={!podeEditar} checked={navMarcado.has(r0)} onChange={e => marcarNavios(r0, e.target.checked)}
+                    <td key={r0} className={`text-center ${corCol(r0)}`} onMouseEnter={() => setColFoco(r0)}><input type="checkbox" disabled={!podeEditar} checked={navMarcado.has(r0)} onChange={e => marcarNavios(r0, e.target.checked)}
                       title={navMarcado.has(r0) ? 'navios participam (como entra: aba Navios)' : 'navios não participam'} aria-label={`Navios participam da linha ${r0}`} /></td>
                   ))}
                   <td className="px-2 text-[10px] text-slate-500 whitespace-nowrap">{todasOM.length ? <>{todasOM.map(r => (
@@ -441,7 +454,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                   {navioModo && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /></td>}
                   {!navioModo && usaArea && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-20 text-xs text-right`} inputMode="decimal" value={v.area || ''} onChange={e => set(o.id, { area: e.target.value })} aria-label={`Área de ${o.nome}`} /></td>}
                   {!navioModo && usaPeso && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={v.peso || ''} onChange={e => set(o.id, { peso: e.target.value })} aria-label={`Peso de ${o.nome}`} /></td>}
-                  {!navioModo && rubs.map(r => <td key={r} className="text-center"><input type="checkbox" disabled={!podeEditar} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
+                  {!navioModo && rubs.map(r => <td key={r} className={`text-center ${corCol(r)}`} onMouseEnter={() => setColFoco(r)}><input type="checkbox" disabled={!podeEditar} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} title={`Linha ${r} – ${descR(r)} · ${o.nome}`} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
                   <td className="px-2 whitespace-nowrap">{podeEditar && <>
                     {!navioModo && <><button className="text-primary-700 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, true))}>todas</button> <button className="text-slate-500 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, false))}>nenhuma</button> </>}
                     {participa(o.id) && <button className="text-red-600 underline ml-1" onClick={() => remover(o.id)}>retirar</button>}
