@@ -86,7 +86,21 @@ async function remove(table: string, id: string) {
   check(error);
 }
 
+const toContrato = (r: any) => ({
+  id: r.id, omId: r.om_id, numero: r.numero, objeto: r.objeto, servico: r.servico, inicio: r.inicio, fim: r.fim,
+  valorMensal: r.valor_mensal == null ? null : Number(r.valor_mensal), indiceReajuste: r.indice_reajuste, mesReajuste: r.mes_reajuste,
+  observacao: r.observacao, ativo: r.ativo !== false,
+});
+
 export const cadastroService = {
+  // Contratos dos clientes Extra-MB (script 019)
+  listContratos: () => list('contratos', toContrato, 'numero'),
+  saveContrato: (c: any) => save('contratos', c.id, {
+    om_id: c.omId, numero: (c.numero || '').trim(), objeto: c.objeto || null, servico: (c.servico || '').trim().toUpperCase() || null,
+    inicio: c.inicio || null, fim: c.fim || null, valor_mensal: c.valorMensal === '' || c.valorMensal == null ? null : Number(c.valorMensal),
+    indice_reajuste: c.indiceReajuste || null, mes_reajuste: c.mesReajuste ? Number(c.mesReajuste) : null, observacao: c.observacao || null, ativo: c.ativo !== false,
+  }),
+  deleteContrato: (id: string) => remove('contratos', id),
   // Setores
   listSetores: () => list('setores', toSetor, 'ordem'),
   saveSetor: (s: Partial<Setor>) => save('setores', s.id, fromSetor(s)),

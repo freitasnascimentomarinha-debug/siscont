@@ -103,3 +103,61 @@ export function emailEnvio(cliente: string, faturas: FaturaEx[], o: { incluirLis
   ] : [];
   return { assunto, texto: [TEXTO_EMAIL_ENVIO, ...lista].join('\n') };
 }
+
+// ------------------------------------------------------------------ contratos (Etapa 3)
+export interface ContratoEx {
+  id: string; omId: string; numero: string; objeto?: string | null; servico?: string | null;
+  inicio?: string | null; fim?: string | null; valorMensal?: number | null;
+  indiceReajuste?: string | null; mesReajuste?: number | null; observacao?: string | null; ativo: boolean;
+}
+export type GravidadeEx = 'alta' | 'media' | 'baixa';
+export interface AlertaEx { gravidade: GravidadeEx; tipo: string; cliente: string; referencia: string; mensagem: string }
+const MESES_EX = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+export const siglaFatura = (numero: string) => (numero.split('-')[1] || '').toUpperCase();
+const chaveComp = (ano: number, mes: number) => ano * 12 + (mes - 1);
+const compTexto = (k: number) => `${String((k % 12) + 1).padStart(2, '0')}/${Math.floor(k / 12)}`;
+
+/**
+ * Alertas dos contratos Extra-MB:
+ *  - vencido (alta) / vencendo em até `diasAviso` dias (média);
+ *  - reajuste neste mês ou no próximo (baixa);
+ *  - valor da última fatura do serviço diferente do valor mensal do contrato (média);
+ *  - contrato vigente sem fatura do serviço na última competência faturada para a Extra-MB (média).
+ */
+export function alertasContratos(contratos: ContratoEx[], fats: FaturaEx[], nomeOM: (id: string) => string, hoje: string, diasAviso = 60): AlertaEx[] {
+  const out: AlertaEx[] = [];
+  const ativas = fats.filter(f => !f.cancelada && f.ano && f.mes);
+  const ultimaComp = ativas.reduce((m, f) => Math.max(m, chaveComp(f.ano, f.mes)), -1);
+  const mesHoje = Number(hoje.slice(5, 7));
+  contratos.filter(c => c.ativo).forEach(c => {
+    const cliente = nomeOM(c.omId);
+    const ref = `Contrato ${c.numero}${c.objeto ? ` (${c.objeto})` : ''}`;
+    if (c.fim && c.fim < hoje) out.push({ gravidade: 'alta', tipo: 'Contrato vencido', cliente, referencia: ref, mensagem: `Vigência terminou em ${dataBr(c.fim)}. Renove (atualize a data) ou desative o contrato.` });
+    else if (c.fim && diasEntre(hoje, c.fim) <= diasAviso) out.push({ gravidade: 'media', tipo: 'Contrato vencendo', cliente, referencia: ref, mensagem: `Vence em ${dataBr(c.fim)} (${diasEntre(hoje, c.fim)} dias).` });
+    if (c.mesReajuste && (c.mesReajuste === mesHoje || c.mesReajuste === (mesHoje % 12) + 1)) {
+      out.push({ gravidade: 'baixa', tipo: 'Reajuste', cliente, referencia: ref, mensagem: `Reajuste${c.indiceReajuste ? ` pelo ${c.indiceReajuste}` : ''} em ${MESES_EX[c.mesReajuste - 1]}: atualize o valor mensal do contrato e o preço do faturamento.` });
+    }
+    const doServico = ativas.filter(f => f.omId === c.omId && (!c.servico || siglaFatura(f.numero) === c.servico.toUpperCase()));
+    if (c.valorMensal && doServico.length) {
+      const ult = doServico.reduce((m, f) => Math.max(m, chaveComp(f.ano, f.mes)), -1);
+      const valores = doServico.filter(f => chaveComp(f.ano, f.mes) === ult).map(f => f.valor);
+      if (!valores.some(v => Math.abs(v - c.valorMensal!) < 0.01)) {
+        out.push({ gravidade: 'media', tipo: 'Valor diferente do contrato', cliente, referencia: ref, mensagem: `Competência ${compTexto(ult)}: faturado ${valores.map(brlEx).join(' / ')}; o contrato prevê ${brlEx(c.valorMensal)} por mês.` });
+      }
+    }
+    if (ultimaComp >= 0) {
+      const ini = c.inicio ? chaveComp(Number(c.inicio.slice(0, 4)), Number(c.inicio.slice(5, 7))) : -Infinity;
+      const fimK = c.fim ? chaveComp(Number(c.fim.slice(0, 4)), Number(c.fim.slice(5, 7))) : Infinity;
+      if (ultimaComp >= ini && ultimaComp <= fimK && !doServico.some(f => chaveComp(f.ano, f.mes) === ultimaComp)) {
+        out.push({ gravidade: 'media', tipo: 'Sem fatura na competência', cliente, referencia: ref, mensagem: `Contrato vigente sem fatura${c.servico ? ` de ${c.servico}` : ''} na competência ${compTexto(ultimaComp)} (última faturada para a Extra-MB).` });
+      }
+    }
+  });
+  const peso = { alta: 0, media: 1, baixa: 2 };
+  return out.sort((a, b) => peso[a.gravidade] - peso[b.gravidade] || a.cliente.localeCompare(b.cliente, 'pt-BR'));
+}
+
+/** Alertas das GRU no mesmo formato (para a lista única de pendências da Extra-MB). */
+export const alertasGru = (grus: GruEx[]): AlertaEx[] => grus.map(g => ({ g, m: alertaGru(g) })).filter(x => x.m).map(({ g, m }) => ({
+  gravidade: (g.faturas.some(f => f.cancelada) ? 'alta' : 'media') as GravidadeEx, tipo: 'GRU', cliente: g.cliente, referencia: `${g.numero} (${dataBr(g.dataPagamento)}, ${brlEx(g.valor)})`, mensagem: m,
+}));

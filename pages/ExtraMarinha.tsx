@@ -1,21 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Copy, FileSpreadsheet, FileText, Mail, RefreshCw, Send } from 'lucide-react';
+import { AlertTriangle, Copy, FileSpreadsheet, FileText, Mail, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { db } from '../services/db';
 import { cadastroService } from '../services/cadastroService';
 import { marcarFaturas } from '../services/faturamentoService';
+import { carregarExtraMB } from '../services/extraMBService';
 import { useAuth } from '../context/AuthContext';
 import { OM, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 import { notify } from '../utils/notify';
 import { dataBR, hojeISO } from '../utils/datas';
-import { criarClassificador } from '../utils/publico';
-import { criarResolvedor } from '../utils/documentosOM';
-import { FaturaEx, GruEx, SituacaoEx, alertaGru, atrasoEx, brlEx, emailEnvio, resumoExtraMB, situacaoEx } from '../utils/extraMB';
+import { AlertaEx, ContratoEx, FaturaEx, GruEx, SituacaoEx, alertaGru, alertasContratos, alertasGru, atrasoEx, brlEx, emailEnvio, resumoExtraMB, siglaFatura, situacaoEx } from '../utils/extraMB';
 
-type Aba = 'resumo' | 'faturas' | 'gru' | 'extrato' | 'email';
+type Aba = 'resumo' | 'faturas' | 'gru' | 'extrato' | 'email' | 'contratos';
+const COR_GRAV: Record<AlertaEx['gravidade'], string> = { alta: 'bg-red-50 text-red-700 border-red-200', media: 'bg-amber-50 text-amber-800 border-amber-200', baixa: 'bg-sky-50 text-sky-700 border-sky-200' };
+const VAZIO_CONTRATO = { id: '', omId: '', numero: '', objeto: '', servico: '', inicio: '', fim: '', valorMensal: '' as any, indiceReajuste: '', mesReajuste: '' as any, observacao: '', ativo: true };
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
 const comp = (f: FaturaEx) => `${String(f.mes).padStart(2, '0')}/${f.ano}`;
 const COR_SIT: Record<SituacaoEx, string> = {
@@ -42,6 +43,9 @@ export const ExtraMarinha: React.FC = () => {
   const [fats, setFats] = useState<FaturaEx[]>([]);
   const [grus, setGrus] = useState<GruEx[]>([]);
   const [oms, setOms] = useState<OM[]>([]);
+  const [contratos, setContratos] = useState<ContratoEx[]>([]);
+  const [semTabela, setSemTabela] = useState(false);
+  const [editando, setEditando] = useState<typeof VAZIO_CONTRATO | null>(null);
   const [ano, setAno] = useState(new Date().getFullYear());
   const [cliente, setCliente] = useState('');
   // faturas
@@ -59,29 +63,8 @@ export const ExtraMarinha: React.FC = () => {
   const carregar = async () => {
     setCarregando(true);
     try {
-      const [invs, docs, allocs, cad] = await Promise.all([db.getInvoices(), db.getDocuments(), db.getAllocations(), cadastroService.listOMs()]);
-      const cls = criarClassificador(cad);
-      const resolv = criarResolvedor(cad as any, [], []);
-      const omPorId = new Map(cad.map(o => [o.id, o]));
-      const docPorId = new Map(docs.map(d => [d.id, d]));
-      const invPorId = new Map(invs.map(i => [i.id, i]));
-      const grusDaFatura = new Map<string, string[]>();
-      allocs.forEach(a => { const d = docPorId.get(a.documentId); if (d) grusDaFatura.set(a.invoiceId, [...(grusDaFatura.get(a.invoiceId) || []), d.documentNumber]); });
-      setFats(invs.filter(i => cls.faturaExtra(i)).map(i => ({
-        id: i.id, numero: i.invoiceNumber, omId: i.omId, cliente: (i.omId && omPorId.get(i.omId)?.nome) || i.client, tipo: i.type || i.serviceAcronym || '—',
-        ano: i.yearCompetence, mes: i.monthCompetence, emissao: i.issueDate, vencimento: i.dueDate,
-        valor: Math.round((i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0)) * 100) / 100, pago: i.paidAmount || 0, saldo: i.saldoAPagar ?? 0,
-        cancelada: !!i.isCanceled, contestada: !!i.contestada, enviadaEm: i.enviadaEm, grus: [...new Set(grusDaFatura.get(i.id) || [])],
-      })));
-      setGrus(docs.filter(d => cls.docExtra(d)).map(d => {
-        const om = resolv.omDoDocumento(d);
-        return {
-          id: d.id, numero: d.documentNumber, autenticacao: d.gruAutenticacao, dataPagamento: d.gruDataPagamento || d.date, cliente: om?.nome || d.client, omId: om?.id ?? null,
-          valor: d.totalValue, disponivel: d.availableValue,
-          faturas: allocs.filter(a => a.documentId === d.id).map(a => ({ numero: invPorId.get(a.invoiceId)?.invoiceNumber || '(excluída)', valor: a.amount, cancelada: !!invPorId.get(a.invoiceId)?.isCanceled })),
-        };
-      }).sort((a, b) => b.dataPagamento.localeCompare(a.dataPagamento)));
-      setOms(cad);
+      const d = await carregarExtraMB();
+      setFats(d.fats); setGrus(d.grus); setOms(d.oms); setContratos(d.contratos); setSemTabela(d.semTabela);
     } catch (e) { notify.fail('Erro ao carregar a Extra-Marinha', e); } finally { setCarregando(false); }
   };
   useEffect(() => { carregar(); }, []);
@@ -171,6 +154,40 @@ export const ExtraMarinha: React.FC = () => {
     catch (e) { notify.fail('Não foi possível marcar as faturas', e); }
   };
 
+  // ------------------------------------------------ contratos e alertas
+  const omsExtra = useMemo(() => oms.filter(o => o.tipo === 'EXTRA_MB').sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')), [oms]);
+  const nomeOM = (id: string) => oms.find(o => o.id === id)?.nome || '(cliente excluído)';
+  const alertas = useMemo(() => [...alertasContratos(contratos, fats, nomeOM, hoje), ...alertasGru(grus)], [contratos, fats, grus, oms, hoje]);
+  const ultimoValor = (c: ContratoEx) => {
+    const l = fats.filter(f => !f.cancelada && f.omId === c.omId && (!c.servico || siglaFatura(f.numero) === c.servico.toUpperCase())).sort((a, b) => b.ano - a.ano || b.mes - a.mes);
+    return l.length ? `${brlEx(l[0].valor)} (${comp(l[0])})` : '—';
+  };
+  const gravarContrato = async () => {
+    if (!editando) return;
+    if (!editando.omId || !editando.numero.trim()) { notify.error('Informe o cliente e o número do contrato.'); return; }
+    if (editando.inicio && editando.fim && editando.fim < editando.inicio) { notify.error('O fim da vigência é anterior ao início.'); return; }
+    try { await cadastroService.saveContrato({ ...editando, id: editando.id || undefined }); notify.success('Contrato gravado.'); setEditando(null); carregar(); }
+    catch (e) { notify.fail('Não foi possível gravar o contrato', e); }
+  };
+  const excluirContrato = async (c: ContratoEx) => {
+    if (!window.confirm(`Excluir o contrato ${c.numero} de ${nomeOM(c.omId)}?`)) return;
+    try { await cadastroService.deleteContrato(c.id); notify.success('Contrato excluído.'); carregar(); } catch (e) { notify.fail('Não foi possível excluir', e); }
+  };
+  const ListaAlertas: React.FC<{ itens: AlertaEx[] }> = ({ itens }) => (
+    <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2" aria-label="Alertas da Extra-Marinha">
+      <h3 className="text-sm font-semibold text-slate-800">Pontos de atenção da Extra-Marinha ({itens.length})</h3>
+      {!itens.length ? <p className="text-sm text-emerald-700">Nenhum alerta: contratos em dia e GRU conferidas.</p> : (
+        <ul className="space-y-1.5">
+          {itens.map((a, k) => (
+            <li key={k} className={`text-sm border rounded px-2 py-1.5 ${COR_GRAV[a.gravidade]}`}>
+              <b>{a.tipo}</b> · {a.cliente} · {a.referencia}: {a.mensagem}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
   const SeletorCliente = ({ obrigatorio }: { obrigatorio?: boolean }) => (
     <label className="text-xs text-slate-600">Cliente
       <select className={`${sel} block mt-1 min-w-[260px]`} value={cliente} onChange={e => setCliente(e.target.value)} aria-label="Cliente Extra-MB">
@@ -198,7 +215,7 @@ export const ExtraMarinha: React.FC = () => {
         <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
       </div>
       <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto">
-        {([['resumo', 'Resumo'], ['faturas', 'Faturas'], ['gru', `GRU recebidas${comAlerta ? ` (${comAlerta} ⚠)` : ''}`], ['extrato', 'Extrato por cliente'], ['email', 'E-mail de envio']] as const).map(([k, l]) => (
+        {([['resumo', 'Resumo'], ['faturas', 'Faturas'], ['gru', `GRU recebidas${comAlerta ? ` (${comAlerta} ⚠)` : ''}`], ['extrato', 'Extrato por cliente'], ['email', 'E-mail de envio'], ['contratos', `Contratos${alertas.length ? ` (${alertas.length} ⚠)` : ''}`]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap ${aba === k ? 'border-amber-600 text-amber-800 font-bold' : 'border-transparent text-slate-500'}`}>{l}</button>
         ))}
       </div>
@@ -412,6 +429,71 @@ export const ExtraMarinha: React.FC = () => {
           )}
         </div>
       )}
+
+      {aba === 'contratos' && (
+        <div className="space-y-3">
+          {semTabela && <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm" role="alert">A tabela de contratos ainda não existe no banco: um administrador precisa executar o script <code>supabase/migrations/019_contratos_extra_mb.sql</code> no Supabase.</div>}
+          <ListaAlertas itens={alertas} />
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-slate-600">{contratos.length} contrato(s) · {contratos.filter(c => c.ativo).length} ativo(s). O valor mensal serve para conferir o faturado; o reajuste e o fim da vigência geram os avisos acima.</p>
+            {podeEditar && !semTabela && <Button onClick={() => setEditando({ ...VAZIO_CONTRATO, omId: omsExtra[0]?.id || '' })}><Plus size={14} className="mr-1" />Novo contrato</Button>}
+          </div>
+          <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+            <table className="min-w-full text-sm" aria-label="Contratos Extra-MB">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Cliente', 'Contrato', 'Objeto', 'Serviço', 'Vigência', 'Valor mensal', 'Última fatura', 'Reajuste', 'Situação', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {[...contratos].sort((a, b) => nomeOM(a.omId).localeCompare(nomeOM(b.omId), 'pt-BR') || a.numero.localeCompare(b.numero)).map(c => (
+                  <tr key={c.id} className={c.ativo ? '' : 'text-slate-400'}>
+                    <td className="px-3 py-1.5">{nomeOM(c.omId)}</td>
+                    <td className="px-3 py-1.5 font-medium">{c.numero}</td>
+                    <td className="px-3 py-1.5 max-w-[200px] truncate" title={c.objeto || ''}>{c.objeto || '—'}</td>
+                    <td className="px-3 py-1.5">{c.servico || 'qualquer'}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{c.inicio ? dataBR(c.inicio) : '…'} a {c.fim ? dataBR(c.fim) : '…'}</td>
+                    <td className="px-3 py-1.5 tabular-nums">{c.valorMensal != null ? brlEx(c.valorMensal) : '—'}</td>
+                    <td className="px-3 py-1.5 tabular-nums text-xs">{ultimoValor(c)}</td>
+                    <td className="px-3 py-1.5 text-xs">{c.mesReajuste ? `${String(c.mesReajuste).padStart(2, '0')}${c.indiceReajuste ? ` · ${c.indiceReajuste}` : ''}` : '—'}</td>
+                    <td className="px-3 py-1.5 text-xs">{!c.ativo ? 'desativado' : c.fim && c.fim < hoje ? <span className="text-red-700 font-semibold">vencido</span> : 'vigente'}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{podeEditar && <>
+                      <button className="text-blue-600 mr-2" title="Editar" aria-label={`Editar contrato ${c.numero}`} onClick={() => setEditando({ ...VAZIO_CONTRATO, ...c, objeto: c.objeto || '', servico: c.servico || '', inicio: c.inicio || '', fim: c.fim || '', valorMensal: c.valorMensal ?? '', indiceReajuste: c.indiceReajuste || '', mesReajuste: c.mesReajuste ?? '', observacao: c.observacao || '' } as any)}><Pencil size={14} /></button>
+                      <button className="text-red-600" title="Excluir" aria-label={`Excluir contrato ${c.numero}`} onClick={() => excluirContrato(c)}><Trash2 size={14} /></button>
+                    </>}</td>
+                  </tr>
+                ))}
+                {!contratos.length && <tr><td colSpan={10} className="px-3 py-6 text-center text-slate-400">Nenhum contrato cadastrado.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <Modal isOpen={!!editando} onClose={() => setEditando(null)} title={editando?.id ? 'Editar contrato' : 'Novo contrato'} maxWidth="max-w-2xl"
+        footer={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setEditando(null)}>Cancelar</Button><Button onClick={gravarContrato}>Gravar</Button></div>}>
+        {editando && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label className="col-span-2 text-xs text-slate-600">Cliente Extra-MB
+              <select className={`${sel} block mt-1 w-full`} value={editando.omId} onChange={e => setEditando({ ...editando, omId: e.target.value })} aria-label="Cliente do contrato">
+                {omsExtra.map(o => <option key={o.id} value={o.id}>{o.codigo} - {o.nome}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">Número do contrato<input className={`${sel} block mt-1 w-full`} value={editando.numero} onChange={e => setEditando({ ...editando, numero: e.target.value })} aria-label="Número do contrato" /></label>
+            <label className="text-xs text-slate-600">Serviço na fatura (sigla)<input className={`${sel} block mt-1 w-full`} placeholder="ex.: AL" value={editando.servico} onChange={e => setEditando({ ...editando, servico: e.target.value.toUpperCase() })} aria-label="Serviço do contrato" /></label>
+            <label className="col-span-2 text-xs text-slate-600">Objeto<input className={`${sel} block mt-1 w-full`} placeholder="ex.: aluguel da agência (sala 2)" value={editando.objeto} onChange={e => setEditando({ ...editando, objeto: e.target.value })} aria-label="Objeto do contrato" /></label>
+            <label className="text-xs text-slate-600">Início da vigência<input type="date" className={`${sel} block mt-1 w-full`} value={editando.inicio} onChange={e => setEditando({ ...editando, inicio: e.target.value })} aria-label="Início da vigência" /></label>
+            <label className="text-xs text-slate-600">Fim da vigência<input type="date" className={`${sel} block mt-1 w-full`} value={editando.fim} onChange={e => setEditando({ ...editando, fim: e.target.value })} aria-label="Fim da vigência" /></label>
+            <label className="text-xs text-slate-600">Valor mensal (R$)<input type="number" step="0.01" min="0" className={`${sel} block mt-1 w-full`} value={editando.valorMensal} onChange={e => setEditando({ ...editando, valorMensal: e.target.value as any })} aria-label="Valor mensal" /></label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs text-slate-600">Índice de reajuste<input className={`${sel} block mt-1 w-full`} placeholder="IPCA" value={editando.indiceReajuste} onChange={e => setEditando({ ...editando, indiceReajuste: e.target.value })} aria-label="Índice de reajuste" /></label>
+              <label className="text-xs text-slate-600">Mês do reajuste
+                <select className={`${sel} block mt-1 w-full`} value={editando.mesReajuste} onChange={e => setEditando({ ...editando, mesReajuste: e.target.value as any })} aria-label="Mês do reajuste">
+                  <option value="">—</option>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="col-span-2 text-xs text-slate-600">Observação<input className={`${sel} block mt-1 w-full`} value={editando.observacao} onChange={e => setEditando({ ...editando, observacao: e.target.value })} aria-label="Observação do contrato" /></label>
+            <label className="col-span-2 text-sm flex items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={editando.ativo} onChange={e => setEditando({ ...editando, ativo: e.target.checked })} /> Contrato ativo</label>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

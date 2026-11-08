@@ -8,6 +8,8 @@ import { notify } from '../utils/notify';
 import { Gravidade, PontoAtencao, TIPOS_PONTO } from '../utils/pontosAtencao';
 import { AlvoPontos, COR_GRAVIDADE, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { Button } from '../components/ui/Button';
+import { alertasExtraMB, carregarExtraMB } from '../services/extraMBService';
+import { AlertaEx } from '../utils/extraMB';
 
 interface Linha {
   alvo: 'fatura' | 'documento'; id: string; numero: string; cliente: string; detalhe: string;
@@ -28,6 +30,7 @@ const PontosLista: React.FC = () => {
   const [busca, setBusca] = useState('');
   const [alvo, setAlvo] = useState<AlvoPontos | null>(null);
   const [limite, setLimite] = useState(200);
+  const [alertasEx, setAlertasEx] = useState<AlertaEx[]>([]);
 
   const carregar = async () => {
     setCarregando(true);
@@ -42,6 +45,7 @@ const PontosLista: React.FC = () => {
         alvo: 'documento', id: d.id, numero: d.documentNumber, cliente: d.client, detalhe: `${d.documentType} · ${d.operation}`, ponto: p, todos: d.pontos || [],
       })));
       setLinhas(out);
+      carregarExtraMB().then(d => setAlertasEx(alertasExtraMB(d))).catch(() => setAlertasEx([]));
       return { faturas, docs };
     } catch (e) {
       notify.fail('Erro ao carregar pontos de atenção', e);
@@ -121,6 +125,18 @@ const PontosLista: React.FC = () => {
         ))}
       </div>
 
+      {alertasEx.length > 0 && (
+        <details className="bg-white rounded-lg border border-amber-200 p-4" aria-label="Pontos da Extra-Marinha">
+          <summary className="text-sm font-semibold text-slate-800 cursor-pointer">Extra-Marinha: {alertasEx.length} ponto(s) de contratos e GRU <span className="font-normal text-slate-500">(detalhes e correção na página Extra-Marinha → Contratos)</span></summary>
+          <ul className="mt-2 space-y-1.5">
+            {alertasEx.map((x, k) => (
+              <li key={k} className={`text-sm border rounded px-2 py-1.5 ${x.gravidade === 'alta' ? 'bg-red-50 text-red-700 border-red-200' : x.gravidade === 'media' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                <b>{x.tipo}</b> · {x.cliente} · {x.referencia}: {x.mensagem}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {porTipo.length > 0 && (
         <div className="bg-white rounded-lg border border-slate-200 p-4">
           <h3 className="text-sm font-semibold text-slate-800 mb-2">Pendências por tipo</h3>

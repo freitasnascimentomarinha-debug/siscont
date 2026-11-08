@@ -25,7 +25,7 @@ function novoBanco() {
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
-    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], cash_flow_exits: [],
+    precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
     propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
@@ -1705,6 +1705,37 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /Marcar 1 como enviada/ }).click();
     await page.getByText(/1 fatura\(s\) marcada\(s\) como enviada/).waitFor();
     ok(!!db.invoices.find(i => i.invoice_number === '40015-AL-08-2026-005-0').enviada_em, 'fatura marcada como enviada');
+
+    // Etapa 3: contratos e alertas
+    await page.getByRole('button', { name: /^Contratos/ }).click();
+    ok(await page.getByLabel('Alertas da Extra-Marinha').getByText(/paga fatura cancelada/).isVisible(), 'alerta da GRU também na lista de pontos da Extra-MB');
+    await page.getByRole('button', { name: 'Novo contrato' }).click();
+    await page.getByLabel('Número do contrato').fill('05/2024');
+    await page.getByLabel('Serviço do contrato').fill('al');
+    await page.getByLabel('Objeto do contrato').fill('Aluguel da agência');
+    await page.getByLabel('Início da vigência').fill('2024-01-01');
+    await page.getByLabel('Fim da vigência').fill('2026-12-20');
+    await page.getByLabel('Valor mensal').fill('35000');
+    await page.getByLabel('Índice de reajuste').fill('IPCA');
+    await page.getByLabel('Mês do reajuste').selectOption('12');
+    await page.getByRole('button', { name: 'Gravar' }).click();
+    await page.getByText('Contrato gravado.').waitFor();
+    ok(db.contratos.length === 1 && db.contratos[0].servico === 'AL' && Number(db.contratos[0].valor_mensal) === 35000 && db.contratos[0].om_id === itau.id, 'contrato gravado (sigla em maiúscula, cliente Extra-MB)');
+    await page.getByRole('table', { name: 'Contratos Extra-MB' }).getByText('05/2024').waitFor();
+    const al = (await page.getByLabel('Alertas da Extra-Marinha').innerText()).replace(/\s+/g, ' ');
+    ok(/Contrato vencendo/.test(al) && /Reajuste/.test(al) && /IPCA em dezembro/.test(al), 'alertas: contrato vencendo e reajuste do mês que vem');
+    ok(/Valor diferente do contrato/.test(al) && al.includes('faturado R$ 32.900,00; o contrato prevê R$ 35.000,00'), 'alerta: valor faturado diferente do contrato');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extramb-contratos.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Editar contrato 05/2024' }).click();
+    await page.getByLabel('Valor mensal').fill('32900');
+    await page.getByRole('button', { name: 'Gravar' }).click();
+    await page.getByText('Contrato gravado.').waitFor();
+    await page.waitForTimeout(300);
+    ok(!/Valor diferente do contrato/.test(await page.getByLabel('Alertas da Extra-Marinha').innerText()), 'corrigido o valor, o alerta some');
+    // os mesmos alertas aparecem nos Pontos de Atenção
+    await page.locator('nav').getByRole('button', { name: 'Pontos de Atenção' }).click();
+    await page.getByText(/Extra-Marinha: \d+ ponto\(s\) de contratos e GRU/).waitFor();
+    ok(true, 'pontos da Extra-MB resumidos na página Pontos de Atenção');
   });
 
   await browser.close();

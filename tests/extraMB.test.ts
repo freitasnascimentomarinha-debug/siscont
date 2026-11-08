@@ -45,3 +45,29 @@ describe('Extra-Marinha', () => {
     expect(emailEnvio('Banco Itaú', [f({})], { incluirLista: false }).texto).toBe(TEXTO_EMAIL_ENVIO);
   });
 });
+
+import { ContratoEx, alertasContratos, alertasGru } from '../utils/extraMB';
+describe('contratos Extra-MB: alertas', () => {
+  const c = (p: Partial<ContratoEx>): ContratoEx => ({ id: 'c', omId: 'itau', numero: '01/2024', servico: 'AL', inicio: '2024-01-01', fim: '2027-12-31', valorMensal: 32900, ativo: true, ...p });
+  const nome = () => 'Banco Itaú';
+  const fats = [f({ numero: '40015-AL-09-2026-005-0', mes: 9, valor: 32900 }), f({ numero: '40015-AL-10-2026-005-0', mes: 10, valor: 32900 })];
+  it('contrato em dia: nenhum alerta', () => expect(alertasContratos([c({})], fats, nome, hoje)).toEqual([]));
+  it('vencido, vencendo, reajuste e desativado', () => {
+    expect(alertasContratos([c({ fim: '2026-10-31' })], fats, nome, hoje).map(a => a.tipo)).toContain('Contrato vencido');
+    expect(alertasContratos([c({ fim: '2026-12-20' })], fats, nome, hoje).map(a => [a.tipo, a.gravidade])).toContainEqual(['Contrato vencendo', 'media']);
+    expect(alertasContratos([c({ mesReajuste: 12, indiceReajuste: 'IPCA' })], fats, nome, hoje)[0].mensagem).toMatch(/IPCA em dezembro/);
+    expect(alertasContratos([c({ fim: '2020-01-01', ativo: false })], fats, nome, hoje)).toEqual([]);
+  });
+  it('valor faturado diferente do contrato e competência sem fatura', () => {
+    expect(alertasContratos([c({ valorMensal: 35093.33 })], fats, nome, hoje)[0].mensagem).toMatch(/Competência 10\/2026: faturado R\$ 32\.900,00; o contrato prevê R\$ 35\.093,33/);
+    const outro = [...fats, f({ omId: 'bb', cliente: 'BB', numero: '40015-AL-11-2026-001-0', mes: 11, valor: 10 })];
+    expect(alertasContratos([c({})], outro, nome, hoje).map(a => a.tipo)).toContain('Sem fatura na competência');
+    // vários contratos do mesmo serviço (Itaú com 3 aluguéis): basta o valor existir na competência
+    const tres = [f({ numero: '40015-AL-10-2026-005-0', mes: 10, valor: 32900 }), f({ numero: '40015-AL-10-2026-006-0', mes: 10, valor: 35093.33 })];
+    expect(alertasContratos([c({}), c({ id: 'd', numero: '02/2024', valorMensal: 35093.33 })], tres, nome, hoje)).toEqual([]);
+  });
+  it('GRU no mesmo formato', () => {
+    const a = alertasGru([g({ disponivel: 35093.33, valor: 35093.33, faturas: [{ numero: '40015-AL-02-2026-005-0', valor: 35093.33, cancelada: true }] })]);
+    expect(a[0]).toMatchObject({ gravidade: 'alta', tipo: 'GRU', cliente: 'Banco Itaú' });
+  });
+});
