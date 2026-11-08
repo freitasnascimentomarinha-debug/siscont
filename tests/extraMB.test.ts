@@ -46,7 +46,7 @@ describe('Extra-Marinha', () => {
   });
 });
 
-import { ContratoEx, alertasContratos, alertasGru } from '../utils/extraMB';
+import { ContratoEx, alertasContratos, alertasGru, fiscalTexto } from '../utils/extraMB';
 describe('contratos Extra-MB: alertas', () => {
   const c = (p: Partial<ContratoEx>): ContratoEx => ({ id: 'c', omId: 'itau', numero: '01/2024', servico: 'AL', inicio: '2024-01-01', fim: '2027-12-31', valorMensal: 32900, ativo: true, ...p });
   const nome = () => 'Banco Itaú';
@@ -69,5 +69,11 @@ describe('contratos Extra-MB: alertas', () => {
   it('GRU no mesmo formato', () => {
     const a = alertasGru([g({ disponivel: 35093.33, valor: 35093.33, faturas: [{ numero: '40015-AL-02-2026-005-0', valor: 35093.33, cancelada: true }] })]);
     expect(a[0]).toMatchObject({ gravidade: 'alta', tipo: 'GRU', cliente: 'Banco Itaú' });
+  });
+  it('fiscal responsável no texto dos alertas', () => {
+    const k = c({ fim: '2026-12-20', fiscalNome: 'CC Fulano', fiscalSetor: 'SEC-1', fiscalEmail: 'f@mb.br', fiscalTelefone: '(21) 1234-5678' });
+    expect(fiscalTexto(k)).toBe('Fiscal: CC Fulano (SEC-1) · f@mb.br · (21) 1234-5678');
+    expect(alertasContratos([k], fats, nome, hoje)[0].mensagem).toContain('Fiscal: CC Fulano (SEC-1)');
+    expect(fiscalTexto(c({}))).toBe('');
   });
 });

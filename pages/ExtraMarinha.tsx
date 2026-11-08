@@ -12,11 +12,11 @@ import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { notify } from '../utils/notify';
 import { dataBR, hojeISO } from '../utils/datas';
-import { AlertaEx, ContratoEx, FaturaEx, GruEx, SituacaoEx, alertaGru, alertasContratos, alertasGru, atrasoEx, brlEx, emailEnvio, resumoExtraMB, siglaFatura, situacaoEx } from '../utils/extraMB';
+import { AlertaEx, ContratoEx, FaturaEx, GruEx, SituacaoEx, alertaGru, alertasContratos, alertasGru, atrasoEx, brlEx, fiscalTexto, emailEnvio, resumoExtraMB, siglaFatura, situacaoEx } from '../utils/extraMB';
 
 type Aba = 'resumo' | 'faturas' | 'gru' | 'extrato' | 'email' | 'contratos';
 const COR_GRAV: Record<AlertaEx['gravidade'], string> = { alta: 'bg-red-50 text-red-700 border-red-200', media: 'bg-amber-50 text-amber-800 border-amber-200', baixa: 'bg-sky-50 text-sky-700 border-sky-200' };
-const VAZIO_CONTRATO = { id: '', omId: '', numero: '', objeto: '', servico: '', inicio: '', fim: '', valorMensal: '' as any, indiceReajuste: '', mesReajuste: '' as any, observacao: '', ativo: true };
+const VAZIO_CONTRATO = { id: '', omId: '', numero: '', objeto: '', servico: '', inicio: '', fim: '', valorMensal: '' as any, indiceReajuste: '', mesReajuste: '' as any, observacao: '', ativo: true, fiscalNome: '', fiscalSetor: '', fiscalEmail: '', fiscalTelefone: '' };
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
 const comp = (f: FaturaEx) => `${String(f.mes).padStart(2, '0')}/${f.ano}`;
 const COR_SIT: Record<SituacaoEx, string> = {
@@ -166,6 +166,7 @@ export const ExtraMarinha: React.FC = () => {
     if (!editando) return;
     if (!editando.omId || !editando.numero.trim()) { notify.error('Informe o cliente e o número do contrato.'); return; }
     if (editando.inicio && editando.fim && editando.fim < editando.inicio) { notify.error('O fim da vigência é anterior ao início.'); return; }
+    if (editando.fiscalEmail.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(editando.fiscalEmail.trim())) { notify.error('E-mail do fiscal inválido.'); return; }
     try { await cadastroService.saveContrato({ ...editando, id: editando.id || undefined }); notify.success('Contrato gravado.'); setEditando(null); carregar(); }
     catch (e) { notify.fail('Não foi possível gravar o contrato', e); }
   };
@@ -440,7 +441,7 @@ export const ExtraMarinha: React.FC = () => {
           </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
             <table className="min-w-full text-sm" aria-label="Contratos Extra-MB">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Cliente', 'Contrato', 'Objeto', 'Serviço', 'Vigência', 'Valor mensal', 'Última fatura', 'Reajuste', 'Situação', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Cliente', 'Contrato', 'Objeto', 'Serviço', 'Vigência', 'Valor mensal', 'Última fatura', 'Reajuste', 'Fiscal', 'Situação', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {[...contratos].sort((a, b) => nomeOM(a.omId).localeCompare(nomeOM(b.omId), 'pt-BR') || a.numero.localeCompare(b.numero)).map(c => (
                   <tr key={c.id} className={c.ativo ? '' : 'text-slate-400'}>
@@ -452,14 +453,19 @@ export const ExtraMarinha: React.FC = () => {
                     <td className="px-3 py-1.5 tabular-nums">{c.valorMensal != null ? brlEx(c.valorMensal) : '—'}</td>
                     <td className="px-3 py-1.5 tabular-nums text-xs">{ultimoValor(c)}</td>
                     <td className="px-3 py-1.5 text-xs">{c.mesReajuste ? `${String(c.mesReajuste).padStart(2, '0')}${c.indiceReajuste ? ` · ${c.indiceReajuste}` : ''}` : '—'}</td>
+                    <td className="px-3 py-1.5 text-xs max-w-[220px]">{c.fiscalNome || c.fiscalSetor ? <>
+                      <div className="font-medium">{c.fiscalNome || '—'}{c.fiscalSetor ? <span className="text-slate-500"> · {c.fiscalSetor}</span> : null}</div>
+                      {c.fiscalEmail && <a className="text-primary-700 underline block truncate" href={`mailto:${c.fiscalEmail}`} title={c.fiscalEmail}>{c.fiscalEmail}</a>}
+                      {c.fiscalTelefone && <div className="text-slate-500">{c.fiscalTelefone}</div>}
+                    </> : <span className="text-amber-700">sem fiscal</span>}</td>
                     <td className="px-3 py-1.5 text-xs">{!c.ativo ? 'desativado' : c.fim && c.fim < hoje ? <span className="text-red-700 font-semibold">vencido</span> : 'vigente'}</td>
                     <td className="px-3 py-1.5 whitespace-nowrap">{podeEditar && <>
-                      <button className="text-blue-600 mr-2" title="Editar" aria-label={`Editar contrato ${c.numero}`} onClick={() => setEditando({ ...VAZIO_CONTRATO, ...c, objeto: c.objeto || '', servico: c.servico || '', inicio: c.inicio || '', fim: c.fim || '', valorMensal: c.valorMensal ?? '', indiceReajuste: c.indiceReajuste || '', mesReajuste: c.mesReajuste ?? '', observacao: c.observacao || '' } as any)}><Pencil size={14} /></button>
+                      <button className="text-blue-600 mr-2" title="Editar" aria-label={`Editar contrato ${c.numero}`} onClick={() => setEditando({ ...VAZIO_CONTRATO, ...c, objeto: c.objeto || '', servico: c.servico || '', inicio: c.inicio || '', fim: c.fim || '', valorMensal: c.valorMensal ?? '', indiceReajuste: c.indiceReajuste || '', mesReajuste: c.mesReajuste ?? '', observacao: c.observacao || '', fiscalNome: c.fiscalNome || '', fiscalSetor: c.fiscalSetor || '', fiscalEmail: c.fiscalEmail || '', fiscalTelefone: c.fiscalTelefone || '' } as any)}><Pencil size={14} /></button>
                       <button className="text-red-600" title="Excluir" aria-label={`Excluir contrato ${c.numero}`} onClick={() => excluirContrato(c)}><Trash2 size={14} /></button>
                     </>}</td>
                   </tr>
                 ))}
-                {!contratos.length && <tr><td colSpan={10} className="px-3 py-6 text-center text-slate-400">Nenhum contrato cadastrado.</td></tr>}
+                {!contratos.length && <tr><td colSpan={11} className="px-3 py-6 text-center text-slate-400">Nenhum contrato cadastrado.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -489,6 +495,13 @@ export const ExtraMarinha: React.FC = () => {
                 </select>
               </label>
             </div>
+            <fieldset className="col-span-2 border border-slate-200 rounded-lg p-3 grid grid-cols-2 gap-3">
+              <legend className="px-1 text-xs font-semibold text-slate-600">Fiscal responsável pelo contrato</legend>
+              <label className="text-xs text-slate-600">Nome<input className={`${sel} block mt-1 w-full`} placeholder="ex.: CC Fulano de Tal" value={editando.fiscalNome} onChange={e => setEditando({ ...editando, fiscalNome: e.target.value })} aria-label="Nome do fiscal" /></label>
+              <label className="text-xs text-slate-600">Setor<input className={`${sel} block mt-1 w-full`} placeholder="ex.: Divisão de Patrimônio" value={editando.fiscalSetor} onChange={e => setEditando({ ...editando, fiscalSetor: e.target.value })} aria-label="Setor do fiscal" /></label>
+              <label className="text-xs text-slate-600">E-mail<input type="email" className={`${sel} block mt-1 w-full`} placeholder="nome@marinha.mil.br" value={editando.fiscalEmail} onChange={e => setEditando({ ...editando, fiscalEmail: e.target.value })} aria-label="E-mail do fiscal" /></label>
+              <label className="text-xs text-slate-600">Telefone<input type="tel" className={`${sel} block mt-1 w-full`} placeholder="(21) 0000-0000" value={editando.fiscalTelefone} onChange={e => setEditando({ ...editando, fiscalTelefone: e.target.value })} aria-label="Telefone do fiscal" /></label>
+            </fieldset>
             <label className="col-span-2 text-xs text-slate-600">Observação<input className={`${sel} block mt-1 w-full`} value={editando.observacao} onChange={e => setEditando({ ...editando, observacao: e.target.value })} aria-label="Observação do contrato" /></label>
             <label className="col-span-2 text-sm flex items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={editando.ativo} onChange={e => setEditando({ ...editando, ativo: e.target.checked })} /> Contrato ativo</label>
           </div>

@@ -90,6 +90,7 @@ const toContrato = (r: any) => ({
   id: r.id, omId: r.om_id, numero: r.numero, objeto: r.objeto, servico: r.servico, inicio: r.inicio, fim: r.fim,
   valorMensal: r.valor_mensal == null ? null : Number(r.valor_mensal), indiceReajuste: r.indice_reajuste, mesReajuste: r.mes_reajuste,
   observacao: r.observacao, ativo: r.ativo !== false,
+  fiscalNome: r.fiscal_nome, fiscalSetor: r.fiscal_setor, fiscalEmail: r.fiscal_email, fiscalTelefone: r.fiscal_telefone,
 });
 
 export const cadastroService = {
@@ -99,6 +100,8 @@ export const cadastroService = {
     om_id: c.omId, numero: (c.numero || '').trim(), objeto: c.objeto || null, servico: (c.servico || '').trim().toUpperCase() || null,
     inicio: c.inicio || null, fim: c.fim || null, valor_mensal: c.valorMensal === '' || c.valorMensal == null ? null : Number(c.valorMensal),
     indice_reajuste: c.indiceReajuste || null, mes_reajuste: c.mesReajuste ? Number(c.mesReajuste) : null, observacao: c.observacao || null, ativo: c.ativo !== false,
+    fiscal_nome: (c.fiscalNome || '').trim() || null, fiscal_setor: (c.fiscalSetor || '').trim() || null,
+    fiscal_email: (c.fiscalEmail || '').trim() || null, fiscal_telefone: (c.fiscalTelefone || '').trim() || null,
   }),
   deleteContrato: (id: string) => remove('contratos', id),
   // Setores

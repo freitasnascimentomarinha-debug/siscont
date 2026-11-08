@@ -109,7 +109,14 @@ export interface ContratoEx {
   id: string; omId: string; numero: string; objeto?: string | null; servico?: string | null;
   inicio?: string | null; fim?: string | null; valorMensal?: number | null;
   indiceReajuste?: string | null; mesReajuste?: number | null; observacao?: string | null; ativo: boolean;
+  /** fiscal responsável pelo contrato */
+  fiscalNome?: string | null; fiscalSetor?: string | null; fiscalEmail?: string | null; fiscalTelefone?: string | null;
 }
+/** "Fiscal: CC Fulano (SEC-1) · fulano@marinha.mil.br · (21) 2126-0000" */
+export const fiscalTexto = (c: ContratoEx) => {
+  const p = [c.fiscalNome ? `${c.fiscalNome}${c.fiscalSetor ? ` (${c.fiscalSetor})` : ''}` : c.fiscalSetor || '', c.fiscalEmail || '', c.fiscalTelefone || ''].filter(Boolean);
+  return p.length ? `Fiscal: ${p.join(' · ')}` : '';
+};
 export type GravidadeEx = 'alta' | 'media' | 'baixa';
 export interface AlertaEx { gravidade: GravidadeEx; tipo: string; cliente: string; referencia: string; mensagem: string }
 const MESES_EX = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -132,10 +139,11 @@ export function alertasContratos(contratos: ContratoEx[], fats: FaturaEx[], nome
   contratos.filter(c => c.ativo).forEach(c => {
     const cliente = nomeOM(c.omId);
     const ref = `Contrato ${c.numero}${c.objeto ? ` (${c.objeto})` : ''}`;
-    if (c.fim && c.fim < hoje) out.push({ gravidade: 'alta', tipo: 'Contrato vencido', cliente, referencia: ref, mensagem: `Vigência terminou em ${dataBr(c.fim)}. Renove (atualize a data) ou desative o contrato.` });
-    else if (c.fim && diasEntre(hoje, c.fim) <= diasAviso) out.push({ gravidade: 'media', tipo: 'Contrato vencendo', cliente, referencia: ref, mensagem: `Vence em ${dataBr(c.fim)} (${diasEntre(hoje, c.fim)} dias).` });
+    const fiscal = fiscalTexto(c) ? ` ${fiscalTexto(c)}.` : '';
+    if (c.fim && c.fim < hoje) out.push({ gravidade: 'alta', tipo: 'Contrato vencido', cliente, referencia: ref, mensagem: `Vigência terminou em ${dataBr(c.fim)}. Renove (atualize a data) ou desative o contrato.${fiscal}` });
+    else if (c.fim && diasEntre(hoje, c.fim) <= diasAviso) out.push({ gravidade: 'media', tipo: 'Contrato vencendo', cliente, referencia: ref, mensagem: `Vence em ${dataBr(c.fim)} (${diasEntre(hoje, c.fim)} dias).${fiscal}` });
     if (c.mesReajuste && (c.mesReajuste === mesHoje || c.mesReajuste === (mesHoje % 12) + 1)) {
-      out.push({ gravidade: 'baixa', tipo: 'Reajuste', cliente, referencia: ref, mensagem: `Reajuste${c.indiceReajuste ? ` pelo ${c.indiceReajuste}` : ''} em ${MESES_EX[c.mesReajuste - 1]}: atualize o valor mensal do contrato e o preço do faturamento.` });
+      out.push({ gravidade: 'baixa', tipo: 'Reajuste', cliente, referencia: ref, mensagem: `Reajuste${c.indiceReajuste ? ` pelo ${c.indiceReajuste}` : ''} em ${MESES_EX[c.mesReajuste - 1]}: atualize o valor mensal do contrato e o preço do faturamento.${fiscal}` });
     }
     const doServico = ativas.filter(f => f.omId === c.omId && (!c.servico || siglaFatura(f.numero) === c.servico.toUpperCase()));
     if (c.valorMensal && doServico.length) {
