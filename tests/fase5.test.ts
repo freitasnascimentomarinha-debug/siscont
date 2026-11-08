@@ -60,9 +60,13 @@ describe('disponível R.901.16 e saldo mensal (5A)', () => {
     expect(e).toEqual({ ENERGIA: 600, AGUA: 300, TELEFONIA: 0, CONDOMINIO: 100, SEM_INDICACAO: 300 });
     expect([categoriaDaSaida({ rubricaNumero: 14 }), categoriaDaSaida({ categoria: 'AGUA' }), categoriaDaSaida({ categoria: 'OUTROS' })]).toEqual(['CONDOMINIO', 'AGUA', 'SEM_INDICACAO']);
   });
-  it('saldo mensal com transporte entre meses e na virada do ano', () => {
-    const l = saldoMensal([{ data: '2025-12-10', tipo: 'ENTRADA', valor: 1000 }, { data: '2026-01-05', tipo: 'SAIDA', valor: 300 }, { data: '2026-03-01', tipo: 'ENTRADA', valor: 50 }], '2026-01', '2026-03');
-    expect(l.map(x => [x.mes, x.saldoAnterior, x.saldo])).toEqual([['2026-01', 1000, 700], ['2026-02', 700, 700], ['2026-03', 700, 750]]);
+  it('saldo mensal: transporta entre os meses e zera na virada do ano (janeiro começa do zero)', () => {
+    const movs = [{ data: '2025-12-10', tipo: 'ENTRADA' as const, valor: 1000 }, { data: '2026-01-05', tipo: 'SAIDA' as const, valor: 300 }, { data: '2026-03-01', tipo: 'ENTRADA' as const, valor: 50 }];
+    expect(saldoMensal(movs, '2026-01', '2026-03').map(x => [x.mes, x.saldoAnterior, x.saldo])).toEqual([['2026-01', 0, -300], ['2026-02', -300, -300], ['2026-03', -300, -250]]);
+    // começando no meio do ano: traz só o saldo do próprio exercício
+    expect(saldoMensal(movs, '2026-02', '2026-03')[0].saldoAnterior).toBe(-300);
+    // período que atravessa o ano: dezembro termina com 1000 e janeiro recomeça do zero
+    expect(saldoMensal(movs, '2025-12', '2026-01').map(x => [x.mes, x.saldoAnterior, x.saldo])).toEqual([['2025-12', 0, 1000], ['2026-01', 0, -300]]);
   });
 });
 

@@ -1748,6 +1748,25 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'pontos da Extra-MB resumidos na página Pontos de Atenção');
   });
 
+  await cenario('Fluxo de caixa: saldo mensal começa zerado em janeiro e recomeça na virada do ano', [], async (page, db) => {
+    db.received_documents.push(
+      { id: uid(), document_number: 'G1.2025.AC.00099', document_type: 'ALTCRED', total_value: 1000, date: '2025-12-10', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030', ug: '40030', observation: '' },
+      { id: uid(), document_number: 'G1.2026.AC.00001', document_type: 'ALTCRED', total_value: 50, date: '2026-03-01', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030', ug: '40030', observation: '' });
+    db.cash_flow_exits.push({ id: uid(), date: '2026-01-05', document_number: '740015000012026NE000001', document_type: 'NE', client: 'Fornecedor', value: 300, rubric: '', description: 'Serviço', observation: '', is_canceled: false });
+    await page.reload();
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).first().click();
+    await page.getByRole('button', { name: 'Saldo mensal' }).click();
+    await page.getByLabel('Exercício do saldo mensal').fill('2026');
+    const linha = async (mes) => (await page.locator('tr').filter({ hasText: mes }).first().innerText()).replace(/\s+/g, ' ');
+    await page.locator('tr').filter({ hasText: 'Exercício 2026' }).waitFor();
+    const jan = await linha('JAN26');
+    ok(/^JAN26 R\$ 0,00 R\$ 0,00 R\$ 300,00 -?R\$ -?300,00/.test(jan) && /300,00$/.test(jan), `janeiro de 2026 começa do zero, sem o saldo de 2025 (${jan})`);
+    await page.getByLabel('Exercício do saldo mensal').fill('2025');
+    await page.locator('tr').filter({ hasText: 'Exercício 2025' }).waitFor();
+    ok((await linha('DEZ25')).endsWith('R$ 1.000,00'), 'dezembro de 2025 termina com o saldo do próprio ano (não passa para 2026)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-saldo-mensal.png'), fullPage: true });
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));

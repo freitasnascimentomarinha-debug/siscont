@@ -56,7 +56,7 @@ export const SaldoMensal: React.FC = () => {
   return (
     <div className="space-y-3">
       <div className="flex items-end gap-3"><label className="text-xs text-slate-600">Exercício<input type="number" className={`${sel} block mt-1 w-24`} value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Exercício do saldo mensal" /></label>
-        <p className="text-xs text-slate-500 pb-2">O saldo final de cada mês é transportado para o seguinte, inclusive na virada do exercício. Entradas = ALTCRED/GRU recebidas; saídas = notas de empenho não anuladas.</p></div>
+        <p className="text-xs text-slate-500 pb-2">O exercício começa zerado em janeiro e termina em dezembro: o saldo final de cada mês passa para o seguinte e, na virada do ano, recomeça do zero. Entradas = ALTCRED/GRU recebidas; saídas = notas de empenho não anuladas.</p></div>
       <table className="min-w-full text-sm bg-white border border-slate-200 rounded-lg">
         <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Mês', 'Saldo anterior', 'Entradas', 'Saídas', 'Saldo'].map(x => <th key={x} className={`px-3 py-2 ${x === 'Mês' ? 'text-left' : 'text-right'}`}>{x}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100">

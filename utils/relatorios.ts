@@ -126,14 +126,20 @@ export interface Mov { data: string; tipo: 'ENTRADA' | 'SAIDA'; valor: number }
 export interface LinhaMensal { mes: string; saldoAnterior: number; entradas: number; saidas: number; saldo: number }
 
 /** Saldo mês a mês com transporte: o saldo final de um mês é o anterior do seguinte (inclusive na virada do ano). */
+/**
+ * Saldo mês a mês. O exercício começa ZERADO em janeiro e termina em dezembro: na virada do ano o saldo
+ * não é transportado (cada ano começa tudo de novo), como nos Lançamentos do fluxo de caixa.
+ */
 export function saldoMensal(movs: Mov[], de?: string, ate?: string): LinhaMensal[] {
   if (!movs.length) return [];
   const meses = [...new Set(movs.map(m => m.data.slice(0, 7)))].sort();
   const ini = de || meses[0], fim = ate || meses[meses.length - 1];
   const lista: string[] = [];
   for (let y = Number(ini.slice(0, 4)), m = Number(ini.slice(5, 7)); `${y}-${String(m).padStart(2, '0')}` <= fim; m === 12 ? (y++, m = 1) : m++) lista.push(`${y}-${String(m).padStart(2, '0')}`);
-  let saldo = r2(movs.filter(m => m.data.slice(0, 7) < ini).reduce((s, m) => s + (m.tipo === 'ENTRADA' ? m.valor : -m.valor), 0));
+  // saldo antes do primeiro mês pedido: só o do MESMO exercício (janeiro começa em zero)
+  let saldo = r2(movs.filter(m => m.data.slice(0, 4) === ini.slice(0, 4) && m.data.slice(0, 7) < ini).reduce((s, m) => s + (m.tipo === 'ENTRADA' ? m.valor : -m.valor), 0));
   return lista.map(mes => {
+    if (mes.endsWith('-01')) saldo = 0; // virada do ano: zera
     const doMes = movs.filter(m => m.data.slice(0, 7) === mes);
     const e = r2(doMes.filter(m => m.tipo === 'ENTRADA').reduce((s, m) => s + m.valor, 0));
     const sa = r2(doMes.filter(m => m.tipo === 'SAIDA').reduce((s, m) => s + m.valor, 0));
