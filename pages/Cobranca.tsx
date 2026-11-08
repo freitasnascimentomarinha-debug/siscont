@@ -165,16 +165,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   }, [vencidasFiltradas, cobrancas, ultimaMsg, h]);
   const filtrosMsgLigados = !!(exSetores.size || exComandos.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas);
   const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); };
-  const descricaoFiltrosMsg = () => {
-    const f: string[] = [];
-    if (exSetores.size) f.push(`setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ') || 'nenhum'}`);
-    if (exComandos.size) f.push(`${comandosVencidos.filter(x => !exComandos.has(x)).length} de ${comandosVencidos.length} comandos`);
-    if (faixaMsg) f.push(`atraso ${faixaMsg}`);
-    if (buscaMsg.trim()) f.push(`busca "${buscaMsg.trim()}"`);
-    if (ultimaMsg) f.push(ultimaMsg === 'nunca' ? 'comandos nunca cobrados' : `sem cobrança há mais de ${ultimaMsg} dias`);
-    f.push(incluirContestadas ? 'com as faturas em contestação' : 'sem as faturas em contestação');
-    return f.join(' · ');
-  };
+
   /** Comando do cadastro pelo texto "40030 - Nome" (código) ou pelo nome. */
   const comandoDe = (texto: string) => {
     if (!base) return undefined;
@@ -209,23 +200,56 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     // só as OM das faturas cobradas (o filtro 'vencidas' tira as OM que só têm crédito)
     creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
   const REGRA_CREDITO = 'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.';
-  const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) => {
+  const nomeArquivo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
-    pdfArvore(mapaDasFaturas(m.faturas), {
-      titulo: `Cobrança de faturas em atraso — ${m.comando}`,
-      linhas: [`Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`, REGRA_CREDITO],
+    return pdfArvore(mapaDasFaturas(m.faturas), {
+      titulo: `Cobrança de faturas em atraso — ${m.cliente || m.comando}`,
+      linhas: [
+        ...(m.cliente ? [`Comando: ${m.comando}`] : []),
+        `Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
+        REGRA_CREDITO,
+      ],
       rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
-    }).save(`cobranca_${(m.comando.match(/^\d{4,5}/)?.[0] || m.comando).replace(/[^\w-]+/g, '_').slice(0, 40)}_${h}.pdf`);
+    });
   };
-  /** PDF de todas as faturas vencidas que passaram nos filtros, em árvore. */
-  const pdfFiltro = () => {
+  const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) =>
+    docCobranca(m).save(`cobranca_${nomeArquivo(m.comando.match(/^\d{4,5}/)?.[0] || m.comando)}_${h}.pdf`);
+
+  /** Lote: um PDF por OM cliente (ou por comando), todos num .zip, para enviar cada um separadamente. */
+  const [lotePor, setLotePor] = useState<'cliente' | 'comando'>('cliente');
+  const [gerandoLote, setGerandoLote] = useState(false);
+  const gerarLote = async () => {
     const lista = vencidasPorComando.flatMap(v => v.fs);
-    if (!lista.length) { notify.error('Nenhuma fatura no filtro.'); return; }
-    pdfArvore(mapaDasFaturas(lista), {
-      titulo: 'Cobrança — faturas vencidas por setor, comando e OM',
-      linhas: [`Posição em ${br(h)} · ${vencidasPorComando.length} comando(s) · ${lista.length} fatura(s) vencida(s)`, `Filtros: ${descricaoFiltrosMsg()}`, REGRA_CREDITO],
-      rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
-    }).save(`cobranca_filtro_${h}.pdf`);
+    if (!lista.length || !base) { notify.error('Nenhuma fatura no filtro.'); return; }
+    setGerandoLote(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      const codigoOM = new Map((base.oms as { id: string; codigo?: string | null }[]).map(o => [o.id, o.codigo || '']));
+      const grupos = new Map<string, { titulo: string; comando: string; cliente?: string; fs: FaturaAberta[] }>();
+      lista.forEach(f => {
+        const k = lotePor === 'comando' ? f.comando : f.omId || `${f.cliente}|${f.comando}`;
+        const g = grupos.get(k) || { titulo: lotePor === 'comando' ? f.comando : `${(f.omId && codigoOM.get(f.omId)) || ''} ${f.cliente}`.trim(), comando: f.comando, cliente: lotePor === 'cliente' ? f.cliente : undefined, fs: [] };
+        g.fs.push(f); grupos.set(k, g);
+      });
+      const usados = new Set<string>();
+      const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : 'Comando', 'Comando', 'Indicativo', 'Faturas', 'Total em atraso']];
+      [...grupos.values()].sort((x, y) => x.titulo.localeCompare(y.titulo, 'pt-BR')).forEach(g => {
+        const indicativo = comandoDoTexto(g.comando, base.comandos).indicativo || null;
+        let nome = `cobranca_${nomeArquivo(g.titulo)}_${h}`, n = 2;
+        while (usados.has(nome)) nome = `cobranca_${nomeArquivo(g.titulo)}_${n++}_${h}`;
+        usados.add(nome);
+        zip.file(`${nome}.pdf`, docCobranca({ comando: g.comando, indicativo, faturas: g.fs, cliente: g.cliente }).output('arraybuffer'));
+        indice.push([`${nome}.pdf`, g.cliente || g.comando, g.comando, indicativo || '', g.fs.length, Math.round(g.fs.reduce((s, f) => s + f.saldo, 0) * 100) / 100]);
+      });
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(indice), 'Lote');
+      zip.file(`indice_do_lote_${h}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `cobranca_lote_${lotePor === 'cliente' ? 'por_om' : 'por_comando'}_${h}.zip`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      notify.success(`${grupos.size} PDF(s) gerado(s) — um por ${lotePor === 'cliente' ? 'OM cliente' : 'comando'}.`);
+    } catch (e) { notify.fail('Não foi possível gerar o lote', e); } finally { setGerandoLote(false); }
   };
 
   // ------------- painel
@@ -297,9 +321,14 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
             </label>
             <label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
             {filtrosMsgLigados && <button className="text-xs text-primary-700 underline pb-2" onClick={limparFiltrosMsg}>limpar filtros</button>}
-            <div className="ml-auto flex items-center gap-3">
+            <div className="ml-auto flex items-end gap-3">
               <span className="text-sm text-slate-600">{vencidasPorComando.length} comando(s) · {vencidasPorComando.reduce((s, v) => s + v.fs.length, 0)} fatura(s) · <b className="tabular-nums">{brl(vencidasPorComando.reduce((s, v) => s + v.total, 0))}</b></span>
-              <Button variant="secondary" onClick={pdfFiltro}><FileText size={16} className="mr-1" />PDF do filtro</Button>
+              <label className="text-xs text-slate-600">Um PDF por
+                <select className={`${sel} block mt-1`} value={lotePor} onChange={e => setLotePor(e.target.value as any)} aria-label="Um PDF por">
+                  <option value="cliente">OM cliente</option><option value="comando">Comando</option>
+                </select>
+              </label>
+              <Button variant="secondary" onClick={gerarLote} isLoading={gerandoLote} title="Gera um PDF (em árvore) para cada OM ou comando do filtro, todos num arquivo .zip, com um índice em Excel"><FileText size={16} className="mr-1" />PDFs em lote (.zip)</Button>
             </div>
           </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">

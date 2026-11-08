@@ -1018,12 +1018,19 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Cobrança registrada.').waitFor();
     ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');
     // filtros das mensagens e PDF em cima do filtro
-    await page.getByLabel('Faixa de atraso').selectOption('31–90 dias');
-    const [pdfF] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF do filtro' }).click()]);
-    const txtF = fs.readFileSync(await pdfF.path(), 'latin1');
-    if (SHOTS) { fs.copyFileSync(await pdfF.path(), path.join(SHOTS, 'cobranca-filtro.pdf')); await page.screenshot({ path: path.join(SHOTS, 'cobranca-filtros.png'), fullPage: true }); }
-    ok(/^cobranca_filtro_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfF.suggestedFilename()) && txtF.includes('40032-EL-08-2026-039-0') && !txtF.includes('40030-TC-09-2025-014-0') && txtF.includes('atraso 31'), 'PDF do filtro: só a faixa 31–90 dias, com o filtro no cabeçalho');
     await page.getByLabel('Faixa de atraso').selectOption('');
+    const [zipDl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDFs em lote/ }).click()]);
+    const zip = await require('jszip').loadAsync(fs.readFileSync(await zipDl.path()));
+    const nomes = Object.keys(zip.files).sort();
+    if (SHOTS) fs.copyFileSync(await zipDl.path(), path.join(SHOTS, 'cobranca-lote.zip'));
+    const pdfs = nomes.filter(n => n.endsWith('.pdf'));
+    ok(/^cobranca_lote_por_om_\d{4}-\d{2}-\d{2}\.zip$/.test(zipDl.suggestedFilename()) && pdfs.length === 2 && nomes.some(n => n.startsWith('indice_do_lote')), `lote: um PDF por OM cliente + índice (${nomes.join(', ')})`);
+    const txtMang = (await zip.file(pdfs.find(n => /Mangaratiba/.test(n))).async('nodebuffer')).toString('latin1');
+    ok(txtMang.includes('40032-EL-08-2026-039-0') && !txtMang.includes('40030-TC-09-2025-014-0') && txtMang.includes('DIMRJ'), 'PDF da OM traz só as faturas dela, com o indicativo do comando');
+    await page.getByLabel('Um PDF por').selectOption('comando');
+    const [zip2] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDFs em lote/ }).click()]);
+    const z2 = await require('jszip').loadAsync(fs.readFileSync(await zip2.path()));
+    ok(Object.keys(z2.files).filter(n => n.endsWith('.pdf')).length === 1, 'lote por comando: um PDF para o comando 40030');
     await page.getByLabel('Última cobrança').selectOption('nunca');
     const tabMsg = await page.locator('table').last().innerText();
     ok(!tabMsg.includes('40030 - Diretoria Industrial'), `filtro "nunca cobrados" tira o comando já cobrado [${tabMsg.replace(/\s+/g, ' ').slice(0, 200)}]`);
