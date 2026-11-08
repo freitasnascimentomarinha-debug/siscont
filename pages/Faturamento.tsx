@@ -22,7 +22,8 @@ const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; labe
   { id: 'medicoes', label: 'Medições do mês' },
   { id: 'atracacao', label: 'Atracação' },
   { id: 'lote', label: 'Lote de faturas' },
-  { id: 'correcao', label: `Correção por atraso (${n.nome}, item ${n.itemCorrecao})` },
+  // a norma (OI) e o item ficam no texto dentro da aba, não no nome
+  { id: 'correcao', label: 'Correção por atraso' },
 ];
 
 export const Faturamento: React.FC = () => {

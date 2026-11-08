@@ -666,7 +666,7 @@ export const ReceivedBalances: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Recebimentos (ALTCRED/GRU)</h2>
+          <h2 className="text-2xl font-bold text-slate-800">Recebimentos</h2>
           <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · pela data do documento (ou agrupados por setor, comando e OM do cadastro)</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0 [&_button]:whitespace-nowrap">

@@ -429,7 +429,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const nova = (n, v, venc) => ({ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] });
     db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
     await page.reload();
-    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
@@ -613,8 +613,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.reload();
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
     await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
-    await page.getByRole('button', { name: 'Correção por atraso (OI 41-02, item 7.3)', exact: true }).waitFor();
-    ok(true, 'aba de correção cita a norma cadastrada');
+    await page.getByRole('button', { name: 'Correção por atraso', exact: true }).click();
+    await page.getByText(/OI 41-02, itens .* e 7\.3:/).waitFor();
+    ok(true, 'aba "Correção por atraso" (nome curto) cita a norma cadastrada no texto');
     ok(await page.getByRole('button', { name: 'Atracação', exact: true }).isVisible() && !(await page.getByText(/BNIC-35/).count()), 'nenhum setor fixo (BNIC-35) nas abas do Faturamento');
   });
 
@@ -811,8 +812,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.payment_allocations.push({ id: uid(), document_id: docAmrj.id, invoice_id: fat.id, amount: 1000, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docAmrj.id, invoice_id: fatOutra.id, amount: 20, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docRt.id, invoice_id: fat.id, amount: 2000, date: '2026-10-05', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
     // Recebimentos: documento do dia 1º não cai no mês anterior; agrupado pelo cadastro
-    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
-    await page.getByRole('heading', { name: 'Recebimentos (ALTCRED/GRU)' }).waitFor();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'Recebimentos', exact: true }).waitFor();
     await page.getByLabel('Mês').selectOption('10');
     await page.getByLabel('Ano').selectOption('2026');
     await page.getByText('AMRJ.2026.AC.00001').waitFor();
@@ -969,7 +970,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(el.is_canceled && el.cancelamento_motivo === 'Emitida em duplicidade' && el.cancelada_por === 'CC Admin', 'cancelamento registra motivo e responsável');
     // 4) correção por atraso: RB paga em 29/10 com data-limite 29/09
     await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
-    await page.getByRole('button', { name: 'Correção por atraso (OI 40-04, item 6.2)', exact: true }).click();
+    await page.getByRole('button', { name: 'Correção por atraso', exact: true }).click();
     await page.getByLabel('Taxa SET26').fill('0,6');
     await page.getByLabel('Taxa OUT26').fill('0,6');
     await page.getByRole('button', { name: /Gravar \(2\)/ }).click();
@@ -1418,7 +1419,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/Ligado ao cadastro: 40030 · Diretoria Industrial da Marinha/).isVisible()
       && await page.getByLabel('UG (Unidade Gestora)').inputValue() === '40030' && await page.getByLabel('Setor', { exact: true }).inputValue() === 'DGMM', 'fatura: cliente escolhido no cadastro preenche UG, setor e comando');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Novo Documento' }).click();
     await page.getByRole('dialog').getByLabel('Cliente', { exact: true }).fill('banco');
     ok(await page.getByText('Cadastrar novo cliente').isVisible(), 'documento: busca no cadastro com opção de cadastrar cliente novo');
@@ -1629,7 +1630,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/^mapa_analitico_extra_mb_/.test(pdf.suggestedFilename()), `PDF do mapa marcado como Extra-MB (${pdf.suggestedFilename()})`);
 
     // Recebimentos
-    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await radio('Extra-MB').click();
     await page.getByText('GRU ABC123').first().waitFor();
     ok(await page.getByText('G1.2026.AC.00001').count() === 0, 'recebimentos: Extra-MB mostra só a GRU do Itaú');
@@ -1785,7 +1786,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const doc = { id: uid(), document_number: 'G1.2026.AC.00500', document_type: 'ALTCRED', total_value: 1000, date: '2026-09-10', operation: 'PAGAMENTO', client: 'Diretoria Industrial da Marinha', sector: 'DGMM', command: '40030', ug: '40030', observation: '' };
     db.received_documents.push(doc, { id: uid(), document_number: 'G1.2026.AC.00400', document_type: 'ALTCRED', total_value: 50, date: '2026-05-02', operation: 'PAGAMENTO', client: 'Arsenal de Marinha do Rio de Janeiro', sector: 'DGMM', command: '41000', ug: '41000', observation: '' });
     await page.reload();
-    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByLabel('Documentos por data').getByText('G1.2026.AC.00400').waitFor();
     const txt = await page.getByLabel('Documentos por data').innerText();
     ok(txt.indexOf('G1.2026.AC.00500') < txt.indexOf('G1.2026.AC.00400'), 'documentos pela data do documento: o mais recente primeiro (DIM 10/09 antes do Arsenal 02/05, mesmo fora da ordem alfabética)');
