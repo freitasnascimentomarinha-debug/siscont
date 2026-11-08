@@ -1035,6 +1035,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(pdfsCmd.length === 1 && /^cobranca_COMANDO_40030_/.test(pdfsCmd[0]), `lote por comando: um PDF com o nome do comando (${pdfsCmd.join(', ')})`);
     const txtCmd = (await z2.file(pdfsCmd[0]).async('nodebuffer')).toString('latin1');
     ok(txtCmd.includes('40030-TC-09-2025-014-0') && txtCmd.includes('40032-EL-08-2026-039-0') && txtCmd.includes('OM devedoras do comando \\(2\\)'), 'PDF do comando traz todas as OM devedoras dele (DIM e Mangaratiba)');
+    await page.getByLabel('Um PDF por').selectOption('setor');
+    const [zip3] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDFs em lote/ }).click()]);
+    const z3 = await require('jszip').loadAsync(fs.readFileSync(await zip3.path()));
+    const pdfsSet = Object.keys(z3.files).filter(n => n.endsWith('.pdf'));
+    ok(/por_setor/.test(zip3.suggestedFilename()) && pdfsSet.length === 1 && /^cobranca_SETOR_DGMM_/.test(pdfsSet[0]), `lote por setor: um PDF por setor (${pdfsSet.join(', ')})`);
+    await page.getByLabel('Um PDF por').selectOption('cliente');
     await page.getByLabel('Última cobrança').selectOption('nunca');
     const tabMsg = await page.locator('table').last().innerText();
     ok(!tabMsg.includes('40030 - Diretoria Industrial'), `filtro "nunca cobrados" tira o comando já cobrado [${tabMsg.replace(/\s+/g, ' ').slice(0, 200)}]`);

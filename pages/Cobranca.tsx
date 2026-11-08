@@ -201,13 +201,15 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
   const REGRA_CREDITO = 'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.';
   const nomeArquivo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
-  const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string }) => {
+  const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
+    const lista = (k: 'cliente' | 'comando') => [...new Set(m.faturas.map(f => f[k]))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return pdfArvore(mapaDasFaturas(m.faturas), {
-      titulo: m.cliente ? `Cobrança de faturas em atraso — OM ${m.cliente}` : `Cobrança de faturas em atraso — COMANDO ${m.comando}`,
+      titulo: m.setor ? `Cobrança de faturas em atraso — SETOR ${m.setor}` : m.cliente ? `Cobrança de faturas em atraso — OM ${m.cliente}` : `Cobrança de faturas em atraso — COMANDO ${m.comando}`,
       linhas: [
-        ...(m.cliente ? [`Comando: ${m.comando}`] : [(() => { const oms = [...new Set(m.faturas.map(f => f.cliente))].sort((a, b) => a.localeCompare(b, 'pt-BR')); return `OM devedoras do comando (${oms.length}): ${oms.join('; ')}`; })()]),
-        `Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
+        ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
+          : m.cliente ? [`Comando: ${m.comando}`] : [`OM devedoras do comando (${lista('cliente').length}): ${lista('cliente').join('; ')}`]),
+        `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
         REGRA_CREDITO,
       ],
       rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
@@ -224,7 +226,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   };
 
   /** Lote: um PDF por OM cliente (ou por comando), todos num .zip, para enviar cada um separadamente. */
-  const [lotePor, setLotePor] = useState<'cliente' | 'comando'>('cliente');
+  const [lotePor, setLotePor] = useState<'cliente' | 'comando' | 'setor'>('cliente');
   const [gerandoLote, setGerandoLote] = useState(false);
   const gerarLote = async () => {
     const lista = vencidasPorComando.flatMap(v => v.fs);
@@ -234,29 +236,30 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
       const codigoOM = new Map((base.oms as { id: string; codigo?: string | null }[]).map(o => [o.id, o.codigo || '']));
-      const grupos = new Map<string, { titulo: string; comando: string; cliente?: string; fs: FaturaAberta[] }>();
+      const grupos = new Map<string, { titulo: string; comando: string; cliente?: string; setor?: string; fs: FaturaAberta[] }>();
       lista.forEach(f => {
-        const k = lotePor === 'comando' ? f.comando : f.omId || `${f.cliente}|${f.comando}`;
-        const g = grupos.get(k) || { titulo: lotePor === 'comando' ? f.comando : `${(f.omId && codigoOM.get(f.omId)) || ''} ${f.cliente}`.trim(), comando: f.comando, cliente: lotePor === 'cliente' ? f.cliente : undefined, fs: [] };
+        const k = lotePor === 'setor' ? f.setor || 'Sem setor' : lotePor === 'comando' ? f.comando : f.omId || `${f.cliente}|${f.comando}`;
+        const g = grupos.get(k) || { titulo: lotePor === 'setor' ? f.setor || 'Sem setor' : lotePor === 'comando' ? f.comando : `${(f.omId && codigoOM.get(f.omId)) || ''} ${f.cliente}`.trim(), comando: f.comando, cliente: lotePor === 'cliente' ? f.cliente : undefined, setor: lotePor === 'setor' ? f.setor || 'Sem setor' : undefined, fs: [] as FaturaAberta[] };
         g.fs.push(f); grupos.set(k, g);
       });
       const usados = new Set<string>();
-      const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : 'Comando', 'Comando', 'Indicativo', 'Faturas', 'Total em atraso']];
+      const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : lotePor === 'setor' ? 'Setor' : 'Comando', 'Comando(s)', 'Indicativo', 'Faturas', 'Total em atraso']];
       [...grupos.values()].sort((x, y) => x.titulo.localeCompare(y.titulo, 'pt-BR')).forEach(g => {
-        const indicativo = comandoDoTexto(g.comando, base.comandos).indicativo || null;
-        const base0 = lotePor === 'comando' ? arquivoComando(g.comando) : `cobranca_OM_${nomeArquivo(g.titulo)}`;
+        const indicativo = g.setor ? null : comandoDoTexto(g.comando, base.comandos).indicativo || null;
+        const base0 = lotePor === 'setor' ? `cobranca_SETOR_${nomeArquivo(g.titulo)}` : lotePor === 'comando' ? arquivoComando(g.comando) : `cobranca_OM_${nomeArquivo(g.titulo)}`;
         let nome = `${base0}_${h}`, n = 2;
         while (usados.has(nome)) nome = `${base0}_${n++}_${h}`;
         usados.add(nome);
-        zip.file(`${nome}.pdf`, docCobranca({ comando: g.comando, indicativo, faturas: g.fs, cliente: g.cliente }).output('arraybuffer'));
-        indice.push([`${nome}.pdf`, g.cliente || `${g.comando} — OM: ${[...new Set(g.fs.map(f => f.cliente))].sort().join('; ')}`, g.comando, indicativo || '', g.fs.length, Math.round(g.fs.reduce((s, f) => s + f.saldo, 0) * 100) / 100]);
+        zip.file(`${nome}.pdf`, docCobranca({ comando: g.comando, indicativo, faturas: g.fs, cliente: g.cliente, setor: g.setor }).output('arraybuffer'));
+        const cmds = [...new Set(g.fs.map(f => f.comando))].sort().join('; ');
+        indice.push([`${nome}.pdf`, g.setor || g.cliente || `${g.comando} — OM: ${[...new Set(g.fs.map(f => f.cliente))].sort().join('; ')}`, cmds, indicativo || '', g.fs.length, Math.round(g.fs.reduce((s, f) => s + f.saldo, 0) * 100) / 100]);
       });
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(indice), 'Lote');
       zip.file(`indice_do_lote_${h}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
       const blob = await zip.generateAsync({ type: 'blob' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `cobranca_lote_${lotePor === 'cliente' ? 'por_om' : 'por_comando'}_${h}.zip`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `cobranca_lote_por_${lotePor === 'cliente' ? 'om' : lotePor}_${h}.zip`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      notify.success(`${grupos.size} PDF(s) gerado(s) — um por ${lotePor === 'cliente' ? 'OM cliente' : 'comando'}.`);
+      notify.success(`${grupos.size} PDF(s) gerado(s) — um por ${lotePor === 'cliente' ? 'OM cliente' : lotePor}.`);
     } catch (e) { notify.fail('Não foi possível gerar o lote', e); } finally { setGerandoLote(false); }
   };
 
@@ -333,7 +336,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
               <span className="text-sm text-slate-600">{vencidasPorComando.length} comando(s) · {vencidasPorComando.reduce((s, v) => s + v.fs.length, 0)} fatura(s) · <b className="tabular-nums">{brl(vencidasPorComando.reduce((s, v) => s + v.total, 0))}</b></span>
               <label className="text-xs text-slate-600">Um PDF por
                 <select className={`${sel} block mt-1`} value={lotePor} onChange={e => setLotePor(e.target.value as any)} aria-label="Um PDF por">
-                  <option value="cliente">OM cliente</option><option value="comando">Comando</option>
+                  <option value="cliente">OM cliente</option><option value="comando">Comando (do cadastro)</option><option value="setor">Setor (COMOPNAV, DGPM, DGMM…)</option>
                 </select>
               </label>
               <Button variant="secondary" onClick={gerarLote} isLoading={gerandoLote} title="Gera um PDF (em árvore) para cada OM ou comando do filtro, todos num arquivo .zip, com um índice em Excel"><FileText size={16} className="mr-1" />PDFs em lote (.zip)</Button>
