@@ -1271,7 +1271,34 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // matriz organizada pelas áreas do CNIC; navios (coluna/linha NAVIOS) na parte baixa interna
     await page.getByText('Área 1 – Parte baixa interna').first().waitFor();
     const txtMatriz = (await page.locator('table').last().innerText()).replace(/\s+/g, ' ');
-    ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('AMRJ') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta') && !txtMatriz.includes('NAVIOS (grupo)'), 'matriz por área: AMRJ na parte baixa interna, SecNSNQ na parte alta; sem a linha NAVIOS (fica na aba Navios)');
+    ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('AMRJ') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('NAVIOS (grupo)') > txtMatriz.indexOf('Área 1 – Parte baixa interna') && txtMatriz.indexOf('NAVIOS (grupo)') < txtMatriz.indexOf('Área 2 – Parte alta'), 'matriz por área: AMRJ e a linha NAVIOS na parte baixa interna, SecNSNQ na parte alta');
+    // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo já escolhido é mantido
+    // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo se ajusta na aba Navios
+    ok(await page.getByLabel('Navios participam da linha 1').isChecked(), 'linha NAVIOS: linha 1 marcada (navios participam)');
+    await page.getByLabel('Navios participam da linha 1').uncheck();
+    await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
+    await page.getByText('Clientes e matriz gravados.').waitFor();
+    ok(db.rubricas.find(r => r.numero === 1).navios_modo === 'NAO', 'desmarcar na matriz = navios não participam');
+    await page.getByRole('button', { name: '5. Navios' }).click();
+    await page.getByText(/Nenhuma linha marcada para os navios/).waitFor();
+    ok(await page.getByLabel('Navios na linha 1', { exact: true }).count() === 0, 'aba Navios lista só as linhas marcadas na matriz');
+    await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await page.getByLabel('Navios participam da linha 1').check();
+    await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
+    await page.getByText('Clientes e matriz gravados.').last().waitFor();
+    await page.waitForTimeout(300);
+    ok(db.rubricas.find(r => r.numero === 1).navios_modo === 'INTEGRAL', 'marcar na matriz = entra integral automaticamente');
+    await page.getByRole('button', { name: '5. Navios' }).click();
+    await page.getByLabel('Navios na linha 1', { exact: true }).waitFor();
+    ok(await page.getByLabel('Navios na linha 1', { exact: true }).inputValue() === 'INTEGRAL' && await page.getByLabel('Navios na linha 1', { exact: true }).locator('option', { hasText: 'Não entra' }).count() === 0, 'aba Navios: linha marcada entra integral; só escolhe como entra (sem "Não entra")');
+    await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('FIXO');
+    await page.getByLabel('Valor fixo dos navios na linha 1').fill('100000');
+    await page.getByRole('button', { name: /Gravar navios/ }).click();
+    await page.getByText('Navios gravados.').last().waitFor();
+    await page.waitForTimeout(300);
+    ok(db.rubricas.find(r => r.numero === 1).navios_modo === 'FIXO', 'modo só muda quando alterado na aba Navios');
+    await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await page.getByText('Área 1 – Parte baixa interna').first().waitFor();
     ok(txtMatriz.includes('Edifício Almirante Tamandaré'), 'edifício da OM aparece na matriz');
     ok(await page.getByLabel(/^Zona: Área 2 – Parte alta/).locator('input[type=checkbox]').count() === 0, 'linha da área é só zoneamento (sem caixas de participação)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-matriz-areas.png'), fullPage: true });
