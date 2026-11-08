@@ -293,7 +293,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
     setGravando(true);
     try {
       const ls: Lotacao[] = Object.entries(lot).filter(([, v]) => Number(v.lotacao) > 0 || Number(n2(v.area || '')) > 0 || Number(n2(v.peso || '')) > 0)
-        .map(([omId, v]) => ({ omId, lotacao: Number(v.lotacao) || 0, lotacaoAnterior: n2(v.anterior), dias: n2(v.dias), area: n2(v.area || ''), peso: n2(v.peso || '') }));
+        .map(([omId, v]) => ({ omId, lotacao: Number(v.lotacao) || 0, lotacaoAnterior: dados.lotacaoAnoAnterior?.get(omId) ?? n2(v.anterior), dias: n2(v.dias), area: n2(v.area || ''), peso: n2(v.peso || '') }));
       const removidas = dados.lotacoes.map(l => l.omId).filter(id => !ls.some(l => l.omId === id));
       await salvarLotacoes(ano, ls, removidas);
       if (!navioModo) {
@@ -435,7 +435,9 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                   <td className="px-2 py-0.5 sticky left-0 bg-white truncate max-w-[260px]" title={`${o.nome}${o.edificio ? ` — ${o.edificio}` : ''}`}>{o.nome}{!navioModo && o.edificio && <span className="text-slate-400"> · {o.edificio}</span>}{!o.ativo && <span className="text-slate-400"> · desativada</span>}{o.foraDaIlha && <span className="text-slate-400"> · fora da Ilha</span>}
                     {navioModo && (o.classeId ? <span className="block text-[10px] text-slate-500">{dados.classes.find(c => c.id === o.classeId)?.nome}</span> : <span className="block text-[10px] text-amber-700" title="Sem classe não há média trienal: a diária sai pela lotação. Ajuste em Cadastros › Lista de navios ou OM / Clientes.">⚠ sem classe</span>)}</td>
                   <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.lotacao} onChange={e => set(o.id, { lotacao: e.target.value })} aria-label={`Lotação de ${o.nome}`} /></td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.anterior} onChange={e => set(o.id, { anterior: e.target.value })} aria-label={`Lotação anterior de ${o.nome}`} /></td>
+                  <td className="px-1">{(() => { const ant = dados.lotacaoAnoAnterior?.get(o.id); return ant !== undefined
+                    ? <input readOnly className={`${entrada} w-16 text-xs text-right bg-slate-100 text-slate-600`} value={String(ant)} title={`Lotação de ${ano - 1} (automática: a lotação anterior é sempre a do ano anterior)`} aria-label={`Lotação anterior de ${o.nome}`} />
+                    : <input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.anterior} onChange={e => set(o.id, { anterior: e.target.value })} title={`Sem lotação em ${ano - 1}: informe`} aria-label={`Lotação anterior de ${o.nome}`} />; })()}</td>
                   {navioModo && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /></td>}
                   {!navioModo && usaArea && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-20 text-xs text-right`} inputMode="decimal" value={v.area || ''} onChange={e => set(o.id, { area: e.target.value })} aria-label={`Área de ${o.nome}`} /></td>}
                   {!navioModo && usaPeso && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={v.peso || ''} onChange={e => set(o.id, { peso: e.target.value })} aria-label={`Peso de ${o.nome}`} /></td>}

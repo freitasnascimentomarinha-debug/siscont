@@ -57,6 +57,8 @@ export interface DadosProposta {
   proposta: Proposta; rubricas: RubricaProposta[]; lotacoes: Lotacao[]; matriz: Set<string>; descontos: Desconto[];
   atracacaoAnual: AnoClasse[]; oms: OM[]; classes: ClasseNavio[]; pendentes: Pendente[];
   subsidios: Subsidio[]; anexos: Anexo[]; fechados: Fechado[]; extratos: ExtratoPlanilha[];
+  /** lotação de cada OM/navio no ano anterior: é sempre a "lotação anterior" do ano */
+  lotacaoAnoAnterior: Map<string, number>;
 }
 
 export async function carregarProposta(ano: number): Promise<DadosProposta> {
@@ -70,6 +72,8 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     cadastroService.listOMs(), cadastroService.listClasses(),
   ]);
   const pend = await supabase.from('pendentes_tc').select('*').eq('ano', ano); // ausente antes do script 012
+  const lotAnt = await supabase.from('lotacoes_tc').select('om_id, lotacao').eq('ano', ano - 1);
+  const lotacaoAnoAnterior = new Map<string, number>((lotAnt.error ? [] : lotAnt.data || []).map((l: any) => [l.om_id, Number(l.lotacao)]));
   // tabelas do script 013 (vazias se ainda não executado)
   const [sub, anx, fec, ext] = await Promise.all(['subsidios_tc', 'anexos_tc', 'fechados_tc', 'extratos_tc'].map(t => supabase.from(t).select('*').eq('ano', ano)));
   const ok = (x: any) => (x.error ? [] : x.data || []);
@@ -89,11 +93,11 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
       // antes do 014 só havia a parte dos navios em R$: vira percentual do valor previsto
       percentualNavios: r.percentual_navios != null ? Number(r.percentual_navios) : (r.parcela_navios && Number(r.valor_previsto ?? r.valor_anual) ? Math.round((Number(r.parcela_navios) / Number(r.valor_previsto ?? r.valor_anual)) * 1e6) / 1e4 : 0),
     })),
-    lotacoes: (lot.data || []).map(l => ({ omId: l.om_id, lotacao: Number(l.lotacao), lotacaoAnterior: l.lotacao_anterior == null ? null : Number(l.lotacao_anterior), dias: l.dias === null || l.dias === undefined ? null : Number(l.dias), area: l.area == null ? null : Number(l.area), peso: l.peso == null ? null : Number(l.peso) })),
+    lotacoes: (lot.data || []).map(l => ({ omId: l.om_id, lotacao: Number(l.lotacao), lotacaoAnterior: lotacaoAnoAnterior.get(l.om_id) ?? (l.lotacao_anterior == null ? null : Number(l.lotacao_anterior)), dias: l.dias === null || l.dias === undefined ? null : Number(l.dias), area: l.area == null ? null : Number(l.area), peso: l.peso == null ? null : Number(l.peso) })),
     matriz: new Set((mat.data || []).map(m => `${m.rubrica}|${m.om_id}`)),
     descontos: (desc.data || []).map(d => ({ id: d.id, omId: d.om_id, grupo: d.grupo === 'NAVIOS' ? 'NAVIOS' as const : null, rubrica: d.rubrica, tipo: d.tipo, valor: Number(d.valor), justificativa: d.justificativa || '' })),
     atracacaoAnual: (atr.data || []).map(a => ({ ano: a.ano, classeId: a.classe_id, dias: Number(a.dias), navios: a.navios })),
-    oms, classes,
+    oms, classes, lotacaoAnoAnterior,
     pendentes: pend.error ? [] : (pend.data || []).map(x => ({
       id: x.id, ano: x.ano, nome: x.nome, tipo: x.tipo, lotacao: x.lotacao == null ? null : Number(x.lotacao), lotacaoAnterior: x.lotacao_anterior == null ? null : Number(x.lotacao_anterior),
       dias: x.dias == null ? null : Number(x.dias), rubricas: x.rubricas || [], descontos: x.descontos || [],

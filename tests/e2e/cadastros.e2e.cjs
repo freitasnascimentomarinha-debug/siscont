@@ -1302,6 +1302,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(txtMatriz.includes('Edifício Almirante Tamandaré'), 'edifício da OM aparece na matriz');
     ok(await page.getByLabel(/^Zona: Área 2 – Parte alta/).locator('input[type=checkbox]').count() === 0, 'linha da área é só zoneamento (sem caixas de participação)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-matriz-areas.png'), fullPage: true });
+    // lotação anterior = sempre a lotação do ano anterior (automática, sem digitar)
+    ok(await page.getByLabel('Lotação anterior de AMRJ').inputValue() === '1422', 'sem lotação no ano anterior: vale a informada (1422)');
+    db.lotacoes_tc.push({ ano: 2025, om_id: amrj.id, lotacao: 1300, lotacao_anterior: null, dias: null });
+    await page.getByRole('button', { name: 'Recarregar' }).click();
+    await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await page.getByLabel('Lotação anterior de AMRJ').waitFor();
+    for (let i = 0; i < 20 && await page.getByLabel('Lotação anterior de AMRJ').inputValue() !== '1300'; i++) await page.waitForTimeout(250);
+    ok(await page.getByLabel('Lotação anterior de AMRJ').inputValue() === '1300' && await page.getByLabel('Lotação anterior de AMRJ').getAttribute('readonly') !== null, 'lotação anterior vem do ano anterior (1300) e não é digitada');
     await page.getByRole('button', { name: 'Escolher correspondente' }).click();
     await page.getByRole('button', { name: 'Criar novo cliente' }).click();
     await page.getByLabel('Nome do novo cliente').fill('OM Nova');
