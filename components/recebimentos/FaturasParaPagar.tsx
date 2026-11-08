@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Invoice } from '../../types';
 import { dataBR } from '../../utils/datas';
-import { distribuirPagamento, resumoPagamento, saldoDaFatura } from '../../utils/pagamentoDocumento';
+import { distribuirPagamento, resumoPagamento, saldoDaFatura, competenciaDe, ordenarFaturasAPagar } from '../../utils/pagamentoDocumento';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export interface SelecaoPagamento { ids: string[]; manuais: Record<string, number | undefined> }
@@ -38,9 +38,9 @@ export const FaturasParaPagar: React.FC<{
   const base = cliente === '__doc' ? daOM : cliente === '__todas' ? abertas : abertas.filter(f => ((f.client || '').trim() || '(sem cliente)') === cliente);
   const q = busca.trim().toLowerCase();
   const visiveis = useMemo(() => base
-    .filter(f => !q || `${f.invoiceNumber} ${f.client} ${f.type} ${f.ug || ''}`.toLowerCase().includes(q))
-    .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || '') || a.invoiceNumber.localeCompare(b.invoiceNumber))
-    .slice(0, 300), [base, q]);
+    .filter(f => !q || `${f.invoiceNumber} ${f.client} ${f.type} ${f.ug || ''} ${f.command || ''}`.toLowerCase().includes(q)), [base, q]);
+  // competência → vencimento → comando / UG / cliente
+  const ordenadas = useMemo(() => ordenarFaturasAPagar(visiveis).slice(0, 300), [visiveis]);
   const porId = useMemo(() => new Map(abertas.map(f => [f.id, f])), [abertas]);
   const escolhidas = selecao.ids.map(id => porId.get(id)).filter(Boolean) as Invoice[];
   const itens = distribuirPagamento(valorDoc || 0, escolhidas.map(f => ({ id: f.id, saldo: saldoDaFatura(f) })), selecao.manuais);
@@ -79,16 +79,20 @@ export const FaturasParaPagar: React.FC<{
       </p>
       <div className="max-h-64 overflow-y-auto border border-slate-200 rounded bg-white">
         <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 py-1.5 text-left">UG · Cliente</th><th className="px-2 py-1.5 text-center">Vencimento</th><th className="px-2 py-1.5 text-right">Saldo</th><th className="px-2 py-1.5 text-right">Pagar</th></tr></thead>
+          <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5 text-center">Comp.</th><th className="px-2 py-1.5 text-center">Vencimento</th><th className="px-2 py-1.5 text-left">Comando / UG · Cliente</th><th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 py-1.5 text-right">Saldo</th><th className="px-2 py-1.5 text-right">Pagar</th></tr></thead>
           <tbody>
-            {visiveis.map(f => {
+            {ordenadas.map(f => {
               const marcada = selecao.ids.includes(f.id);
               return (
                 <tr key={f.id} className={`border-t border-slate-100 ${marcada ? 'bg-primary-50' : 'hover:bg-slate-50'}`}>
                   <td className="px-2 py-1"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={marcada} onChange={() => alternar(f.id)} aria-label={`Pagar a fatura ${f.invoiceNumber}`} /></td>
-                  <td className="px-2 py-1 font-mono whitespace-nowrap">{f.invoiceNumber}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 font-sans">contestada</span>}</td>
-                  <td className="px-2 py-1 max-w-[220px] truncate" title={`${f.ug || ''} · ${f.client}`}><span className="text-slate-500">{f.ug ? `${f.ug} · ` : ''}</span>{f.client}</td>
+                  <td className="px-2 py-1 text-center whitespace-nowrap">{competenciaDe(f)}</td>
                   <td className="px-2 py-1 text-center whitespace-nowrap">{dataBR(f.dueDate)}</td>
+                  <td className="px-2 py-1 max-w-[240px]" title={`${f.command || ''} / ${f.ug || ''} · ${f.client}`}>
+                    {f.command && <div className="text-[10px] text-slate-400 truncate">{f.command}</div>}
+                    <div className="truncate"><span className="text-slate-500">{f.ug ? `${f.ug} · ` : ''}</span>{f.client}</div>
+                  </td>
+                  <td className="px-2 py-1 font-mono whitespace-nowrap">{f.invoiceNumber}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 font-sans">contestada</span>}</td>
                   <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">{brl(saldoDaFatura(f))}</td>
                   <td className="px-2 py-1 text-right">
                     {marcada ? <input type="number" step="0.01" min="0" aria-label={`Valor a pagar da fatura ${f.invoiceNumber}`}

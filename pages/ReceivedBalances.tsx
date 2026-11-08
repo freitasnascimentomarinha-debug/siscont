@@ -4,10 +4,12 @@ import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 import { FaturasParaPagar, SelecaoPagamento } from '../components/recebimentos/FaturasParaPagar';
-import { distribuirPagamento, resumoPagamento, saldoDaFatura } from '../utils/pagamentoDocumento';
+import { competenciaDe, distribuirPagamento, ordenarFaturasAPagar, resumoPagamento, saldoDaFatura } from '../utils/pagamentoDocumento';
+import { marcarSiplad } from '../services/faturamentoService';
+import * as XLSX from 'xlsx';
 import { criarResolvedor, Rotulo } from '../utils/documentosOM';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
@@ -22,7 +24,7 @@ import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationTy
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Plus, Trash2, DollarSign, FileCheck, ChevronDown, ChevronUp, CheckCircle, Search, Edit2, Upload, FileSpreadsheet, FileText, Filter, X, Layers, Save, AlertOctagon, CheckSquare, Square } from 'lucide-react';
+import { Plus, Trash2, DollarSign, FileCheck, ChevronDown, ChevronUp, CheckCircle, Search, Edit2, FileSpreadsheet, FileText, Filter, X, Layers, Save, AlertOctagon, CheckSquare, Square } from 'lucide-react';
 import { FileUp, Wand2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
@@ -77,17 +79,10 @@ export const ReceivedBalances: React.FC = () => {
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Import
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Payment Allocation Form
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
-  const [paymentMeta, setPaymentMeta] = useState({
-    siscontSettled: false,
-    siscontDueDate: '',
-    observation: '',
-    serviceType: ''
-  });
+  // dados da baixa no "Pagar Faturas": data (padrão = data do documento), observação e se já foi lançada no SIPLAD
+  const [paymentMeta, setPaymentMeta] = useState({ data: '', observation: '', lancadoSiplad: false });
 
   // Pay Modal Filter
   const [invoiceSearch, setInvoiceSearch] = useState('');
@@ -238,6 +233,17 @@ export const ReceivedBalances: React.FC = () => {
   const subtotal = (k: string) => { const t = totaisGrupo.get(k); return t ? `${t.qtd} doc · recebido R$ ${t.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} · disponível R$ ${t.disponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''; };
 
   // --- Actions ---
+  /** Texto da confirmação: diz quantas faturas voltam a ficar em aberto. */
+  const mensagemExclusao = () => {
+    if (!confirmDelete) return '';
+    if (confirmDelete.type === 'alloc') {
+      const a = allocations.find(x => x.id === confirmDelete.id); const inv = a && invoicesById.get(a.invoiceId);
+      return `Excluir a baixa de R$ ${(a?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} na fatura ${inv?.invoiceNumber || ''}? O valor volta para o disponível do documento e a fatura volta a ficar em aberto.`;
+    }
+    const d = documents.find(x => x.id === confirmDelete.id);
+    const nums = [...new Set(allocations.filter(a => a.documentId === confirmDelete.id).map(a => invoicesById.get(a.invoiceId)?.invoiceNumber || '(excluída)'))];
+    return `Excluir o documento ${d?.documentNumber || ''}${nums.length ? ` e as ${nums.length} baixa(s) dele? ${nums.length} fatura(s) voltarão a ficar em aberto: ${nums.slice(0, 8).join(', ')}${nums.length > 8 ? ` e mais ${nums.length - 8}` : ''}.` : '? Ele não tem baixas.'} Esta ação não pode ser desfeita.`;
+  };
 
   const handleEdit = (doc: ReceivedDocument) => {
     if (isReadOnly) return;
@@ -261,6 +267,15 @@ export const ReceivedBalances: React.FC = () => {
     if (isDuplicate) {
       setSaveError(`IMPEDIMENTO: O número de documento "${docFormData.documentNumber}" já está cadastrado no sistema.`);
       return;
+    }
+
+    // editar: o valor total não pode ficar menor do que já foi baixado nas faturas (o disponível ficaria negativo)
+    if (editingId) {
+      const usado = Math.round(allocations.filter(a => a.documentId === editingId && !invoicesById.get(a.invoiceId)?.isCanceled).reduce((t, a) => t + a.amount, 0) * 100) / 100;
+      if (Number(docFormData.totalValue) < usado - 0.005) {
+        setSaveError(`O valor total não pode ser menor que o já baixado nas faturas (R$ ${usado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Tire ou reduza as baixas antes.`);
+        return;
+      }
     }
 
     const type = (docFormData.documentType as DocumentType) || DocumentType.ALTCRED;
@@ -326,6 +341,8 @@ export const ReceivedBalances: React.FC = () => {
 
     let currentBalance = activeDoc.availableValue;
     let created = 0;
+    const pagas: string[] = [];
+    const dataBaixa = paymentMeta.data || activeDoc.gruDataPagamento || activeDoc.date || hojeISO();
 
     try {
     for (const invId of selectedInvoiceIds) {
@@ -343,15 +360,16 @@ export const ReceivedBalances: React.FC = () => {
           documentId: activeDoc.id,
           invoiceId: inv.id,
           amount: payment,
-          date: hojeISO(),
-          siscontSettled: paymentMeta.siscontSettled,
-          siscontDueDate: paymentMeta.siscontDueDate,
+          date: dataBaixa,
+          siscontSettled: paymentMeta.lancadoSiplad,
+          siscontDueDate: '',
           observation: paymentMeta.observation,
-          serviceType: paymentMeta.serviceType,
+          serviceType: inv.type || inv.serviceAcronym || '',
           tipoBaixa: activeDoc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO',
         });
         currentBalance -= payment;
         created++;
+        pagas.push(inv.id);
       }
     }
     } catch (err) {
@@ -360,7 +378,11 @@ export const ReceivedBalances: React.FC = () => {
       return;
     }
 
-    notify.success(created > 0 ? `${created} pagamento(s) registrado(s).` : 'Nenhum valor a pagar nas faturas selecionadas.');
+    // "já lancei no SIPLAD": marca as faturas pagas como lançadas (senão ficam "SIPLAD pendente" como lembrete)
+    if (paymentMeta.lancadoSiplad && pagas.length) {
+      try { await marcarSiplad(pagas, true); } catch (err) { notify.fail('Pagamentos registrados, mas não foi possível marcar o SIPLAD', err); }
+    }
+    notify.success(created > 0 ? `${created} pagamento(s) registrado(s) em ${dataBR(dataBaixa)}${paymentMeta.lancadoSiplad ? ' e marcado(s) como lançado(s) no SIPLAD' : ' — SIPLAD pendente'}.` : 'Nenhum valor a pagar nas faturas selecionadas.');
     setIsPayModalOpen(false);
     setSelectedInvoiceIds([]);
     await refresh();
@@ -368,14 +390,23 @@ export const ReceivedBalances: React.FC = () => {
 
   const handleUpdateAllocation = async () => {
     if (isReadOnly) return;
-    if (allocFormData.id && allocFormData.amount) {
+    if (allocFormData.id && allocFormData.amount !== undefined) {
       const original = allocations.find(a => a.id === allocFormData.id);
       if (original) {
+        const novo = Math.round(Number(allocFormData.amount) * 100) / 100;
+        const doc = documents.find(d => d.id === original.documentId);
+        const inv = invoicesById.get(original.invoiceId);
+        // o documento pode cobrir o que já estava nesta baixa + o disponível dele; a fatura, o saldo + esta baixa
+        const limiteDoc = Math.round(((doc?.availableValue || 0) + (inv?.isCanceled ? 0 : original.amount)) * 100) / 100;
+        const limiteFat = inv ? Math.round((saldoDaFatura(inv, (alocadoPorFatura.get(inv.id) || 0) - original.amount)) * 100) / 100 : Infinity;
+        if (!(novo > 0)) { notify.error('Informe um valor maior que zero (para tirar a baixa, use a lixeira).'); return; }
+        if (novo > limiteDoc + 0.005) { notify.error(`O valor passa do que o documento pode cobrir (R$ ${limiteDoc.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`); return; }
+        if (novo > limiteFat + 0.005) { notify.error(`O valor passa do saldo da fatura (R$ ${limiteFat.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`); return; }
         try {
           await db.saveAllocation({
             ...original,
             ...allocFormData,
-            amount: Number(allocFormData.amount)
+            amount: novo,
           } as PaymentAllocation);
           notify.success('Pagamento atualizado.');
         } catch (err) {
@@ -399,7 +430,7 @@ export const ReceivedBalances: React.FC = () => {
   const getDocAllocations = (docId: string) => {
     return allocations.filter(a => a.documentId === docId).map(a => {
       const inv = invoicesById.get(a.invoiceId);
-      return { ...a, invoiceNumber: inv?.invoiceNumber, invoiceValue: inv?.value, invoiceClient: inv?.client, invoiceCanceled: !!inv?.isCanceled };
+      return { ...a, invoiceNumber: inv?.invoiceNumber, invoiceValue: inv?.value, invoiceClient: inv?.client, invoiceCanceled: !!inv?.isCanceled, invoiceSiplad: !!inv?.sipladSettled };
     });
   };
 
@@ -415,7 +446,7 @@ export const ReceivedBalances: React.FC = () => {
     const bodyRows: any[] = [];
 
     // Ordered: Data > Setor > Comando > Cliente > Nº Doc > Operação > Valor Total > Saldo Disp.
-    filteredDocs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(d => {
+    [...filteredDocs].sort((a, b) => (a.date || '').localeCompare(b.date || '')).forEach(d => {
       // Main Row
       bodyRows.push([
         dataBR(d.date),
@@ -459,93 +490,24 @@ export const ReceivedBalances: React.FC = () => {
     doc.save(`saldos_recebidos_historico${arquivoPublico(publico)}.pdf`);
   };
 
+  /** Excel (.xlsx) de verdade: uma linha por documento e uma por baixa, com valores numéricos. */
   const exportExcel = () => {
-    // Columns: Data > Setor > Comando > Cliente > Nº Doc > Operação > Valor Total > Saldo Disp. > Histórico (Fatura) > Valor Pago
-    const headers = ["Data", "Setor", "Comando", "Cliente", "Nº Doc", "Operação", "Valor Total", "Saldo Disponível", "Fatura Vinculada", "Valor Pago"];
-
-    const csvRows: string[] = [];
-
-    filteredDocs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(d => {
-      const docBase = [
-        d.date,
-        `"${d.sector}"`,
-        `"${d.command}"`,
-        `"${d.client}"`,
-        d.documentNumber,
-        d.operation,
-        d.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
-        d.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-      ];
-
+    const linhas: (string | number)[][] = [['Data', 'Setor', 'Comando', 'Cliente', 'UG', 'Nº Doc', 'Tipo', 'Operação', 'Valor Total', 'Saldo Disponível', 'Fatura paga', 'Competência', 'Valor pago', 'Data da baixa', 'SIPLAD']];
+    [...filteredDocs].sort((a, b) => (a.date || '').localeCompare(b.date || '')).forEach(d => {
+      const r = rot(d);
+      const base = [dataBR(d.date), r.setor, r.comando, r.cliente, d.ug || '', d.documentNumber, d.documentType, d.operation, d.totalValue, d.availableValue];
       const docAllocs = allocations.filter(a => a.documentId === d.id);
-
-      if (docAllocs.length === 0) {
-        // Row without history
-        csvRows.push([...docBase, "", ""].join(","));
-      } else {
-        // Rows for each allocation
-        docAllocs.forEach(a => {
-          const inv = invoicesById.get(a.invoiceId);
-          csvRows.push([
-            ...docBase,
-            `"Fat: ${inv?.invoiceNumber || 'N/A'}"`,
-            a.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-          ].join(","));
-        });
-      }
+      if (!docAllocs.length) linhas.push([...base, '', '', '', '', '']);
+      docAllocs.forEach(a => {
+        const inv = invoicesById.get(a.invoiceId);
+        linhas.push([...base, `${inv?.invoiceNumber || '(fatura excluída)'}${inv?.isCanceled ? ' (cancelada)' : ''}`, inv ? competenciaDe(inv) : '', a.amount, dataBR(a.date), inv?.sipladSettled ? 'Lançado' : 'Pendente']);
+      });
     });
-
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...csvRows].join("\n");
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", `saldos_recebidos_detalhado${arquivoPublico(publico)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isReadOnly) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const text = evt.target?.result as string;
-        const lines = text.split("\n").slice(1);
-        const processImport = async () => {
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const cols = line.split(",").map(s => s.replace(/"/g, ""));
-            if (cols.length >= 8) {
-              const payload: ReceivedDocument = {
-                id: uuidv4(),
-                documentNumber: cols[0] || 'S/N',
-                ug: cols[1] || '',
-                operation: (cols[2] as OperationType) || OperationType.PAGAMENTO,
-                date: cols[3] || hojeISO(),
-                documentType: (cols[4] as DocumentType) || DocumentType.ALTCRED,
-                sector: cols[5] || 'Geral',
-                command: cols[6] || 'Geral',
-                client: cols[7] || 'Importado',
-                totalValue: Number(cols[8]) || 0,
-                availableValue: Number(cols[8]) || 0, // Assume full balance on import
-                informedAdvance: false
-              };
-              await db.saveDocument(payload);
-            }
-          }
-          await refresh();
-          alert('Importação concluída com sucesso!');
-        };
-        processImport();
-      } catch (err) {
-        alert('Erro ao importar. Verifique o CSV.');
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    linhas.push(['TOTAL', '', '', '', '', '', '', '', stats.totalValue, stats.totalAvailable]);
+    const ws = XLSX.utils.aoa_to_sheet(linhas);
+    ws['!cols'] = [11, 10, 34, 34, 7, 22, 8, 13, 14, 14, 26, 11, 13, 12, 9].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recebimentos');
+    XLSX.writeFile(wb, `saldos_recebidos_detalhado${arquivoPublico(publico)}.xlsx`);
   };
 
   // Helper for Year options
@@ -561,17 +523,9 @@ export const ReceivedBalances: React.FC = () => {
           <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · agrupados por setor, comando e OM do cadastro</p>
         </div>
         <div className="flex gap-2">
-          {isAdmin && (
-            <>
-              <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
-              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} title="Importação antiga por CSV (a importação normal é pelo PDF do SIPLAD)">
-                <Upload className="w-4 h-4 mr-2" /> Importar CSV
-              </Button>
-            </>
-          )}
           {!isReadOnly && (
-            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)}>
-              <FileUp className="w-4 h-4 mr-2" /> PDF do SIPLAD
+            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} title="Importa as ALTCRED do PDF 'Solicitações de Alteração de Crédito' do SIPLAD (completa as já cadastradas, sem duplicar)">
+              <FileUp className="w-4 h-4 mr-2" /> Importar ALTCRED (PDF do SIPLAD)
             </Button>
           )}
           <Button variant="secondary" size="sm" onClick={exportExcel}>
@@ -738,16 +692,18 @@ export const ReceivedBalances: React.FC = () => {
                                   </h5>
                                   {!isReadOnly && (
                                     <div className="flex gap-2">
-                                      <Button size="sm" variant="danger" onClick={() => setConfirmDelete({ type: 'doc', id: doc.id })}>
-                                        <Trash2 className="w-3 h-3 mr-1" /> Excluir
-                                      </Button>
+                                      {isAdmin && (
+                                        <Button size="sm" variant="danger" onClick={() => setConfirmDelete({ type: 'doc', id: doc.id })} title="Só o administrador exclui documentos (as baixas dele são apagadas junto)">
+                                          <Trash2 className="w-3 h-3 mr-1" /> Excluir
+                                        </Button>
+                                      )}
                                       {doc.availableValue > 0.005 && (
                                         <Button size="sm" variant="secondary" onClick={() => setBaixaDoc(doc)}>
                                           <Wand2 className="w-3 h-3 mr-1" /> Baixa assistida
                                         </Button>
                                       )}
                                       {activeTab === OperationType.PAGAMENTO && doc.availableValue > 0 && (
-                                        <Button size="sm" onClick={() => { setActiveDoc(doc); setIsPayModalOpen(true); setSelectedInvoiceIds([]); setInvoiceSearch(''); }}>
+                                        <Button size="sm" onClick={() => { setActiveDoc(doc); setPaymentMeta({ data: doc.gruDataPagamento || doc.date || hojeISO(), observation: '', lancadoSiplad: false }); setIsPayModalOpen(true); setSelectedInvoiceIds([]); setInvoiceSearch(''); }}>
                                           <DollarSign className="w-3 h-3 mr-1" /> Pagar Faturas
                                         </Button>
                                       )}
@@ -780,6 +736,7 @@ export const ReceivedBalances: React.FC = () => {
                                             <div className="font-medium text-slate-800">
                                               {alloc.invoiceNumber}
                                               {alloc.invoiceCanceled && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold" title="Fatura cancelada: o valor não é descontado do documento e volta para o disponível">fatura cancelada</span>}
+                                              {!alloc.invoiceCanceled && !alloc.invoiceSiplad && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-semibold" title="A fatura ainda não foi marcada como lançada no SIPLAD (Faturas emitidas)">SIPLAD pendente</span>}
                                             </div>
                                             <div className="text-xs text-slate-400">{alloc.invoiceClient}</div>
                                           </td>
@@ -902,62 +859,63 @@ export const ReceivedBalances: React.FC = () => {
         isOpen={isPayModalOpen}
         onClose={() => setIsPayModalOpen(false)}
         title={`Pagar Faturas (Disp: R$ ${activeDoc?.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`}
-        footer={<div className="flex justify-end gap-2"><Button onClick={handleAllocate}>Confirmar Pagamento</Button></div>}
+        maxWidth="max-w-3xl"
+        footer={<div className="flex justify-end gap-2"><Button onClick={handleAllocate} disabled={!selectedInvoiceIds.length}>Confirmar Pagamento{selectedInvoiceIds.length ? ` (${selectedInvoiceIds.length})` : ''}</Button></div>}
       >
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Input
-            placeholder="Filtrar por Cliente ou Número da Fatura..."
+            placeholder="Filtrar por comando, UG, cliente ou número da fatura..."
             value={invoiceSearch}
             onChange={e => setInvoiceSearch(e.target.value)}
-            className="mb-2"
+            aria-label="Filtrar faturas a pagar"
           />
-          <div className="max-h-60 overflow-y-auto border rounded p-2">
-            <label className="text-sm font-semibold text-slate-700 block mb-2">Selecione as Faturas</label>
-            {openInvoices
-              .filter(inv => {
-                if (!invoiceSearch) return true;
-                const search = invoiceSearch.toLowerCase();
-                return inv.client.toLowerCase().includes(search) || inv.invoiceNumber.toLowerCase().includes(search);
-              })
-              .map(inv => {
-                // Determine Real Debt: (Total Invoice Value) - (All Allocations related to this invoice)
-                const totalAllocated = alocadoPorFatura.get(inv.id) || 0;
-                const target = inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0);
-                const debt = Math.max(0, target - totalAllocated);
-
-                if (debt < 0.01) return null; // Don't show fully paid invoices
-
-                return (
-                  <div key={inv.id} className="flex items-center gap-2 p-1 hover:bg-slate-50 border-b border-slate-100 last:border-0">
-                    <input
-                      type="checkbox"
-                      checked={selectedInvoiceIds.includes(inv.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedInvoiceIds([...selectedInvoiceIds, inv.id]);
-                        else setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== inv.id));
-                      }}
-                    />
-                    <div className="flex flex-col text-sm">
-                      <span className="font-medium text-slate-800">{inv.client} - {inv.invoiceNumber}</span>
-                      <span className="text-xs text-slate-500">
-                        Aberto: <span className="font-bold text-red-600">R$ {debt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> | {inv.type}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            {openInvoices.length === 0 && <p className="text-center text-sm text-slate-400 py-4">Nenhuma fatura em aberto.</p>}
+          <p className="text-xs text-slate-500">Ordem: competência (a mais antiga primeiro), vencimento e comando / UG / cliente.</p>
+          <div className="max-h-72 overflow-y-auto border rounded">
+            <table className="w-full text-xs" aria-label="Faturas em aberto para pagar">
+              <thead className="bg-slate-50 text-slate-500 sticky top-0"><tr>
+                <th className="px-2 py-1.5 w-8"></th><th className="px-2 py-1.5 text-center">Comp.</th><th className="px-2 py-1.5 text-center">Vencimento</th>
+                <th className="px-2 py-1.5 text-left">Comando / UG · Cliente</th><th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 py-1.5 text-right">Em aberto</th>
+              </tr></thead>
+              <tbody>
+                {ordenarFaturasAPagar(openInvoices
+                  .filter(inv => {
+                    if (!invoiceSearch) return true;
+                    const search = invoiceSearch.toLowerCase();
+                    return `${inv.client} ${inv.invoiceNumber} ${inv.ug || ''} ${inv.command || ''}`.toLowerCase().includes(search);
+                  })
+                  .filter(inv => saldoDaFatura(inv, alocadoPorFatura.get(inv.id) || 0) >= 0.01))
+                  .slice(0, 400)
+                  .map(inv => {
+                    const debt = saldoDaFatura(inv, alocadoPorFatura.get(inv.id) || 0);
+                    const marcada = selectedInvoiceIds.includes(inv.id);
+                    return (
+                      <tr key={inv.id} className={`border-t border-slate-100 ${marcada ? 'bg-primary-50' : 'hover:bg-slate-50'}`}>
+                        <td className="px-2 py-1"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={marcada} aria-label={`Pagar a fatura ${inv.invoiceNumber}`}
+                          onChange={e => setSelectedInvoiceIds(e.target.checked ? [...selectedInvoiceIds, inv.id] : selectedInvoiceIds.filter(id => id !== inv.id))} /></td>
+                        <td className="px-2 py-1 text-center whitespace-nowrap">{competenciaDe(inv)}</td>
+                        <td className="px-2 py-1 text-center whitespace-nowrap">{dataBR(inv.dueDate)}</td>
+                        <td className="px-2 py-1 max-w-[260px]" title={`${inv.command || ''} / ${inv.ug || ''} · ${inv.client}`}>
+                          {inv.command && <div className="text-[10px] text-slate-400 truncate">{inv.command}</div>}
+                          <div className="truncate"><span className="text-slate-500">{inv.ug ? `${inv.ug} · ` : ''}</span>{inv.client}</div>
+                        </td>
+                        <td className="px-2 py-1 font-mono whitespace-nowrap">{inv.invoiceNumber}<div className="font-sans text-[10px] text-slate-400">{inv.type}</div></td>
+                        <td className="px-2 py-1 text-right tabular-nums font-semibold text-red-600 whitespace-nowrap">R$ {debt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    );
+                  })}
+                {openInvoices.length === 0 && <tr><td colSpan={6} className="text-center text-sm text-slate-400 py-4">Nenhuma fatura em aberto.</td></tr>}
+              </tbody>
+            </table>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded border border-slate-200 space-y-3">
-            <h4 className="text-xs font-bold text-slate-500 uppercase">Tipo de Serviço</h4>
-            <Input label="Tipo de Serviço" value={paymentMeta.serviceType} onChange={e => setPaymentMeta({ ...paymentMeta, serviceType: e.target.value })} />
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="settled" checked={paymentMeta.siscontSettled} onChange={e => setPaymentMeta({ ...paymentMeta, siscontSettled: e.target.checked })} />
-              <label htmlFor="settled" className="text-sm text-slate-700">Quitado no Siplad?</label>
-            </div>
-            <Input label="Vencimento Siplad" type="date" value={paymentMeta.siscontDueDate} onChange={e => setPaymentMeta({ ...paymentMeta, siscontDueDate: e.target.value })} />
+          <div className="p-3 bg-slate-50 rounded border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="Data da baixa" type="date" value={paymentMeta.data} onChange={e => setPaymentMeta({ ...paymentMeta, data: e.target.value })} aria-label="Data da baixa" />
             <Input label="Observação" value={paymentMeta.observation} onChange={e => setPaymentMeta({ ...paymentMeta, observation: e.target.value })} />
+            <p className="sm:col-span-2 text-xs text-slate-500 -mt-1">A data vem preenchida com a do documento (ou do pagamento da GRU). É ela que conta para a taxa condominial recebida no mês.</p>
+            <label className="sm:col-span-2 flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" className="h-4 w-4 mt-0.5 accent-primary-600" checked={paymentMeta.lancadoSiplad} onChange={e => setPaymentMeta({ ...paymentMeta, lancadoSiplad: e.target.checked })} />
+              <span>Já lancei esta baixa no SIPLAD <span className="text-slate-500">— sem marcar, as faturas ficam com <b>SIPLAD pendente</b> (aparecem no filtro "Siplad? Pendente" de Faturas emitidas e no histórico do documento) para lembrar que falta lançar.</span></span>
+            </label>
           </div>
         </div>
       </Modal>
@@ -971,14 +929,9 @@ export const ReceivedBalances: React.FC = () => {
       >
         <div className="space-y-3">
           <CurrencyInput label="Valor do Pagamento" value={allocFormData.amount} onChange={val => setAllocFormData({ ...allocFormData, amount: val })} />
-          <Input label="Tipo de Serviço" value={allocFormData.serviceType || ''} onChange={e => setAllocFormData({ ...allocFormData, serviceType: e.target.value })} />
-          <Input label="Data Venc. Siplad" type="date" value={allocFormData.siscontDueDate || ''} onChange={e => setAllocFormData({ ...allocFormData, siscontDueDate: e.target.value })} />
+          <Input label="Data da baixa" type="date" value={allocFormData.date || ''} onChange={e => setAllocFormData({ ...allocFormData, date: e.target.value })} aria-label="Data da baixa (editar)" />
           <Input label="Observação" value={allocFormData.observation || ''} onChange={e => setAllocFormData({ ...allocFormData, observation: e.target.value })} />
-
-          <div className="flex items-center gap-2 pt-2">
-            <input type="checkbox" id="editSettled" checked={allocFormData.siscontSettled || false} onChange={e => setAllocFormData({ ...allocFormData, siscontSettled: e.target.checked })} />
-            <label htmlFor="editSettled" className="text-sm text-slate-700">Quitado no Siplad?</label>
-          </div>
+          <p className="text-xs text-slate-500">O valor não pode passar do disponível do documento nem do saldo da fatura. O lançamento no SIPLAD é marcado na própria fatura (Faturas emitidas).</p>
         </div>
       </Modal>
 
@@ -996,8 +949,8 @@ export const ReceivedBalances: React.FC = () => {
           await refresh();
           setConfirmDelete(null);
         }}
-        title="Confirmação de Segurança"
-        message="Tem certeza que deseja continuar? Esta ação afetará saldos e status das faturas permanentemente."
+        title={confirmDelete?.type === 'doc' ? 'Excluir documento' : 'Excluir baixa'}
+        message={mensagemExclusao()}
       />
       <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} />
       <BaixaAssistidaModal doc={baixaDoc} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />

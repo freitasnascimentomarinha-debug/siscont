@@ -430,7 +430,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
     await page.reload();
     await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
-    await page.getByRole('button', { name: 'PDF do SIPLAD' }).click();
+    await page.getByRole('button', { name: /Importar ALTCRED \(PDF do SIPLAD\)/ }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
     ok(await page.getByLabel('Ação para Z999.2026.AC.00001').inputValue() === 'NOVA', 'PDF lido: ALTCRED nova reconhecida');
@@ -1765,6 +1765,63 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.locator('tr').filter({ hasText: 'Exercício 2025' }).waitFor();
     ok((await linha('DEZ25')).endsWith('R$ 1.000,00'), 'dezembro de 2025 termina com o saldo do próprio ano (não passa para 2026)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-saldo-mensal.png'), fullPage: true });
+  });
+
+  await cenario('Recebimentos: ordem das faturas, data da baixa, SIPLAD pendente, travas de valor, Excel e exclusão', [], async (page, db) => {
+    const fat = (n, cmd, ug, cli, comp, venc, valor) => ({
+      id: uid(), ug, sector: 'DGMM', command: cmd, client: cli, invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${comp.slice(3)}-${comp.slice(0, 2)}-15`, due_date: venc, month_competence: Number(comp.slice(0, 2)), year_competence: Number(comp.slice(3)), competence: comp, type: 'Água e Esgoto', service_acronym: 'AE',
+      is_canceled: false, siplad_settled: false, om_id: null, origem: 'Planilha', quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [],
+    });
+    const f1 = fat('81000-AE-03-2026-001-0', '81000 - Com1ºDN', '81000', 'Presídio da Marinha', '03/2026', '2026-04-15', 500);
+    const f2 = fat('40030-AE-03-2026-001-0', '40030 - DIM', '40030', 'Diretoria Industrial da Marinha', '03/2026', '2026-04-15', 400);
+    const f3 = fat('40030-AE-02-2026-001-0', '40030 - DIM', '40030', 'Diretoria Industrial da Marinha', '02/2026', '2026-03-15', 300);
+    db.invoices.push(f1, f2, f3);
+    const doc = { id: uid(), document_number: 'G1.2026.AC.00500', document_type: 'ALTCRED', total_value: 1000, date: '2026-09-10', operation: 'PAGAMENTO', client: 'Diretoria Industrial da Marinha', sector: 'DGMM', command: '40030', ug: '40030', observation: '' };
+    db.received_documents.push(doc);
+    await page.reload();
+    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    ok(await page.getByRole('button', { name: 'Importar CSV' }).count() === 0 && await page.getByRole('button', { name: /Importar ALTCRED \(PDF do SIPLAD\)/ }).isVisible(), 'sem o "Importar CSV"; importação pelo PDF do SIPLAD em destaque');
+    // Excel de verdade
+    const [xl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel', exact: true }).click()]);
+    const XLSX = require('xlsx');
+    const wb = XLSX.read(fs.readFileSync(await xl.path()));
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+    ok(/\.xlsx$/.test(xl.suggestedFilename()) && linhas[0].includes('Valor Total') && linhas.some(l => l[5] === 'G1.2026.AC.00500' && l[8] === 1000), `Excel (.xlsx) com valores numéricos (${xl.suggestedFilename()})`);
+    // pagar faturas: ordem, data da baixa e SIPLAD
+    await page.getByTitle('Ver Detalhes').first().click();
+    await page.getByRole('button', { name: /Pagar Faturas/ }).first().click();
+    const ordem = await page.getByRole('table', { name: 'Faturas em aberto para pagar' }).locator('tbody tr td:nth-child(5)').allInnerTexts();
+    ok(ordem.map(t => t.split('\n')[0]).join(' | ') === '40030-AE-02-2026-001-0 | 40030-AE-03-2026-001-0 | 81000-AE-03-2026-001-0', `ordem: competência → vencimento → comando/UG/cliente (${ordem.map(t => t.split('\n')[0]).join(' | ')})`);
+    ok((await page.getByLabel('Data da baixa', { exact: true }).inputValue()) === '2026-09-10', 'data da baixa já vem com a data do documento');
+    await page.getByLabel('Pagar a fatura 40030-AE-02-2026-001-0').check();
+    await page.getByLabel('Pagar a fatura 40030-AE-03-2026-001-0').check();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'recebimentos-pagar.png') });
+    await page.getByRole('button', { name: /Confirmar Pagamento/ }).click();
+    await page.getByText(/2 pagamento\(s\) registrado\(s\) em 10\/09\/2026 — SIPLAD pendente/).waitFor();
+    const baixas = db.payment_allocations.filter(a => a.document_id === doc.id);
+    ok(baixas.length === 2 && baixas.every(a => a.date === '2026-09-10') && baixas.every(a => a.service_type === 'Água e Esgoto'), 'baixas com a data do documento e o serviço de cada fatura');
+    await page.getByText('SIPLAD pendente').first().waitFor();
+    ok(await page.getByText('SIPLAD pendente').count() >= 2, 'histórico mostra "SIPLAD pendente" nas faturas ainda não lançadas');
+    // editar baixa acima do permitido
+    await page.getByTitle('Editar Pagamento').first().click();
+    await page.getByLabel('Valor do Pagamento').fill('900');
+    await page.getByRole('button', { name: 'Salvar Alterações' }).click();
+    await page.getByText(/passa do (que o documento pode cobrir|saldo da fatura)/).waitFor();
+    ok(true, 'editar baixa: valor acima do saldo da fatura/documento é recusado');
+    await page.keyboard.press('Escape');
+    // editar documento abaixo do já baixado
+    await page.getByTitle('Editar', { exact: true }).first().click();
+    await page.getByLabel('Valor Total', { exact: true }).fill('100');
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByText(/não pode ser menor que o já baixado/).waitFor();
+    ok(true, 'editar documento: valor menor que o já baixado é recusado');
+    await page.keyboard.press('Escape');
+    // exclusão com a lista das faturas que reabrem
+    await page.getByRole('button', { name: 'Excluir', exact: true }).first().click();
+    const msg = (await page.getByRole('dialog').innerText()).replace(/\s+/g, ' ');
+    ok(/2 fatura\(s\) voltarão a ficar em aberto: 40030-AE-0[23]-2026-001-0, 40030-AE-0[23]-2026-001-0/.test(msg), 'confirmação de exclusão diz quais faturas reabrem');
+    await page.keyboard.press('Escape');
   });
 
   await browser.close();
