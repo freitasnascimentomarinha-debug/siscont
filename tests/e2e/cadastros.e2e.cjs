@@ -1016,6 +1016,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /registrar/ }).click();
     await page.getByText('Cobrança registrada.').waitFor();
     ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');
+    // filtros das mensagens e PDF em cima do filtro
+    await page.getByLabel('Faixa de atraso').selectOption('31–90 dias');
+    const [pdfF] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF do filtro' }).click()]);
+    const txtF = fs.readFileSync(await pdfF.path(), 'latin1');
+    if (SHOTS) { fs.copyFileSync(await pdfF.path(), path.join(SHOTS, 'cobranca-filtro.pdf')); await page.screenshot({ path: path.join(SHOTS, 'cobranca-filtros.png'), fullPage: true }); }
+    ok(/^cobranca_filtro_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfF.suggestedFilename()) && txtF.includes('40032-EL-08-2026-039-0') && !txtF.includes('40030-TC-09-2025-014-0') && txtF.includes('atraso 31'), 'PDF do filtro: só a faixa 31–90 dias, com o filtro no cabeçalho');
+    await page.getByLabel('Faixa de atraso').selectOption('');
+    await page.getByLabel('Última cobrança').selectOption('nunca');
+    const tabMsg = await page.locator('table').last().innerText();
+    ok(!tabMsg.includes('40030 - Diretoria Industrial'), `filtro "nunca cobrados" tira o comando já cobrado [${tabMsg.replace(/\s+/g, ' ').slice(0, 200)}]`);
+    await page.getByRole('button', { name: 'limpar filtros' }).click();
+    await page.getByLabel('Buscar nas faturas vencidas').fill('MANGARATIBA');
+    ok(/1 fatura\(s\)/.test(await page.getByLabel('Filtros da cobrança').innerText()), 'busca por OM nas faturas vencidas (sem diferenciar maiúsculas)');
+    await page.getByRole('button', { name: 'limpar filtros' }).click();
     await page.getByRole('button', { name: 'Painel do Encarregado' }).first().click(); // item do menu (tela própria)
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     await page.getByText('Dívida por condômino e idade').waitFor();
@@ -1258,27 +1272,37 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       fat('40031-AE-09-2025-001-0', 'Centro de Perícias Médicas', 'Água e Esgoto', 2025, 9, '2025-11-14', 80),
       fat('40030-EL-09-2026-001-0', 'Diretoria Industrial da Marinha', 'Energia Elétrica', 2026, 9, '2026-10-15', 200),
       fat('81100-TC-10-2026-001-0', 'Arsenal de Marinha do Rio de Janeiro', 'Taxa Condominial', 2026, 10, '2099-12-15', 400, { contestada: true }),
+      fat('81100-TC-11-2026-001-0', 'Arsenal de Marinha do Rio de Janeiro', 'Taxa Condominial', 2026, 11, '2099-12-20', 400, { om_id: amrj.id }),
       fat('40030-AE-01-2026-001-0', 'Diretoria Industrial da Marinha', 'Água e Esgoto', 2026, 1, '2026-03-02', 1000),
       fat('40030-AE-02-2026-001-0', 'Diretoria Industrial da Marinha', 'Água e Esgoto', 2026, 2, '2026-04-02', 999, { is_canceled: true }),
     ];
     const doc = { id: uid(), document_number: 'G424.2026.AC.00001', document_type: 'ALTCRED', total_value: 1030, date: '2026-03-01', operation: 'PAGAMENTO', client: 'DIM', sector: 'DGMM', command: '40030' };
     db.received_documents.push(doc);
-    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: db.invoices[4].id, amount: 1000, date: '2026-03-01', service_type: 'AE', tipo_baixa: 'PAGAMENTO' },
+    db.payment_allocations.push({ id: uid(), document_id: doc.id, invoice_id: db.invoices[5].id, amount: 1000, date: '2026-03-01', service_type: 'AE', tipo_baixa: 'PAGAMENTO' },
       { id: uid(), document_id: doc.id, invoice_id: db.invoices[1].id, amount: 30, date: '2026-03-01', service_type: 'AE', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
     await page.getByRole('button', { name: 'Painel inicial' }).click();
     await page.getByLabel('Ano de referência').selectOption('2026');
     const valorDe = async t => (await page.getByRole('button', { name: new RegExp(`^${t}:`) }).innerText()).replace(/\s+/g, ' ');
     await page.getByRole('button', { name: /^Faturado em 2026:/ }).waitFor();
-    ok((await valorDe('Faturado em 2026')).includes('R$ 1.600,00'), 'faturado em 2026 = R$ 1.600,00 (sem a cancelada)');
+    ok((await valorDe('Faturado em 2026')).includes('R$ 2.000,00'), 'faturado em 2026 = R$ 2.000,00 (sem a cancelada)');
     ok((await valorDe('Vencidas até 2025')).includes('R$ 350,00'), 'vencidas até 2025 = R$ 350,00 (2024 + saldo parcial de 2025)');
     ok((await valorDe('Vencidas de 2026')).includes('R$ 200,00'), 'vencidas de 2026 = R$ 200,00');
     ok((await valorDe('Total vencidas')).includes('R$ 550,00'), 'total vencidas = R$ 550,00');
     ok((await valorDe('A vencer')).includes('R$ 400,00'), 'a vencer = R$ 400,00');
-    ok((await valorDe('Total em aberto')).includes('R$ 950,00') && (await valorDe('Total em aberto')).includes('contestação'), 'total em aberto = R$ 950,00, com aviso da contestada');
+    ok((await valorDe('Total em aberto')).includes('R$ 950,00') && (await valorDe('Total em aberto')).includes('sem as contestadas'), 'total em aberto = R$ 950,00, sem a contestada');
+    ok((await valorDe('Em contestação')).includes('R$ 400,00'), 'cartão "Em contestação" com a contestada (fora do em aberto)');
     ok(await page.getByText('Total mensal (todas as OM)').isVisible() && (await page.getByText('R$ 111.731,06').count()) > 0, 'taxa condominial geral mensal R$ 111.731,06');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-inicial.png'), fullPage: true });
     if (SHOTS) { for (const [k, y] of [[2, 700], [3, 1400]]) { await page.locator('main .overflow-y-auto').first().evaluate((el, yy) => el.scrollTo(0, yy), y); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `painel-inicial-${k}.png`) }); } await page.locator('main .overflow-y-auto').first().evaluate(el => el.scrollTo(0, 0)); }
+    await page.getByRole('button', { name: /^Em contestação:/ }).click();
+    await page.getByRole('heading', { name: 'Faturas em contestação' }).waitFor();
+    ok((await page.locator('table').last().innerText()).includes('81100-TC-10-2026-001-0'), 'clicar em "Em contestação" lista a contestada');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Total em aberto:/ }).click();
+    await page.getByRole('heading', { name: 'Faturas em aberto', exact: true }).waitFor();
+    ok(!(await page.locator('table').last().innerText()).includes('81100-TC-10-2026-001-0'), 'a lista do em aberto não traz a contestada');
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: /^Total vencidas:/ }).click();
     await page.getByRole('heading', { name: 'Faturas vencidas' }).waitFor();
     ok((await page.locator('table').last().innerText()).includes('40030-TC-05-2024-001-0'), 'clicar no cartão abre a lista das faturas vencidas');
@@ -1296,6 +1320,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await valorDe('Total em aberto')).includes('R$ 450,00'), 'sem a DIM: em aberto R$ 450,00 (CPMM 50 + AMRJ 400)');
     await page.getByTitle('Remover filtro').click();
     ok((await valorDe('Total em aberto')).includes('R$ 950,00'), 'filtro removido volta a R$ 950,00');
+    // a taxa condominial acompanha o filtro de cliente e de serviço
+    await page.getByRole('button', { name: /^Cliente \(OM\): Todos/ }).click();
+    await page.getByRole('option', { name: 'SecNSNQ' }).click();
+    await page.keyboard.press('Escape'); await page.getByRole('heading', { name: 'Painel inicial' }).click();
+    ok(await page.getByText('Total mensal (OM do filtro)').isVisible() && (await valorDe('Taxa condominial 2026 \\(mensal\\)')).includes('R$ 101.673,70'), 'taxa condominial segue o filtro de cliente (sem a SecNSNQ: R$ 101.673,70)');
+    await page.getByRole('button', { name: 'Limpar filtros (ver total geral)' }).click();
+    await page.getByRole('button', { name: /^Serviço: Todos/ }).click();
+    await page.getByRole('option', { name: 'Taxa Condominial' }).click();
+    await page.keyboard.press('Escape'); await page.getByRole('heading', { name: 'Painel inicial' }).click();
+    ok((await valorDe('Taxa condominial 2026 \\(mensal\\)')).includes('R$ 0,00') && (await valorDe('Taxa condominial 2026 \\(mensal\\)')).includes('fora do filtro'), 'tirar o serviço Taxa Condominial zera o cartão da taxa');
+    await page.getByRole('button', { name: 'Limpar filtros (ver total geral)' }).click();
   });
 
   await cenario('Cadastro: duplicidades, unificação, OM fora da Ilha e grupo de setores da Cobrança', [], async (page, db) => {

@@ -12,18 +12,19 @@ describe('painel inicial', () => {
     f({ ano: 2024, mes: 5, vencimento: '2024-07-15', saldo: 300, total: 300 }),          // vencida ano anterior (> 1 ano)
     f({ ano: 2025, mes: 9, vencimento: '2025-11-14', saldo: 50, total: 80, pago: 30 }),  // vencida ano anterior, parcial
     f({ ano: 2026, mes: 9, vencimento: '2026-10-15', saldo: 200, total: 200 }),          // vencida 2026 (23 dias)
-    f({ ano: 2026, mes: 10, vencimento: '2026-12-15', saldo: 400, total: 400, contestada: true }), // a vencer
+    f({ ano: 2026, mes: 10, vencimento: '2026-12-15', saldo: 400, total: 400, contestada: true }), // contestada: fora do em aberto
+    f({ ano: 2026, mes: 10, vencimento: '2026-12-15', saldo: 400, total: 400 }), // a vencer
     f({ ano: 2026, mes: 1, saldo: 0, total: 1000, pago: 1000 }),                          // paga
     f({ ano: 2026, mes: 2, saldo: 0, total: 999, cancelada: true }),                      // cancelada
   ];
   const r = resumoPainel(fs, 2026, hoje);
   it('faturado no ano sem canceladas e % pago', () => {
-    expect(r.faturadoAno).toEqual({ valor: 1600, qtd: 3 });
+    expect(r.faturadoAno).toEqual({ valor: 2000, qtd: 4 });
     expect(r.pagoAno).toBe(1000);
-    expect(r.percentualPago).toBe(62.5);
+    expect(r.percentualPago).toBe(50);
     expect(r.faturadoAnterior).toBe(80);
   });
-  it('vencidas: anos anteriores × ano; a vencer; em aberto = vencidas + a vencer', () => {
+  it('vencidas: anos anteriores × ano; a vencer; em aberto = vencidas + a vencer (sem as contestadas)', () => {
     expect(r.vencidasAnteriores).toEqual({ valor: 350, qtd: 2 });
     expect(r.vencidasAno).toEqual({ valor: 200, qtd: 1 });
     expect(r.vencidas).toEqual({ valor: 550, qtd: 3 });
@@ -31,6 +32,8 @@ describe('painel inicial', () => {
     expect(r.emAberto).toEqual({ valor: 950, qtd: 4 });
     expect(r.emAberto.valor).toBe(r.vencidas.valor + r.aVencer.valor);
     expect(r.contestadas).toEqual({ valor: 400, qtd: 1 });
+    expect(doGrupo(fs, 'EM_ABERTO', 2026, hoje).some(x => x.contestada)).toBe(false);
+    expect(doGrupo(fs, 'CONTESTADAS', 2026, hoje)).toHaveLength(1);
     expect(r.anosVencidos.map(a => a.ano)).toEqual([2026, 2025, 2024]);
   });
   it('idade da dívida e grupos do clique', () => {

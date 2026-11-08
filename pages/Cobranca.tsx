@@ -11,7 +11,9 @@ import {
   adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro, saldosParados,
 } from '../services/relatoriosService';
 import { listarContestacoes } from '../services/fase4Service';
-import { FaturaAberta, Pivo, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
+import { FAIXAS, FaturaAberta, Pivo, diasAtraso, faixaDe, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
+
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 import { notify } from '../utils/notify';
 import { hojeISO } from '../utils/datas';
 import { Modal } from '../components/ui/Modal';
@@ -63,6 +65,11 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const [indicativos, setIndicativos] = useState<Record<string, string>>({});
   const [editarGrupo, setEditarGrupo] = useState<{ nome: string; setores: Set<string> } | null>(null);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
+  // filtros das mensagens de cobrança (a tabela, a mensagem e o PDF seguem o filtro)
+  const [exComandos, setExComandos] = useExcluidosLembrados('siscont.cobranca.comandos');
+  const [faixaMsg, setFaixaMsg] = useState('');
+  const [buscaMsg, setBuscaMsg] = useState('');
+  const [ultimaMsg, setUltimaMsg] = useState<'' | 'nunca' | '30' | '60' | '90'>('');
   const [qExtra, setQExtra] = useState(false);
   const [qContest, setQContest] = useState(false);
   const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
@@ -136,12 +143,38 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   };
 
   // ------------- mensagens de cobrança
+  const comandosVencidos = useMemo(() => [...new Set(q.vencidas.map(f => f.comando).filter(Boolean))].sort(), [q]);
+  const vencidasFiltradas = useMemo(() => {
+    const b = semAcento(buscaMsg.trim());
+    return q.vencidas.filter(f => (incluirContestadas || !f.contestada) && !exComandos.has(f.comando)
+      && (!faixaMsg || faixaDe(Math.max(0, diasAtraso(f.vencimento, h))) === faixaMsg)
+      && (!b || semAcento(`${f.numero} ${f.cliente} ${f.comando} ${f.setor} ${f.tipo}`).includes(b)));
+  }, [q, incluirContestadas, exComandos, faixaMsg, buscaMsg, h]);
   const vencidasPorComando = useMemo(() => {
     const m = new Map<string, FaturaAberta[]>();
-    q.vencidas.filter(f => incluirContestadas || !f.contestada).forEach(f => m.set(f.comando, [...(m.get(f.comando) || []), f]));
+    vencidasFiltradas.forEach(f => m.set(f.comando, [...(m.get(f.comando) || []), f]));
+    const ult = (c: string) => cobrancas.filter(x => x.comando === c).map(x => x.enviadaEm).sort().pop();
     return [...m.entries()].map(([c, fs]) => ({ comando: c, fs, total: fs.reduce((s, f) => s + f.saldo, 0), maisAntiga: fs.reduce((a, f) => (f.vencimento < a ? f.vencimento : a), '9999') }))
+      .filter(v => {
+        if (!ultimaMsg) return true;
+        const u = ult(v.comando);
+        if (ultimaMsg === 'nunca') return !u;
+        return !u || diasAtraso(u.slice(0, 10), h) > Number(ultimaMsg);
+      })
       .sort((a, b) => b.total - a.total);
-  }, [q, incluirContestadas]);
+  }, [vencidasFiltradas, cobrancas, ultimaMsg, h]);
+  const filtrosMsgLigados = !!(exSetores.size || exComandos.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas);
+  const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); };
+  const descricaoFiltrosMsg = () => {
+    const f: string[] = [];
+    if (exSetores.size) f.push(`setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ') || 'nenhum'}`);
+    if (exComandos.size) f.push(`${comandosVencidos.filter(x => !exComandos.has(x)).length} de ${comandosVencidos.length} comandos`);
+    if (faixaMsg) f.push(`atraso ${faixaMsg}`);
+    if (buscaMsg.trim()) f.push(`busca "${buscaMsg.trim()}"`);
+    if (ultimaMsg) f.push(ultimaMsg === 'nunca' ? 'comandos nunca cobrados' : `sem cobrança há mais de ${ultimaMsg} dias`);
+    f.push(incluirContestadas ? 'com as faturas em contestação' : 'sem as faturas em contestação');
+    return f.join(' · ');
+  };
   /** Comando do cadastro pelo texto "40030 - Nome" (código) ou pelo nome. */
   const comandoDe = (texto: string) => {
     if (!base) return undefined;
@@ -171,19 +204,28 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     base.docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     base.baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     base.invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), omsMapa) : []), [base, omsMapa]);
-  const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) => {
-    const fs: FaturaMapa[] = m.faturas.map(f => ({ id: f.id, omId: f.omId ?? null, client: f.cliente, sector: f.setor, command: f.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, saldo: f.saldo, contestada: f.contestada }));
+  const mapaDasFaturas = (lista: FaturaAberta[]) => montarMapa(
+    lista.map(f => ({ id: f.id, omId: f.omId ?? null, client: f.cliente, sector: f.setor, command: f.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, saldo: f.saldo, contestada: f.contestada }) as FaturaMapa),
     // só as OM das faturas cobradas (o filtro 'vencidas' tira as OM que só têm crédito)
-    const mapa = montarMapa(fs, creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
+    creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
+  const REGRA_CREDITO = 'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.';
+  const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
-    pdfArvore(mapa, {
+    pdfArvore(mapaDasFaturas(m.faturas), {
       titulo: `Cobrança de faturas em atraso — ${m.comando}`,
-      linhas: [
-        `Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
-        'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.',
-      ],
+      linhas: [`Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`, REGRA_CREDITO],
       rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
     }).save(`cobranca_${(m.comando.match(/^\d{4,5}/)?.[0] || m.comando).replace(/[^\w-]+/g, '_').slice(0, 40)}_${h}.pdf`);
+  };
+  /** PDF de todas as faturas vencidas que passaram nos filtros, em árvore. */
+  const pdfFiltro = () => {
+    const lista = vencidasPorComando.flatMap(v => v.fs);
+    if (!lista.length) { notify.error('Nenhuma fatura no filtro.'); return; }
+    pdfArvore(mapaDasFaturas(lista), {
+      titulo: 'Cobrança — faturas vencidas por setor, comando e OM',
+      linhas: [`Posição em ${br(h)} · ${vencidasPorComando.length} comando(s) · ${lista.length} fatura(s) vencida(s)`, `Filtros: ${descricaoFiltrosMsg()}`, REGRA_CREDITO],
+      rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
+    }).save(`cobranca_filtro_${h}.pdf`);
   };
 
   // ------------- painel
@@ -235,7 +277,31 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
         <div className="space-y-3">
           {semIndicativo > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semIndicativo} comando(s) com faturas vencidas não têm indicativo naval: a mensagem sairia sem o destinatário. Digite o indicativo na coluna e clique em gravar (fica no cadastro do comando).</p>}
           {!cobrancas.length && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-2">Nenhuma cobrança registrada ainda. Depois de enviar a mensagem, clique em <b>Enviada — registrar</b> para a data aparecer em "Última cobrança".</p>}
-          <label className="text-sm flex items-center gap-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
+          <div className="flex flex-wrap gap-3 items-end bg-white rounded-lg border border-slate-200 p-3" aria-label="Filtros da cobrança">
+            <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+            <MultiFiltro rotulo="Comandos" opcoes={comandosVencidos} excluidos={exComandos} onChange={setExComandos} largura="w-96" />
+            <label className="text-xs text-slate-600">Atraso
+              <select className={`${sel} block mt-1`} value={faixaMsg} onChange={e => setFaixaMsg(e.target.value)} aria-label="Faixa de atraso">
+                <option value="">Todas as faixas</option>
+                {FAIXAS.filter(x => x.rotulo !== 'A vencer').map(x => <option key={x.rotulo} value={x.rotulo}>{x.rotulo}</option>)}
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">Última cobrança
+              <select className={`${sel} block mt-1`} value={ultimaMsg} onChange={e => setUltimaMsg(e.target.value as any)} aria-label="Última cobrança">
+                <option value="">Qualquer</option><option value="nunca">Nunca cobrados</option>
+                <option value="30">Há mais de 30 dias (ou nunca)</option><option value="60">Há mais de 60 dias (ou nunca)</option><option value="90">Há mais de 90 dias (ou nunca)</option>
+              </select>
+            </label>
+            <label className="text-xs text-slate-600">Buscar
+              <input className={`${sel} block mt-1 w-56`} placeholder="OM, fatura, comando, tipo" value={buscaMsg} onChange={e => setBuscaMsg(e.target.value)} aria-label="Buscar nas faturas vencidas" />
+            </label>
+            <label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
+            {filtrosMsgLigados && <button className="text-xs text-primary-700 underline pb-2" onClick={limparFiltrosMsg}>limpar filtros</button>}
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-sm text-slate-600">{vencidasPorComando.length} comando(s) · {vencidasPorComando.reduce((s, v) => s + v.fs.length, 0)} fatura(s) · <b className="tabular-nums">{brl(vencidasPorComando.reduce((s, v) => s + v.total, 0))}</b></span>
+              <Button variant="secondary" onClick={pdfFiltro}><FileText size={16} className="mr-1" />PDF do filtro</Button>
+            </div>
+          </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Comando', 'Indicativo', 'Faturas vencidas', 'Total', 'Mais antiga', 'Última cobrança', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
@@ -259,7 +325,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
                     </tr>
                   );
                 })}
-                {!vencidasPorComando.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">Nenhuma fatura vencida.</td></tr>}
+                {!vencidasPorComando.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">{filtrosMsgLigados ? 'Nenhuma fatura vencida no filtro.' : 'Nenhuma fatura vencida.'}</td></tr>}
               </tbody>
             </table>
           </div>

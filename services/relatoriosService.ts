@@ -130,7 +130,7 @@ export async function salvarSaidas(ss: Saida[]) {
 }
 
 export async function registrarCobranca(c: { comando: string; indicativo?: string | null; faturas: string[]; valor: number; texto: string; usuario: string }) {
-  const { error } = await supabase.from('cobrancas').insert({ comando: c.comando, indicativo: c.indicativo ?? null, faturas: c.faturas, valor: c.valor, texto: c.texto, enviada_por: c.usuario });
+  const { error } = await supabase.from('cobrancas').insert({ comando: c.comando, indicativo: c.indicativo ?? null, faturas: c.faturas, valor: c.valor, texto: c.texto, enviada_por: c.usuario, enviada_em: new Date().toISOString() });
   checar(error);
 }
 export async function listarCobrancas(): Promise<{ comando: string; enviadaEm: string; faturas: string[]; valor: number }[]> {

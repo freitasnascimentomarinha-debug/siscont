@@ -14,6 +14,7 @@ import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resumoPainel, taxaCondominial } from '../utils/painel';
+import { ComandoCad, OMCad, Rotulo, SetorCad, criarResolvedor } from '../utils/documentosOM';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
 const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
@@ -31,14 +32,17 @@ const br = (iso: string) => (iso ? iso.slice(0, 10).split('-').reverse().join('/
 const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const totalDe = (i: Invoice) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
 
-/** Cliente pelo cadastro (OM unificada aparece com um nome só); sem OM ligada, o nome escrito na fatura. */
-const paraPainel = (i: Invoice, nomeOM: Map<string, string>): FaturaPainel => ({
-  id: i.id, numero: i.invoiceNumber, cliente: (i.omId && nomeOM.get(i.omId)) || i.client, setor: i.sector, comando: i.command, tipo: i.type || i.serviceAcronym || '—',
+/** Setor, comando e cliente pelo cadastro da OM (OM unificada aparece com um nome só); sem OM ligada, o texto da fatura. */
+const paraPainel = (i: Invoice, rotulo: (omId: string) => Rotulo | undefined): FaturaPainel => {
+  const r = i.omId ? rotulo(i.omId) : undefined;
+  return {
+  id: i.id, numero: i.invoiceNumber, cliente: r?.cliente || i.client, setor: r?.setor || i.sector, comando: r?.comando || i.command, tipo: i.type || i.serviceAcronym || '—',
   ano: i.yearCompetence, mes: i.monthCompetence, emissao: i.issueDate, vencimento: i.dueDate,
   total: totalDe(i), pago: i.paidAmount || 0,
   saldo: i.isCanceled || i.status === InvoiceStatus.PAID ? 0 : i.saldoAPagar ?? Math.max(0, totalDe(i) - (i.paidAmount || 0)),
   cancelada: !!i.isCanceled, contestada: !!i.contestada,
-});
+  };
+};
 
 /** Dica ao passar o mouse (ou focar com o teclado). */
 const Dica: React.FC<{ texto: string }> = ({ texto }) => (
@@ -97,7 +101,7 @@ export const Dashboard: React.FC = () => {
   const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
   const [precos, setPrecos] = useState<{ ano: number; sigla: string; omId?: string | null; valor: number }[]>([]);
   const [nomesOM, setNomesOM] = useState<Map<string, string>>(new Map());
-  const [nomeCompleto, setNomeCompleto] = useState<Map<string, string>>(new Map());
+  const [cad, setCad] = useState<{ oms: OMCad[]; comandos: ComandoCad[]; setores: SetorCad[] }>({ oms: [], comandos: [], setores: [] });
   const [carregando, setCarregando] = useState(true);
   const hoje = hojeIso();
   const [ano, setAno] = useState(new Date().getFullYear());
@@ -117,20 +121,37 @@ export const Dashboard: React.FC = () => {
       const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]);
       setInvoices(invs); setDocuments(docs);
       const a = new Date().getFullYear();
-      const [p, oms] = await Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => [])]);
+      const [p, oms, comandos, setores] = await Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => []),
+        cadastroService.listComandos().catch(() => []), cadastroService.listSetores().catch(() => [])]);
       setPrecos(p); setNomesOM(new Map((oms as any[]).map(o => [o.id as string, (o.sigla || o.nome) as string] as [string, string])));
-      setNomeCompleto(new Map((oms as any[]).map(o => [o.id as string, o.nome as string] as [string, string])));
+      setCad({ oms: oms as any, comandos: comandos as any, setores: setores as any });
     } catch (err) { notify.fail('Erro ao carregar o painel', err); } finally { setCarregando(false); }
   };
   useEffect(() => { carregar(); }, []);
 
-  const todas = useMemo(() => invoices.map(i => paraPainel(i, new Map())), [invoices]);
-  const filtradas = useMemo(() => todas.filter(f => !exSetor.has(f.setor) && !exComando.has(f.comando) && !exCliente.has(f.cliente) && !exServico.has(f.tipo)), [todas, exSetor, exComando, exCliente, exServico]);
+  const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
+  const rotuloOM = useMemo(() => {
+    const porId = new Map(cad.oms.map(o => [o.id, o]));
+    const memo = new Map<string, Rotulo | undefined>();
+    return (id: string) => { if (!memo.has(id)) { const o = porId.get(id); memo.set(id, o ? resolv.rotuloDaOM(o) : undefined); } return memo.get(id); };
+  }, [cad, resolv]);
+  const todas = useMemo(() => invoices.map(i => paraPainel(i, rotuloOM)), [invoices, rotuloOM]);
+  const passa = (x: { setor: string; comando: string; cliente: string }) => !exSetor.has(x.setor) && !exComando.has(x.comando) && !exCliente.has(x.cliente);
+  const filtradas = useMemo(() => todas.filter(f => passa(f) && !exServico.has(f.tipo)), [todas, exSetor, exComando, exCliente, exServico]);
   const setCliente = (c: string) => setExCliente(new Set(opcoes('cliente').filter(o => o !== c)));
   const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
-  const tc = useMemo(() => taxaCondominial(precos, nomesOM, ano), [precos, nomesOM, ano]);
+  // taxa condominial segue os filtros: só as OM que passam no setor/comando/cliente, e some se o serviço TC estiver fora
+  const tiposTC = useMemo(() => [...new Set(todas.filter(f => /-TC-/.test(f.numero)).map(f => f.tipo))], [todas]);
+  const tcForaDoFiltro = tiposTC.length > 0 && tiposTC.every(t => exServico.has(t));
+  const tc = useMemo(() => {
+    const ok = (omId?: string | null) => { if (tcForaDoFiltro) return false; const rt = omId ? rotuloOM(omId) : undefined; return !rt || passa(rt); };
+    // o ano da tabela vem da tabela inteira (o filtro não muda qual tabela está vigente)
+    return { ...taxaCondominial(precos.filter(p => p.sigla !== 'TC' || ok(p.omId)), nomesOM, ano), ano: taxaCondominial(precos, nomesOM, ano).ano };
+  }, [precos, nomesOM, ano, rotuloOM, exSetor, exComando, exCliente, tcForaDoFiltro]);
   const anos = useMemo(() => [...new Set([new Date().getFullYear(), ...todas.map(f => f.ano).filter(Boolean)])].sort((a, b) => b - a), [todas]);
-  const opcoes = (k: 'setor' | 'comando' | 'cliente' | 'tipo') => [...new Set(todas.map(f => f[k]).filter(Boolean))].sort();
+  // OM que pagam taxa condominial também entram nas opções (mesmo sem fatura), para o filtro alcançar o quadro da TC
+  const rotulosTC = useMemo(() => precos.filter(p => p.sigla === 'TC' && p.omId).map(p => rotuloOM(p.omId!)).filter(Boolean) as Rotulo[], [precos, rotuloOM]);
+  const opcoes = (k: 'setor' | 'comando' | 'cliente' | 'tipo') => [...new Set([...todas.map(f => f[k]), ...(k === 'tipo' ? [] : rotulosTC.map(x => x[k]))].filter(Boolean))].sort();
   const resumoFiltro = (ex: Set<string>, k: 'setor' | 'comando' | 'cliente' | 'tipo') => {
     const o = opcoes(k), e = o.filter(v => ex.has(v));
     return !e.length ? '' : e.length <= 2 ? `todos exceto ${e.join(', ')}` : o.length - e.length <= 2 ? o.filter(v => !ex.has(v)).join(', ') : `${o.length - e.length} de ${o.length}`;
@@ -183,7 +204,8 @@ export const Dashboard: React.FC = () => {
         [`Vencidas de ${ano}`, brl(r.vencidasAno.valor), String(r.vencidasAno.qtd)],
         ['Total vencidas', brl(r.vencidas.valor), String(r.vencidas.qtd)],
         ['A vencer', brl(r.aVencer.valor), String(r.aVencer.qtd)],
-        ['Total em aberto', brl(r.emAberto.valor), String(r.emAberto.qtd)],
+        ['Total em aberto (sem contestadas)', brl(r.emAberto.valor), String(r.emAberto.qtd)],
+        ['Em contestação (fora do em aberto)', brl(r.contestadas.valor), String(r.contestadas.qtd)],
         ...(tc.ano ? [[`Taxa condominial ${tc.ano} (mensal / anual)`, `${brl(tc.mensal)} / ${brl(tc.anual)}`, `${tc.oms.length} OM`]] : []),
       ],
       styles: { fontSize: 9 },
@@ -197,8 +219,9 @@ export const Dashboard: React.FC = () => {
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
     doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15);
-    const docs = documents.filter(d => d.availableValue > 0 && !exSetor.has(d.sector) && !exComando.has(d.command) && !exCliente.has(d.client));
-    autoTable(doc, { startY: 22, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => [d.sector, d.command, d.client, d.documentNumber, d.operation, brl(d.availableValue)]), styles: { fontSize: 8 } });
+    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)} · faturas em contestação fora do em aberto${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 20);
+    const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)));
+    autoTable(doc, { startY: 25, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 } });
     autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
     doc.save('extrato_saldos_siscont.pdf');
   };
@@ -259,17 +282,21 @@ export const Dashboard: React.FC = () => {
           detalhe="ainda dentro do prazo"
           dica="Faturas em aberto ainda dentro do prazo de vencimento (emissão + 30 dias)." onClick={() => abrir('Faturas a vencer', 'A_VENCER')} />
         <Cartao titulo="Total em aberto" valor={r.emAberto.valor} qtd={r.emAberto.qtd} icone={Wallet} cor="#475569" destaque
-          detalhe={`= vencidas + a vencer${r.contestadas.qtd ? ` · inclui ${brl(r.contestadas.valor)} em contestação` : ''}`}
-          dica="Tudo o que ainda falta receber: saldo das faturas não pagas (já descontados pagamentos e adiantamentos)." onClick={() => abrir('Faturas em aberto', 'EM_ABERTO')} />
+          detalhe="= vencidas + a vencer · sem as contestadas"
+          dica="Tudo o que ainda falta receber: saldo das faturas não pagas (já descontados pagamentos e adiantamentos). As faturas em contestação ficam fora e aparecem no cartão próprio." onClick={() => abrir('Faturas em aberto', 'EM_ABERTO')} />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <Cartao titulo={`Vencidas até ${ano - 1}`} valor={r.vencidasAnteriores.valor} qtd={r.vencidasAnteriores.qtd} icone={CalendarClock} cor="#8f1d1d"
           detalhe={r.anosVencidos.filter(a => a.ano < ano).slice(0, 3).map(a => `${a.ano}: ${compacto(a.valor)}`).join(' · ')}
           dica={`Faturas vencidas de competência de exercícios anteriores a ${ano}.`} onClick={() => abrir(`Vencidas de anos anteriores a ${ano}`, 'VENCIDAS_ANTERIORES')} />
         <Cartao titulo={`Vencidas de ${ano}`} valor={r.vencidasAno.valor} qtd={r.vencidasAno.qtd} icone={Clock} cor={COR.vencido}
           dica={`Faturas vencidas de competência ${ano}.`} onClick={() => abrir(`Vencidas de ${ano}`, 'VENCIDAS_ANO')} />
+        <Cartao titulo="Em contestação" valor={r.contestadas.valor} qtd={r.contestadas.qtd} icone={HelpCircle} cor="#b45309"
+          detalhe="fora do em aberto"
+          dica="Faturas com contestação aberta: não entram no em aberto, nas vencidas, nos gráficos nem nos maiores devedores até a contestação ser resolvida."
+          onClick={() => abrir('Faturas em contestação', 'CONTESTADAS')} />
         <Cartao titulo={`Taxa condominial ${tc.ano ?? ''} (mensal)`.trim()} valor={tc.mensal} icone={Landmark} cor={COR.faturado}
-          detalhe={tc.ano ? `${tc.oms.length} OM · anual ${compacto(tc.anual)}` : 'tabela ainda não publicada'}
+          detalhe={tcForaDoFiltro ? 'serviço fora do filtro' : tc.ano ? `${tc.oms.length} OM · anual ${compacto(tc.anual)}` : 'tabela ainda não publicada'}
           dica="Soma da taxa condominial mensal de todas as OM (tabela vigente). O valor de cada OM está mais abaixo."
           onClick={tc.oms.length ? () => document.getElementById('painel-tc')?.scrollIntoView({ behavior: 'smooth' }) : undefined} />
       </div>
@@ -370,7 +397,7 @@ export const Dashboard: React.FC = () => {
         {tc.oms.length ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="space-y-3">
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">Total mensal (todas as OM)</div><div className="text-2xl font-bold text-slate-900 tabular-nums">{brl(tc.mensal)}</div></div>
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">Total mensal ({filtrosAtivos.length ? 'OM do filtro' : 'todas as OM'})</div><div className="text-2xl font-bold text-slate-900 tabular-nums">{brl(tc.mensal)}</div></div>
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">Total anual</div><div className="text-xl font-bold text-slate-900 tabular-nums">{brl(tc.anual)}</div></div>
               <div className="p-3 rounded-lg bg-slate-50 border border-slate-200"><div className="text-xs text-slate-500">OM que pagam a taxa</div><div className="text-xl font-bold text-slate-900">{tc.oms.length}</div></div>
             </div>
@@ -389,7 +416,8 @@ export const Dashboard: React.FC = () => {
               {tc.oms.length > 12 && <button className="text-xs text-primary-700 font-semibold mt-1" onClick={() => setVerTodasTc(!verTodasTc)}>{verTodasTc ? 'Mostrar só as 12 maiores' : `Mostrar todas as ${tc.oms.length} OM`}</button>}
             </div>
           </div>
-        ) : <p className="text-sm text-slate-500">Nenhuma tabela de taxa condominial publicada. Publique em <b>Contabilidade de custos → Taxa condominial e diárias</b>.</p>}
+        ) : tcForaDoFiltro || (filtrosAtivos.length && precos.some(p => p.sigla === 'TC')) ? <p className="text-sm text-slate-500">Nenhuma OM com taxa condominial no filtro escolhido.</p>
+        : <p className="text-sm text-slate-500">Nenhuma tabela de taxa condominial publicada. Publique em <b>Contabilidade de custos → Taxa condominial e diárias</b>.</p>}
       </Painel>
 
       {/* Lista de faturas (abre ao clicar) */}

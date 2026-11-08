@@ -5,13 +5,14 @@
  *  - Vencida = em aberto com vencimento anterior a hoje; separada pelo exercício da competência:
  *    anos anteriores × ano de referência (como o quadro "Faturas vencidas AAAA" da planilha).
  *  - A vencer = em aberto com vencimento hoje ou depois.
+ *  - Faturas em CONTESTAÇÃO não contam como em aberto (nem vencidas, nem a vencer): ficam num grupo à parte.
  */
 export interface FaturaPainel {
   id: string; numero: string; cliente: string; setor: string; comando: string; tipo: string;
   ano: number; mes: number; emissao: string; vencimento: string;
   total: number; pago: number; saldo: number; cancelada: boolean; contestada: boolean;
 }
-export type Grupo = 'VENCIDAS_ANTERIORES' | 'VENCIDAS_ANO' | 'VENCIDAS' | 'A_VENCER' | 'EM_ABERTO' | 'FATURADAS_ANO';
+export type Grupo = 'VENCIDAS_ANTERIORES' | 'VENCIDAS_ANO' | 'VENCIDAS' | 'A_VENCER' | 'EM_ABERTO' | 'FATURADAS_ANO' | 'CONTESTADAS';
 export interface Bloco { valor: number; qtd: number }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -21,7 +22,10 @@ export const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'S
 export const FAIXAS_IDADE = ['A vencer', '1 a 30 dias', '31 a 90 dias', '91 a 180 dias', '181 a 365 dias', 'Mais de 1 ano'] as const;
 
 const diasEntre = (de: string, ate: string) => Math.floor((Date.parse(ate.slice(0, 10)) - Date.parse(de.slice(0, 10))) / 86400000);
-export const emAberto = (f: FaturaPainel) => !f.cancelada && f.saldo > 0.009;
+const comSaldo = (f: FaturaPainel) => !f.cancelada && f.saldo > 0.009;
+/** Em aberto = com saldo, não cancelada e NÃO contestada. */
+export const emAberto = (f: FaturaPainel) => comSaldo(f) && !f.contestada;
+export const emContestacao = (f: FaturaPainel) => comSaldo(f) && f.contestada;
 export const vencida = (f: FaturaPainel, hoje: string) => emAberto(f) && !!f.vencimento && f.vencimento.slice(0, 10) < hoje;
 
 export function faixaIdade(f: FaturaPainel, hoje: string): (typeof FAIXAS_IDADE)[number] {
@@ -39,6 +43,7 @@ export function doGrupo(fs: FaturaPainel[], g: Grupo, ano: number, hoje: string)
     case 'VENCIDAS': return fs.filter(f => vencida(f, hoje));
     case 'A_VENCER': return fs.filter(f => emAberto(f) && !vencida(f, hoje));
     case 'EM_ABERTO': return fs.filter(emAberto);
+    case 'CONTESTADAS': return fs.filter(emContestacao);
   }
 }
 
@@ -75,7 +80,7 @@ export function resumoPainel(fs: FaturaPainel[], ano: number, hoje: string) {
     vencidas: bloco(venc),
     aVencer: bloco(abertas.filter(f => !vencida(f, hoje))),
     emAberto: bloco(abertas),
-    contestadas: bloco(abertas.filter(f => f.contestada)),
+    contestadas: bloco(fs.filter(emContestacao)),
     porMes, idade,
     porTipo: agrupar(f => f.tipo),
     porCliente: agrupar(f => f.cliente),
