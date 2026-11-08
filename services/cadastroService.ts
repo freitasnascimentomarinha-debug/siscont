@@ -36,7 +36,7 @@ const toComando = (r: any): Comando => ({
 const toClasse = (r: any): ClasseNavio => ({ id: r.id, nome: r.nome, ativo: r.ativo !== false, desativadoEm: r.desativado_em });
 const toOM = (r: any): OM => ({
   id: r.id, codigo: r.codigo, codigoProprio: r.codigo_proprio !== false, nome: r.nome, sigla: r.sigla, indicativoNaval: r.indicativo_naval,
-  tipo: (r.tipo || 'TERRA') as TipoOM, comandoId: r.comando_id, setorId: r.setor_id, areaCnic: r.area_cnic,
+  tipo: (r.tipo || 'TERRA') as TipoOM, comandoId: r.comando_id, setorId: r.setor_id, areaCnic: r.area_cnic, edificio: r.edificio ?? null,
   lotacao: r.lotacao, classeId: r.classe_id, cnpj: r.cnpj, endereco: r.endereco, emails: r.emails,
   telefone: r.telefone, observacao: r.observacao, ativo: r.ativo !== false, ativadoEm: r.ativado_em,
   desativadoEm: r.desativado_em, motivoDesativacao: r.motivo_desativacao,
@@ -67,6 +67,8 @@ const fromOM = (o: Partial<OM>) => ({
   // colunas do script 012: só enviadas quando informadas (funciona antes do script)
   ...(o.foraDaIlha !== undefined ? { fora_da_ilha: o.foraDaIlha } : {}),
   ...(o.nomesAlternativos !== undefined ? { nomes_alternativos: o.nomesAlternativos } : {}),
+  // script 021: edifício (só enviado quando informado)
+  ...(o.edificio !== undefined ? { edificio: nn(o.edificio?.trim()) } : {}),
 });
 
 async function list<T>(table: string, map: (r: any) => T, order: string): Promise<T[]> {

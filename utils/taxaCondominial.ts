@@ -46,11 +46,22 @@ export type Criterio = 'LOTACAO' | 'AREA' | 'IGUAL' | 'PESO';
 export const CRITERIOS: Record<Criterio, string> = {
   LOTACAO: 'Por pessoa (lotação × dias)', AREA: 'Por área ocupada (m²)', IGUAL: 'Partes iguais', PESO: 'Peso informado (outro critério)',
 };
-/** SEPARADO: OM e navios pagam, cada grupo, a sua % do valor (um não afeta o outro). CONJUNTO: um só valor dividido entre OM e navios. */
+/** (legado) SEPARADO: OM e navios pagam, cada grupo, a sua % do valor. CONJUNTO: um só valor dividido entre OM e navios. */
 export type ModoNavios = 'SEPARADO' | 'CONJUNTO';
+/**
+ * Parte dos NAVIOS (diária de atracação) numa linha: não entra, o valor INTEGRAL da linha, um PERCENTUAL dele ou um
+ * valor FIXO. O valor da linha é o previsto − desconto geral (ou só o previsto: "base" da proposta) e NÃO tem os
+ * descontos das OM. A parte dos navios não diminui o que é rateado entre as OM.
+ */
+export type NaviosModo = 'NAO' | 'INTEGRAL' | 'PERCENTUAL' | 'FIXO';
+export const NAVIOS_MODOS: Record<NaviosModo, string> = { NAO: 'Não entra', INTEGRAL: 'Integral', PERCENTUAL: 'Percentual', FIXO: 'Valor fixo' };
+export type BaseNavios = 'VIGENTE' | 'PREVISTO';
 export interface RubricaTC {
   numero: number; descricao: string; valorPrevisto: number; descontoGeral: number;
   criterio?: Criterio; percentualOM?: number | null; percentualNavios?: number | null; modoNavios?: ModoNavios;
+  naviosModo?: NaviosModo; valorNavios?: number | null;
+  /** rateada entre TODAS as OM da taxa (true) ou só entre as marcadas na matriz */
+  rateioTodas?: boolean;
   /** valor efetivamente rateado entre as OM (calculado por ratearProposta) */
   valorRateio?: number;
 }
@@ -66,6 +77,18 @@ export interface ResultadoOM {
 export interface ResultadoRateio { oms: ResultadoOM[]; valorRubricas: { numero: number; valor: number; distribuido: number; semParticipante: boolean }[]; total: number; custoMilitarDia: number }
 
 export const valorVigente = (r: RubricaTC) => r2(Math.max(0, r.valorPrevisto - r.descontoGeral));
+/** Modo dos navios da linha (registros antigos: % dos navios > 0 = percentual). */
+export const naviosModoDe = (r: RubricaTC): NaviosModo => r.naviosModo || ((r.percentualNavios ?? 0) > 0 ? 'PERCENTUAL' : 'NAO');
+/** Quanto da linha vai para o total dos navios. */
+export function parteNavios(r: RubricaTC, base: BaseNavios = 'VIGENTE'): number {
+  const valor = base === 'PREVISTO' ? r2(r.valorPrevisto) : valorVigente(r);
+  switch (naviosModoDe(r)) {
+    case 'INTEGRAL': return valor;
+    case 'PERCENTUAL': return r2(valor * (r.percentualNavios ?? 0) / 100);
+    case 'FIXO': return r2(Math.max(0, r.valorNavios ?? 0));
+    default: return 0;
+  }
+}
 
 export function ratear(rubricas: RubricaTC[], participantes: Participante[], matriz: Set<string>, descontos: Desconto[]): ResultadoRateio {
   const chave = (rub: number, om: string) => `${rub}|${om}`;
@@ -84,7 +107,8 @@ export function ratear(rubricas: RubricaTC[], participantes: Participante[], mat
   }]));
   const valorRubricas = rubricas.map(r => {
     const valor = r.valorRateio !== undefined ? r2(r.valorRateio) : valorVigente(r);
-    const part = participantes.filter(p => matriz.has(chave(r.numero, p.omId)) && pesoRub(r, p) > 0);
+    // "entre todas": todas as OM da taxa; senão, só as marcadas na matriz
+    const part = participantes.filter(p => (r.rateioTodas || matriz.has(chave(r.numero, p.omId))) && pesoRub(r, p) > 0);
     const soma = part.reduce((s, p) => s + pesoRub(r, p), 0);
     let distribuido = 0;
     part.forEach(p => {
@@ -148,29 +172,17 @@ export function montarParticipantes(
 }
 
 /**
- * Taxa condominial e diárias numa passada, com o critério de cada rubrica:
- *  - parte das OM = (valor previsto − desconto geral) × %OM; dividida entre as OM marcadas na matriz pelo critério
- *    (lotação × dias, área, partes iguais ou peso informado);
- *  - parte dos navios: SEPARADO → valor previsto × %navios (não mexe na parte das OM; é o modelo da planilha 2026);
- *    CONJUNTO → a parte das OM é dividida entre OM e o grupo dos navios pela lotação × dias, e o que cabe aos navios
- *    sai da conta das OM;
+ * Taxa condominial e diárias numa passada:
+ *  - linhas da taxa = rubricas (TC) + outros gastos (OG, ex.: 34 a 37);
+ *  - parte das OM = (valor previsto − desconto geral) × %OM; dividida pelo critério entre as OM marcadas na matriz
+ *    (ou entre TODAS as OM da taxa, se a linha for "rateio entre todas");
+ *  - parte dos navios = conforme o modo da linha (integral, %, valor fixo), sobre o valor da linha sem os descontos
+ *    das OM; NÃO diminui a parte das OM (a mesma linha é rateada entre as OM e também vai para os navios);
  *  - a soma das partes dos navios é rateada entre os navios (lotação × dias) e vira a diária de cada um.
  */
 export interface PorRubrica { numero: number; baseOM: number; navios: number }
-export function ratearProposta(rubricas: RubricaTC[], terra: Participante[], navios: Participante[], matriz: Set<string>, descontos: Desconto[]) {
-  const pesoNav = navios.filter(n => !n.semHistorico).reduce((s, n) => s + n.lotacao * n.dias, 0);
-  const porRubrica: PorRubrica[] = rubricas.map(r => {
-    let base = r2(valorVigente(r) * (r.percentualOM ?? 100) / 100);
-    let nav = 0;
-    if ((r.modoNavios || 'SEPARADO') === 'CONJUNTO') {
-      if (pesoNav > 0 && (r.percentualNavios ?? 0) > 0) {
-        const pesoOM = terra.filter(t => matriz.has(`${r.numero}|${t.omId}`)).reduce((s, t) => s + t.lotacao * t.dias, 0);
-        nav = r2(base * pesoNav / (pesoNav + pesoOM));
-        base = r2(base - nav);
-      }
-    } else nav = r2(r.valorPrevisto * (r.percentualNavios ?? 0) / 100);
-    return { numero: r.numero, baseOM: base, navios: nav };
-  });
+export function ratearProposta(rubricas: RubricaTC[], terra: Participante[], navios: Participante[], matriz: Set<string>, descontos: Desconto[], baseNavios: BaseNavios = 'VIGENTE') {
+  const porRubrica: PorRubrica[] = rubricas.map(r => ({ numero: r.numero, baseOM: r2(valorVigente(r) * (r.percentualOM ?? 100) / 100), navios: parteNavios(r, baseNavios) }));
   const tc = ratear(rubricas.map((r, i) => ({ ...r, valorRateio: porRubrica[i].baseOM })), terra, matriz, descontos);
   const totalNavios = r2(porRubrica.reduce((s, x) => s + x.navios, 0));
   const da = ratear([{ numero: 0, descricao: 'Navios (soma das partes dos navios nas rubricas)', valorPrevisto: totalNavios, descontoGeral: 0 }],

@@ -1161,8 +1161,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
     db.classes_navio.push(classe);
-    const sec = { id: uid(), codigo: '40002', nome: 'SecNSNQ', tipo: 'TERRA', ativo: true };
-    const amrj = { id: uid(), codigo: '81100', nome: 'AMRJ', tipo: 'TERRA', ativo: true };
+    const sec = { id: uid(), codigo: '40002', nome: 'SecNSNQ', tipo: 'TERRA', ativo: true, area_cnic: 2, edificio: 'Edifício Almirante Tamandaré' };
+    const amrj = { id: uid(), codigo: '81100', nome: 'AMRJ', tipo: 'TERRA', ativo: true, area_cnic: 1 };
     const bar = { id: uid(), codigo: '91645', nome: 'Corveta Barroso', tipo: 'NAVIO', classe_id: classe.id, ativo: true };
     db.oms.push(sec, amrj, bar);
     db.auditoria.push({ id: 1, tabela: 'invoices', registro_id: 'i1', acao: 'UPDATE', em: '2026-11-06T10:00:00Z', usuario_email: 'oper@mb.br', antes: { status: 'PENDENTE' }, depois: { status: 'PAGO' } });
@@ -1202,8 +1202,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Proposta importada\. 1 nome\(s\) ficaram pendentes/).waitFor();
     const r1 = db.rubricas.find(r => r.numero === 1), r2 = db.rubricas.find(r => r.numero === 2);
     ok(db.rubricas.length === 2 && !r2 && Number(r1.gasto_anterior) === 391421.64 && r1.destino === 'TC' && Number(db.propostas_tc[0].navios_planilha) === 100000, '"Navios" não vira rubrica: é o total do grupo (guardado para conferência)');
-    ok(db.rubricas.find(r => r.numero === 3).destino === 'PAR', 'rubrica depois da última da matriz fica "só PAR" (fora da taxa)');
-    ok(Number(r1.percentual_navios) === 50 && Number(r1.percentual_om) === 100 && r1.criterio === 'LOTACAO' && r1.modo_navios === 'SEPARADO', 'rubrica 1: OM 100% por pessoa e navios 50% à parte (aba NAVIOS)');
+    ok(db.rubricas.find(r => r.numero === 3).destino === 'OG' && db.rubricas.find(r => r.numero === 3).rateio_todas === true, 'linha depois da última da matriz vira "outros gastos" (entra na taxa, rateada entre todas as OM)');
+    ok(Number(r1.percentual_navios) === 50 && Number(r1.percentual_om) === 100 && r1.criterio === 'LOTACAO' && r1.navios_modo === 'FIXO' && Number(r1.valor_navios) === 100000, 'rubrica 1: OM 100% por pessoa e navios com o valor da aba NAVIOS (R$ 100.000, fixo)');
     ok(db.fechados_tc.length === 3 && db.fechados_tc.find(f => f.tipo === 'DA').om_id === bar.id && db.extratos_tc.some(e => e.om_id === amrj.id && e.rubrica === 1), 'valores fechados (OM e navios) e extrato da AMRJ guardados para conferência');
     ok(Number(r1.desconto_geral) === 500 && Number(r1.desconto_planilha) === 1500, 'DESCONTOS 1.500 = AMRJ 1.000 (por OM) + 500 de desconto geral');
     ok(db.descontos_tc.length === 1 && db.descontos_tc[0].om_id === amrj.id && Number(db.descontos_tc[0].valor) === 1000, 'desconto da AMRJ na rubrica 1 importado da PROPOSTA CONDOMINIO');
@@ -1213,8 +1213,25 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // rubricas: colunas da planilha e conferência dos descontos
     const linhaR1 = (await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).replace(/\s+/g, ' ');
     ok(linhaR1.includes('R$ 1.500,00') && linhaR1.includes('R$ 198.500,00') && linhaR1.includes('✓'), `rubrica 1: descontos R$ 1.500,00, atualizado R$ 198.500,00 e confere com a planilha (${linhaR1})`);
-    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Fora da taxa — só para o cálculo do PAR').isVisible() && await page.getByText('Grupo NAVIOS — diárias de atracação').isVisible(), 'blocos: soma das rubricas da taxa, grupo NAVIOS e PAR');
-    ok((await page.getByText(/Valor do grupo NAVIOS/).innerText()).includes('R$ 100.000,00'), 'valor do grupo NAVIOS = 50% da rubrica 1 e confere com a planilha');
+    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Outros gastos — incorporados à taxa').isVisible() && await page.getByText('Total dos navios — diárias de atracação').isVisible(), 'blocos: rubricas da taxa, outros gastos e total dos navios');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 100.000,00'), 'total dos navios = parte da rubrica 1 e confere com a planilha');
+    const resumo = (await page.getByLabel('Resumo da proposta').innerText()).replace(/\s+/g, ' ');
+    ok(/Taxas condominiais \(rubricas\)/.test(resumo) && /Outros gastos/.test(resumo) && /Total dos navios \(diárias\) R\$ 100\.000,00/.test(resumo) && /Total R\$/.test(resumo), `resumo: taxas condominiais + outros gastos + navios = total (${resumo})`);
+    // navios INTEGRAL: o valor da linha (previsto − desconto geral) vai inteiro para os navios
+    await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('INTEGRAL');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 199.500,00'), 'navios integral = previsto 200.000 − desconto geral 500 = R$ 199.500,00 (sem os descontos das OM)');
+    await page.getByLabel('Base do valor dos navios').selectOption('PREVISTO');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 200.000,00'), 'base ajustável: só o previsto = R$ 200.000,00');
+    await page.getByLabel('Base do valor dos navios').selectOption('VIGENTE');
+    await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('FIXO');
+    await page.getByLabel('Valor fixo dos navios na linha 1').fill('100000');
+    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 100.000,00'), 'valor fixo dos navios');
+    // outros gastos: entra ou não na taxa, rateio entre todas ou pela matriz
+    ok(await page.getByLabel('Rateio da linha 3').inputValue() === 'TODAS' && await page.getByLabel('Entra como (linha 3)').inputValue() === 'OG', 'linha 3: outros gastos rateados entre todas as OM');
+    // a planilha de teste foi fechada sem esta linha: tirá-la da taxa (flexível) e conferir que sai do total
+    await page.getByLabel('Entra como (linha 3)').selectOption('PAR');
+    const resumo2 = (await page.getByLabel('Resumo da proposta').innerText()).replace(/\s+/g, ' ');
+    ok(resumo2.includes('Outros gastos R$ 0,00') && /Fora da taxa \(não entra no total\): R\$ 5\.000,00/.test(resumo2), `linha pode sair da taxa ("Fora da taxa"): não entra no total (${resumo2})`);
     // critério de rateio: por área deixa as colunas de área na matriz; volta para por pessoa
     await page.getByLabel('Critério da rubrica 1').selectOption('AREA');
     ok(await page.getByLabel('Critério da rubrica 1').inputValue() === 'AREA', 'critério da rubrica pode ser trocado na tabela');
@@ -1240,6 +1257,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).includes('📎 1'), 'situação da rubrica mostra o documento anexado');
     // resolver a pendência criando um cliente novo, fora da Ilha
     await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    // matriz organizada pelas áreas do CNIC; navios (coluna/linha NAVIOS) na parte baixa interna
+    await page.getByText('Área 1 – Parte baixa interna').first().waitFor();
+    const txtMatriz = (await page.locator('table').last().innerText()).replace(/\s+/g, ' ');
+    ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('NAVIOS (grupo)') && txtMatriz.indexOf('NAVIOS (grupo)') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta'), 'matriz por área: AMRJ e NAVIOS na parte baixa interna, SecNSNQ na parte alta');
+    ok(txtMatriz.includes('Edifício Almirante Tamandaré'), 'edifício da OM aparece na matriz');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-matriz-areas.png'), fullPage: true });
     await page.getByRole('button', { name: 'Escolher correspondente' }).click();
     await page.getByRole('button', { name: 'Criar novo cliente' }).click();
     await page.getByLabel('Nome do novo cliente').fill('OM Nova');

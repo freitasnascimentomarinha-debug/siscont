@@ -23,6 +23,8 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
   const da = modo === 'DA';
   const rub = new Map(dados.rubricas.map(r => [r.numero, r]));
   const totalVig = resultado.valorRubricas.reduce((s, r) => s + r.valor, 0);
+  // composição do total da taxa: rubricas (1 a 33) e outros gastos (34 a 37), já sem os descontos das OM
+  const liqPor = (dest: 'TC' | 'OG') => Math.round(resultado.oms.reduce((s, o) => s + o.parcelas.filter(p => rub.get(p.rubrica)?.destino === dest).reduce((t, p) => t + p.liquido, 0), 0) * 100) / 100;
   const semPart = resultado.valorRubricas.filter(r => r.semParticipante);
   const semHist = resultado.oms.filter(o => o.regraDiaria === 'SEM_HISTORICO');
   const descontos = resultado.oms.reduce((s, o) => s + o.descontos, 0);
@@ -51,23 +53,23 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
       add('EXTRATO', [['OM', 'RUBRICA', 'DESPESA', 'PARCELA', 'DESCONTO', 'LÍQUIDO'], ...resultado.oms.flatMap(o => o.parcelas.map(p => [o.nome, p.rubrica, rub.get(p.rubrica)?.descricao || '', p.bruto, p.desconto, p.liquido]))]);
       add('DESCONTOS', [['OM', 'RUBRICA', 'TIPO', 'VALOR', 'JUSTIFICATIVA'], ...dados.descontos.map(d => [dados.oms.find(o => o.id === d.omId)?.nome || '', d.rubrica ?? 'TOTAL', d.tipo, d.valor, d.justificativa])]);
     }
-    add('RUBRICAS', [['Nº', 'DESPESA', 'PREVISTO', 'DESCONTO GERAL', 'VIGENTE', 'RATEADO', 'JUSTIFICATIVA'], ...dados.rubricas.filter(r => r.destino === modo).map(r => [r.numero, r.descricao, r.valorPrevisto, r.descontoGeral, resultado.valorRubricas.find(v => v.numero === r.numero)?.valor ?? 0, resultado.valorRubricas.find(v => v.numero === r.numero)?.distribuido ?? 0, r.justificativa || ''])]);
+    add('RUBRICAS', [['Nº', 'DESPESA', 'PREVISTO', 'DESCONTO GERAL', 'VIGENTE', 'RATEADO', 'JUSTIFICATIVA'], ...dados.rubricas.filter(r => (modo === 'TC' ? r.destino === 'TC' || r.destino === 'OG' : r.destino === modo)).map(r => [r.numero, r.descricao, r.valorPrevisto, r.descontoGeral, resultado.valorRubricas.find(v => v.numero === r.numero)?.valor ?? 0, resultado.valorRubricas.find(v => v.numero === r.numero)?.distribuido ?? 0, r.justificativa || ''])]);
     XLSX.writeFile(wb, da ? `diarias_atracacao_${ano}.xlsx` : `taxa_condominial_${ano}.xlsx`);
   };
 
   const cartoes: [string, string][] = da
     ? [['Valor destinado às diárias', brl(totalVig)], ['Navios', String(resultado.oms.length)], ['Custo por militar-dia', `R$ ${resultado.custoMilitarDia.toLocaleString('pt-BR', { minimumFractionDigits: 4 })}`], ['Diárias (soma de 1 dia de cada navio)', brl(resultado.oms.reduce((s, o) => s + (o.diaria || 0), 0))]]
-    : [['Valor das rubricas (vigente)', brl(totalVig)], ['Total rateado', brl(resultado.total)], ['Descontos por OM', brl(descontos)], ['Taxa mensal (todas as OM)', brl(resultado.oms.reduce((s, o) => s + o.mensal, 0))]];
+    : [['Taxas condominiais (rubricas)', brl(liqPor('TC'))], ['Outros gastos', brl(liqPor('OG'))], ['Total rateado entre as OM', brl(resultado.total)], ['Descontos por OM', brl(descontos)], ['Taxa mensal (todas as OM)', brl(resultado.oms.reduce((s, o) => s + o.mensal, 0))]];
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 ${da ? 'md:grid-cols-4' : 'md:grid-cols-5'} gap-3`}>
         {cartoes.map(([t, v]) => (<div key={t} className="p-3 rounded-lg border border-slate-200 bg-slate-50"><div className="text-xs text-slate-500">{t}</div><div className="font-bold text-slate-800">{v}</div></div>))}
       </div>
       {conferidos.length > 0 && (divergem.length
         ? <Aviso><b>Conferência com a planilha:</b> {conferidos.length - divergem.length} de {conferidos.length} conferem. Diferentes: {divergem.map(o => `${o.nome} (sistema ${brl(atual(o))} × planilha ${brl(planilha(o) || 0)})`).join('; ')}.</Aviso>
         : <Aviso tom="emerald"><b>Conferência com a planilha:</b> os {conferidos.length} valores {da ? 'de diária' : 'mensais'} conferem com a aba PROPOSTA da planilha importada.</Aviso>)}
       {semPart.length > 0 && <Aviso tom="red"><b>Rubricas com valor e sem participante</b> (não rateadas): {semPart.map(r => `${r.numero} – ${rub.get(r.numero)?.descricao} (${brl(r.valor)})`).join('; ')}. {da ? 'Inclua os navios na aba Navios.' : 'Marque as OM na aba Clientes e matriz ou zere o valor.'}</Aviso>}
-      {da && !totalVig && <Aviso>Nenhuma rubrica com destino "Diária de atracação" e valor. Defina o destino na aba Rubricas.</Aviso>}
+      {da && !totalVig && <Aviso>Nenhuma linha da taxa com parte dos navios. Defina na coluna "Navios" da aba Rubricas (ou na coluna NAVIOS da matriz).</Aviso>}
       {semHist.length > 0 && <Aviso>
         <b>Navios sem dias de atracação no histórico:</b> {semHist.map(o => o.nome).join(', ')}. Recebem a diária pela lotação = custo por militar-dia × lotação (como a "diária a ser considerada com base na lotação" da planilha).
       </Aviso>}
@@ -185,13 +187,18 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
         await salvarRubricasProposta(ano, lido.rubricas.filter(r => r.destino !== 'DA').map(r => {
           // desconto geral = coluna DESCONTOS − soma dos descontos por OM daquela rubrica (ex.: rubrica 5, R$ 180.000)
           const geral = r.descontoPlanilha != null ? Math.max(0, Math.round((r.descontoPlanilha - (porRub.get(r.numero) || 0)) * 100) / 100) : atuais.get(r.numero)?.descontoGeral ?? 0;
-          const destino = r.destino === 'TC' && ultimaMatriz > 0 && r.numero > ultimaMatriz ? 'PAR' as const : r.destino;
-          const pn = destino === 'TC' ? parcela.get(r.numero) ?? (navMatriz.has(r.numero) && !lido.navios.length ? r.valorPrevisto : null) : null;
+          // depois da última linha da matriz (34 a 37): outros gastos, rateados entre todas as OM da taxa
+          const destino = r.destino === 'TC' && ultimaMatriz > 0 && r.numero > ultimaMatriz ? 'OG' as const : r.destino;
+          const pn = destino === 'TC' || destino === 'OG' ? parcela.get(r.numero) ?? (navMatriz.has(r.numero) && !lido.navios.length ? Math.max(0, r.valorPrevisto - geral) : null) : null;
           const pctNav = pn && r.valorPrevisto ? Math.round((pn / r.valorPrevisto) * 1e6) / 1e4 : 0;
           // rubrica que as OM não pagam (na planilha: DESCONTOS = valor inteiro) e os navios pagam: OM 0%, navios 100%
           const soNavios = geral > 0 && Math.abs(geral - r.valorPrevisto) < 0.01 && pctNav >= 99.99;
           const at = atuais.get(r.numero);
+          // parte dos navios: igual ao valor da linha (previsto − desconto geral) = integral; senão, o valor fixo da planilha
+          const vigLinha = Math.max(0, r.valorPrevisto - (soNavios ? 0 : geral));
+          const naviosModo = !pn ? 'NAO' as const : Math.abs(pn - vigLinha) < 0.01 ? 'INTEGRAL' as const : 'FIXO' as const;
           return { numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorPrevisto: r.valorPrevisto, gastoAnterior: r.gastoAnterior, destino,
+            naviosModo, valorNavios: naviosModo === 'FIXO' ? pn : null, rateioTodas: destino === 'OG' ? true : at?.rateioTodas ?? false,
             descontoPlanilha: r.descontoPlanilha, descontoGeral: soNavios ? 0 : geral, parcelaNavios: pn, percentualNavios: pctNav, percentualOM: soNavios ? 0 : (at?.percentualOM ?? 100),
             criterio: at?.criterio || 'LOTACAO', modoNavios: at?.modoNavios || 'SEPARADO', justificativaValor: at?.justificativaValor ?? null,
             justificativa: !soNavios && geral > 0 ? (at?.justificativa || 'Desconto geral da planilha (coluna DESCONTOS da Despesas_NOVO)') : soNavios ? null : at?.justificativa ?? null };

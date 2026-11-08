@@ -4,7 +4,7 @@ import { cadastroService } from './cadastroService';
 import { salvarPrecos, listarPrecos, listarAtracacoes } from './faturamentoService';
 import { listarRubricas, salvarRubricas } from './relatoriosService';
 import { ClasseNavio, OM } from '../types';
-import { AnoClasse, Desconto, RubricaTC, ResultadoRateio } from '../utils/taxaCondominial';
+import { AnoClasse, BaseNavios, Desconto, NaviosModo, RubricaTC, ResultadoRateio, naviosModoDe } from '../utils/taxaCondominial';
 import { pad } from '../utils/faturamento';
 
 export class Fase6NaoInstaladaError extends Error {
@@ -18,11 +18,13 @@ const checar = (error: any) => {
 };
 
 export type StatusProposta = 'PROPOSTA' | 'APROVADA' | 'DIVULGADA';
-export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null; /** total do grupo Navios na planilha importada (conferência) */ naviosPlanilha?: number | null }
-export type Destino = 'TC' | 'DA' | 'PAR';
+export interface Proposta { ano: number; status: StatusProposta; aprovadaEm?: string | null; divulgadaEm?: string | null; observacao?: string | null; /** total do grupo Navios na planilha importada (conferência) */ naviosPlanilha?: number | null; /** valor da linha usado para os navios: previsto − desconto geral (padrão) ou só o previsto */ baseNavios?: BaseNavios }
+export type Destino = 'TC' | 'DA' | 'PAR' | 'OG';
+/** linhas que entram na taxa condominial (rateadas entre as OM): rubricas e outros gastos */
+export const entraNaTaxa = (r: { destino: Destino }) => r.destino === 'TC' || r.destino === 'OG';
 export interface RubricaProposta extends RubricaTC {
   contaContabil?: string | null; gastoAnterior?: number | null; justificativa?: string | null;
-  /** TC = taxa condominial (OM de terra); DA = linha "Navios" (diárias de atracação); PAR = fora da taxa, só para o PAR */
+  /** TC = rubrica da taxa (1 a 33); OG = outros gastos incorporados à taxa (34 a 37); PAR = fora da taxa; DA = total dos navios da planilha (conferência) */
   destino: Destino;
   /** parte desta rubrica paga pelos navios (aba NAVIOS); a soma de todas é o valor rateado entre os navios */
   parcelaNavios?: number | null;
@@ -66,11 +68,13 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
   const N = (v: any) => (v == null ? null : Number(v));
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
   return {
-    proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao, naviosPlanilha: p.data.navios_planilha == null ? null : Number(p.data.navios_planilha) } : { ano, status: 'PROPOSTA' },
+    proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao, naviosPlanilha: p.data.navios_planilha == null ? null : Number(p.data.navios_planilha), baseNavios: p.data.base_navios === 'PREVISTO' ? 'PREVISTO' : 'VIGENTE' } : { ano, status: 'PROPOSTA', baseNavios: 'VIGENTE' },
     rubricas: (rub.data || []).map(r => ({
       numero: r.numero, descricao: r.descricao, contaContabil: r.conta_contabil, valorPrevisto: Number(r.valor_previsto ?? r.valor_anual ?? 0),
       descontoGeral: Number(r.desconto_geral ?? 0), gastoAnterior: r.gasto_anterior === null || r.gasto_anterior === undefined ? null : Number(r.gasto_anterior), justificativa: r.justificativa_desconto,
-      destino: (['TC', 'DA', 'PAR'].includes(r.destino) ? r.destino : destinoPadrao(r.descricao || '')) as Destino,
+      destino: (['TC', 'DA', 'PAR', 'OG'].includes(r.destino) ? r.destino : destinoPadrao(r.descricao || '')) as Destino,
+      rateioTodas: r.rateio_todas === true, valorNavios: N(r.valor_navios),
+      naviosModo: (['NAO', 'INTEGRAL', 'PERCENTUAL', 'FIXO'].includes(r.navios_modo) ? r.navios_modo : (Number(r.percentual_navios || 0) > 0 ? 'PERCENTUAL' : 'NAO')) as NaviosModo,
       descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
       parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null,
       criterio: (r.criterio || 'LOTACAO'), percentualOM: r.percentual_om == null ? 100 : Number(r.percentual_om), modoNavios: r.modo_navios === 'CONJUNTO' ? 'CONJUNTO' : 'SEPARADO',
@@ -94,8 +98,9 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
 }
 
 export async function salvarProposta(p: Proposta) {
-  const reg: any = { ano: p.ano, status: p.status, aprovada_em: p.aprovadaEm ?? null, divulgada_em: p.divulgadaEm ?? null, observacao: p.observacao ?? null, ...(p.naviosPlanilha !== undefined ? { navios_planilha: p.naviosPlanilha } : {}) };
+  const reg: any = { ano: p.ano, status: p.status, aprovada_em: p.aprovadaEm ?? null, divulgada_em: p.divulgadaEm ?? null, observacao: p.observacao ?? null, ...(p.naviosPlanilha !== undefined ? { navios_planilha: p.naviosPlanilha } : {}), ...(p.baseNavios ? { base_navios: p.baseNavios } : {}) };
   let { error } = await supabase.from('propostas_tc').upsert(reg);
+  if (error && /base_navios/.test(error.message || '')) { if (p.baseNavios === 'PREVISTO') throw new Error('Para usar o valor previsto na parte dos navios, execute o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase.'); delete reg.base_navios; ({ error } = await supabase.from('propostas_tc').upsert(reg)); }
   if (error && /navios_planilha/.test(error.message || '')) { delete reg.navios_planilha; ({ error } = await supabase.from('propostas_tc').upsert(reg)); }
   checar(error);
 }
@@ -105,7 +110,17 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
   await salvarRubricas(rs.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil ?? null, valorAnual: Math.max(0, r.valorPrevisto - r.descontoGeral), percentual: null })));
   for (const r of rs) {
     const base = { valor_previsto: r.valorPrevisto, desconto_geral: r.descontoGeral, gasto_anterior: r.gastoAnterior ?? null, justificativa_desconto: r.justificativa ?? null };
-    const criterios = { criterio: r.criterio || 'LOTACAO', percentual_om: r.percentualOM ?? 100, percentual_navios: r.percentualNavios ?? 0, modo_navios: r.modoNavios || 'SEPARADO' };
+    const criterios = { criterio: r.criterio || 'LOTACAO', percentual_om: r.percentualOM ?? 100, percentual_navios: r.percentualNavios ?? 0, modo_navios: 'SEPARADO' };
+    // script 021: outros gastos (OG), rateio entre todas e modo dos navios
+    const novos = { navios_modo: naviosModoDe(r), valor_navios: r.valorNavios ?? null, rateio_todas: !!r.rateioTodas };
+    {
+      const { error: e021 } = await supabase.from('rubricas').update({ ...novos, destino: r.destino }).eq('ano', ano).eq('numero', r.numero);
+      if (e021) {
+        if (/navios_modo|valor_navios|rateio_todas|rubricas_destino_ck/.test(e021.message || '')) {
+          if (r.destino === 'OG' || r.rateioTodas || ['INTEGRAL', 'FIXO'].includes(naviosModoDe(r))) throw new Error('Falta executar o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase (outros gastos, rateio entre todas e modo dos navios).');
+        } else checar(e021);
+      }
+    }
     let { error } = await supabase.from('rubricas').update({ ...base, ...criterios, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null, parcela_navios: r.parcelaNavios ?? null, justificativa_valor: r.justificativaValor ?? null }).eq('ano', ano).eq('numero', r.numero);
     if (error && /criterio|percentual_om|percentual_navios|modo_navios/.test(error.message || '')) {
       const padrao = (r.criterio || 'LOTACAO') === 'LOTACAO' && (r.percentualOM ?? 100) === 100 && (r.modoNavios || 'SEPARADO') === 'SEPARADO';

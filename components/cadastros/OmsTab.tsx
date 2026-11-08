@@ -152,7 +152,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
                   <Td><span className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${TIPO_COR[o.tipo]}`}>{TIPO_OM_LABELS[o.tipo]}</span></Td>
                   <Td className="text-xs">{c ? `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}` : '—'}</Td>
                   <Td className="text-xs font-semibold">{setorDe(o) || '—'}</Td>
-                  <Td className="text-xs">{[o.classeId && cls.get(o.classeId)?.nome, o.lotacao != null && `${o.lotacao} militares`, o.areaCnic && `Área ${o.areaCnic}`].filter(Boolean).join(' · ') || '—'}</Td>
+                  <Td className="text-xs">{[o.classeId && cls.get(o.classeId)?.nome, o.lotacao != null && `${o.lotacao} militares`, o.areaCnic && `Área ${o.areaCnic}`, o.edificio].filter(Boolean).join(' · ') || '—'}</Td>
                   <Td><Situacao ativo={o.ativo} desde={o.desativadoEm} motivo={o.motivoDesativacao} /></Td>
                   {podeEditar && (
                     <Td className="text-right whitespace-nowrap">
@@ -198,6 +198,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {form.tipo !== 'EXTRA_MB' && <Select label="Área do CNIC" options={Object.entries(AREAS_CNIC).map(([v, l]) => ({ value: v, label: l }))} value={form.areaCnic ? String(form.areaCnic) : ''} onChange={e => setForm({ ...form, areaCnic: e.target.value ? Number(e.target.value) : null })} />}
+              {form.tipo !== 'EXTRA_MB' && form.tipo !== 'NAVIO' && <Input label="Edifício" value={form.edificio || ''} onChange={e => setForm({ ...form, edificio: e.target.value })} placeholder="ex.: Edifício Almirante Tamandaré" />}
               {form.tipo !== 'EXTRA_MB' && <Input label={form.tipo === 'NAVIO' ? 'Tripulação (lotação)' : 'Lotação (TMFT)'} type="number" min={0} value={form.lotacao ?? ''} onChange={e => setForm({ ...form, lotacao: e.target.value === '' ? null : Number(e.target.value) })} />}
               {form.tipo === 'NAVIO' && <Select label="Classe do navio" options={dados.classes.filter(c => c.ativo || c.id === form.classeId).map(c => ({ value: c.id, label: c.nome }))} value={form.classeId || ''} onChange={e => setForm({ ...form, classeId: e.target.value || null })} />}
             </div>

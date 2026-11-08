@@ -208,7 +208,7 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
             {lista.map(r => (
               <tr key={r.numero} className={r.final > 0.005 ? '' : 'text-slate-400'}>
                 <td className="px-3 py-1.5">{r.numero}</td>
-                <td className="px-3 py-1.5">{r.descricao}{r.semParticipante && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Tem valor na proposta, mas nenhuma OM participa (não é cobrada)">sem participante</span>}</td>
+                <td className="px-3 py-1.5">{r.descricao}{r.tipo === 'OG' && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600" title="Não é rubrica: outros gastos incorporados à taxa">outros gastos</span>}{r.semParticipante && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Tem valor na proposta, mas nenhuma OM participa (não é cobrada)">sem participante</span>}</td>
                 <td className="px-3 py-1.5 text-xs text-slate-500">{r.contaContabil || ''}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums font-semibold" title={`Vigente ${brl(r.vigente)} − descontos das OM ${brl(r.descontosOM)}${r.navios ? ` + navios ${brl(r.navios)}` : ''}`}>{brl(r.final)}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums">{pctDe(r).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>

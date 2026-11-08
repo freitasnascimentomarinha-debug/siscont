@@ -2,7 +2,7 @@
  * Exportação dos cadastros para planilha: funções puras que filtram e montam as linhas.
  * A tela só escolhe os filtros e grava o arquivo.
  */
-import { ClasseNavio, Comando, OM, ServicoCatalogo, Setor, TIPO_OM_LABELS } from '../types';
+import { AREAS_CNIC, ClasseNavio, Comando, OM, ServicoCatalogo, Setor, TIPO_OM_LABELS } from '../types';
 
 export type Situacao = 'TODAS' | 'ATIVAS' | 'DESATIVADAS';
 export interface FiltroOM {
@@ -46,11 +46,11 @@ export function filtrarOMs(oms: OM[], e: Estrutura, f: FiltroOM): OM[] {
   });
 }
 
-export const CAB_OMS = ['Código (UG)', 'Nome', 'Sigla', 'Tipo', 'Setor', 'Comando', 'Classe (navio)', 'Indicativo naval', 'Lotação', 'Área CNIC (m²)', 'CNPJ', 'Endereço', 'E-mails', 'Telefone', 'Fora da Ilha', 'Outros nomes', 'Situação', 'Desativado em', 'Motivo da desativação', 'Observação'];
+export const CAB_OMS = ['Código (UG)', 'Nome', 'Sigla', 'Tipo', 'Setor', 'Comando', 'Classe (navio)', 'Indicativo naval', 'Lotação', 'Área CNIC', 'Edifício', 'CNPJ', 'Endereço', 'E-mails', 'Telefone', 'Fora da Ilha', 'Outros nomes', 'Situação', 'Desativado em', 'Motivo da desativação', 'Observação'];
 export function linhasOMs(oms: OM[], e: Estrutura): any[][] {
   return [CAB_OMS, ...[...oms].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(o => [
     o.codigo, o.nome, o.sigla || '', TIPO_OM_LABELS[o.tipo], nomeSetor(e, o.setorId), nomeComando(e, o.comandoId), o.tipo === 'NAVIO' ? nomeClasse(e, o.classeId) : '',
-    o.indicativoNaval || '', o.lotacao ?? '', o.areaCnic ?? '', o.cnpj || '', o.endereco || '', o.emails || '', o.telefone || '', sim(o.foraDaIlha),
+    o.indicativoNaval || '', o.lotacao ?? '', o.areaCnic ? AREAS_CNIC[o.areaCnic] || o.areaCnic : '', o.edificio || '', o.cnpj || '', o.endereco || '', o.emails || '', o.telefone || '', sim(o.foraDaIlha),
     (o.nomesAlternativos || []).join('; '), sit(o.ativo), o.desativadoEm || '', o.motivoDesativacao || '', o.observacao || '',
   ])];
 }

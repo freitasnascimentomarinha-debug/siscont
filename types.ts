@@ -311,6 +311,8 @@ export interface OM {
   comandoId?: string | null;
   setorId?: string | null;
   areaCnic?: number | null;
+  /** edifício onde a OM está (organização da matriz da taxa condominial) */
+  edificio?: string | null;
   lotacao?: number | null;
   classeId?: string | null;
   cnpj?: string | null;
