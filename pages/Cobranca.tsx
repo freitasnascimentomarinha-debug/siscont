@@ -204,9 +204,9 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
     return pdfArvore(mapaDasFaturas(m.faturas), {
-      titulo: `Cobrança de faturas em atraso — ${m.cliente || m.comando}`,
+      titulo: m.cliente ? `Cobrança de faturas em atraso — OM ${m.cliente}` : `Cobrança de faturas em atraso — COMANDO ${m.comando}`,
       linhas: [
-        ...(m.cliente ? [`Comando: ${m.comando}`] : []),
+        ...(m.cliente ? [`Comando: ${m.comando}`] : [(() => { const oms = [...new Set(m.faturas.map(f => f.cliente))].sort((a, b) => a.localeCompare(b, 'pt-BR')); return `OM devedoras do comando (${oms.length}): ${oms.join('; ')}`; })()]),
         `Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
         REGRA_CREDITO,
       ],
@@ -214,7 +214,14 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     });
   };
   const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) =>
-    docCobranca(m).save(`cobranca_${nomeArquivo(m.comando.match(/^\d{4,5}/)?.[0] || m.comando)}_${h}.pdf`);
+    docCobranca(m).save(`${arquivoComando(m.comando)}_${h}.pdf`);
+  /** Nome do arquivo do comando: "cobranca_COMANDO_40030_DIM" (código + sigla do cadastro, ou o nome). */
+  const arquivoComando = (texto: string) => {
+    const c = comandoDe(texto);
+    const cod = c?.codigo || texto.match(/^\d{4,5}/)?.[0] || '';
+    const nome = c?.sigla || c?.nome || texto.replace(/^\d{4,5}\s*-\s*/, '');
+    return `cobranca_COMANDO_${nomeArquivo(`${cod} ${nome}`.trim())}`;
+  };
 
   /** Lote: um PDF por OM cliente (ou por comando), todos num .zip, para enviar cada um separadamente. */
   const [lotePor, setLotePor] = useState<'cliente' | 'comando'>('cliente');
@@ -237,11 +244,12 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : 'Comando', 'Comando', 'Indicativo', 'Faturas', 'Total em atraso']];
       [...grupos.values()].sort((x, y) => x.titulo.localeCompare(y.titulo, 'pt-BR')).forEach(g => {
         const indicativo = comandoDoTexto(g.comando, base.comandos).indicativo || null;
-        let nome = `cobranca_${nomeArquivo(g.titulo)}_${h}`, n = 2;
-        while (usados.has(nome)) nome = `cobranca_${nomeArquivo(g.titulo)}_${n++}_${h}`;
+        const base0 = lotePor === 'comando' ? arquivoComando(g.comando) : `cobranca_OM_${nomeArquivo(g.titulo)}`;
+        let nome = `${base0}_${h}`, n = 2;
+        while (usados.has(nome)) nome = `${base0}_${n++}_${h}`;
         usados.add(nome);
         zip.file(`${nome}.pdf`, docCobranca({ comando: g.comando, indicativo, faturas: g.fs, cliente: g.cliente }).output('arraybuffer'));
-        indice.push([`${nome}.pdf`, g.cliente || g.comando, g.comando, indicativo || '', g.fs.length, Math.round(g.fs.reduce((s, f) => s + f.saldo, 0) * 100) / 100]);
+        indice.push([`${nome}.pdf`, g.cliente || `${g.comando} — OM: ${[...new Set(g.fs.map(f => f.cliente))].sort().join('; ')}`, g.comando, indicativo || '', g.fs.length, Math.round(g.fs.reduce((s, f) => s + f.saldo, 0) * 100) / 100]);
       });
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(indice), 'Lote');
       zip.file(`indice_do_lote_${h}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
