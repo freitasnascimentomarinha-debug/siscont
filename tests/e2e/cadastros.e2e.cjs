@@ -605,6 +605,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Gravar norma' }).click();
     await page.getByText('Norma gravada.').waitFor();
     await page.waitForTimeout(500);
+    for (let i = 0; i < 20 && !(db.parametros.find(p => p.chave === 'norma_item_correcao')?.valor === '7.3' && db.parametros.find(p => p.chave === 'norma_anexo_diaria')?.valor === 'Anexo M'); i++) await page.waitForTimeout(250);
     ok(db.parametros.find(p => p.chave === 'norma_nome')?.valor === 'OI 41-02' && db.parametros.find(p => p.chave === 'norma_item_correcao')?.valor === '7.3', 'norma gravada nos parâmetros');
     ok(db.parametros.find(p => p.chave === 'norma_anexo_diaria')?.valor === 'Anexo M', 'anexo da diária gravado nos parâmetros');
     await page.reload();
@@ -678,6 +679,48 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /Nova fatura avulsa/ }).click();
     ok(await page.getByText(/A emissão regular é feita pelo lote/).isVisible(), 'nova fatura avulsa avisa que a emissão regular é pelo lote');
     await page.keyboard.press('Escape');
+  });
+
+  await cenario('Mapa analítico: crédito só abate a dívida da própria OM, níveis somam e totais conferem', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmdA = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    const cmdB = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmdA.id, ativo: true, codigo_proprio: true };
+    const amrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', tipo: 'TERRA', comando_id: cmdB.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmdA, cmdB); db.oms.push(dim, amrj);
+    const f = (n, om, venc, valor) => ({ id: uid(), invoice_number: n, ug: om.codigo, sector: 'DGMM', command: 'texto livre da fatura', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false, om_id: om.id });
+    db.invoices = [f('40030-TC-08-2026-001-0', dim, '2026-10-15', 1000), f('40030-EL-08-2026-001-0', dim, '2099-12-31', 300)];
+    const doc = (n, nome, valor) => ({ id: uid(), document_number: n, document_type: 'ALTCRED', total_value: valor, date: '2026-09-14', operation: 'PAGAMENTO', client: nome, sector: 'DGMM', command: 'outro texto do documento', ug: '99999', observation: '' });
+    db.received_documents.push(doc('G1.2026.AC.00001', 'Diretoria Industrial da Marinha', 400), doc('G1.2026.AC.00002', 'Arsenal de Marinha do Rio de Janeiro', 5000));
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
+    await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).click();
+    await page.getByText('Dívida em aberto').waitFor();
+    const cartao = async (rot) => (await page.locator('div[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
+    ok(/R\$ 1\.300,00/.test(await cartao('Dívida em aberto')), 'dívida em aberto R$ 1.300,00 (saldo real das 2 faturas)');
+    ok(/R\$ 1\.000,00/.test(await cartao('Vencido')) && /R\$ 300,00/.test(await cartao('A vencer')), 'vencido R$ 1.000,00 e a vencer R$ 300,00');
+    ok(/R\$ 900,00/.test(await cartao('A pagar (líquido)')), 'a pagar R$ 900,00: crédito de R$ 400 abate só a dívida da própria OM');
+    ok(/R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'crédito do Arsenal (R$ 5.000,00) sobra e não paga fatura da Diretoria Industrial');
+    // estrutura: o comando é o do cadastro e o crédito está junto da dívida da mesma OM
+    await page.getByRole('button', { name: 'expandir tudo' }).click();
+    ok(await page.getByText('40030 - Diretoria Industrial da Marinha').first().isVisible(), 'comando mostrado é o do cadastro (código - nome), não o texto digitado');
+    ok(await page.getByText('ALTCRED/GRU: G1.2026.AC.00001').isVisible() && await page.getByText('40030-TC-08-2026-001-0').isVisible(), 'crédito e faturas aparecem juntos na OM');
+    ok(await page.getByText(/sobra R\$ 5\.000,00/).first().isVisible() && await page.getByText(/sobra R\$ 5\.000,00/).count() === 3, 'OM com crédito maior que a dívida mostra a sobra (e ela soma no comando e no setor)');
+    ok((await page.locator('tfoot').innerText()).replace(/\s+/g, ' ').includes('R$ 900,00'), 'rodapé: total a pagar R$ 900,00');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'mapa-analitico.png'), fullPage: true });
+    // busca, ordenação e exportação
+    await page.getByLabel('Buscar no mapa').fill('G1.2026.AC.00002');
+    await page.getByText('Arsenal de Marinha do Rio de Janeiro').first().waitFor();
+    ok(await page.getByText('Diretoria Industrial da Marinha').count() === 0, 'busca por ALTCRED mostra só a OM dela');
+    await page.getByLabel('Buscar no mapa').fill('');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    ok(/^mapa_analitico_\d{4}-\d{2}-\d{2}\.xlsx$/.test(dl.suggestedFilename()), 'mapa exportado em Excel');
+    // ver faturas na lista
+    await page.getByRole('button', { name: 'ver faturas na lista' }).first().click();
+    await page.getByLabel('Busca').waitFor();
+    ok((await page.getByLabel('Busca').inputValue()).length > 0, '"ver faturas na lista" leva à lista já filtrada pela OM');
   });
 
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {

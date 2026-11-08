@@ -20,23 +20,11 @@ import { HistoricoModal } from '../components/auditoria/Historico';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura';
 import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
+import { MapaAnaliticoTab } from '../components/faturas/MapaAnaliticoTab';
 import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, resumoCabecalho, setorDe, temFiltroExtra } from '../utils/filtrosFaturas';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-// --- Helper Types for the Analytical Map ---
-type AnalyticalNode = {
-  id: string;
-  name: string;
-  type: 'sector' | 'command' | 'client' | 'invoice' | 'credit'; // Added 'credit'
-  grossDebt: number;
-  availableCredit: number;
-  netValue: number; // Max(0, grossDebt - availableCredit) for summaries
-  children: AnalyticalNode[];
-  isExpanded: boolean;
-  data?: any; // Invoice or Document
-};
 
 /** Por que a fatura não tem ALTCRED/GRU vinculada (evita parecer erro quando não é). */
 function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
@@ -62,7 +50,6 @@ export const Invoices: React.FC = () => {
   // UI State
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [expandedMapNodes, setExpandedMapNodes] = useState<Record<string, boolean>>({});
 
   // Modals & Forms
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -135,152 +122,6 @@ export const Invoices: React.FC = () => {
   };
 
   useEffect(() => { refresh(); }, []);
-
-  // --- MAPA ANALÍTICO LOGIC ---
-
-  const toggleMapNode = (id: string) => {
-    setExpandedMapNodes(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const analyticalData = useMemo(() => {
-    // 1. Filter Active Open/Overdue Invoices
-    const activeInvoices = invoices.filter(i =>
-      !i.isCanceled &&
-      (i.status === InvoiceStatus.OPEN || i.status === InvoiceStatus.OVERDUE)
-    );
-
-    // 2. Filter Available Credits (Documents with Balance)
-    const availableCredits = allDocs.filter(d => d.availableValue > 0.005);
-
-    // 3. Build Hierarchy Tree
-    const tree: Record<string, any> = {};
-
-    // Helper to initialize structure
-    const initPath = (sector: string, command: string, client: string) => {
-      if (!tree[sector]) tree[sector] = { debt: 0, credit: 0, commands: {} };
-      if (!tree[sector].commands[command]) tree[sector].commands[command] = { debt: 0, credit: 0, clients: {} };
-      if (!tree[sector].commands[command].clients[client]) tree[sector].commands[command].clients[client] = { debt: 0, credit: 0, invoices: [], credits: [] };
-    };
-
-    // Populate with Invoices (Debts)
-    activeInvoices.forEach(inv => {
-      const sector = inv.sector || 'Sem Setor';
-      const command = inv.command || 'Sem Comando';
-      const client = inv.client;
-      const debt = inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0) - inv.paidAmount;
-
-      if (debt <= 0.005) return;
-
-      initPath(sector, command, client);
-
-      tree[sector].debt += debt;
-      tree[sector].commands[command].debt += debt;
-      tree[sector].commands[command].clients[client].debt += debt;
-
-      tree[sector].commands[command].clients[client].invoices.push({
-        ...inv,
-        currentDebt: debt
-      });
-    });
-
-    // Populate with Credits
-    availableCredits.forEach(doc => {
-      const sector = doc.sector || 'Sem Setor';
-      const command = doc.command || 'Sem Comando';
-      const client = doc.client;
-      const credit = doc.availableValue;
-
-      // Initialize path even if no debt exists, so we see the credit surplus
-      initPath(sector, command, client);
-
-      tree[sector].credit += credit;
-      tree[sector].commands[command].credit += credit;
-      tree[sector].commands[command].clients[client].credit += credit;
-
-      tree[sector].commands[command].clients[client].credits.push({
-        ...doc
-      });
-    });
-
-    // Convert to Array and Sort
-    const sectors: AnalyticalNode[] = Object.keys(tree).sort().map(secKey => {
-      const secData = tree[secKey];
-
-      const commands: AnalyticalNode[] = Object.keys(secData.commands).sort().map(cmdKey => {
-        const cmdData = secData.commands[cmdKey];
-
-        const clientsList: AnalyticalNode[] = Object.keys(cmdData.clients).sort().map(cliKey => {
-          const cliData = cmdData.clients[cliKey];
-
-          const invoiceNodes: AnalyticalNode[] = cliData.invoices.sort((a: any, b: any) => (a.dueDate || '').localeCompare(b.dueDate || '')).map((inv: any) => ({
-            id: inv.id,
-            name: inv.invoiceNumber,
-            type: 'invoice',
-            grossDebt: inv.currentDebt,
-            availableCredit: 0,
-            netValue: inv.currentDebt,
-            children: [],
-            isExpanded: false,
-            data: inv
-          }));
-
-          const creditNodes: AnalyticalNode[] = cliData.credits.map((doc: any) => ({
-            id: doc.id,
-            name: doc.documentNumber,
-            type: 'credit',
-            grossDebt: 0,
-            availableCredit: doc.availableValue,
-            netValue: -doc.availableValue, // Negative to visually indicate deduction
-            children: [],
-            isExpanded: false,
-            data: doc
-          }));
-
-          return {
-            id: `${secKey}-${cmdKey}-${cliKey}`,
-            name: cliKey,
-            type: 'client',
-            grossDebt: cliData.debt,
-            availableCredit: cliData.credit,
-            netValue: Math.max(0, cliData.debt - cliData.credit),
-            children: [...invoiceNodes, ...creditNodes], // Show both
-            isExpanded: expandedMapNodes[`${secKey}-${cmdKey}-${cliKey}`] ?? false
-          };
-        });
-
-        return {
-          id: `${secKey}-${cmdKey}`,
-          name: cmdKey,
-          type: 'command',
-          grossDebt: cmdData.debt,
-          availableCredit: cmdData.credit,
-          netValue: Math.max(0, cmdData.debt - cmdData.credit),
-          children: clientsList,
-          isExpanded: expandedMapNodes[`${secKey}-${cmdKey}`] ?? false
-        };
-      });
-
-      const sectorId = `sec-${secKey}`;
-      return {
-        id: sectorId,
-        name: secKey,
-        type: 'sector',
-        grossDebt: secData.debt,
-        availableCredit: secData.credit,
-        netValue: Math.max(0, secData.debt - secData.credit),
-        children: commands,
-        isExpanded: expandedMapNodes[sectorId] ?? true
-      };
-    });
-
-    // Calculate Grand Total
-    const totalDebt = sectors.reduce((acc, s) => acc + s.grossDebt, 0);
-    const totalCredit = sectors.reduce((acc, s) => acc + s.availableCredit, 0);
-    const grandNet = Math.max(0, totalDebt - totalCredit);
-
-    return { sectors, grandNet };
-  }, [invoices, allDocs, expandedMapNodes]);
-
 
   // --- LIST TAB LOGIC (Existing) ---
   // ... (Code reused from previous implementation)
@@ -875,11 +716,11 @@ export const Invoices: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Faturas emitidas</h2>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-1">
+          {activeTab === 'list' && <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500 mt-1">
             <span>Na lista: <strong>{cabecalho.total}</strong> ({cabecalho.ativas} ativas{cabecalho.canceladas ? `, ${cabecalho.canceladas} canceladas` : ''})</span>
             <span>Serviço prestado (sem canceladas): <strong>R$ {cabecalho.servico.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
             {semOM > 0 && <button type="button" className="text-amber-700 underline" onClick={() => setExtra({ cadastro: 'sem' })} title="Faturas cujo cliente não está ligado a uma OM do cadastro">{semOM} sem OM ligada</button>}
-          </div>
+          </div>}
         </div>
         <div className="flex gap-2">
           {isAdmin && (
@@ -890,12 +731,14 @@ export const Invoices: React.FC = () => {
               </Button>
             </>
           )}
-          <Button variant="secondary" size="sm" onClick={exportExcel}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
-          </Button>
-          <Button variant="secondary" size="sm" onClick={exportListPDF}>
-            <FileText className="w-4 h-4 mr-2" /> PDF Lista
-          </Button>
+          {activeTab === 'list' && <>
+            <Button variant="secondary" size="sm" onClick={exportExcel}>
+              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+            </Button>
+            <Button variant="secondary" size="sm" onClick={exportListPDF}>
+              <FileText className="w-4 h-4 mr-2" /> PDF Lista
+            </Button>
+          </>}
           {!isReadOnly && (
             <Button onClick={() => { setEditingId(null); setFormData({}); setSaveError(null); setIsModalOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" /> Nova fatura avulsa
@@ -1175,121 +1018,8 @@ export const Invoices: React.FC = () => {
 
       {/* --- ANALYTICAL MAP TAB --- */}
       {activeTab === 'map' && (
-        <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-              <Network size={20} className="text-primary-600" />
-              Mapa Analítico de Contas em Aberto (Posição Líquida)
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Exibe o valor necessário para quitação, já abatendo automaticamente os créditos/adiantamentos disponíveis no nível do Cliente, Comando e Setor.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-black text-white uppercase text-xs font-bold">
-                <tr>
-                  <th className="px-4 py-3 text-left w-1/4">Setor</th>
-                  <th className="px-4 py-3 text-left w-1/4">Comando</th>
-                  <th className="px-4 py-3 text-left w-1/4">Cliente</th>
-                  <th className="px-4 py-3 text-left w-1/4">Fatura / Detalhe</th>
-                  <th className="px-4 py-3 text-right w-32">Valor Líquido</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {analyticalData.sectors.map(sector => (
-                  <React.Fragment key={sector.id}>
-                    {/* SECTOR ROW */}
-                    <tr className="bg-slate-100 hover:bg-slate-200 font-bold text-slate-800">
-                      <td className="px-4 py-3 flex items-center gap-2 cursor-pointer" onClick={() => toggleMapNode(sector.id)}>
-                        {sector.isExpanded ? <ChevronDown size={16} /> : <ChevronDown size={16} className="-rotate-90" />}
-                        {sector.name}
-                      </td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3 text-right">R$ {sector.netValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-
-                    {/* COMMAND ROWS */}
-                    {sector.isExpanded && sector.children.map(command => (
-                      <React.Fragment key={command.id}>
-                        <tr className="bg-slate-50 hover:bg-white font-semibold text-slate-700">
-                          <td className="px-4 py-2 border-r border-slate-200"></td>
-                          <td className="px-4 py-2 flex items-center gap-2 cursor-pointer" onClick={() => toggleMapNode(command.id)}>
-                            {command.isExpanded ? <ChevronDown size={14} /> : <ChevronDown size={14} className="-rotate-90" />}
-                            {command.name}
-                          </td>
-                          <td className="px-4 py-2"></td>
-                          <td className="px-4 py-2"></td>
-                          <td className="px-4 py-2 text-right">R$ {command.netValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                        </tr>
-
-                        {/* CLIENT ROWS */}
-                        {command.isExpanded && command.children.map(client => (
-                          <React.Fragment key={client.id}>
-                            <tr className="bg-white hover:bg-blue-50 text-slate-600">
-                              <td className="px-4 py-2 border-r border-slate-200"></td>
-                              <td className="px-4 py-2 border-r border-slate-200"></td>
-                              <td className="px-4 py-2 flex items-center gap-2 cursor-pointer font-medium text-slate-800" onClick={() => toggleMapNode(client.id)}>
-                                {client.isExpanded ? <ChevronDown size={14} /> : <ChevronDown size={14} className="-rotate-90" />}
-                                {client.name}
-                              </td>
-                              <td className="px-4 py-2"></td>
-                              <td className={`px-4 py-2 text-right font-medium ${client.netValue > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                R$ {client.netValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-
-                            {/* DETAIL ROWS (INVOICES & CREDITS) */}
-                            {client.isExpanded && client.children.map((child, idx) => (
-                              <tr key={`${child.id}-${idx}`} className="bg-white text-xs text-slate-500 border-l-4 border-l-slate-200">
-                                <td className="px-4 py-1 border-r border-slate-200"></td>
-                                <td className="px-4 py-1 border-r border-slate-200"></td>
-                                <td className="px-4 py-1 border-r border-slate-200"></td>
-
-                                {child.type === 'invoice' ? (
-                                  // INVOICE ROW
-                                  <>
-                                    <td className="px-4 py-1 flex items-center gap-2">
-                                      <FileText size={12} /> Fatura: {child.name} <span className="text-slate-400">({child.data?.type})</span>
-                                    </td>
-                                    <td className="px-4 py-1 text-right text-slate-400">
-                                      (Aberto: R$ {child.grossDebt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
-                                    </td>
-                                  </>
-                                ) : (
-                                  // CREDIT ROW (ALTCRED)
-                                  <>
-                                    <td className="px-4 py-1 flex items-center gap-2 text-green-700 font-medium">
-                                      <FileCheck size={12} /> ALTCRED: {child.name}
-                                    </td>
-                                    <td className="px-4 py-1 text-right text-green-700 font-medium">
-                                      - R$ {child.availableCredit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </td>
-                                  </>
-                                )}
-                              </tr>
-                            ))}
-                          </React.Fragment>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </React.Fragment>
-                ))}
-                {analyticalData.sectors.length === 0 && (
-                  <tr><td colSpan={5} className="text-center py-8 text-slate-500">Nenhuma pendência encontrada.</td></tr>
-                )}
-              </tbody>
-              <tfoot className="bg-slate-800 text-white font-bold sticky bottom-0">
-                <tr>
-                  <td className="px-4 py-4 uppercase" colSpan={4}>Total Geral Necessário para Quitação</td>
-                  <td className="px-4 py-4 text-right text-lg">R$ {analyticalData.grandNet.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <MapaAnaliticoTab invoices={invoices} docs={allDocs} clients={clients}
+          onVerFaturas={nome => { setSearchText(nome); setActiveTab('list'); }} />
       )}
 
       {/* Edit/Create Modal */}
