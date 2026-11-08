@@ -48,8 +48,9 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
 }
 
 /**
- * PDF ENXUTO da cobrança: uma coluna de valor só. Em cada OM: as faturas vencidas (vencimento, dias de atraso, valor),
- * o crédito disponível dela subtraído (se houver) e, em destaque, o VALOR A PAGAR PELA OM.
+ * PDF ENXUTO da cobrança: uma coluna de valor só. Em cada OM: as faturas vencidas (vencimento, dias de atraso, valor)
+ * e, em destaque, o VALOR A PAGAR PELA OM = soma das faturas. O crédito (ALTCRED/GRU com saldo) NÃO é abatido:
+ * só reduz a dívida quando for atribuído (baixado) às faturas; aparece apenas como observação.
  */
 export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const doc = new jsPDF('p');
@@ -62,37 +63,31 @@ export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPD
   const t = mapa.total;
   doc.setFillColor(15, 23, 42); doc.roundedRect(14, y, 182, 12, 2, 2, 'F');
   doc.setTextColor(255, 255, 255); doc.setFontSize(11);
-  doc.text(o.rotuloTotal || 'VALOR A PAGAR', 18, y + 7.8); doc.text(brl(t.liquido), 192, y + 7.8, { align: 'right' });
+  doc.text(o.rotuloTotal || 'VALOR A PAGAR', 18, y + 7.8); doc.text(brl(t.divida), 192, y + 7.8, { align: 'right' });
   doc.setTextColor(0, 0, 0);
   y += 16;
 
   type Tipo = 'setor' | 'comando' | 'om' | 'fatura' | 'credito' | 'apagar';
-  const body: string[][] = []; const tipos: Tipo[] = [];
-  const push = (tp: Tipo, c: string[]) => { body.push(c); tipos.push(tp); };
+  const body: any[][] = []; const tipos: Tipo[] = [];
+  const push = (tp: Tipo, c: any[]) => { body.push(c); tipos.push(tp); };
   const umSetor = mapa.setores.length === 1;
   mapa.setores.forEach(s => {
-    if (!umSetor) push('setor', [`Setor ${s.nome}`, '', '', brl(s.liquido)]);
+    if (!umSetor) push('setor', [`Setor ${s.nome}`, '', '', brl(s.divida)]);
     s.filhos.forEach(c => {
-      push('comando', [`Comando ${c.nome}`, '', '', brl(c.liquido)]);
+      push('comando', [`Comando ${c.nome}`, '', '', brl(c.divida)]);
       c.filhos.forEach(x => {
         push('om', [x.nome, '', '', '']);
         (x.faturas || []).forEach(f => push('fatura', [`${f.numero} · ${f.tipo}${f.contestada ? ' · em contestação' : ''}`, dataBR(f.vencimento), f.atraso ? `${f.atraso} dias` : '—', brl(f.saldo)]));
-        // o crédito abate até o valor das faturas (o que sobra fica com a OM); fonte padrão do PDF não tem o sinal "−"
-        let resta = x.divida;
-        (x.creditos || []).forEach(cr => {
-          const usa = Math.round(Math.min(cr.valor, resta) * 100) / 100;
-          if (usa <= 0.005) return;
-          resta = Math.round((resta - usa) * 100) / 100;
-          push('credito', [`(-) Crédito disponível da OM: ${cr.numero}${cr.origem ? ` (${cr.origem})` : ''}`, '', '', `- ${brl(usa)}`]);
-        });
-        push('apagar', [`VALOR A PAGAR PELA OM${x.sobra > 0.005 ? ` (o crédito cobre as faturas; sobra ${brl(x.sobra)})` : ''}`, '', '', brl(x.liquido)]);
+        push('apagar', ['VALOR A PAGAR PELA OM', '', '', brl(x.divida)]);
+        // crédito: só informativo (não abate enquanto não for atribuído às faturas)
+        if (x.credito > 0.005) push('credito', [{ colSpan: 4, content: `Obs.: a OM tem ${brl(x.credito)} de crédito (${(x.creditos || []).map(cr => cr.numero).join(', ')}) ainda não atribuído às faturas; não foi abatido. Para usá-lo, indique as faturas a pagar.` }]);
       });
     });
   });
   const recuo: Record<Tipo, number> = { setor: 2, comando: 2, om: 4, fatura: 9, credito: 9, apagar: 9 };
   autoTable(doc, {
     startY: y, head: [['Comando › OM › fatura', 'Vencimento', 'Atraso', 'Valor']], body,
-    foot: [[o.rotuloTotal || 'VALOR A PAGAR', '', '', brl(t.liquido)]],
+    foot: [[o.rotuloTotal || 'VALOR A PAGAR', '', '', brl(t.divida)]],
     styles: { fontSize: 8, cellPadding: { top: 1.2, bottom: 1.2, left: 2, right: 2 } },
     headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [15, 23, 42], fontStyle: 'bold', fontSize: 9 },
     columnStyles: { 0: { cellWidth: 112 }, 1: { halign: 'center', cellWidth: 24 }, 2: { halign: 'right', cellWidth: 18 }, 3: { halign: 'right' } },
@@ -104,7 +99,7 @@ export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPD
       else if (tp === 'comando') { d.cell.styles.fillColor = [226, 232, 240]; d.cell.styles.fontStyle = 'bold'; }
       else if (tp === 'om') { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [248, 250, 252]; }
       else if (tp === 'fatura') d.cell.styles.textColor = [51, 65, 85];
-      else if (tp === 'credito') d.cell.styles.textColor = [21, 128, 61];
+      else if (tp === 'credito') { d.cell.styles.textColor = [21, 128, 61]; d.cell.styles.fontStyle = 'italic'; d.cell.styles.fontSize = 7; }
       else if (tp === 'apagar') { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [254, 243, 199]; }
     },
   });

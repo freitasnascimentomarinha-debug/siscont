@@ -199,7 +199,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     lista.map(f => ({ id: f.id, omId: f.omId ?? null, client: f.cliente, sector: f.setor, command: f.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, saldo: f.saldo, contestada: f.contestada }) as FaturaMapa),
     // só as OM das faturas cobradas (o filtro 'vencidas' tira as OM que só têm crédito)
     creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
-  const REGRA_CREDITO = 'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.';
+  const REGRA_CREDITO = 'Valor a pagar = soma das faturas vencidas. Crédito da OM (ALTCRED/GRU com saldo) não é abatido enquanto não for atribuído às faturas.';
   const nomeArquivo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
   const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
