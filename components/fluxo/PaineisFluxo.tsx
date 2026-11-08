@@ -225,7 +225,7 @@ export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
 // ------------------------------------------------------------------ importação de notas de empenho
 /** Lê planilha de NE (formato das abas mensais do fluxo de caixa: DATA, ALTCRED/NE, CLIENTE, ENTRADA, SAÍDA, RUBRICA, DESCRIÇÃO). */
 /** Linha da planilha de NE na prévia da importação. */
-export interface ItemNE { saida: Saida; situacao: 'NOVA' | 'REFORCO' | 'JA_EXISTE' | 'REPETIDA_NA_PLANILHA'; avisos: string[] }
+export interface ItemNE { saida: Saida; situacao: 'NOVA' | 'REFORCO' | 'ANULACAO' | 'JA_EXISTE' | 'REPETIDA_NA_PLANILHA'; avisos: string[] }
 /** NE já lançada (para reconhecer reforço × linha já importada). */
 export interface NEExistente { numero: string; data: string; valor: number; client?: string; rubricaNumero?: number | null; categoria?: string | null; rubric?: string }
 export interface PreviaNE { arquivo: string; itens: ItemNE[]; ignoradas: { aba: string; linha: number; motivo: string }[] }
@@ -236,6 +236,8 @@ export interface PreviaNE { arquivo: string; itens: ItemNE[]; ignoradas: { aba: 
  * REFORÇO de empenho = aumento do valor da MESMA NE (não é empenho novo): linha com número de NE já lançado (no
  * sistema ou antes na planilha) e data ou valor diferentes entra como reforço daquela NE. Mesmo número, data e
  * valor = linha já importada (não grava de novo).
+ * ANULAÇÃO parcial = valor negativo numa NE já lançada: diminui o valor da mesma NE (como um reforço negativo); não
+ * pode passar do valor da NE.
  */
 export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rubricasDoAno: number[] = []): Promise<PreviaNE> {
   const wb = XLSX.read(new Uint8Array(await lerArquivo(f)), { dense: true, cellFormula: false, cellStyles: false });
@@ -244,6 +246,9 @@ export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rub
   const lancados = new Set(existentes.map(x => chaveLanc(x.numero, x.data, x.valor)));
   const nes = new Set(existentes.map(x => x.numero.trim().toUpperCase()));
   const lancadosPlanilha = new Set<string>(), nesPlanilha = new Set<string>();
+  // valor atual de cada NE (lançamentos + o que entra pela planilha), para conferir a anulação
+  const totalNE = new Map<string, number>();
+  existentes.forEach(x => { const k = x.numero.trim().toUpperCase(); totalNE.set(k, Math.round(((totalNE.get(k) || 0) + x.valor) * 100) / 100); });
   const rubs = new Set(rubricasDoAno);
   wb.SheetNames.forEach(aba => {
     const m = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any[][];
@@ -258,9 +263,13 @@ export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rub
       if (!lerNE(ne)) { if (v) ignoradas.push({ aba, linha, motivo: `${ne}: não é número de NE (linha de entrada/ALTCRED ou número incompleto)` }); return; }
       if (/^exemplo/i.test(limpar(r?.[iCli])) || /^exemplo/i.test(limpar(r?.[iDesc]))) { ignoradas.push({ aba, linha, motivo: `${ne}: linha de EXEMPLO do modelo` }); return; }
       if (v === null || v === 0) { ignoradas.push({ aba, linha, motivo: `${ne}: sem valor de saída` }); return; }
-      if (v < 0) { ignoradas.push({ aba, linha, motivo: `${ne}: valor negativo (${brl(v)}) — anulação de empenho: registre a anulação na própria NE (Lançamentos)` }); return; }
       const dt = dataCelula(r?.[iData]);
       if (!dt) { ignoradas.push({ aba, linha, motivo: `${ne}: sem data` }); return; }
+      if (v < 0) {
+        const atual = totalNE.get(ne);
+        if (atual === undefined) { ignoradas.push({ aba, linha, motivo: `${ne}: anulação (${brl(v)}) de NE ainda não lançada — lance a NE antes` }); return; }
+        if (-v > atual + 0.005 && !lancados.has(chaveLanc(ne, dt, v))) { ignoradas.push({ aba, linha, motivo: `${ne}: anulação de ${brl(-v)} maior que o valor atual da NE (${brl(atual)})` }); return; }
+      }
       const rubTxt = limpar(r?.[iRub]);
       const cls = classificarRubrica(rubTxt);
       const avisos: string[] = [];
@@ -269,15 +278,17 @@ export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rub
       else if (cls.rubricaNumero && rubs.size && !rubs.has(cls.rubricaNumero)) avisos.push(`rubrica ${cls.rubricaNumero} não existe na taxa condominial de ${dt.slice(0, 4)}`);
       const kl = chaveLanc(ne, dt, v);
       const situacao: ItemNE['situacao'] = lancados.has(kl) ? 'JA_EXISTE' : lancadosPlanilha.has(kl) ? 'REPETIDA_NA_PLANILHA'
-        : nes.has(ne) || nesPlanilha.has(ne) ? 'REFORCO' : 'NOVA';
+        : v < 0 ? 'ANULACAO' : nes.has(ne) || nesPlanilha.has(ne) ? 'REFORCO' : 'NOVA';
       lancadosPlanilha.add(kl); nesPlanilha.add(ne);
+      if (situacao === 'NOVA' || situacao === 'REFORCO' || situacao === 'ANULACAO') totalNE.set(ne, Math.round(((totalNE.get(ne) || 0) + v) * 100) / 100);
       if (situacao === 'REFORCO') avisos.unshift(`reforço da NE (aumenta o valor do empenho; não é empenho novo)`);
+      if (situacao === 'ANULACAO') avisos.unshift(`anulação parcial: diminui a NE para ${brl(totalNE.get(ne) || 0)}`);
       itens.push({
         situacao, avisos,
         saida: {
           id: uuidv4(), date: dt, documentNumber: ne, documentType: DocumentType.EMPENHO,
           client: limpar(r?.[iCli]), value: Math.round(v * 100) / 100, rubric: rubTxt, description: limpar(r?.[iDesc]),
-          observation: `${situacao === 'REFORCO' ? 'Reforço de empenho — ' : ''}Importada de ${f.name} › ${aba}`,
+          observation: `${situacao === 'REFORCO' ? 'Reforço de empenho — ' : situacao === 'ANULACAO' ? 'Anulação parcial de empenho — ' : ''}Importada de ${f.name} › ${aba}`,
           isCanceled: false, rubricaNumero: cls.rubricaNumero, categoria: cls.categoria,
         },
       });
@@ -287,7 +298,7 @@ export async function lerPlanilhaNE(f: File, existentes: NEExistente[] = [], rub
 }
 
 /** Grava as NE novas e os reforços da prévia. */
-export const entraNaGravacao = (i: ItemNE) => i.situacao === 'NOVA' || i.situacao === 'REFORCO';
+export const entraNaGravacao = (i: ItemNE) => i.situacao === 'NOVA' || i.situacao === 'REFORCO' || i.situacao === 'ANULACAO';
 export async function gravarPreviaNE(p: PreviaNE) {
   const novas = p.itens.filter(entraNaGravacao).map(i => i.saida);
   if (novas.length) await salvarSaidas(novas);

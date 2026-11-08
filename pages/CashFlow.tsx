@@ -37,6 +37,8 @@ const Lancamentos: React.FC = () => {
   const [formData, setFormData] = useState<Partial<CashFlowExit>>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [classe, setClasse] = useState('');
+  // anulação parcial: diminui o valor de uma NE já lançada (gravada com valor negativo)
+  const [anulacao, setAnulacao] = useState(false);
   const [rubricasAno, setRubricasAno] = useState<Rubrica[]>([]);
   const [classes, setClasses] = useState<Map<string, string>>(new Map());
   const neRef = useRef<HTMLInputElement>(null);
@@ -74,7 +76,8 @@ const Lancamentos: React.FC = () => {
     try {
       const ref = previaNE.itens.filter(i => i.situacao === 'REFORCO').length;
       const n = await gravarPreviaNE(previaNE);
-      notify.success(`${n} lançamento(s) importado(s): ${n - ref} nota(s) de empenho nova(s)${ref ? ` e ${ref} reforço(s)` : ''}.`);
+      const anu = previaNE.itens.filter(i => i.situacao === 'ANULACAO').length;
+      notify.success(`${n} lançamento(s) importado(s): ${n - ref - anu} nota(s) de empenho nova(s)${ref ? `, ${ref} reforço(s)` : ''}${anu ? `, ${anu} anulação(ões)` : ''}.`);
       setPreviaNE(null);
       await refresh();
     } catch (e) { notify.fail('Erro ao gravar as notas de empenho', e); } finally { setGravandoNE(false); }
@@ -132,20 +135,25 @@ const Lancamentos: React.FC = () => {
     if (isReadOnly) return;
     if (!formData.value || !formData.documentNumber) return;
 
+    if (anulacao && !editingId) {
+      if (!originalDoForm) { notify.error('Anulação: informe o número de uma NE já lançada.'); return; }
+      if (Number(formData.value) > totalDaNE(neDoForm) + 0.005) { notify.error(`A anulação passa do valor atual da NE (R$ ${totalDaNE(neDoForm).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`); return; }
+    }
     const payload: CashFlowExit = {
       id: editingId || uuidv4(),
       date: formData.date || new Date().toISOString().split('T')[0],
       documentNumber: formData.documentNumber!,
       documentType: (formData.documentType as DocumentType) || DocumentType.EMPENHO,
       client: formData.client || '',
-      value: Number(formData.value),
+      value: anulacao && !editingId ? -Math.abs(Number(formData.value)) : Number(formData.value),
       rubric: formData.rubric || '',
       description: formData.description || '',
       observation: formData.observation || '',
       isCanceled: formData.isCanceled || false,
     };
     // mesma NE já lançada: este lançamento é um REFORÇO (aumenta o valor do empenho)
-    if (!editingId && originalDoForm && !/^Reforço de empenho/i.test(payload.observation || '')) payload.observation = `Reforço de empenho${payload.observation ? ` — ${payload.observation}` : ''}`;
+    const marca = anulacao ? 'Anulação parcial de empenho' : 'Reforço de empenho';
+    if (!editingId && originalDoForm && !/^(Reforço|Anulação parcial) de empenho/i.test(payload.observation || '')) payload.observation = `${marca}${payload.observation ? ` — ${payload.observation}` : ''}`;
 
     const cls = classe ? (classe.startsWith('R') ? { rubricaNumero: Number(classe.slice(1)), categoria: 'CONDOMINIO' } : { rubricaNumero: null, categoria: classe }) : { rubricaNumero: null, categoria: null };
     try {
@@ -196,6 +204,7 @@ const Lancamentos: React.FC = () => {
     setFormData({});
     setEditingId(null);
     setClasse('');
+    setAnulacao(false);
   };
 
   // ... (Export functions remain unchanged) ...
@@ -364,7 +373,8 @@ const Lancamentos: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{dataBR(item.date)}</td>
                   <td className="px-6 py-4 text-sm font-medium text-slate-900">
                     {item.documentNumber}
-                    {ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
+                    {item.type === 'EXIT' && item.value < 0 ? <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800" title="Anulação parcial: diminui o valor desta NE">ANULAÇÃO</span>
+                      : ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
                     {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}
                   </td>
                   <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>{item.client}</td>
@@ -378,7 +388,7 @@ const Lancamentos: React.FC = () => {
                     {item.type === 'ENTRY' ? `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
                   </td>
                   <td className={`px-6 py-4 text-sm text-right font-medium ${item.isCanceled ? 'text-slate-400 line-through' : 'text-red-600'}`}>
-                    {item.type === 'EXIT' ? `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
+                    {item.type === 'EXIT' ? (item.value < 0 ? `− R$ ${(-item.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`) : '-'}
                   </td>
                   <td className="px-6 py-4 text-sm text-right font-bold text-slate-700">R$ {item.balanceAfter.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 text-sm text-right">
@@ -424,7 +434,8 @@ const Lancamentos: React.FC = () => {
             ]} />
           {originalDoForm && (
             <div className="md:col-span-2 p-2 rounded border border-sky-200 bg-sky-50 text-xs text-sky-900" role="note">
-              <b>Reforço de empenho:</b> a NE {originalDoForm.documentNumber} já foi lançada ({originalDoForm.client || 'sem cliente'}, total atual R$ {totalDaNE(neDoForm).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Este lançamento aumenta o valor da mesma NE — informe só o valor do reforço.
+              <b>{anulacao ? 'Anulação parcial de empenho' : 'Reforço de empenho'}:</b> a NE {originalDoForm.documentNumber} já foi lançada ({originalDoForm.client || 'sem cliente'}, total atual R$ {totalDaNE(neDoForm).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). {anulacao ? 'Este lançamento diminui o valor da mesma NE — informe só o valor anulado.' : 'Este lançamento aumenta o valor da mesma NE — informe só o valor do reforço.'}
+              <label className="flex items-center gap-1.5 mt-1"><input type="checkbox" className="h-3.5 w-3.5 accent-rose-600" checked={anulacao} onChange={e => setAnulacao(e.target.checked)} aria-label="É anulação parcial" /> É anulação parcial (diminui o valor da NE)</label>
               {(!formData.client || !classe) && <button type="button" className="ml-2 underline font-semibold" onClick={() => { setFormData(f => ({ ...f, client: f.client || originalDoForm.client, rubric: f.rubric || originalDoForm.rubric })); if (!classe) setClasse(classeDe(originalDoForm)); }}>usar cliente e rubrica da NE</button>}
             </div>
           )}
@@ -457,13 +468,15 @@ const Lancamentos: React.FC = () => {
         {previaNE && (() => {
           const novas = previaNE.itens.filter(i => i.situacao === 'NOVA');
           const reforcos = previaNE.itens.filter(i => i.situacao === 'REFORCO');
+          const anulacoes = previaNE.itens.filter(i => i.situacao === 'ANULACAO');
           const comAviso = novas.filter(i => i.avisos.length).length;
           return (
             <div className="space-y-3 text-sm" aria-label="Prévia das notas de empenho">
               <div className="flex flex-wrap gap-2">
                 <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200"><b>{novas.length}</b> nova(s) · R$ {novas.reduce((t, i) => t + i.saida.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 {reforcos.length > 0 && <span className="px-2 py-1 rounded bg-sky-50 text-sky-800 border border-sky-200"><b>{reforcos.length}</b> reforço(s) · R$ {reforcos.reduce((t, i) => t + i.saida.value, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
-                <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200"><b>{previaNE.itens.length - novas.length - reforcos.length}</b> já importada(s) — não serão gravadas de novo</span>
+                {anulacoes.length > 0 && <span className="px-2 py-1 rounded bg-rose-50 text-rose-800 border border-rose-200"><b>{anulacoes.length}</b> anulação(ões) · − R$ {(-anulacoes.reduce((t, i) => t + i.saida.value, 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
+                <span className="px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200"><b>{previaNE.itens.length - novas.length - reforcos.length - anulacoes.length}</b> já importada(s) — não serão gravadas de novo</span>
                 <span className="px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200"><b>{previaNE.ignoradas.length}</b> linha(s) pulada(s)</span>
                 {comAviso > 0 && <span className="px-2 py-1 rounded bg-orange-50 text-orange-800 border border-orange-200"><b>{comAviso}</b> nova(s) com aviso de rubrica</span>}
               </div>
@@ -473,12 +486,12 @@ const Lancamentos: React.FC = () => {
                   <tbody>
                     {previaNE.itens.map((i, k) => (
                       <tr key={k} className={`border-t border-slate-100 ${!entraNaGravacao(i) ? 'text-slate-400' : ''}`}>
-                        <td className="px-2 py-1 whitespace-nowrap">{i.situacao === 'NOVA' ? <span className="text-emerald-700 font-semibold">nova</span> : i.situacao === 'REFORCO' ? <span className="text-sky-700 font-semibold">reforço</span> : i.situacao === 'JA_EXISTE' ? 'já importada' : 'repetida na planilha'}</td>
+                        <td className="px-2 py-1 whitespace-nowrap">{i.situacao === 'NOVA' ? <span className="text-emerald-700 font-semibold">nova</span> : i.situacao === 'REFORCO' ? <span className="text-sky-700 font-semibold">reforço</span> : i.situacao === 'ANULACAO' ? <span className="text-rose-700 font-semibold">anulação</span> : i.situacao === 'JA_EXISTE' ? 'já importada' : 'repetida na planilha'}</td>
                         <td className="px-2 py-1 whitespace-nowrap">{dataBR(i.saida.date)}</td>
                         <td className="px-2 py-1 font-mono whitespace-nowrap">{i.saida.documentNumber}</td>
                         <td className="px-2 py-1 max-w-[220px] truncate" title={i.saida.client}>{i.saida.client}</td>
                         <td className="px-2 py-1">{i.saida.rubricaNumero ? `Rubrica ${i.saida.rubricaNumero}` : (i.saida.categoria && rotuloClasse(i.saida.categoria)) || i.saida.categoria || '—'}{i.avisos.map(a => <div key={a} className="text-orange-700">⚠ {a}</div>)}</td>
-                        <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">R$ {i.saida.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                        <td className={`px-2 py-1 text-right tabular-nums whitespace-nowrap ${i.saida.value < 0 ? 'text-rose-700' : ''}`}>{i.saida.value < 0 ? '− ' : ''}R$ {Math.abs(i.saida.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                       </tr>
                     ))}
                     {!previaNE.itens.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma nota de empenho encontrada na planilha.</td></tr>}
@@ -491,7 +504,7 @@ const Lancamentos: React.FC = () => {
                   <ul className="mt-1 space-y-0.5 text-xs text-amber-900">{previaNE.ignoradas.map((g, k) => <li key={k}>{g.aba}, linha {g.linha}: {g.motivo}</li>)}</ul>
                 </details>
               )}
-              <p className="text-xs text-slate-500"><b>Reforço</b> = mesmo número de NE com outra data ou valor: aumenta o valor do empenho (não cria empenho novo). Linha com mesmo número, data e valor de um lançamento existente já foi importada e não é gravada de novo.</p>
+              <p className="text-xs text-slate-500"><b>Reforço</b> = mesmo número de NE com outra data ou valor: aumenta o valor do empenho (não cria empenho novo). <b>Anulação</b> = valor negativo numa NE já lançada: diminui o valor dela (não pode passar do valor da NE). Linha com mesmo número, data e valor de um lançamento existente já foi importada e não é gravada de novo.</p>
             </div>
           );
         })()}
