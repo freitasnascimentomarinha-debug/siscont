@@ -833,8 +833,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').waitFor();
     ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 0, 'lista primeiro só as faturas em aberto da OM do documento (a da SKM não aparece)');
     ok(await dlgDoc.getByLabel('Pagar a fatura 41000-EL-09-2025-001-0').count() === 0, 'fatura já quitada não aparece');
-    await dlgDoc.getByText('Mostrar faturas de todas as OM').click();
-    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 1, '"todas as OM" mostra faturas de outras OM (pagador por outra OM)');
+    await dlgDoc.getByLabel('Cliente das faturas a pagar').selectOption('SKM');
+    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 1 && await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').count() === 0, 'filtro "Cliente (OM)": escolher outra OM mostra só as faturas dela');
+    await dlgDoc.getByLabel('Cliente das faturas a pagar').selectOption('__todas');
+    ok(await dlgDoc.getByLabel('Pagar a fatura 41000-TC-10-2026-009-0').count() === 1 && await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').count() === 1, '"Todas as OM" mostra as faturas de todas as OM');
     await dlgDoc.getByLabel('Pagar a fatura 41000-AE-10-2026-001-0').check();
     ok(await dlgDoc.getByText(/fica disponível no documento/).isVisible() && (await dlgDoc.getByLabel('Valor a pagar da fatura 41000-AE-10-2026-001-0').inputValue()) === '500', 'valor do documento (R$ 500) distribuído na fatura escolhida, até o saldo');
     await dlgDoc.getByLabel('Valor a pagar da fatura 41000-AE-10-2026-001-0').fill('600');

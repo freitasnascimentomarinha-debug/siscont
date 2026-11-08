@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Invoice } from '../../types';
 import { dataBR } from '../../utils/datas';
@@ -14,11 +14,18 @@ export interface SelecaoPagamento { ids: string[]; manuais: Record<string, numbe
 export const FaturasParaPagar: React.FC<{
   faturas: Invoice[]; omId: string | null; nomeOM?: string; valorDoc: number; selecao: SelecaoPagamento; onChange: (s: SelecaoPagamento) => void; adiantamento?: boolean;
 }> = ({ faturas, omId, nomeOM, valorDoc, selecao, onChange, adiantamento }) => {
-  const [todas, setTodas] = useState(false);
+  // filtro de cliente: a OM do documento, todas as OM ou uma OM escolhida (para pagar faturas de outra OM)
+  const [cliente, setCliente] = useState<string>(omId ? '__doc' : '__todas');
+  useEffect(() => { setCliente(omId ? '__doc' : '__todas'); }, [omId]);
   const [busca, setBusca] = useState('');
   const abertas = useMemo(() => faturas.filter(f => saldoDaFatura(f) > 0.005), [faturas]);
   const daOM = useMemo(() => (omId ? abertas.filter(f => f.omId === omId) : []), [abertas, omId]);
-  const base = omId && !todas ? daOM : abertas;
+  const clientes = useMemo(() => {
+    const m = new Map<string, { qtd: number; saldo: number }>();
+    abertas.forEach(f => { const c = (f.client || '').trim() || '(sem cliente)'; const x = m.get(c) || { qtd: 0, saldo: 0 }; x.qtd++; x.saldo += saldoDaFatura(f); m.set(c, x); });
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+  }, [abertas]);
+  const base = cliente === '__doc' ? daOM : cliente === '__todas' ? abertas : abertas.filter(f => ((f.client || '').trim() || '(sem cliente)') === cliente);
   const q = busca.trim().toLowerCase();
   const visiveis = useMemo(() => base
     .filter(f => !q || `${f.invoiceNumber} ${f.client} ${f.type}`.toLowerCase().includes(q))
@@ -38,13 +45,18 @@ export const FaturasParaPagar: React.FC<{
       <div className="flex flex-wrap items-center gap-3">
         <h4 className="font-semibold text-slate-800 text-sm">{adiantamento ? 'Faturas que este adiantamento abate' : 'Faturas a pagar com este documento'} <span className="font-normal text-slate-500">(opcional)</span></h4>
         <div className="flex-1" />
-        {omId && <label className="text-xs flex items-center gap-1.5"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={todas} onChange={e => setTodas(e.target.checked)} /> Mostrar faturas de todas as OM</label>}
+        <label className="text-xs text-slate-600 flex items-center gap-1.5">Cliente (OM)
+          <select className="text-xs border border-slate-300 rounded-md px-1.5 py-1 bg-white max-w-[280px]" value={cliente} onChange={e => setCliente(e.target.value)} aria-label="Cliente das faturas a pagar">
+            {omId && <option value="__doc">OM do documento: {nomeOM} ({daOM.length})</option>}
+            <option value="__todas">Todas as OM ({abertas.length})</option>
+            {clientes.map(([c, x]) => <option key={c} value={c}>{c} ({x.qtd} · {brl(x.saldo)})</option>)}
+          </select></label>
         <label className="relative"><Search size={13} className="absolute left-2 top-2 text-slate-400" /><input className="pl-7 pr-2 py-1 text-xs border border-slate-300 rounded-md w-48" placeholder="Buscar fatura..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar fatura em aberto" /></label>
       </div>
       <p className="text-xs text-slate-500">
-        {omId && !todas ? <>Faturas em aberto de <b>{nomeOM}</b> ({daOM.length}). </> : <>Todas as faturas em aberto ({abertas.length}). </>}
+        {cliente === '__doc' ? <>Faturas em aberto de <b>{nomeOM}</b> ({daOM.length}). </> : cliente === '__todas' ? <>Todas as faturas em aberto ({abertas.length}). </> : <>Faturas em aberto de <b>{cliente}</b> ({base.length}). </>}
         Marque na ordem em que devem ser pagas; o valor é distribuído até o saldo de cada fatura e pode ser ajustado.
-        {!omId && ' Escolha o cliente acima para ver primeiro as faturas dele.'}
+        {!omId && ' Escolha o cliente do documento acima para ver primeiro as faturas dele, ou filtre outra OM em "Cliente (OM)".'}
       </p>
       <div className="max-h-64 overflow-y-auto border border-slate-200 rounded bg-white">
         <table className="w-full text-xs">
@@ -68,7 +80,7 @@ export const FaturasParaPagar: React.FC<{
                 </tr>
               );
             })}
-            {!visiveis.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura em aberto{omId && !todas ? ' desta OM' : ''}.</td></tr>}
+            {!visiveis.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura em aberto{cliente !== '__todas' ? ' deste cliente' : ''}.</td></tr>}
           </tbody>
         </table>
       </div>
