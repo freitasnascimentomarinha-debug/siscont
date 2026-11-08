@@ -1343,8 +1343,26 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Descontos do grupo NAVIOS .*− R\$ 10\.000,00/.test(qn) && (await page.getByLabel('Total dos navios', { exact: true }).innerText()).includes('R$ 90.000,00'), 'aba Navios: valor destinado 100.000 − desconto 10.000 = R$ 90.000,00');
     // tira o desconto dos navios para não mudar a conferência das diárias com a planilha
     await page.getByRole('button', { name: '3. Descontos por OM' }).click();
+    // filtro da lista de descontos
+    await page.getByLabel('Filtrar OM').selectOption('__NAVIOS');
+    ok((await page.getByLabel('Resumo do filtro').innerText()).startsWith(`1 de ${db.descontos_tc.length}`) && await page.getByRole('row').filter({ hasText: 'AMRJ' }).count() === 0, 'filtro por OM: só o grupo NAVIOS');
+    await page.getByRole('button', { name: 'limpar filtros' }).click();
+    await page.getByLabel('Buscar desconto').fill('zzz-nada');
+    await page.getByText('Nenhum desconto com esse filtro.').waitFor();
+    ok(true, 'busca sem resultado avisa');
+    await page.getByRole('button', { name: 'limpar filtros' }).click();
+    // editar o desconto já inserido (mesmo registro, sem duplicar)
+    const qtdDesc = db.descontos_tc.length;
+    await page.getByLabel('Editar desconto de Grupo NAVIOS').click();
+    ok(await page.getByLabel('Valor do desconto').inputValue() === '10000' && await page.getByText(/Editando desconto já inserido/).isVisible(), 'editar carrega o desconto no formulário');
+    await page.getByLabel('Valor do desconto').fill('20000');
+    await page.getByRole('button', { name: 'Salvar alteração' }).click();
+    await page.getByText('Desconto alterado.').waitFor();
+    ok(db.descontos_tc.length === qtdDesc && Number(db.descontos_tc.find(d => d.grupo === 'NAVIOS').valor) === 20000 && db.descontos_tc.find(d => d.grupo === 'NAVIOS').id === dNav.id, 'desconto alterado no mesmo registro (sem duplicar)');
+    page.once('dialog', d => d.accept());
     await page.getByRole('row').filter({ hasText: 'Grupo NAVIOS' }).first().getByLabel('Excluir desconto').click();
     for (let i = 0; i < 40 && db.descontos_tc.some(d => d.grupo === 'NAVIOS'); i++) await page.waitForTimeout(250);
+    ok(!db.descontos_tc.some(d => d.grupo === 'NAVIOS'), 'excluir pede confirmação e exclui');
     // média trienal: digitação e gravação
     await page.getByRole('button', { name: '6. Média trienal' }).click();
     await page.getByLabel('Dias Corvetas Classe Barroso 2023').fill('355');

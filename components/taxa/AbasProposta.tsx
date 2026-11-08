@@ -2,7 +2,7 @@ import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloHistorico, modeloSubsidios } from '../../utils/modelos';
-import { Download, FileUp, Plus, Save, Trash2 } from 'lucide-react';
+import { Download, FileUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 // @ts-ignore - pacote xlsx sem tipos completos no build
 import * as XLSX from 'xlsx';
 import { FichaRubrica } from './FichaRubrica';
@@ -588,6 +588,12 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
   const [novo, setNovo] = useState<Desconto>(vazio);
   const [valorTxt, setValorTxt] = useState('');
   const [gravando, setGravando] = useState(false);
+  const [editando, setEditando] = useState<string | null>(null);
+  // filtros da lista
+  const [fBusca, setFBusca] = useState('');
+  const [fOM, setFOM] = useState('');
+  const [fRub, setFRub] = useState('');
+  const [fTipo, setFTipo] = useState('');
   const participantes = resultado.oms;
   const nomeOM = (id: string | null) => dados.oms.find(o => o.id === id)?.nome || '—';
   const NAV = '__NAVIOS';
@@ -609,18 +615,33 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
   const erro = !novo.omId && novo.grupo !== 'NAVIOS' ? 'Escolha a OM ou o grupo NAVIOS.' : !(Number(n2(valorTxt)) > 0) ? 'Informe o valor.' : novo.tipo === 'PERCENTUAL' && Number(n2(valorTxt)) > 100 ? 'Percentual acima de 100%.' : !novo.justificativa.trim() ? 'A justificativa é obrigatória.' : '';
   const gravar = async () => {
     setGravando(true);
-    try { await salvarDesconto(ano, { ...novo, valor: Number(n2(valorTxt)) }); setNovo(vazio); setValorTxt(''); notify.success('Desconto gravado.'); recarregar(); }
+    try { await salvarDesconto(ano, { ...novo, valor: Number(n2(valorTxt)) }); setNovo(vazio); setValorTxt(''); notify.success(editando ? 'Desconto alterado.' : 'Desconto gravado.'); setEditando(null); recarregar(); }
     catch (e) { notify.fail('Erro ao gravar desconto', e); } finally { setGravando(false); }
   };
+  const editar = (d: Desconto) => { setEditando(d.id); setNovo({ ...d }); setValorTxt(fmt(d.valor).replace('.', ',')); window.scrollTo?.({ top: 0, behavior: 'smooth' }); };
+  const cancelar = () => { setEditando(null); setNovo(vazio); setValorTxt(''); };
+  // OM da lista do formulário: participantes do rateio + a OM do desconto em edição (mesmo fora do rateio)
+  const opcoesOM = novo.omId && !participantes.some(o => o.omId === novo.omId) ? [{ omId: novo.omId, nome: nomeOM(novo.omId) }, ...participantes] : participantes;
+  const omsComDesconto = [...new Set(dados.descontos.filter(d => !ehNavios(d) && d.omId).map(d => d.omId!))].map(id => ({ id, nome: nomeOM(id) })).sort((a, b) => a.nome.localeCompare(b.nome));
+  const rubsComDesconto = [...new Set(dados.descontos.filter(d => d.rubrica !== null).map(d => d.rubrica!))].sort((a, b) => a - b);
+  const termo = fBusca.trim().toLowerCase();
+  const filtrados = dados.descontos.filter(d =>
+    (!fOM || (fOM === NAV ? ehNavios(d) : d.omId === fOM)) &&
+    (!fRub || (fRub === 'TOTAL' ? d.rubrica === null : d.rubrica === Number(fRub))) &&
+    (!fTipo || d.tipo === fTipo) &&
+    (!termo || `${ehNavios(d) ? 'navios' : nomeOM(d.omId)} ${d.justificativa} ${d.rubrica ?? ''} ${dados.rubricas.find(r => r.numero === d.rubrica)?.descricao || ''}`.toLowerCase().includes(termo)));
+  const efeitoFiltrado = filtrados.reduce((s0, d) => s0 + (efeito(d) ?? 0), 0);
+  const temFiltro = !!(fBusca || fOM || fRub || fTipo);
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-500">Desconto concedido a uma OM (ex.: SecNSNQ — parte do edifício mantida pela própria OM), numa rubrica ou no total da taxa. O valor descontado não é redistribuído às demais OM. Desconto que vale para todas as OM fica na aba Rubricas (desconto geral). <b>⚓ Grupo NAVIOS</b>: o desconto sai do valor destinado aos navios (numa linha de que eles participam ou no total) e reduz as diárias; não mexe nas OM.</p>
       {podeEditar && (
-        <div className="flex flex-wrap gap-2 items-end p-3 rounded-lg border border-slate-200 bg-slate-50">
+        <div className={`flex flex-wrap gap-2 items-end p-3 rounded-lg border ${editando ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`} aria-label="Formulário do desconto">
+          {editando && <p className="w-full text-xs font-semibold text-amber-800">✏️ Editando desconto já inserido — altere os campos e clique em "Salvar alteração".</p>}
           <Campo rotulo="OM"><select className={entrada} value={novo.grupo === 'NAVIOS' ? NAV : novo.omId || ''} onChange={e => setNovo({ ...novo, omId: e.target.value && e.target.value !== NAV ? e.target.value : null, grupo: e.target.value === NAV ? 'NAVIOS' : null })} aria-label="OM do desconto">
             <option value="">escolher...</option>
             <option value={NAV}>⚓ Grupo NAVIOS (diárias)</option>
-            {participantes.map(o => <option key={o.omId} value={o.omId}>{o.nome}</option>)}
+            {opcoesOM.map(o => <option key={o.omId} value={o.omId}>{o.nome}</option>)}
           </select></Campo>
           <Campo rotulo="Aplicar em"><select className={entrada} value={novo.rubrica ?? ''} onChange={e => setNovo({ ...novo, rubrica: e.target.value ? Number(e.target.value) : null })} aria-label="Rubrica do desconto">
             <option value="">{novo.grupo === 'NAVIOS' ? 'Total destinado aos navios' : 'Total da taxa da OM'}</option>
@@ -629,24 +650,44 @@ export const AbaDescontos: React.FC<AbaProps & { resultado: ResultadoRateio }> =
           <Campo rotulo="Tipo"><select className={entrada} value={novo.tipo} onChange={e => setNovo({ ...novo, tipo: e.target.value as Desconto['tipo'] })} aria-label="Tipo do desconto"><option value="PERCENTUAL">%</option><option value="VALOR">R$ (anual)</option></select></Campo>
           <Campo rotulo={novo.tipo === 'PERCENTUAL' ? 'Percentual' : 'Valor anual (R$)'}><input className={`${entrada} w-28 text-right`} inputMode="decimal" value={valorTxt} onChange={e => setValorTxt(e.target.value)} aria-label="Valor do desconto" /></Campo>
           <Campo rotulo="Justificativa" className="flex-1 min-w-[220px]"><input className={`${entrada} w-full`} value={novo.justificativa} onChange={e => setNovo({ ...novo, justificativa: e.target.value })} aria-label="Justificativa do desconto" /></Campo>
-          <Button onClick={gravar} isLoading={gravando} disabled={!!erro} title={erro}><Plus size={16} className="mr-1" />Adicionar</Button>
+          <Button onClick={gravar} isLoading={gravando} disabled={!!erro} title={erro}>{editando ? <><Save size={16} className="mr-1" />Salvar alteração</> : <><Plus size={16} className="mr-1" />Adicionar</>}</Button>
+          {editando && <Button variant="secondary" onClick={cancelar}><X size={16} className="mr-1" />Cancelar</Button>}
           {erro && <span className="text-xs text-slate-500 w-full">{erro}</span>}
         </div>
       )}
+      <div className="flex flex-wrap gap-2 items-end" aria-label="Filtros dos descontos">
+        <Campo rotulo="Buscar"><input className={`${entrada} w-56`} placeholder="OM, rubrica ou justificativa" value={fBusca} onChange={e => setFBusca(e.target.value)} aria-label="Buscar desconto" /></Campo>
+        <Campo rotulo="OM"><select className={entrada} value={fOM} onChange={e => setFOM(e.target.value)} aria-label="Filtrar OM">
+          <option value="">Todas</option>
+          {dados.descontos.some(ehNavios) && <option value={NAV}>⚓ Grupo NAVIOS</option>}
+          {omsComDesconto.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+        </select></Campo>
+        <Campo rotulo="Aplicado em"><select className={entrada} value={fRub} onChange={e => setFRub(e.target.value)} aria-label="Filtrar aplicado em">
+          <option value="">Todos</option>
+          <option value="TOTAL">Total (da taxa / dos navios)</option>
+          {rubsComDesconto.map(n => <option key={n} value={n}>{n} – {dados.rubricas.find(r => r.numero === n)?.descricao || ''}</option>)}
+        </select></Campo>
+        <Campo rotulo="Tipo"><select className={entrada} value={fTipo} onChange={e => setFTipo(e.target.value)} aria-label="Filtrar tipo"><option value="">Todos</option><option value="PERCENTUAL">%</option><option value="VALOR">R$</option></select></Campo>
+        {temFiltro && <button className="text-xs text-primary-700 underline pb-2" onClick={() => { setFBusca(''); setFOM(''); setFRub(''); setFTipo(''); }}>limpar filtros</button>}
+        <span className="text-xs text-slate-500 pb-2 ml-auto" aria-label="Resumo do filtro">{filtrados.length} de {dados.descontos.length} desconto(s) · efeito no ano {brl(efeitoFiltrado)}</span>
+      </div>
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-600 text-xs"><tr><th className="px-2 py-2 text-left">OM</th><th className="px-2 text-left">Aplicado em</th><th className="px-2 text-right">Desconto</th><th className="px-2 text-right">Efeito no ano</th><th className="px-2 text-left">Justificativa</th><th></th></tr></thead>
         <tbody>
-          {dados.descontos.map(d => (
-            <tr key={d.id} className="border-t border-slate-100">
+          {filtrados.map(d => (
+            <tr key={d.id} className={`border-t border-slate-100 ${editando === d.id ? 'bg-amber-50' : ''}`}>
               <td className="px-2 py-1.5">{ehNavios(d) ? <b>⚓ Grupo NAVIOS</b> : nomeOM(d.omId)}</td>
               <td className="px-2">{d.rubrica === null ? (ehNavios(d) ? 'Total destinado aos navios' : 'Total da taxa') : `${d.rubrica} – ${dados.rubricas.find(r => r.numero === d.rubrica)?.descricao || ''}`}</td>
               <td className="px-2 text-right">{d.tipo === 'PERCENTUAL' ? pct(d.valor) : brl(d.valor)}</td>
               <td className="px-2 text-right">{efeito(d) === null ? <span className="text-amber-700 text-xs">OM fora do rateio</span> : brl(efeito(d)!)}</td>
               <td className="px-2 text-xs text-slate-600">{d.justificativa}</td>
-              <td className="px-2">{podeEditar && <button aria-label="Excluir desconto" className="text-slate-400 hover:text-red-600" onClick={async () => { try { await excluirDesconto(d.id); recarregar(); } catch (e) { notify.fail('Erro ao excluir', e); } }}><Trash2 size={14} /></button>}</td>
+              <td className="px-2 whitespace-nowrap">{podeEditar && <>
+                <button aria-label={`Editar desconto de ${ehNavios(d) ? 'Grupo NAVIOS' : nomeOM(d.omId)}`} title="Editar" className="text-slate-400 hover:text-primary-700 mr-2" onClick={() => editar(d)}><Pencil size={14} /></button>
+                <button aria-label="Excluir desconto" title="Excluir" className="text-slate-400 hover:text-red-600" onClick={async () => { if (!window.confirm('Excluir este desconto?')) return; try { await excluirDesconto(d.id); if (editando === d.id) cancelar(); recarregar(); } catch (e) { notify.fail('Erro ao excluir', e); } }}><Trash2 size={14} /></button>
+              </>}</td>
             </tr>
           ))}
-          {!dados.descontos.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhum desconto.</td></tr>}
+          {!filtrados.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">{dados.descontos.length ? 'Nenhum desconto com esse filtro.' : 'Nenhum desconto.'}</td></tr>}
         </tbody>
       </table>
     </div>
