@@ -20,7 +20,7 @@ import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
 import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnalitico';
-import { pdfArvore } from '../utils/pdfArvore';
+import { pdfCobrancaEnxuto } from '../utils/pdfArvore';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -204,7 +204,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
     const lista = (k: 'cliente' | 'comando') => [...new Set(m.faturas.map(f => f[k]))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    return pdfArvore(mapaDasFaturas(m.faturas), {
+    return pdfCobrancaEnxuto(mapaDasFaturas(m.faturas), {
       titulo: m.setor ? `Cobrança de faturas em atraso — SETOR ${m.setor}` : m.cliente ? `Cobrança de faturas em atraso — OM ${m.cliente}` : `Cobrança de faturas em atraso — COMANDO ${m.comando}`,
       linhas: [
         ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
@@ -212,7 +212,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
         `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
         REGRA_CREDITO,
       ],
-      rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
+      rotuloTotal: m.setor ? 'VALOR A PAGAR PELO SETOR' : m.cliente ? 'VALOR A PAGAR PELA OM' : 'VALOR A PAGAR PELO COMANDO',
     });
   };
   const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) =>

@@ -46,3 +46,67 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   });
   return doc;
 }
+
+/**
+ * PDF ENXUTO da cobrança: uma coluna de valor só. Em cada OM: as faturas vencidas (vencimento, dias de atraso, valor),
+ * o crédito disponível dela subtraído (se houver) e, em destaque, o VALOR A PAGAR PELA OM.
+ */
+export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
+  const doc = new jsPDF('p');
+  doc.setFontSize(8); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
+  doc.setFontSize(12); const tit = doc.splitTextToSize(o.titulo, 182); doc.text(tit, 14, 18);
+  let y = 18 + 5.5 * tit.length;
+  doc.setFontSize(8);
+  o.linhas.forEach(l => { const partes = doc.splitTextToSize(l, 182); doc.text(partes, 14, y); y += 4 * partes.length; });
+  // quadro com o valor a pagar
+  const t = mapa.total;
+  doc.setFillColor(15, 23, 42); doc.roundedRect(14, y, 182, 12, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(11);
+  doc.text(o.rotuloTotal || 'VALOR A PAGAR', 18, y + 7.8); doc.text(brl(t.liquido), 192, y + 7.8, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+  y += 16;
+
+  type Tipo = 'setor' | 'comando' | 'om' | 'fatura' | 'credito' | 'apagar';
+  const body: string[][] = []; const tipos: Tipo[] = [];
+  const push = (tp: Tipo, c: string[]) => { body.push(c); tipos.push(tp); };
+  const umSetor = mapa.setores.length === 1;
+  mapa.setores.forEach(s => {
+    if (!umSetor) push('setor', [`Setor ${s.nome}`, '', '', brl(s.liquido)]);
+    s.filhos.forEach(c => {
+      push('comando', [`Comando ${c.nome}`, '', '', brl(c.liquido)]);
+      c.filhos.forEach(x => {
+        push('om', [x.nome, '', '', '']);
+        (x.faturas || []).forEach(f => push('fatura', [`${f.numero} · ${f.tipo}${f.contestada ? ' · em contestação' : ''}`, dataBR(f.vencimento), f.atraso ? `${f.atraso} dias` : '—', brl(f.saldo)]));
+        // o crédito abate até o valor das faturas (o que sobra fica com a OM); fonte padrão do PDF não tem o sinal "−"
+        let resta = x.divida;
+        (x.creditos || []).forEach(cr => {
+          const usa = Math.round(Math.min(cr.valor, resta) * 100) / 100;
+          if (usa <= 0.005) return;
+          resta = Math.round((resta - usa) * 100) / 100;
+          push('credito', [`(-) Crédito disponível da OM: ${cr.numero}${cr.origem ? ` (${cr.origem})` : ''}`, '', '', `- ${brl(usa)}`]);
+        });
+        push('apagar', [`VALOR A PAGAR PELA OM${x.sobra > 0.005 ? ` (o crédito cobre as faturas; sobra ${brl(x.sobra)})` : ''}`, '', '', brl(x.liquido)]);
+      });
+    });
+  });
+  const recuo: Record<Tipo, number> = { setor: 2, comando: 2, om: 4, fatura: 9, credito: 9, apagar: 9 };
+  autoTable(doc, {
+    startY: y, head: [['Comando › OM › fatura', 'Vencimento', 'Atraso', 'Valor']], body,
+    foot: [[o.rotuloTotal || 'VALOR A PAGAR', '', '', brl(t.liquido)]],
+    styles: { fontSize: 8, cellPadding: { top: 1.2, bottom: 1.2, left: 2, right: 2 } },
+    headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [15, 23, 42], fontStyle: 'bold', fontSize: 9 },
+    columnStyles: { 0: { cellWidth: 112 }, 1: { halign: 'center', cellWidth: 24 }, 2: { halign: 'right', cellWidth: 18 }, 3: { halign: 'right' } },
+    didParseCell: (d: any) => {
+      if (d.section !== 'body') { if (d.column.index === 3) d.cell.styles.halign = 'right'; return; }
+      const tp = tipos[d.row.index];
+      if (d.column.index === 0) d.cell.styles.cellPadding = { top: 1.2, bottom: 1.2, left: recuo[tp], right: 2 };
+      if (tp === 'setor') { d.cell.styles.fillColor = [203, 213, 225]; d.cell.styles.fontStyle = 'bold'; }
+      else if (tp === 'comando') { d.cell.styles.fillColor = [226, 232, 240]; d.cell.styles.fontStyle = 'bold'; }
+      else if (tp === 'om') { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [248, 250, 252]; }
+      else if (tp === 'fatura') d.cell.styles.textColor = [51, 65, 85];
+      else if (tp === 'credito') d.cell.styles.textColor = [21, 128, 61];
+      else if (tp === 'apagar') { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [254, 243, 199]; }
+    },
+  });
+  return doc;
+}
