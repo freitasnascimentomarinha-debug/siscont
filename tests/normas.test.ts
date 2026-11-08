@@ -28,3 +28,18 @@ describe('norma (OI) configurável', () => {
     expect(TIPOS_PONTO.NUMERO_FORA_PADRAO.comoCorrigir).toContain('Padrão da OI 40-04:');
   });
 });
+
+describe('pontos de atenção registrados por quem confere os dados', () => {
+  it('o ponto informativo aparece na fatura cancelada junto do automático "cancelada com baixa", com gravidade baixa', async () => {
+    const { avaliarPontos } = await import('../utils/pontosAtencao');
+    const fatura: any = { id: 'f1', invoiceNumber: '41000-TC-09-2025-002-0', value: 19707.4, issueDate: '2025-10-15', dueDate: '2025-11-15', monthCompetence: 9, yearCompetence: 2025, serviceAcronym: 'TC', isCanceled: true, omId: 'o1',
+      pontosRegistro: [{ tipo: 'CANCELAMENTO_A_VERIFICAR', mensagem: 'verificar', origem: 'usuario', em: '2026-11-08' }] };
+    const doc: any = { id: 'd1', documentNumber: 'B4D0.2026.AC.00824', documentType: 'ALTCRED', totalValue: 5210.74, operation: 'PAGAMENTO',
+      pontosRegistro: [{ tipo: 'CREDITO_DE_FATURA_CANCELADA', mensagem: 'crédito do Arsenal', origem: 'usuario', em: '2026-11-08' }] };
+    const r = avaliarPontos([fatura], [doc], [{ documentId: 'd1', invoiceId: 'f1', amount: 5210.74 }]);
+    const pf = r.faturas.get('f1')!;
+    expect(pf.map(p => p.tipo)).toEqual(['CANCELADA_COM_BAIXA', 'CANCELAMENTO_A_VERIFICAR']);
+    expect(pf[1]).toMatchObject({ gravidade: 'baixa', automatico: false, titulo: 'Cancelamento a verificar' });
+    expect(r.documentos.get('d1')!.map(p => p.tipo)).toContain('CREDITO_DE_FATURA_CANCELADA');
+  });
+});
