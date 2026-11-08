@@ -61,21 +61,38 @@ export interface DadosProposta {
   lotacaoAnoAnterior: Map<string, number>;
 }
 
+/**
+ * Lê TODAS as linhas de uma tabela (o banco devolve no máximo 1.000 por consulta): busca em páginas de 1.000,
+ * em ordem estável (chave da tabela), até acabar. Devolve { data, error } como uma consulta comum.
+ */
+async function lerTudo(tabela: string, filtro: (q: any) => any, ordem: string[], colunas = '*'): Promise<{ data: any[] | null; error: any }> {
+  const out: any[] = [];
+  for (let de = 0; ; de += 1000) {
+    let q = filtro(supabase.from(tabela).select(colunas));
+    ordem.forEach(c => { q = q.order(c); });
+    const { data, error } = await q.range(de, de + 999);
+    if (error) return { data: null, error };
+    out.push(...(data || []));
+    if (!data || data.length < 1000) return { data: out, error: null };
+  }
+}
+
 export async function carregarProposta(ano: number): Promise<DadosProposta> {
   const [p, rub, lot, mat, desc, atr, oms, classes] = await Promise.all([
     supabase.from('propostas_tc').select('*').eq('ano', ano).maybeSingle(),
-    supabase.from('rubricas').select('*').eq('ano', ano).order('numero'),
-    supabase.from('lotacoes_tc').select('*').eq('ano', ano),
-    supabase.from('matriz_tc').select('*').eq('ano', ano),
-    supabase.from('descontos_tc').select('*').eq('ano', ano),
-    supabase.from('atracacao_anual').select('*').gte('ano', ano - 3).lte('ano', ano),
+    lerTudo('rubricas', q => q.eq('ano', ano), ['numero']),
+    lerTudo('lotacoes_tc', q => q.eq('ano', ano), ['om_id']),
+    lerTudo('matriz_tc', q => q.eq('ano', ano), ['rubrica', 'om_id']),
+    lerTudo('descontos_tc', q => q.eq('ano', ano), ['id']),
+    lerTudo('atracacao_anual', q => q.gte('ano', ano - 3).lte('ano', ano), ['ano', 'classe_id']),
     cadastroService.listOMs(), cadastroService.listClasses(),
   ]);
-  const pend = await supabase.from('pendentes_tc').select('*').eq('ano', ano); // ausente antes do script 012
-  const lotAnt = await supabase.from('lotacoes_tc').select('om_id, lotacao').eq('ano', ano - 1);
+  const pend = await lerTudo('pendentes_tc', q => q.eq('ano', ano), ['id']); // ausente antes do script 012
+  const lotAnt = await lerTudo('lotacoes_tc', q => q.eq('ano', ano - 1), ['om_id'], 'om_id, lotacao');
   const lotacaoAnoAnterior = new Map<string, number>((lotAnt.error ? [] : lotAnt.data || []).map((l: any) => [l.om_id, Number(l.lotacao)]));
   // tabelas do script 013 (vazias se ainda não executado)
-  const [sub, anx, fec, ext] = await Promise.all(['subsidios_tc', 'anexos_tc', 'fechados_tc', 'extratos_tc'].map(t => supabase.from(t).select('*').eq('ano', ano)));
+  const [sub, anx, fec, ext] = await Promise.all(([['subsidios_tc', ['id']], ['anexos_tc', ['id']], ['fechados_tc', ['nome']], ['extratos_tc', ['nome', 'rubrica']]] as [string, string[]][])
+    .map(([t, ordem]) => lerTudo(t, q => q.eq('ano', ano), ordem)));
   const ok = (x: any) => (x.error ? [] : x.data || []);
   const N = (v: any) => (v == null ? null : Number(v));
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
