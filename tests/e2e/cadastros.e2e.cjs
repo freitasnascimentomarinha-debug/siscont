@@ -803,10 +803,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const fat2 = { ...fat, id: uid(), invoice_number: '41000-AE-10-2026-001-0', value: 800, issue_date: '2026-11-15', due_date: '2026-12-15', month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Água e Esgoto', service_acronym: 'AE' };
     const fatOutra = { ...fat, id: uid(), invoice_number: '41000-TC-10-2026-009-0', client: 'SKM', om_id: skm.id, value: 50, issue_date: '2026-11-15', due_date: '2026-12-15', month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Taxa Condominial', service_acronym: 'TC' };
     db.invoices = [fat, fat2, fatOutra];
-    const docAmrj = { id: uid(), document_number: 'AMRJ.2026.AC.00001', document_type: 'ALTCRED', total_value: 1000, date: '2026-10-01', operation: 'PAGAMENTO', client: 'ARSENAL DE MARINHA DO RIO DE JANEIRO', sector: 'texto livre', command: 'texto livre', ug: '41000', observation: '' };
+    const docAmrj = { id: uid(), document_number: 'AMRJ.2026.AC.00001', document_type: 'ALTCRED', total_value: 1020, date: '2026-10-01', operation: 'PAGAMENTO', client: 'ARSENAL DE MARINHA DO RIO DE JANEIRO', sector: 'texto livre', command: 'texto livre', ug: '41000', observation: '' };
     const docRt = { id: uid(), document_number: 'B4D0.2026.AC.00824', document_type: 'ALTCRED', total_value: 2000, date: '2026-10-05', operation: 'PAGAMENTO', client: '40001 - RT DGMM', sector: 'DGMM', command: '40001 - RT DGMM', ug: '40001', observation: 'PAGAMENTO DE FATURAS DO AMRJ 2025' };
     db.received_documents.push(docAmrj, docRt);
-    db.payment_allocations.push({ id: uid(), document_id: docAmrj.id, invoice_id: fat.id, amount: 1000, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docRt.id, invoice_id: fat.id, amount: 2000, date: '2026-10-05', tipo_baixa: 'PAGAMENTO' });
+    db.payment_allocations.push({ id: uid(), document_id: docAmrj.id, invoice_id: fat.id, amount: 1000, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docAmrj.id, invoice_id: fatOutra.id, amount: 20, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docRt.id, invoice_id: fat.id, amount: 2000, date: '2026-10-05', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
     // Recebimentos: documento do dia 1º não cai no mês anterior; agrupado pelo cadastro
     await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
@@ -864,11 +864,27 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('B4D0.2026.AC.00824').first().waitFor();
     ok(true, 'extrato do Arsenal inclui o pagamento feito pelo RT DGMM (outra UG)');
     ok(await page.getByRole('cell', { name: '41000 - Arsenal de Marinha do Rio de Janeiro' }).first().isVisible(), 'coluna Comando do saldo ALTCRED mostra o comando (e não o setor)');
+    const resumo = page.getByLabel('Resumo da conciliação');
+    ok(await resumo.getByText(/Resumo da conciliação — fecha/).isVisible(), 'resumo da conciliação fecha (recebido − usado = saldo)');
+    ok((await resumo.innerText()).replace(/\s+/g, ' ').includes('Usado em faturas de outras OM R$ 20,00'), 'resumo mostra o usado em faturas de outras OM (R$ 20,00 da SKM)');
+    ok((await resumo.innerText()).replace(/\s+/g, ' ').includes('Faturas da OM pagas por outros pagadores R$ 2.000,00'), 'resumo mostra o pago por outros pagadores (RT DGMM)');
+    ok(await page.getByText('fatura de outra OM').first().isVisible() && await page.getByRole('cell', { name: 'SKM', exact: true }).first().isVisible(), 'uso da ALTCRED do Arsenal na fatura da SKM aparece, marcado como fatura de outra OM');
+    ok(await page.getByText('pago por outro pagador').first().isVisible(), 'pagamento do RT DGMM marcado como pago por outro pagador');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-arsenal.png'), fullPage: true });
     // Extrato da SKM (mesmo código 41000): não puxa a ALTCRED do Arsenal
+    await page.getByLabel('Comandos e OM do extrato').getByRole('button', { name: 'limpar' }).click();
     await page.getByPlaceholder(/Digite o código ou o nome/).fill('SKM');
     await page.getByRole('button', { name: /OM41000 - SKM/ }).click();
     await page.waitForTimeout(500);
-    ok(await page.getByText('AMRJ.2026.AC.00001').count() === 0, 'código compartilhado (41000) não mistura as ALTCRED do Arsenal no extrato da SKM');
+    const quadroSaldo = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Saldo ALTCRED', exact: true }) });
+    const quadroPagas = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Faturas pagas (por data de situação)' }) });
+    ok(await quadroSaldo.getByText('AMRJ.2026.AC.00001').count() === 0, 'código compartilhado (41000) não põe a ALTCRED do Arsenal no saldo da SKM');
+    ok(await quadroPagas.getByText('AMRJ.2026.AC.00001').count() === 1 && await quadroPagas.getByText('pago por outro pagador').count() === 1, 'no extrato da SKM, a fatura paga pela ALTCRED do Arsenal aparece como paga por outro pagador');
+    // vários comandos/OM no mesmo extrato
+    await page.getByPlaceholder(/Digite o código ou o nome/).fill('Arsenal');
+    await page.getByRole('button', { name: /OM41000 - Arsenal de Marinha do Rio de Janeiro/ }).click();
+    ok(await page.getByLabel('Comandos e OM do extrato').getByRole('button').count() === 3, 'extrato com mais de uma OM (SKM + Arsenal, e o botão limpar)');
+    ok(await quadroSaldo.getByText('AMRJ.2026.AC.00001').count() === 1, 'com o Arsenal junto, a ALTCRED dele entra no saldo');
   });
 
   await cenario('Fase 4: retificar (-1), contestação até a decisão, cancelamento com motivo e correção por atraso', [], async (page, db) => {

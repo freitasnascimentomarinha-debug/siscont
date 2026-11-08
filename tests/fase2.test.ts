@@ -127,12 +127,12 @@ describe('extrato de conciliação (4 quadros)', () => {
     expect(e.totais.saldoAltcred).toBe(3783.33);
     expect(e.adiantamentos).toHaveLength(2);
     // pagamento + linha "ADIANTAMENTO" com a sobra enviada (44.000 − 23.542,26)
-    expect(e.pagas).toEqual([
-      { data: '2026-08-19', cliente: '40030 - DIM', altcred: 'G1.2026.AC.00343', fatura: '40030-AE-08-2026-004-0', valor: 23542.26 },
-      { data: '2026-08-19', cliente: '40030 - DIM', altcred: 'G1.2026.AC.00343', fatura: 'ADIANTAMENTO', valor: 20457.74 },
+    expect(e.pagas.map(p => [p.data, p.cliente, p.altcred, p.fatura, p.valor])).toEqual([
+      ['2026-08-19', '40030 - DIM', 'G1.2026.AC.00343', '40030-AE-08-2026-004-0', 23542.26],
+      ['2026-08-19', '40030 - DIM', 'G1.2026.AC.00343', 'ADIANTAMENTO', 20457.74],
     ]);
     expect(e.totais.pagas).toBe(44000);
-    expect(e.abertas).toEqual([{ setor: 'DGMM', cliente: 'NPa Mangaratiba', fatura: '40032-DA-08-2026-010-0', saldo: 2960.81 }]);
+    expect(e.abertas.map(a => [a.setor, a.cliente, a.fatura, a.saldo])).toEqual([['DGMM', 'NPa Mangaratiba', '40032-DA-08-2026-010-0', 2960.81]]);
   });
   it('subtotais por chave', () => {
     const l = comSubtotais([{ a: 'X', v: 1 }, { a: 'X', v: 2 }, { a: 'Y', v: 3 }], 'a', 'v', k => `${k} Total`);
@@ -242,5 +242,39 @@ describe('extrato pelas faturas do escopo (pagador de outra UG)', () => {
     expect(novo.pagas.map(p => [p.altcred, p.cliente, p.valor])).toEqual([['AC-ARSENAL', 'Arsenal', 1000], ['B4D0.2026.AC.00824', '40001 - RT DGMM', 5000]]);
     expect(novo.totais.pagas).toBe(6000);                     // a baixa do RT DGMM em fatura de outra OM não entra
     expect(novo.saldoAltcred.map(x => x.numero)).toEqual(['AC-ARSENAL']); // saldo ALTCRED continua só das ALTCRED da OM
+  });
+});
+
+describe('extrato: usos das ALTCRED da OM em faturas de outras OM, resumo e faturas em aberto', () => {
+  const docA = { id: 'dA', numero: 'AC-ARSENAL', comando: '41000 - Arsenal', cliente: 'Arsenal', data: '2026-08-01', valor: 10000, saldo: 6500, operacao: 'PAGAMENTO' };
+  const docRt = { id: 'dR', numero: 'AC-RT', comando: '40001 - RT DGMM', cliente: '40001 - RT DGMM', data: '2026-08-19', valor: 5000, saldo: 0, operacao: 'PAGAMENTO' };
+  const fats = [
+    { id: 'f1', numero: '41000-EL-09-2025-001-0', setor: 'DGMM', cliente: 'Arsenal', saldo: 0 },
+    { id: 'f2', numero: '41000-AE-10-2026-001-0', setor: 'DGMM', cliente: 'Arsenal', saldo: 800, vencimento: '2026-10-15', contestada: true },
+    { id: 'f3', numero: '41000-TC-10-2026-002-0', setor: 'DGMM', cliente: 'Arsenal', saldo: 200, vencimento: '2026-12-15' },
+  ];
+  const todas = new Map([['f1', { numero: '41000-EL-09-2025-001-0', cliente: 'Arsenal' }], ['f2', { numero: '41000-AE-10-2026-001-0', cliente: 'Arsenal' }], ['f3', { numero: '41000-TC-10-2026-002-0', cliente: 'Arsenal' }],
+    ['fS', { numero: '41000-AL-09-2026-005-0', cliente: 'SKM' }], ['fC', { numero: '41000-TC-01-2026-001-0', cliente: 'Arsenal', cancelada: true }]]);
+  const bx = [
+    { documentId: 'dA', invoiceId: 'f1', valor: 3000, adiantamento: false },  // Arsenal paga a própria fatura
+    { documentId: 'dA', invoiceId: 'fS', valor: 500, adiantamento: false },   // Arsenal paga fatura da SKM (outra OM)
+    { documentId: 'dA', invoiceId: 'fC', valor: 999, adiantamento: false },   // fatura cancelada: não consome a ALTCRED
+    { documentId: 'dR', invoiceId: 'f1', valor: 5000, adiantamento: false },  // RT DGMM paga fatura do Arsenal
+  ];
+  const e = montarExtrato([docA], fats, bx, todas, { porFaturasDoEscopo: true, todosDocs: [docA, docRt], hoje: '2026-11-10' });
+  it('mostra os pagamentos das faturas da OM (de qualquer pagador) E os usos das ALTCRED da OM em outras OM', () => {
+    expect(e.pagas.map(p => [p.altcred, p.fatura, p.clienteFatura, p.valor, p.outraOM, p.outroPagador])).toEqual([
+      ['AC-ARSENAL', '41000-AL-09-2026-005-0', 'SKM', 500, true, false],
+      ['AC-ARSENAL', '41000-EL-09-2025-001-0', 'Arsenal', 3000, false, false],
+      ['AC-RT', '41000-EL-09-2025-001-0', 'Arsenal', 5000, false, true],
+    ]);
+    expect(e.pagas.some(p => p.fatura === '41000-TC-01-2026-001-0')).toBe(false); // baixa em fatura cancelada fica fora
+  });
+  it('resumo: recebido − usado nas próprias − usado em outras = saldo, e o pago por outros pagadores', () => {
+    expect(e.resumo).toEqual({ recebido: 10000, usadoProprias: 3000, usadoOutras: 500, saldoCalculado: 6500, saldoInformado: 6500, diferenca: 0, pagoPorOutros: 5000 });
+  });
+  it('faturas em aberto com vencimento, atraso e contestada; totais de vencido, a vencer e contestado', () => {
+    expect(e.abertas.map(a => [a.fatura, a.vencimento, a.atraso, a.contestada])).toEqual([['41000-AE-10-2026-001-0', '2026-10-15', 26, true], ['41000-TC-10-2026-002-0', '2026-12-15', 0, false]]);
+    expect([e.totais.vencido, e.totais.aVencer, e.totais.contestado]).toEqual([800, 200, 800]);
   });
 });

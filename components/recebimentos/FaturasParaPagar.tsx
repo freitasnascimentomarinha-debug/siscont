@@ -15,8 +15,10 @@ export const FaturasParaPagar: React.FC<{
   faturas: Invoice[]; omId: string | null; nomeOM?: string; valorDoc: number; selecao: SelecaoPagamento; onChange: (s: SelecaoPagamento) => void; adiantamento?: boolean;
 }> = ({ faturas, omId, nomeOM, valorDoc, selecao, onChange, adiantamento }) => {
   // filtro de cliente: a OM do documento, todas as OM ou uma OM escolhida (para pagar faturas de outra OM)
-  const [cliente, setCliente] = useState<string>(omId ? '__doc' : '__todas');
-  useEffect(() => { setCliente(omId ? '__doc' : '__todas'); }, [omId]);
+  // a escolha do usuário vale até mudar a OM do documento; sem escolha, segue a OM do documento (sem piscar a lista)
+  const [escolha, setCliente] = useState<string | null>(null);
+  useEffect(() => { setCliente(null); }, [omId]);
+  const cliente = escolha ?? (omId ? '__doc' : '__todas');
   const [busca, setBusca] = useState('');
   const [filtroUG, setFiltroUG] = useState('');
   const abertas = useMemo(() => faturas.filter(f => saldoDaFatura(f) > 0.005), [faturas]);
