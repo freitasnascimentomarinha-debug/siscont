@@ -430,7 +430,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
     await page.reload();
     await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
-    await page.getByRole('button', { name: /Importar ALTCRED \(PDF do SIPLAD\)/ }).click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
     ok(await page.getByLabel('Ação para Z999.2026.AC.00001').inputValue() === 'NOVA', 'PDF lido: ALTCRED nova reconhecida');
@@ -1793,7 +1793,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const txt2 = await page.getByLabel('Documentos por data').innerText();
     ok(txt2.indexOf('G1.2026.AC.00400') < txt2.indexOf('G1.2026.AC.00500'), 'opção: mais antiga primeiro');
     await page.getByLabel('Ordem da lista de documentos').selectOption('data');
-    ok(await page.getByRole('button', { name: 'Importar CSV' }).count() === 0 && await page.getByRole('button', { name: /Importar ALTCRED \(PDF do SIPLAD\)/ }).isVisible(), 'sem o "Importar CSV"; importação pelo PDF do SIPLAD em destaque');
+    ok(await page.getByRole('button', { name: 'Importar CSV' }).count() === 0 && await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).isVisible(), 'sem o "Importar CSV"; importação pelo PDF do SIPLAD em destaque');
+    const btnImp = page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' });
+    ok((await btnImp.innerText()).trim() === 'Importar', 'botão com o texto curto "Importar"');
+    await btnImp.hover();
+    await page.waitForTimeout(250);
+    ok(await page.getByRole('tooltip').filter({ hasText: 'Importar ALTCRED do SIPLAD' }).evaluate(el => getComputedStyle(el).opacity === '1'), 'balão de aviso aparece ao passar o mouse');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'recebimentos-importar.png'), clip: { x: 700, y: 90, width: 740, height: 260 } });
+    await page.mouse.move(10, 10);
     // Excel de verdade
     const [xl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel', exact: true }).click()]);
     const XLSX = require('xlsx');

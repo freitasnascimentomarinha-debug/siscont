@@ -669,11 +669,19 @@ export const ReceivedBalances: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Recebimentos (ALTCRED/GRU)</h2>
           <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · pela data do documento (ou agrupados por setor, comando e OM do cadastro)</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0 [&_button]:whitespace-nowrap">
           {!isReadOnly && (
-            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} title="Importa as ALTCRED do PDF 'Solicitações de Alteração de Crédito' do SIPLAD (completa as já cadastradas, sem duplicar)">
-              <FileUp className="w-4 h-4 mr-2" /> Importar ALTCRED (PDF do SIPLAD)
-            </Button>
+            <span className="relative group inline-flex">
+              <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} aria-describedby="dica-importar" aria-label="Importar ALTCRED do PDF do SIPLAD">
+                <FileUp className="w-4 h-4 mr-2" /> Importar
+              </Button>
+              <span id="dica-importar" role="tooltip"
+                className="pointer-events-none absolute z-40 top-full right-0 mt-2 w-72 rounded-lg bg-slate-800 text-white text-xs leading-snug p-3 shadow-lg opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all">
+                <span className="absolute -top-1.5 right-6 w-3 h-3 rotate-45 bg-slate-800" />
+                <b className="block mb-1">Importar ALTCRED do SIPLAD</b>
+                Selecione o PDF "Solicitações de Alteração de Crédito" exportado do SIPLAD. As ALTCRED novas são cadastradas e as que já existem são completadas, sem duplicar. Antes de gravar você confere tudo numa prévia.
+              </span>
+            </span>
           )}
           <Button variant="secondary" size="sm" onClick={exportExcel}>
             <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
