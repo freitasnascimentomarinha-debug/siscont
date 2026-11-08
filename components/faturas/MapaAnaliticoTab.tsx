@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChevronDown, ChevronRight, Download, FileCheck, FileSpreadsheet, FileText, Network, Search, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -8,17 +7,13 @@ import { Client, Invoice, InvoiceStatus, PaymentAllocation, ReceivedDocument } f
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import {
-  FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDoMapa,
-  idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa,
+  CAB_PDF_ARVORE, FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NivelPdf, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDoMapa,
+  idsDoMapa, linhasArvorePdf, linhasMapa, montarMapa,
 } from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
-const compacto = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} mi` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(Math.round(n)));
-// verde = no prazo; azuis cada vez mais escuros = vencida há mais tempo (as mesmas cores do Painel)
-const COR_FAIXA: Record<string, string> = { 'A vencer': '#16a34a', '1–30 dias': '#93c5fd', '31–90 dias': '#60a5fa', '91–180 dias': '#3b82f6', '181–365 dias': '#1d4ed8', 'Mais de 1 ano': '#1e3a8a' };
-
 /** Cartão que filtra a árvore: clicar liga o filtro, clicar de novo desliga. */
 const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'normal' | 'alerta' | 'ok' | 'destaque'; ativo?: boolean; onClick?: () => void }> = ({ rotulo, valor, dica, tom = 'normal', ativo, onClick }) => (
   <button type="button" onClick={onClick} disabled={!onClick} title={dica} aria-pressed={!!ativo}
@@ -67,8 +62,6 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const t = mapa.total;
   const clientes = useMemo(() => clientesDoMapa(mapa), [mapa]);
   const semCadastro = clientes.filter(x => x.semCadastro).length;
-  const top = useMemo(() => maioresOMs(mapa, 10).map(c => ({ nome: c.nome.length > 34 ? `${c.nome.slice(0, 33)}…` : c.nome, completo: c.nome, valor: c.liquido })), [mapa]);
-  const idade = useMemo(() => idadeDaDivida(mapa), [mapa]);
   const filtrado = !!(busca.trim() || soComValor || soComCredito || soSobra || filtroFat || foco.setor || foco.om);
 
   // ---------------------------------------------------------------- janelas de detalhe
@@ -95,14 +88,45 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Mapa analítico');
     XLSX.writeFile(wb, `mapa_analitico_${hoje}.xlsx`);
   };
+  /** Texto dos filtros ligados (vai no cabeçalho do PDF). */
+  const descricaoFiltros = () => {
+    const f: string[] = [];
+    if (filtroFat) f.push(ROTULO_FAT[filtroFat] || `faturas com ${filtroFat} de atraso`);
+    if (soComValor) f.push('OM com valor a pagar');
+    if (soComCredito) f.push('OM com crédito');
+    if (soSobra) f.push('OM com crédito que sobra');
+    if (foco.setor) f.push(`setor ${foco.setor}`);
+    if (foco.om) f.push(`OM ${foco.om}`);
+    if (busca.trim()) f.push(`busca "${busca.trim()}"`);
+    f.push(semContestadas ? 'sem as faturas contestadas' : 'com as faturas contestadas');
+    return f.join(' · ');
+  };
   const exportarPdf = () => {
     const doc = new jsPDF('l');
-    doc.setFontSize(10); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
-    doc.setFontSize(13); doc.text('Mapa Analítico de Contas — posição líquida por setor, comando e OM', 14, 19);
-    doc.setFontSize(8); doc.text(`Posição em ${dataBR(hoje)} · crédito abate somente a dívida da própria OM`, 14, 24);
-    const l = linhasMapa(mapa);
-    autoTable(doc, { startY: 28, head: [l[0].map(String)], body: l.slice(1).map(r => r.map((v, i) => (i >= 4 && typeof v === 'number' ? brl(v) : String(v)))),
-      styles: { fontSize: 7 }, headStyles: { fillColor: [30, 41, 59] }, columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' } } });
+    doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
+    doc.setFontSize(13); doc.text('Mapa Analítico de Contas — posição líquida por setor, comando e OM', 14, 18);
+    doc.setFontSize(8);
+    doc.text(`Posição em ${dataBR(hoje)} · o crédito abate somente a dívida da própria OM`, 14, 23);
+    doc.text(doc.splitTextToSize(`Filtros: ${descricaoFiltros()}`, 268), 14, 27.5);
+    const linhas = linhasArvorePdf(mapa, brl, dataBR);
+    const niveis: NivelPdf[] = linhas.map(l => l.nivel);
+    const recuo: Record<NivelPdf, number> = { setor: 2, comando: 6, cliente: 10, fatura: 15, credito: 15 };
+    autoTable(doc, {
+      startY: 32, head: [CAB_PDF_ARVORE], body: linhas.map(l => l.celulas),
+      foot: [['TOTAL A PAGAR (LÍQUIDO)', String(t.qtd), vazio(t.vencido), vazio(t.aVencer), vazio(t.divida), vazio(t.credito), brl(t.liquido)]],
+      styles: { fontSize: 7, cellPadding: { top: 1, bottom: 1, left: 2, right: 2 } }, headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [30, 41, 59], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 118 }, 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      didParseCell: (d: any) => {
+        if (d.section !== 'body') { if (d.column.index >= 1) d.cell.styles.halign = 'right'; return; }
+        const n = niveis[d.row.index];
+        if (d.column.index === 0) d.cell.styles.cellPadding = { top: 1, bottom: 1, left: recuo[n], right: 2 };
+        if (n === 'setor') { d.cell.styles.fillColor = [226, 232, 240]; d.cell.styles.fontStyle = 'bold'; }
+        else if (n === 'comando') { d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = 'bold'; }
+        else if (n === 'cliente') d.cell.styles.fontStyle = 'bold';
+        else if (n === 'fatura') { d.cell.styles.textColor = [71, 85, 105]; d.cell.styles.fontSize = 6.5; }
+        else if (n === 'credito') { d.cell.styles.textColor = [21, 128, 61]; d.cell.styles.fontSize = 6.5; }
+      },
+    });
     doc.save(`mapa_analitico_${hoje}.pdf`);
   };
 
@@ -172,7 +196,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     <div className="space-y-4">
       <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
         <h3 className="font-bold text-slate-700 flex items-center gap-2"><Network size={20} className="text-primary-600" />Mapa Analítico de Contas em Aberto (posição líquida)</h3>
-        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões e nas barras dos gráficos</b> para filtrar a árvore (clique de novo para tirar); clique no nome da OM para ver o detalhe dela.</p>
+        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões</b> para filtrar a árvore (clique de novo para tirar); clique no nome da OM para ver o detalhe dela. O PDF imprime a árvore com os filtros que estiverem ligados.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -182,43 +206,6 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM que têm crédito" ativo={soComCredito} onClick={() => setSoComCredito(v => !v)} />
         <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM com crédito maior que a dívida" ativo={soSobra} onClick={() => setSoSobra(v => !v)} />
         <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <section className="bg-white rounded-xl border border-slate-200 p-4">
-          <h4 className="font-semibold text-slate-800">Maiores valores a pagar por OM</h4>
-          <p className="text-xs text-slate-500 mb-2">As 10 OM com mais a pagar depois do crédito. <b>Clique numa barra</b> para focar nessa OM.</p>
-          {top.length === 0 ? <p className="text-sm text-slate-400 py-10 text-center">Nada a pagar.</p> : (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={top} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 0 }}
-                  onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && top[Number(i)]) { setFoco({ om: top[Number(i)].completo }); } }}>
-                  <CartesianGrid horizontal={false} stroke="#e2e8f0" />
-                  <XAxis type="number" tickFormatter={compacto} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="nome" width={200} tick={{ fontSize: 10, fill: '#334155' }} axisLine={false} tickLine={false} interval={0} />
-                  <Tooltip formatter={(v: any) => [brl(Number(v)), 'A pagar']} labelFormatter={(_l: any, p: any) => p?.[0]?.payload?.completo || ''} cursor={{ fill: '#f1f5f9' }} />
-                  <Bar dataKey="valor" name="A pagar" fill="#1d4ed8" radius={[0, 4, 4, 0]} cursor="pointer" maxBarSize={20} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </section>
-        <section className="bg-white rounded-xl border border-slate-200 p-4">
-          <h4 className="font-semibold text-slate-800">Idade da dívida</h4>
-          <p className="text-xs text-slate-500 mb-2">Quanto tempo a dívida está vencida. <b>Clique numa barra</b> para deixar na árvore só as faturas dessa faixa.</p>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={idade} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
-                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && idade[Number(i)]) alternarFat(idade[Number(i)].faixa); }}>
-                <CartesianGrid vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="faixa" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} />
-                <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} width={64} />
-                <Tooltip formatter={(v: any, _n: any, p: any) => [`${brl(Number(v))} (${p?.payload?.qtd ?? 0} fatura(s))`, 'Dívida']} cursor={{ fill: '#f1f5f9' }} />
-                <Bar dataKey="valor" name="Dívida" radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={48}>{idade.map(x => <Cell key={x.faixa} fill={COR_FAIXA[x.faixa]} fillOpacity={filtroFat && filtroFat !== x.faixa && filtroFat !== 'vencidas' && filtroFat !== 'aVencer' ? 0.3 : 1} />)}</Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreditoMapa, FaturaMapa, OMRef, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa, idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa } from '../utils/mapaAnalitico';
+import { CreditoMapa, FaturaMapa, OMRef, linhasArvorePdf, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa, idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa } from '../utils/mapaAnalitico';
 
 const oms: OMRef[] = [
   { omId: 'a', nome: 'Diretoria Industrial da Marinha', setor: 'DGMM', comando: '40030 - Diretoria Industrial da Marinha' },
@@ -145,5 +145,30 @@ describe('cartões como filtros da árvore', () => {
   it('só com crédito / só com sobra', () => {
     expect(nomes(montarMapa(fs, crs, oms, { hoje, soComCredito: true }))).toEqual(['Arsenal de Marinha do Rio de Janeiro', 'Diretoria Industrial da Marinha']);
     expect(nomes(montarMapa(fs, crs, oms, { hoje, semContestadas: true, soSobra: true }))).toEqual(['Arsenal de Marinha do Rio de Janeiro']);
+  });
+});
+
+describe('PDF no formato da árvore, só com o que está filtrado', () => {
+  const fs = [f('1', 'a', 'x', 1000, '2026-10-01'), f('2', 'a', 'x', 300, '2026-12-01'), f('3', 'b', 'x', 700, '2026-05-01', { contestada: true })];
+  const crs = [cr('1', 'Diretoria Industrial da Marinha', 400)];
+  const moeda = (n: number) => `R$ ${n.toFixed(2)}`; const data = (iso: string) => iso.split('-').reverse().join('/');
+  it('setor › comando › OM › faturas e créditos, na ordem da árvore', () => {
+    const l = linhasArvorePdf(montarMapa(fs, crs, oms, { hoje, semContestadas: true }), moeda, data);
+    expect(l.map(x => x.nivel)).toEqual(['setor', 'comando', 'cliente', 'fatura', 'fatura', 'credito']);
+    expect(l[2].celulas).toEqual(['Diretoria Industrial da Marinha', '2', 'R$ 1000.00', 'R$ 300.00', 'R$ 1300.00', 'R$ 400.00', 'R$ 900.00']);
+    expect(l[3].celulas[0]).toBe('N-1 (TC) · venc. 01/10/2026 · 40 dias');
+    expect(l[3].celulas.slice(2, 5)).toEqual(['R$ 1000.00', '', 'R$ 1000.00']); // vencida: vai na coluna Vencido
+    expect(l[4].celulas.slice(2, 5)).toEqual(['', 'R$ 300.00', 'R$ 300.00']);  // a vencer
+    expect(l[5].celulas[0]).toBe('ALTCRED/GRU AC-1');
+  });
+  it('só o filtro: com "vencidas" e sem contestadas, não imprime a fatura a vencer nem a contestada', () => {
+    const l = linhasArvorePdf(montarMapa(fs, crs, oms, { hoje, faturas: 'vencidas', semContestadas: true }), moeda, data);
+    const texto = l.map(x => x.celulas[0]).join(' | ');
+    expect(texto).toContain('N-1'); expect(texto).not.toContain('N-2'); expect(texto).not.toContain('N-3');
+    expect(texto).not.toContain('Arsenal');
+  });
+  it('OM só com crédito mostra a sobra na coluna A pagar', () => {
+    const l = linhasArvorePdf(montarMapa([], [cr('2', 'Arsenal de Marinha do Rio de Janeiro', 5000)], oms, { hoje }), moeda, data);
+    expect(l.find(x => x.nivel === 'cliente')!.celulas[6]).toBe('— (sobra R$ 5000.00)');
   });
 });

@@ -214,3 +214,34 @@ export const faturasDaFaixaMapa = (m: MapaAnalitico, faixa: string) => faturasDo
 export function maioresOMs(m: MapaAnalitico, n = 10) {
   return clientesDoMapa(m).filter(c => c.liquido > 0.005).sort((a, b) => b.liquido - a.liquido || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, n);
 }
+
+
+// ------------------------------------------------------------------ PDF no formato da árvore
+export type NivelPdf = 'setor' | 'comando' | 'cliente' | 'fatura' | 'credito';
+export interface LinhaPdf { nivel: NivelPdf; celulas: string[] }
+export const CAB_PDF_ARVORE = ['Setor › Comando › OM', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Crédito', 'A pagar'];
+
+/**
+ * Linhas do PDF exatamente como a árvore do mapa (só o que passou nos filtros): setor, comando, OM e, dentro de
+ * cada OM, as faturas e os créditos dela.
+ */
+export function linhasArvorePdf(m: MapaAnalitico, moeda: (n: number) => string, data: (iso: string) => string): LinhaPdf[] {
+  const v = (n: number) => (n > 0.005 ? moeda(n) : '—');
+  const no = (n: NoMapa): string[] => [n.nome, n.qtd ? String(n.qtd) : '—', v(n.vencido), v(n.aVencer), v(n.divida), v(n.credito),
+    n.liquido > 0.005 ? moeda(n.liquido) : n.sobra > 0.005 ? `— (sobra ${moeda(n.sobra)})` : '—'];
+  const out: LinhaPdf[] = [];
+  m.setores.forEach(s => {
+    out.push({ nivel: 'setor', celulas: no(s) });
+    s.filhos.forEach(c => {
+      out.push({ nivel: 'comando', celulas: no(c) });
+      c.filhos.forEach(x => {
+        out.push({ nivel: 'cliente', celulas: no(x) });
+        (x.faturas || []).forEach(f => out.push({ nivel: 'fatura', celulas: [
+          `${f.numero} (${f.tipo}) · venc. ${data(f.vencimento)}${f.atraso ? ` · ${f.atraso} dias` : ''}${f.contestada ? ' · contestada' : ''}`,
+          '', f.atraso ? moeda(f.saldo) : '', f.atraso ? '' : moeda(f.saldo), moeda(f.saldo), '', ''] }));
+        (x.creditos || []).forEach(c2 => out.push({ nivel: 'credito', celulas: [`ALTCRED/GRU ${c2.numero}${c2.origem ? ` (${c2.origem})` : ''}`, '', '', '', '', moeda(c2.valor), ''] }));
+      });
+    });
+  });
+  return out;
+}
