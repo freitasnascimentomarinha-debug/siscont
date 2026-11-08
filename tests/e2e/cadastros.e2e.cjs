@@ -823,6 +823,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'filtro de mês: a ALTCRED de 01/10/2026 aparece em outubro (antes caía em setembro)');
     // padrão: pela data do documento (mais recente primeiro), com setor › comando › cliente em cada cartão
     ok((await page.getByLabel('Ordem da lista de documentos').inputValue()) === 'data', 'lista de documentos pela data do documento por padrão');
+    await page.getByLabel('Documentos por data').getByText('41000 - Arsenal de Marinha do Rio de Janeiro').first().waitFor({ timeout: 10000 }).catch(() => {});
     const porData = (await page.getByLabel('Documentos por data').innerText()).replace(/\s+/g, ' ');
     ok(porData.indexOf('AMRJ.2026.AC.00001') >= 0 && porData.includes('41000 - Arsenal de Marinha do Rio de Janeiro'), 'cartão mostra o comando do cadastro');
     await page.getByLabel('Ordem da lista de documentos').selectOption('grupo');
