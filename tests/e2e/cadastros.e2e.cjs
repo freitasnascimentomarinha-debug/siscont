@@ -1214,19 +1214,29 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // rubricas: colunas da planilha e conferência dos descontos
     const linhaR1 = (await page.getByRole('row').filter({ has: page.getByLabel('Descrição da rubrica 1') }).innerText()).replace(/\s+/g, ' ');
     ok(linhaR1.includes('R$ 1.500,00') && linhaR1.includes('R$ 198.500,00') && linhaR1.includes('✓'), `rubrica 1: descontos R$ 1.500,00, atualizado R$ 198.500,00 e confere com a planilha (${linhaR1})`);
-    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Outros gastos — incorporados à taxa').isVisible() && await page.getByText('Total dos navios — diárias de atracação').isVisible(), 'blocos: rubricas da taxa, outros gastos e total dos navios');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 100.000,00'), 'total dos navios = parte da rubrica 1 e confere com a planilha');
+    ok(await page.getByText('SOMA DAS 1 RUBRICAS DA TAXA').isVisible() && await page.getByText('Outros gastos — incorporados à taxa').isVisible(), 'blocos: rubricas da taxa e outros gastos');
+    ok(await page.getByLabel('Navios na linha 1', { exact: true }).count() === 0 && (await page.getByText(/Total dos navios \(diárias de atracação\)/).innerText()).includes('R$ 100.000,00'), 'aba Rubricas sem a coluna Navios: só reproduz o total dos navios');
     const resumo = (await page.getByLabel('Resumo da proposta').innerText()).replace(/\s+/g, ' ');
     ok(/Taxas condominiais \(rubricas\)/.test(resumo) && /Outros gastos/.test(resumo) && /Total dos navios \(diárias\) R\$ 100\.000,00/.test(resumo) && /Total R\$/.test(resumo), `resumo: taxas condominiais + outros gastos + navios = total (${resumo})`);
-    // navios INTEGRAL: o valor da linha (previsto − desconto geral) vai inteiro para os navios
+    // a distribuição para os navios fica na aba 5. Navios
+    await page.getByRole('button', { name: '5. Navios' }).click();
+    const totNav = () => page.getByLabel('Total dos navios', { exact: true }).innerText();
+    await page.getByLabel('Valor destinado aos navios').waitFor();
+    ok((await totNav()).includes('R$ 100.000,00') && (await page.getByLabel('Valor destinado aos navios').innerText()).includes('confere com a planilha'), 'aba Navios: valor destinado (fixo da planilha) R$ 100.000,00 e confere');
     await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('INTEGRAL');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 200.000,00'), 'navios integral = valor sugerido R$ 200.000,00 (sem desconto geral e sem os descontos das OM)');
+    ok((await totNav()).includes('R$ 200.000,00'), 'navios integral = valor sugerido R$ 200.000,00 (sem desconto geral e sem os descontos das OM)');
     await page.getByLabel('Base do valor dos navios').selectOption('VIGENTE');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 199.500,00'), 'base ajustável: sugerido − desconto geral = R$ 199.500,00');
+    ok((await totNav()).includes('R$ 199.500,00'), 'base ajustável: sugerido − desconto geral = R$ 199.500,00');
     await page.getByLabel('Base do valor dos navios').selectOption('PREVISTO');
     await page.getByLabel('Navios na linha 1', { exact: true }).selectOption('FIXO');
     await page.getByLabel('Valor fixo dos navios na linha 1').fill('100000');
-    ok((await page.getByText(/Total dos navios:/).innerText()).includes('R$ 100.000,00'), 'valor fixo dos navios');
+    ok((await totNav()).includes('R$ 100.000,00'), 'valor fixo dos navios');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-navios-valor.png'), fullPage: true });
+    await page.getByRole('button', { name: /Gravar navios/ }).click();
+    await page.getByText('Navios gravados.').waitFor();
+    ok(db.rubricas.find(r => r.numero === 1).navios_modo === 'FIXO' && Number(db.rubricas.find(r => r.numero === 1).valor_navios) === 100000, 'valor destinado aos navios gravado pela aba Navios');
+    await page.getByRole('button', { name: '1. Rubricas' }).click();
+    await page.getByLabel('Rateio da linha 3').waitFor();
     // outros gastos: entra ou não na taxa, rateio entre todas ou pela matriz
     ok(await page.getByLabel('Rateio da linha 3').inputValue() === 'TODAS' && await page.getByLabel('Entra como (linha 3)').inputValue() === 'OG', 'linha 3: outros gastos rateados entre todas as OM');
     // a planilha de teste foi fechada sem esta linha: tirá-la da taxa (flexível) e conferir que sai do total
@@ -1261,7 +1271,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // matriz organizada pelas áreas do CNIC; navios (coluna/linha NAVIOS) na parte baixa interna
     await page.getByText('Área 1 – Parte baixa interna').first().waitFor();
     const txtMatriz = (await page.locator('table').last().innerText()).replace(/\s+/g, ' ');
-    ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('NAVIOS (grupo)') && txtMatriz.indexOf('NAVIOS (grupo)') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta'), 'matriz por área: AMRJ e NAVIOS na parte baixa interna, SecNSNQ na parte alta');
+    ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('AMRJ') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta') && !txtMatriz.includes('NAVIOS (grupo)'), 'matriz por área: AMRJ na parte baixa interna, SecNSNQ na parte alta; sem a linha NAVIOS (fica na aba Navios)');
     ok(txtMatriz.includes('Edifício Almirante Tamandaré'), 'edifício da OM aparece na matriz');
     ok(await page.getByLabel(/^Zona: Área 2 – Parte alta/).locator('input[type=checkbox]').count() === 0, 'linha da área é só zoneamento (sem caixas de participação)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'taxa-matriz-areas.png'), fullPage: true });

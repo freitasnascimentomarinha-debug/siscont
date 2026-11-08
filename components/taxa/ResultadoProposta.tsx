@@ -69,7 +69,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
         ? <Aviso><b>Conferência com a planilha:</b> {conferidos.length - divergem.length} de {conferidos.length} conferem. Diferentes: {divergem.map(o => `${o.nome} (sistema ${brl(atual(o))} × planilha ${brl(planilha(o) || 0)})`).join('; ')}.</Aviso>
         : <Aviso tom="emerald"><b>Conferência com a planilha:</b> os {conferidos.length} valores {da ? 'de diária' : 'mensais'} conferem com a aba PROPOSTA da planilha importada.</Aviso>)}
       {semPart.length > 0 && <Aviso tom="red"><b>Rubricas com valor e sem participante</b> (não rateadas): {semPart.map(r => `${r.numero} – ${rub.get(r.numero)?.descricao} (${brl(r.valor)})`).join('; ')}. {da ? 'Inclua os navios na aba Navios.' : 'Marque as OM na aba Clientes e matriz ou zere o valor.'}</Aviso>}
-      {da && !totalVig && <Aviso>Nenhuma linha da taxa com parte dos navios. Defina na coluna "Navios" da aba Rubricas (ou na coluna NAVIOS da matriz).</Aviso>}
+      {da && !totalVig && <Aviso>Nenhuma linha da taxa com parte dos navios. Defina no quadro "Valor destinado aos navios" da aba 5. Navios.</Aviso>}
       {semHist.length > 0 && <Aviso>
         <b>Navios sem dias de atracação no histórico:</b> {semHist.map(o => o.nome).join(', ')}. Recebem a diária pela lotação = custo por militar-dia × lotação (como a "diária a ser considerada com base na lotação" da planilha).
       </Aviso>}

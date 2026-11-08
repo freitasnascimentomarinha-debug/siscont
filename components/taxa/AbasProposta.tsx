@@ -27,7 +27,7 @@ interface AbaProps { ano: number; dados: DadosProposta; podeEditar: boolean; rec
 
 // ================================================================== Rubricas
 const TITULO_GRUPO: Record<'TC' | 'OG' | 'DA' | 'PAR', { titulo: string; ajuda: string }> = {
-  TC: { titulo: 'Rubricas da taxa condominial', ajuda: 'Rubricas 1 a 33. "Critério" e "% OM" dizem como a parte das OM é dividida; "Rateio" = só as OM marcadas na matriz ou todas as OM da taxa; "Navios" = quanto da rubrica vai para o total dos navios (sobre o valor sugerido, sem os descontos das OM e sem diminuir a parte das OM). Detalhes na Ficha.' },
+  TC: { titulo: 'Rubricas da taxa condominial', ajuda: 'Rubricas 1 a 33. "Critério" e "% OM" dizem como a parte das OM é dividida; "Rateio" = só as OM marcadas na matriz ou todas as OM da taxa. A parte dos navios é definida na aba 5. Navios. Detalhes na Ficha.' },
   OG: { titulo: 'Outros gastos — incorporados à taxa', ajuda: 'Não são rubricas (na planilha, 34 a 37), mas o valor entra no total rateado entre as OM da taxa. Em "Entra como" é possível tirar a linha da taxa (fora da taxa) ou transformá-la em rubrica; em "Rateio", ratear entre todas as OM ou só pela matriz.' },
   DA: { titulo: 'Total dos navios — diárias de atracação', ajuda: 'Soma das partes dos navios de cada linha (coluna "Navios"). Esse total é dividido entre os navios pela lotação × dias atracados e vira a diária de cada um.' },
   PAR: { titulo: 'Fora da taxa', ajuda: 'Linhas que não entram na taxa condominial nem nas diárias (só referência / PAR). Mude "Entra como" para incluí-las.' },
@@ -39,9 +39,8 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const [gravando, setGravando] = useState(false);
   const [ficha, setFicha] = useState<number | null>(null);
   const [importando, setImportando] = useState(false);
-  // valor da linha usado para os navios: o valor sugerido (previsto) — padrão — ou o sugerido − desconto geral
-  const [baseNavios, setBaseNavios] = useState<BaseNavios>(dados.proposta.baseNavios || 'PREVISTO');
-  useEffect(() => { if (!sujo) setBaseNavios(dados.proposta.baseNavios || 'PREVISTO'); }, [dados]);
+  // parte dos navios: definida na aba 5. Navios (aqui só entra no total do resumo)
+  const baseNavios: BaseNavios = dados.proposta.baseNavios || 'PREVISTO';
   const refSub = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!sujo) setLinhas(dados.rubricas); }, [dados]);
   const mudar = (i: number, p: Partial<RubricaProposta>) => { setSujo(true); setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l))); };
@@ -89,7 +88,6 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     setGravando(true);
     try {
       await salvarRubricasProposta(ano, linhas);
-      if (baseNavios !== (dados.proposta.baseNavios || 'PREVISTO')) await salvarProposta({ ...dados.proposta, ano, baseNavios });
       setSujo(false); notify.success('Rubricas gravadas.'); recarregar();
     } catch (e) { notify.fail('Erro ao gravar rubricas', e); throw e; } finally { setGravando(false); }
   };
@@ -125,7 +123,6 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   };
   const linhaTabela = ({ l, i }: { l: RubricaProposta; i: number }, mostrarNavios: boolean) => {
     const c = calc(l);
-    const modo = naviosModoDe(l);
     return (
       <tr key={i} className="border-t border-slate-100 hover:bg-slate-50/60">
         <td className="px-2 text-center text-slate-600">{l.numero}</td>
@@ -143,12 +140,6 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <td className="px-1">{mostrarNavios && <input disabled={!podeEditar} className={`${entrada} w-14 text-xs text-right`} inputMode="decimal" value={fmt(l.percentualOM ?? 100)} onChange={e => mudar(i, { percentualOM: Math.min(100, Math.max(0, n2(e.target.value) ?? 0)) })} aria-label={`Percentual das OM na rubrica ${l.numero}`} title="% do valor dividido entre as OM (100 = integral)" />}</td>
         <td className="px-1">{mostrarNavios && <select disabled={!podeEditar} className={`${entrada} text-xs w-20`} value={l.rateioTodas ? 'TODAS' : 'MATRIZ'} onChange={e => mudar(i, { rateioTodas: e.target.value === 'TODAS' })} aria-label={`Rateio da linha ${l.numero}`} title="Matriz = só as OM marcadas na matriz; Todas = todas as OM da taxa">
           <option value="MATRIZ">Matriz</option><option value="TODAS">Todas</option></select>}</td>
-        <td className="px-1">{mostrarNavios && <span className="flex items-center gap-1 whitespace-nowrap">
-          <select disabled={!podeEditar} className={`${entrada} text-xs w-24`} value={modo} onChange={e => mudar(i, { naviosModo: e.target.value as NaviosModo, ...(e.target.value === 'PERCENTUAL' && !(l.percentualNavios ?? 0) ? { percentualNavios: 100 } : {}) })} aria-label={`Navios na linha ${l.numero}`} title="Quanto desta linha vai para o total dos navios (sem os descontos das OM)">
-            {(Object.keys(NAVIOS_MODOS) as NaviosModo[]).map(k => <option key={k} value={k}>{NAVIOS_MODOS[k]}</option>)}</select>
-          {modo === 'PERCENTUAL' && <input disabled={!podeEditar} className={`${entrada} w-14 text-xs text-right`} inputMode="decimal" value={fmt(l.percentualNavios ?? 0)} onChange={e => mudar(i, { percentualNavios: Math.min(100, Math.max(0, n2(e.target.value) ?? 0)) })} aria-label={`Percentual dos navios na linha ${l.numero}`} title="% do valor da linha" />}
-          {modo === 'FIXO' && <input disabled={!podeEditar} className={`${entrada} w-24 text-xs text-right`} inputMode="decimal" value={fmt(l.valorNavios ?? 0)} onChange={e => mudar(i, { valorNavios: Math.max(0, n2(e.target.value) ?? 0) })} aria-label={`Valor fixo dos navios na linha ${l.numero}`} />}
-          <span className="text-slate-500">{c.navios ? brl(c.navios) : ''}</span></span>}</td>
         <td className="px-2">{situacao(l)}</td>
         <td className="px-1 whitespace-nowrap">
           <Button size="sm" variant="secondary" onClick={() => setFicha(i)} aria-label={`Ficha da rubrica ${l.numero}`}>Ficha</Button>
@@ -161,14 +152,14 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     <thead className="bg-slate-50 text-slate-600"><tr>
       <th className={th}>Nº</th><th className={`${th} text-left`} title="Rubrica da taxa, outros gastos (entra na taxa) ou fora da taxa">Entra como</th><th className={`${th} text-left`}>Despesa</th><th className={`${th} text-right`}>Valor {ano} (R$)</th><th className={`${th} text-right`}>{navios ? '%RUB' : ''}</th>
       <th className={`${th} text-right`}>Valor {ano - 1} (R$)</th><th className={`${th} text-right`}>Variação</th><th className={`${th} text-right`}>{navios ? 'Descontos' : ''}</th>
-      <th className={`${th} text-right`}>{navios ? 'Valor atualizado (OM)' : 'Valor'}</th><th className={`${th} text-left`} title="Como a parte das OM é dividida">{navios ? 'Critério' : ''}</th><th className={`${th} text-right`} title="% do valor dividido entre as OM">{navios ? '% OM' : ''}</th><th className={`${th} text-left`} title="Matriz = só as OM marcadas; Todas = todas as OM da taxa">{navios ? 'Rateio' : ''}</th><th className={`${th} text-left`} title="Quanto da linha vai para o total dos navios (sem os descontos das OM)">{navios ? 'Navios' : ''}</th><th className={`${th} text-left`} title="✍ justificativa do valor · Σ subsídios · 📎 documentos">Situação (opcional)</th><th></th>
+      <th className={`${th} text-right`}>{navios ? 'Valor atualizado (OM)' : 'Valor'}</th><th className={`${th} text-left`} title="Como a parte das OM é dividida">{navios ? 'Critério' : ''}</th><th className={`${th} text-right`} title="% do valor dividido entre as OM">{navios ? '% OM' : ''}</th><th className={`${th} text-left`} title="Matriz = só as OM marcadas; Todas = todas as OM da taxa">{navios ? 'Rateio' : ''}</th><th className={`${th} text-left`} title="✍ justificativa do valor · Σ subsídios · 📎 documentos">Situação (opcional)</th><th></th>
     </tr></thead>
   );
   const rodape = (rot: string, t: ReturnType<typeof somar>, navios: boolean) => (
     <tfoot className="bg-slate-100 font-bold text-slate-800"><tr>
       <td colSpan={3} className="px-2 py-2">{rot}</td><td className="px-2 text-right">{brl(t.prev)}</td><td className="px-2 text-right">{navios ? '100%' : ''}</td>
       <td className="px-2 text-right">{brl(t.ant)}</td><td className="px-2 text-right">{t.ant ? pct(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '—'}</td>
-      <td className="px-2 text-right">{navios ? brl(t.desc) : ''}</td><td className="px-2 text-right">{navios ? brl(t.atu) : brl(t.prev)}</td><td colSpan={3}></td><td className="px-2">{navios ? brl(t.nav) : ''}</td><td colSpan={2}></td>
+      <td className="px-2 text-right">{navios ? brl(t.desc) : ''}</td><td className="px-2 text-right">{navios ? brl(t.atu) : brl(t.prev)}</td><td colSpan={3}></td><td colSpan={2}></td>
     </tr></tfoot>
   );
   const bloco = (g: 'TC' | 'OG' | 'DA' | 'PAR', children: React.ReactNode) => (
@@ -198,18 +189,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
 
       {og.length > 0 && bloco('OG', <table className="w-full text-xs">{cabecalho(true)}<tbody>{og.map(x => linhaTabela(x, true))}</tbody>{rodape(`SOMA DOS ${og.length} OUTROS GASTOS`, tOG, true)}</table>)}
 
-      {bloco('DA', <div className="p-3 text-xs space-y-1">
-        <div className="flex flex-wrap gap-x-6 gap-y-1 items-baseline">
-          <label className="flex items-center gap-1.5">Valor da linha para os navios:
-            <select disabled={!podeEditar} className={`${entrada} text-xs`} value={baseNavios} onChange={e => { setSujo(true); setBaseNavios(e.target.value as BaseNavios); }} aria-label="Base do valor dos navios">
-              <option value="PREVISTO">valor sugerido</option><option value="VIGENTE">valor sugerido − desconto geral</option></select></label>
-          <span>Linhas de que os navios participam: <b>{[...tc, ...og].filter(x => calc(x.l).navios > 0).map(x => `${x.l.numero} (${NAVIOS_MODOS[naviosModoDe(x.l)].toLowerCase()}${naviosModoDe(x.l) === 'PERCENTUAL' ? ` ${fmt(x.l.percentualNavios ?? 0)}%` : ''})`).join(', ') || 'nenhuma'}</b></span>
-          <span className="ml-auto">Total dos navios: <b className="text-base">{brl(valorDA)}</b>
-            {referenciaNavios != null && (Math.abs(referenciaNavios - valorDA) < 0.01 ? <span className="text-emerald-700 ml-1" title="confere com o grupo Navios da planilha">✓</span> : <span className="text-amber-700 ml-1" title={`Planilha: ${brl(referenciaNavios)}`}>⚠ planilha {brl(referenciaNavios)}</span>)}
-          </span>
-        </div>
-        <p className="text-slate-500">Para incluir ou tirar os navios de uma linha, use a coluna "Navios" acima ou a coluna NAVIOS da aba Clientes e matriz. A parte dos navios não diminui o que as OM pagam.</p>
-      </div>)}
+      <p className="text-xs text-slate-500">Total dos navios (diárias de atracação): <b>{brl(valorDA)}</b>{referenciaNavios != null && (Math.abs(referenciaNavios - valorDA) < 0.01 ? <span className="text-emerald-700 ml-1" title="confere com a planilha">✓</span> : <span className="text-amber-700 ml-1">⚠ planilha {brl(referenciaNavios)}</span>)} — de quais linhas os navios participam e quanto vai para eles é definido na aba <b>5. Navios</b>.</p>
 
       {par.length > 0 && bloco('PAR', <table className="w-full text-xs">{cabecalho(false)}<tbody>{par.map(x => linhaTabela(x, false))}</tbody>{rodape('SOMA FORA DA TAXA', tPAR, false)}</table>)}
 
@@ -269,9 +249,12 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
     return m;
   };
   const [lot, setLot] = useState<Record<string, L>>(inicial);
-  // coluna NAVIOS da matriz: modo da parte dos navios em cada linha (Não entra = não participam)
-  const navInicial = () => new Map(dados.rubricas.filter(entraNaTaxa).map(x => [x.numero, naviosModoDe(x)]));
-  const [navModo, setNavModo] = useState<Map<number, NaviosModo>>(navInicial);
+  // aba Navios: valor destinado aos navios em cada linha da taxa (modo, % ou valor fixo) e a base (sugerido ou sugerido − desconto geral)
+  type Nav = { modo: NaviosModo; pct: number; valor: number };
+  const navInicial = () => new Map<number, Nav>(dados.rubricas.filter(entraNaTaxa).map(x => [x.numero, { modo: naviosModoDe(x), pct: x.percentualNavios ?? 0, valor: x.valorNavios ?? 0 }]));
+  const [navCfg, setNavCfg] = useState<Map<number, Nav>>(navInicial);
+  const [baseNav, setBaseNav] = useState<BaseNavios>(dados.proposta.baseNavios || 'PREVISTO');
+  const mudarNav = (n: number, p: Partial<Nav>) => { setSujo(true); setNavCfg(m => new Map(m).set(n, { ...(m.get(n) || { modo: 'NAO', pct: 0, valor: 0 }), ...p })); };
   const usaArea = dados.rubricas.some(x => entraNaTaxa(x) && x.criterio === 'AREA'), usaPeso = dados.rubricas.some(x => entraNaTaxa(x) && x.criterio === 'PESO');
   const [matriz, setMatriz] = useState<Set<string>>(new Set(dados.matriz));
   const [sujo, setSujo] = useState(false);
@@ -281,7 +264,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const [incluir, setIncluir] = useState(false);
   const [resolver, setResolver] = useState<Pendente | null>(null);
   const [extras, setExtras] = useState<Set<string>>(new Set());
-  useEffect(() => { if (!sujo) { setLot(inicial()); setMatriz(new Set(dados.matriz)); setNavModo(navInicial()); } }, [dados]);
+  useEffect(() => { if (!sujo) { setLot(inicial()); setMatriz(new Set(dados.matriz)); setNavCfg(navInicial()); setBaseNav(dados.proposta.baseNavios || 'PREVISTO'); } }, [dados]);
   // colunas da matriz: linhas da taxa rateadas pela matriz (as "entre todas" não precisam de marcação)
   const rubs = dados.rubricas.filter(r => entraNaTaxa(r) && !r.rateioTodas).map(r => r.numero).sort((a, b) => a - b);
   const todasOM = dados.rubricas.filter(r => entraNaTaxa(r) && r.rateioTodas).sort((a, b) => a.numero - b.numero);
@@ -307,36 +290,71 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
         .map(([omId, v]) => ({ omId, lotacao: Number(v.lotacao) || 0, lotacaoAnterior: n2(v.anterior), dias: n2(v.dias), area: n2(v.area || ''), peso: n2(v.peso || '') }));
       const removidas = dados.lotacoes.map(l => l.omId).filter(id => !ls.some(l => l.omId === id));
       await salvarLotacoes(ano, ls, removidas);
-      if (!navioModo) {
-        await salvarMatriz(ano, matriz);
-        const mudou = dados.rubricas.filter(x => entraNaTaxa(x) && (navModo.get(x.numero) ?? 'NAO') !== naviosModoDe(x));
-        if (mudou.length) await salvarRubricasProposta(ano, mudou.map(x => ({ ...x, naviosModo: navModo.get(x.numero) ?? 'NAO' })));
+      if (!navioModo) await salvarMatriz(ano, matriz);
+      else {
+        // valor destinado aos navios: só as linhas alteradas
+        const mudou = dados.rubricas.filter(x => { const c = navCfg.get(x.numero); return entraNaTaxa(x) && c && (c.modo !== naviosModoDe(x) || c.pct !== (x.percentualNavios ?? 0) || c.valor !== (x.valorNavios ?? 0)); });
+        if (mudou.length) await salvarRubricasProposta(ano, mudou.map(x => { const c = navCfg.get(x.numero)!; return { ...x, naviosModo: c.modo, percentualNavios: c.pct, valorNavios: c.modo === 'FIXO' ? c.valor : x.valorNavios ?? null }; }));
+        if (baseNav !== (dados.proposta.baseNavios || 'PREVISTO')) await salvarProposta({ ...dados.proposta, ano, baseNavios: baseNav });
       }
       setSujo(false); setExtras(new Set()); notify.success(navioModo ? 'Navios gravados.' : 'Clientes e matriz gravados.'); recarregar();
     } catch (e) { notify.fail('Erro ao gravar', e); } finally { setGravando(false); }
   };
 
-  // linhas por área do CNIC (só para organizar a matriz); navios ficam na área 1 (parte baixa interna)
+  // linhas por área do CNIC (só zoneamento da matriz)
   const gruposArea = [1, 2, 3, 4, 5, 0].map(area => ({ area, oms: linhas.filter(o => (o.areaCnic || 0) === area) })).filter(g => g.oms.length || g.area === 1);
-  const navRow = (
 
-              <tr className="border-t border-slate-200 bg-sky-50/60">
-                <td className="px-2 py-1 sticky left-0 bg-sky-50 font-semibold" title="Grupo de todos os navios: marque as despesas de que os navios participam">⚓ NAVIOS (grupo)</td>
-                <td className="px-1 text-[10px] text-slate-500" colSpan={2 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0)}>lotação e dias na aba Navios</td>
-                {rubs.map(r0 => { const m = navModo.get(r0) ?? 'NAO'; return (
-                  <td key={r0} className="text-center"><input type="checkbox" disabled={!podeEditar} checked={m !== 'NAO'} title={m !== 'NAO' ? `navios participam (${NAVIOS_MODOS[m].toLowerCase()})` : 'navios não participam'}
-                    onChange={e => { setSujo(true); setNavModo(mm => new Map(mm).set(r0, e.target.checked ? (naviosModoDe(dados.rubricas.find(x => x.numero === r0)!) !== 'NAO' ? naviosModoDe(dados.rubricas.find(x => x.numero === r0)!) : 'INTEGRAL') : 'NAO')); }} aria-label={`Navios participam da linha ${r0}`} /></td>
-                ); })}
-                <td className="px-2 text-[10px] text-slate-500 whitespace-nowrap">{todasOM.some(r => (navModo.get(r.numero) ?? 'NAO') !== 'NAO') ? `+ ${todasOM.filter(r => (navModo.get(r.numero) ?? 'NAO') !== 'NAO').map(r => r.numero).join(', ')} · ` : ''}modo na aba Rubricas</td>
+  const linhasTaxa = dados.rubricas.filter(entraNaTaxa).sort((a, b) => a.numero - b.numero);
+  const vaiNavios = (r: RubricaProposta) => { const c = navCfg.get(r.numero); return c ? parteNavios({ ...r, naviosModo: c.modo, percentualNavios: c.pct, valorNavios: c.valor }, baseNav) : 0; };
+  const totalNav = Math.round(linhasTaxa.reduce((t, r) => t + vaiNavios(r), 0) * 100) / 100;
+  const refNav = dados.proposta.naviosPlanilha ?? rubsDA[0]?.valorPrevisto ?? null;
+  const quadroNavios = (
+    <section className="space-y-2" aria-label="Valor destinado aos navios">
+      <div className="flex flex-wrap items-end gap-3">
+        <h4 className="font-bold text-slate-800">Valor destinado aos navios (diárias)</h4>
+        <label className="text-xs text-slate-600 flex items-center gap-1.5 ml-auto">Valor da linha:
+          <select disabled={!podeEditar} className={`${entrada} text-xs`} value={baseNav} onChange={e => { setSujo(true); setBaseNav(e.target.value as BaseNavios); }} aria-label="Base do valor dos navios">
+            <option value="PREVISTO">valor sugerido</option><option value="VIGENTE">valor sugerido − desconto geral</option></select></label>
+      </div>
+      <p className="text-xs text-slate-500">Escolha de quais linhas da taxa os navios participam e quanto vai para eles. O valor sai do valor sugerido da linha, sem os descontos das OM, e não diminui o que as OM pagam. O total é dividido entre os navios abaixo (lotação × dias atracados).</p>
+      <div className="overflow-auto border border-slate-200 rounded-lg max-h-[45vh]">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>
+            <th className="px-2 py-1.5 w-10">Nº</th><th className="px-2 py-1.5 text-left">Despesa</th><th className="px-2 py-1.5 text-right">Valor sugerido</th>
+            <th className="px-2 py-1.5 text-left">Navios participam</th><th className="px-2 py-1.5 text-right">Vai para os navios</th>
+          </tr></thead>
+          <tbody>
+            {linhasTaxa.map(r => { const c = navCfg.get(r.numero) || { modo: 'NAO' as NaviosModo, pct: 0, valor: 0 }; const v = vaiNavios(r); return (
+              <tr key={r.numero} className={`border-t border-slate-100 ${c.modo !== 'NAO' ? 'bg-sky-50/50' : ''}`}>
+                <td className="px-2 text-center text-slate-600">{r.numero}</td>
+                <td className="px-2">{r.descricao}{r.destino === 'OG' && <span className="ml-1 text-[10px] text-slate-500">(outros gastos)</span>}</td>
+                <td className="px-2 text-right tabular-nums">{brl(r.valorPrevisto)}</td>
+                <td className="px-2"><span className="flex items-center gap-1 whitespace-nowrap">
+                  <select disabled={!podeEditar} className={`${entrada} text-xs w-28`} value={c.modo} onChange={e => mudarNav(r.numero, { modo: e.target.value as NaviosModo, ...(e.target.value === 'PERCENTUAL' && !c.pct ? { pct: 100 } : {}) })} aria-label={`Navios na linha ${r.numero}`}>
+                    {(Object.keys(NAVIOS_MODOS) as NaviosModo[]).map(k => <option key={k} value={k}>{NAVIOS_MODOS[k]}</option>)}</select>
+                  {c.modo === 'PERCENTUAL' && <input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={fmt(c.pct)} onChange={e => mudarNav(r.numero, { pct: Math.min(100, Math.max(0, n2(e.target.value) ?? 0)) })} aria-label={`Percentual dos navios na linha ${r.numero}`} />}
+                  {c.modo === 'FIXO' && <input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(c.valor)} onChange={e => mudarNav(r.numero, { valor: Math.max(0, n2(e.target.value) ?? 0) })} aria-label={`Valor fixo dos navios na linha ${r.numero}`} />}
+                </span></td>
+                <td className="px-2 text-right tabular-nums font-semibold">{v ? brl(v) : '—'}</td>
               </tr>
-            
+            ); })}
+          </tbody>
+          <tfoot className="bg-slate-100 font-bold"><tr>
+            <td colSpan={4} className="px-2 py-1.5">Total dos navios: {linhasTaxa.filter(r => vaiNavios(r) > 0).length} linha(s){refNav != null && (Math.abs(refNav - totalNav) < 0.01 ? <span className="text-emerald-700 ml-2 font-normal" title="confere com a planilha">✓ confere com a planilha</span> : <span className="text-amber-700 ml-2 font-normal">⚠ planilha: {brl(refNav)}</span>)}</td>
+            <td className="px-2 text-right tabular-nums" aria-label="Total dos navios">{brl(totalNav)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </section>
   );
   return (
     <div className="space-y-3">
       {navioModo
-        ? <p className="text-xs text-slate-500">Navios que pagam diária de atracação: lotação (TLA + DLA) e dias atracados por mês. Dias em branco = média trienal da classe (aba Média trienal). O valor rateado é o total dos navios: a parte dos navios de cada linha da taxa (coluna "Navios" da aba Rubricas ou coluna NAVIOS da matriz), sem os descontos das OM{rubsDA.length ? ` · total da planilha importada, para conferência: ${brl(valorVigente(rubsDA[0]))}` : ''}.</p>
+        ? <p className="text-xs text-slate-500">Navios que pagam diária de atracação: lotação (TLA + DLA) e dias atracados por mês. Dias em branco = média trienal da classe (aba Média trienal). O valor rateado é o total do quadro "Valor destinado aos navios".</p>
         : <p className="text-xs text-slate-500">OM que pagam a taxa condominial, organizadas pela área do CNIC (cadastro da OM; navios ficam na parte baixa interna): lotação (TLA + DLA) e de quais linhas cada uma participa (X). Peso no rateio = lotação × 30 dias. Clique no número da linha para marcar/desmarcar a coluna inteira. A área (zona) só organiza a lista; a participação é marcada em cada OM.{todasOM.length ? ` Rateadas entre todas as OM da taxa (sem marcação): ${todasOM.map(r => `${r.numero} – ${r.descricao}`).join('; ')}.` : ''}</p>}
       {!navioModo && !rubs.length && <Aviso>Cadastre as rubricas primeiro (aba Rubricas ou "Importar proposta").</Aviso>}
+      {navioModo && quadroNavios}
+      {navioModo && <h4 className="font-bold text-slate-800 pt-2">Navios: lotação e dias atracados</h4>}
       {navioModo && (() => { const sem = linhas.filter(o => !o.classeId && lot[o.id]?.lotacao); return sem.length ? <Aviso>{sem.length} navio(s) com lotação e <b>sem classe</b> ({sem.map(o => o.nome).join(', ')}): sem média trienal, a diária sai pela lotação. Ajuste a classe em <b>Cadastros › Lista de navios</b>.</Aviso> : null; })()}
       {semLotacao.length > 0 && <Aviso tom="red">Marcadas na matriz mas sem lotação (ficam fora do rateio): {semLotacao.map(nomeDe).join(', ')}.</Aviso>}
       {pendentes.length > 0 && (
@@ -359,7 +377,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
         <Campo rotulo={navioModo ? 'Buscar navio' : 'Buscar OM'}><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
         <label className="text-sm flex items-center gap-2 pb-1.5"><input type="checkbox" checked={so} onChange={e => setSo(e.target.checked)} /> só participantes</label>
         {podeEditar && <Button variant="secondary" onClick={() => setIncluir(true)}><Plus size={16} className="mr-1" />{navioModo ? 'Incluir navio' : 'Incluir cliente'}</Button>}
-        {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios' : 'Gravar clientes e matriz'}</Button>}
+        {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
       </div>
       <div className="overflow-auto border border-slate-200 rounded-lg max-h-[62vh]">
@@ -379,7 +397,6 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                 <td className="px-2 py-1 sticky left-0 bg-slate-100 font-bold text-slate-700 whitespace-nowrap">📍 {g.area ? AREAS_CNIC[g.area] : 'Sem área definida no cadastro'} <span className="font-normal text-slate-500">({g.oms.length} OM)</span></td>
                 <td colSpan={3 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0) + rubs.length} className="bg-slate-100"></td>
               </tr>}
-              {!navioModo && g.area === 1 && rubs.length + linhasNav.length > 0 && navRow}
               {g.oms.map(o => {
               const v = lot[o.id] || { lotacao: '', anterior: '', dias: '' };
               const media = o.classeId ? medias.get(o.classeId) ?? 0 : 0;
