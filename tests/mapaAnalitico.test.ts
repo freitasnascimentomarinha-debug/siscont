@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreditoMapa, FaturaMapa, OMRef, creditosDoMapa, idsDoMapa, linhasMapa, montarMapa } from '../utils/mapaAnalitico';
+import { CreditoMapa, FaturaMapa, OMRef, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa, idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa } from '../utils/mapaAnalitico';
 
 const oms: OMRef[] = [
   { omId: 'a', nome: 'Diretoria Industrial da Marinha', setor: 'DGMM', comando: '40030 - Diretoria Industrial da Marinha' },
@@ -82,5 +82,39 @@ describe('crédito devolvido por fatura cancelada pertence à OM da fatura', () 
     expect(creditosDoMapa([doc('d1', 'Comando Alfa', 70)], [{ documentId: 'd1', invoiceId: 'f2', amount: 10 }], fat, oms).map(x => [x.client, x.valor])).toEqual([['Comando Alfa', 70]]);
     const c = creditosDoMapa([doc('d1', 'Comando Alfa', 30)], [{ documentId: 'd1', invoiceId: 'f1', amount: 60 }], fat, oms);
     expect(c.map(x => [x.client, x.valor])).toEqual([['Arsenal de Marinha do Rio de Janeiro', 30]]);
+  });
+});
+
+describe('mapa interativo: listas, foco e gráficos', () => {
+  const fs = [f('1', 'a', 'x', 1000, '2026-10-01'), f('2', 'a', 'x', 300, '2026-12-01'), f('3', 'b', 'x', 700, '2026-05-01'), f('4', 'c', 'x', 50, '2026-12-31')];
+  const crs = [cr('1', 'Diretoria Industrial da Marinha', 400)];
+  const m = montarMapa(fs, crs, oms, { hoje });
+
+  it('lista todas as faturas e só as vencidas, com OM, setor e atraso', () => {
+    expect(faturasDoMapa(m)).toHaveLength(4);
+    const venc = faturasDoMapa(m, x => x.vencimento < hoje);
+    expect(venc.map(x => x.numero).sort()).toEqual(['N-1', 'N-3']);
+    expect(venc.find(x => x.numero === 'N-3')).toMatchObject({ om: 'Arsenal de Marinha do Rio de Janeiro', setor: 'DGMM', atraso: 193 });
+  });
+  it('lista os créditos com a OM dona', () => {
+    expect(creditosDoMapaLista(m)).toEqual([expect.objectContaining({ om: 'Diretoria Industrial da Marinha', numero: 'AC-1', valor: 400 })]);
+  });
+  it('idade da dívida soma por faixa e fecha com a dívida total', () => {
+    const idade = idadeDaDivida(m);
+    expect(idade.reduce((s, x) => s + x.valor, 0)).toBe(m.total.divida);
+    expect(idade.find(x => x.faixa === 'A vencer')).toMatchObject({ valor: 350, qtd: 2 });
+    expect(idade.find(x => x.faixa === '31–90 dias')).toMatchObject({ valor: 1000, qtd: 1 });
+    expect(idade.find(x => x.faixa === '181–365 dias')).toMatchObject({ valor: 700, qtd: 1 });
+    expect(faturasDaFaixaMapa(m, '181–365 dias').map(x => x.numero)).toEqual(['N-3']);
+  });
+  it('maiores OM por valor a pagar', () => {
+    expect(maioresOMs(m, 2).map(x => [x.nome, x.liquido])).toEqual([['Arsenal de Marinha do Rio de Janeiro', 700], ['Diretoria Industrial da Marinha', 900]].sort((a: any, b: any) => b[1] - a[1]));
+    expect(maioresOMs(m, 10)).toHaveLength(3);
+  });
+  it('foco por setor ou por OM, e só com vencido', () => {
+    expect(clientesDoMapa(montarMapa(fs, crs, oms, { hoje, setor: 'COMOPNAV' })).map(x => x.nome)).toEqual(['Comando Alfa']);
+    expect(clientesDoMapa(montarMapa(fs, crs, oms, { hoje, om: 'Arsenal de Marinha do Rio de Janeiro' })).map(x => x.nome)).toEqual(['Arsenal de Marinha do Rio de Janeiro']);
+    expect(clientesDoMapa(montarMapa(fs, crs, oms, { hoje, soVencido: true })).map(x => x.nome).sort()).toEqual(['Arsenal de Marinha do Rio de Janeiro', 'Diretoria Industrial da Marinha']);
+    expect(montarMapa(fs, crs, oms, { hoje, setor: 'COMOPNAV' }).total.divida).toBe(50);
   });
 });

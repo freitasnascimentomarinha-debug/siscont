@@ -1,29 +1,46 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, FileCheck, FileSpreadsheet, FileText, Network, Search } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ChevronDown, ChevronRight, Download, FileCheck, FileSpreadsheet, FileText, Network, Search, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Client, Invoice, InvoiceStatus, PaymentAllocation, ReceivedDocument } from '../../types';
 import { Button } from '../ui/Button';
-import { FaturaMapa, NoMapa, OMRef, OrdemMapa, creditosDoMapa, idsDoMapa, linhasMapa, montarMapa } from '../../utils/mapaAnalitico';
+import { Modal } from '../ui/Modal';
+import {
+  FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa,
+  idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa,
+} from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
+const compacto = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} mi` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(Math.round(n)));
+// verde = no prazo; azuis cada vez mais escuros = vencida há mais tempo (as mesmas cores do Painel)
+const COR_FAIXA: Record<string, string> = { 'A vencer': '#16a34a', '1–30 dias': '#93c5fd', '31–90 dias': '#60a5fa', '91–180 dias': '#3b82f6', '181–365 dias': '#1d4ed8', 'Mais de 1 ano': '#1e3a8a' };
 
-const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'normal' | 'alerta' | 'ok' | 'destaque' }> = ({ rotulo, valor, dica, tom = 'normal' }) => (
-  <div title={dica} className={`p-3 rounded-lg border bg-white ${tom === 'alerta' ? 'border-red-200' : tom === 'destaque' ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200'}`}>
+const Cartao: React.FC<{ rotulo: string; valor: string; dica: string; tom?: 'normal' | 'alerta' | 'ok' | 'destaque'; onClick?: () => void }> = ({ rotulo, valor, dica, tom = 'normal', onClick }) => (
+  <button type="button" onClick={onClick} disabled={!onClick} title={dica}
+    className={`text-left p-3 rounded-lg border bg-white transition-all ${onClick ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'cursor-default'} ${tom === 'alerta' ? 'border-red-200' : tom === 'destaque' ? 'border-slate-800 ring-1 ring-slate-800' : 'border-slate-200'}`}>
     <div className="text-[11px] uppercase font-semibold text-slate-500">{rotulo}</div>
     <div className={`text-lg font-bold tabular-nums ${tom === 'alerta' ? 'text-red-700' : tom === 'ok' ? 'text-green-700' : 'text-slate-900'}`}>{valor}</div>
-  </div>
+    {onClick && <div className="text-[11px] font-semibold text-primary-700 mt-0.5">Ver detalhes →</div>}
+  </button>
 );
+
+type OMLinha = NoMapa & { setor: string; comando: string };
+interface Detalhe { titulo: string; faturas?: LinhaFaturaMapa[]; creditos?: LinhaCreditoMapa[]; oms?: OMLinha[]; modoOM?: 'liquido' | 'sobra' }
 
 /** Mapa Analítico de Contas: posição líquida por Setor › Comando › OM, com o crédito de cada OM abatendo só a dívida dela. */
 export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDocument[]; baixas: PaymentAllocation[]; clients: Client[]; onVerFaturas: (nome: string) => void }> = ({ invoices, docs, baixas, clients, onVerFaturas }) => {
   const [busca, setBusca] = useState('');
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
+  const [soVencido, setSoVencido] = useState(false);
+  const [foco, setFoco] = useState<{ setor?: string; om?: string }>({});
   const [abertos, setAbertos] = useState<Set<string> | null>(null); // null = só os setores abertos (padrão)
+  const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
+  const [buscaLista, setBuscaLista] = useState('');
   const hoje = hojeISO();
 
   const faturas = useMemo<FaturaMapa[]>(() => invoices
@@ -34,13 +51,35 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
-  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor }), [faturas, creditos, oms, hoje, ordem, busca, soComValor]);
+  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soVencido, ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soVencido, foco]);
 
   const padrao = useMemo(() => new Set(idsDoMapa(mapa, 'setor')), [mapa]);
-  const aberto = (id: string) => (abertos ?? padrao).has(id) || (!!busca.trim() && true);
+  const aberto = (id: string) => (abertos ?? padrao).has(id) || !!busca.trim() || !!foco.om;
   const alternar = (id: string) => setAbertos(prev => { const n = new Set(prev ?? padrao); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const t = mapa.total;
-  const semCadastro = useMemo(() => mapa.setores.flatMap(s => s.filhos.flatMap(c => c.filhos)).filter(x => x.semCadastro).length, [mapa]);
+  const clientes = useMemo(() => clientesDoMapa(mapa), [mapa]);
+  const semCadastro = clientes.filter(x => x.semCadastro).length;
+  const top = useMemo(() => maioresOMs(mapa, 10).map(c => ({ nome: c.nome.length > 34 ? `${c.nome.slice(0, 33)}…` : c.nome, completo: c.nome, valor: c.liquido })), [mapa]);
+  const idade = useMemo(() => idadeDaDivida(mapa), [mapa]);
+  const filtrado = !!(busca.trim() || soComValor || soVencido || foco.setor || foco.om);
+
+  // ---------------------------------------------------------------- janelas de detalhe
+  const abrir = (d: Detalhe) => { setBuscaLista(''); setDetalhe(d); };
+  const abrirOM = (c: OMLinha) => abrir({ titulo: c.nome, faturas: faturasDoMapa(mapa, f => f.om === c.nome), creditos: creditosDoMapaLista(mapa).filter(x => x.om === c.nome) });
+  const q = buscaLista.trim().toLowerCase();
+  const fFat = (detalhe?.faturas || []).filter(f => !q || `${f.numero} ${f.om} ${f.comando} ${f.tipo}`.toLowerCase().includes(q));
+  const fCre = (detalhe?.creditos || []).filter(c => !q || `${c.numero} ${c.om}`.toLowerCase().includes(q));
+  const fOM = (detalhe?.oms || []).filter(c => !q || `${c.nome} ${c.comando} ${c.setor}`.toLowerCase().includes(q));
+  const exportarDetalhe = () => {
+    if (!detalhe) return;
+    const wb = XLSX.utils.book_new();
+    if (detalhe.oms) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Setor', 'Comando', 'OM', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Crédito', 'A pagar', 'Sobra de crédito'],
+      ...fOM.map(c => [c.setor, c.comando, c.nome, c.qtd, c.vencido, c.aVencer, c.divida, c.credito, c.liquido, c.sobra])]), 'OM');
+    if (detalhe.faturas) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Setor', 'Comando', 'OM', 'Fatura', 'Serviço', 'Vencimento', 'Dias de atraso', 'Saldo a pagar'],
+      ...fFat.map(f => [f.setor, f.comando, f.om, f.numero, f.tipo, dataBR(f.vencimento), f.atraso, f.saldo])]), 'Faturas');
+    if (detalhe.creditos) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Setor', 'Comando', 'OM', 'ALTCRED/GRU', 'Crédito disponível', 'Origem'], ...fCre.map(c => [c.setor, c.comando, c.om, c.numero, c.valor, c.origem || ''])]), 'Créditos');
+    XLSX.writeFile(wb, `mapa_${detalhe.titulo.replace(/[^\w]+/g, '_').slice(0, 40)}_${hoje}.xlsx`);
+  };
 
   const exportarExcel = () => {
     const ws = XLSX.utils.aoa_to_sheet(linhasMapa(mapa));
@@ -59,25 +98,32 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     doc.save(`mapa_analitico_${hoje}.pdf`);
   };
 
-  const Linha: React.FC<{ n: NoMapa }> = ({ n }) => {
+  const Linha: React.FC<{ n: NoMapa; setor?: string; comando?: string }> = ({ n, setor, comando }) => {
     const abre = aberto(n.id);
     const filhos = n.nivel === 'cliente' ? (n.faturas?.length || n.creditos?.length) : n.filhos.length;
     const estilo = n.nivel === 'setor' ? 'bg-slate-100 font-bold text-slate-800' : n.nivel === 'comando' ? 'bg-slate-50 font-semibold text-slate-700' : 'bg-white text-slate-700';
     const recuo = n.nivel === 'setor' ? 'pl-3' : n.nivel === 'comando' ? 'pl-8' : 'pl-14';
+    const cliqueLinha = filhos ? () => alternar(n.id) : undefined;
     return (
       <>
-        <tr className={`${estilo} hover:bg-blue-50/60`}>
+        <tr className={`${estilo} hover:bg-blue-50/60 ${cliqueLinha ? 'cursor-pointer' : ''}`} onClick={cliqueLinha}>
           <td className={`py-2 pr-2 ${recuo}`}>
             <div className="flex items-start gap-1.5">
-              <button type="button" onClick={() => alternar(n.id)} aria-expanded={abre} aria-label={`${abre ? 'Recolher' : 'Expandir'} ${n.nome}`} className="mt-0.5 text-slate-500 shrink-0" disabled={!filhos}>
+              <button type="button" onClick={e => { e.stopPropagation(); alternar(n.id); }} aria-expanded={abre} aria-label={`${abre ? 'Recolher' : 'Expandir'} ${n.nome}`} className="mt-0.5 text-slate-500 shrink-0" disabled={!filhos}>
                 {abre ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
               </button>
               <div className="min-w-0">
-                <div className="leading-tight break-words">{n.nome}</div>
-                {n.nivel === 'cliente' && <div className="flex flex-wrap gap-x-2 text-[11px] font-normal">
-                  <button type="button" className="text-primary-700 underline" onClick={() => onVerFaturas(n.nome)}>ver faturas na lista</button>
+                {n.nivel === 'cliente'
+                  ? <button type="button" className="text-left leading-tight break-words hover:text-primary-700 hover:underline" title="Abrir o detalhe desta OM" onClick={e => { e.stopPropagation(); abrirOM({ ...n, setor: setor || '', comando: comando || '' }); }}>{n.nome}</button>
+                  : <div className="leading-tight break-words">{n.nome}</div>}
+                <div className="flex flex-wrap gap-x-2 text-[11px] font-normal">
+                  {n.nivel === 'setor' && <button type="button" className="text-primary-700 underline" onClick={e => { e.stopPropagation(); setFoco({ setor: n.nome }); }}>focar neste setor</button>}
+                  {n.nivel === 'cliente' && <>
+                    <button type="button" className="text-primary-700 underline" onClick={e => { e.stopPropagation(); setFoco({ om: n.nome }); }}>focar</button>
+                    <button type="button" className="text-primary-700 underline" onClick={e => { e.stopPropagation(); onVerFaturas(n.nome); }}>ver faturas na lista</button>
+                  </>}
                   {n.semCadastro && <span className="text-amber-700" title="O nome do cliente da ALTCRED não corresponde a nenhuma OM do cadastro">crédito sem OM no cadastro</span>}
-                </div>}
+                </div>
               </div>
             </div>
           </td>
@@ -91,7 +137,8 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
             {n.sobra > 0.005 && <div className="text-[10px] font-normal text-green-700" title="Crédito que ultrapassa a dívida da OM e fica disponível">sobra {brl(n.sobra)}</div>}
           </td>
         </tr>
-        {abre && n.nivel !== 'cliente' && n.filhos.map(f => <Linha key={f.id} n={f} />)}
+        {abre && n.nivel === 'setor' && n.filhos.map(f => <Linha key={f.id} n={f} setor={n.nome} />)}
+        {abre && n.nivel === 'comando' && n.filhos.map(f => <Linha key={f.id} n={f} setor={setor} comando={n.nome} />)}
         {abre && n.nivel === 'cliente' && <>
           {n.faturas!.map(f => (
             <tr key={f.id} className="bg-white text-xs text-slate-500 border-l-4 border-l-slate-200">
@@ -117,16 +164,53 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     <div className="space-y-4">
       <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
         <h3 className="font-bold text-slate-700 flex items-center gap-2"><Network size={20} className="text-primary-600" />Mapa Analítico de Contas em Aberto (posição líquida)</h3>
-        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele.</p>
+        <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões, nas barras dos gráficos e nos nomes das OM</b> para ver os detalhes.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar`} />
-        <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Parte da dívida cujo vencimento já passou" />
-        <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Parte da dívida ainda dentro do prazo" />
-        <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Crédito das OM que abate a dívida delas" />
-        <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Crédito de OM que ultrapassa a própria dívida (não paga fatura de outra OM)" />
-        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Soma do valor a pagar de cada OM depois de abater o crédito dela" />
+        <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar`} onClick={t.qtd ? () => abrir({ titulo: 'Faturas em aberto', faturas: faturasDoMapa(mapa) }) : undefined} />
+        <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Parte da dívida cujo vencimento já passou" onClick={t.vencido > 0 ? () => abrir({ titulo: 'Faturas vencidas', faturas: faturasDoMapa(mapa, f => f.vencimento < hoje) }) : undefined} />
+        <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Parte da dívida ainda dentro do prazo" onClick={t.aVencer > 0 ? () => abrir({ titulo: 'Faturas a vencer', faturas: faturasDoMapa(mapa, f => f.vencimento >= hoje) }) : undefined} />
+        <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Crédito das OM que abate a dívida delas" onClick={t.credito > 0 ? () => abrir({ titulo: 'Créditos (ALTCRED/GRU) das OM do mapa', creditos: creditosDoMapaLista(mapa) }) : undefined} />
+        <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Crédito de OM que ultrapassa a própria dívida (não paga fatura de outra OM)" onClick={t.sobra > 0 ? () => abrir({ titulo: 'OM com crédito que sobra', oms: clientes.filter(c => c.sobra > 0.005).sort((a, b) => b.sobra - a.sobra), modoOM: 'sobra' }) : undefined} />
+        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Soma do valor a pagar de cada OM depois de abater o crédito dela" onClick={t.liquido > 0 ? () => abrir({ titulo: 'OM com valor a pagar', oms: clientes.filter(c => c.liquido > 0.005).sort((a, b) => b.liquido - a.liquido), modoOM: 'liquido' }) : undefined} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <section className="bg-white rounded-xl border border-slate-200 p-4">
+          <h4 className="font-semibold text-slate-800">Maiores valores a pagar por OM</h4>
+          <p className="text-xs text-slate-500 mb-2">As 10 OM com mais a pagar depois do crédito. <b>Clique numa barra</b> para focar nessa OM.</p>
+          {top.length === 0 ? <p className="text-sm text-slate-400 py-10 text-center">Nada a pagar.</p> : (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={top} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 0 }}
+                  onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && top[Number(i)]) { setFoco({ om: top[Number(i)].completo }); } }}>
+                  <CartesianGrid horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" tickFormatter={compacto} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="nome" width={200} tick={{ fontSize: 10, fill: '#334155' }} axisLine={false} tickLine={false} interval={0} />
+                  <Tooltip formatter={(v: any) => [brl(Number(v)), 'A pagar']} labelFormatter={(_l: any, p: any) => p?.[0]?.payload?.completo || ''} cursor={{ fill: '#f1f5f9' }} />
+                  <Bar dataKey="valor" name="A pagar" fill="#1d4ed8" radius={[0, 4, 4, 0]} cursor="pointer" maxBarSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </section>
+        <section className="bg-white rounded-xl border border-slate-200 p-4">
+          <h4 className="font-semibold text-slate-800">Idade da dívida</h4>
+          <p className="text-xs text-slate-500 mb-2">Quanto tempo a dívida está vencida. <b>Clique numa barra</b> para ver as faturas da faixa.</p>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={idade} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null && idade[Number(i)]?.qtd) { const x = idade[Number(i)]; abrir({ titulo: `Em aberto: ${x.faixa}`, faturas: faturasDaFaixaMapa(mapa, x.faixa) }); } }}>
+                <CartesianGrid vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="faixa" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} interval={0} />
+                <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} width={64} />
+                <Tooltip formatter={(v: any, _n: any, p: any) => [`${brl(Number(v))} (${p?.payload?.qtd ?? 0} fatura(s))`, 'Dívida']} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="valor" name="Dívida" radius={[4, 4, 0, 0]} cursor="pointer" maxBarSize={48}>{idade.map(x => <Cell key={x.faixa} fill={COR_FAIXA[x.faixa]} />)}</Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -138,15 +222,27 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
             <option value="liquido">Maior valor a pagar</option><option value="divida">Maior dívida</option><option value="nome">Nome (A–Z)</option>
           </select></label>
         <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soComValor} onChange={e => setSoComValor(e.target.checked)} /> Só OM com valor a pagar</label>
+        <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soVencido} onChange={e => setSoVencido(e.target.checked)} /> Só OM com vencido</label>
         <div className="flex gap-3 pb-2 text-sm">
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'cliente')))}>expandir tudo</button>
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'comando')))}>até as OM</button>
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set())}>recolher tudo</button>
         </div>
         <div className="flex-1" />
-        <div className="flex gap-2 pb-0.5"><Button variant="secondary" size="sm" onClick={exportarExcel}><FileSpreadsheet size={14} className="mr-1" />Excel</Button>
-        <Button variant="secondary" size="sm" onClick={exportarPdf}><FileText size={14} className="mr-1" />PDF</Button></div>
+        <div className="flex gap-2 pb-0.5">
+          <Button variant="secondary" size="sm" onClick={exportarExcel}><FileSpreadsheet size={14} className="mr-1" />Excel</Button>
+          <Button variant="secondary" size="sm" onClick={exportarPdf}><FileText size={14} className="mr-1" />PDF</Button>
+        </div>
       </div>
+
+      {(foco.setor || foco.om) && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Foco do mapa">
+          <span className="text-slate-500">Mostrando só:</span>
+          {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover o foco">Setor {foco.setor} <X size={12} /></button>}
+          {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover o foco">OM {foco.om} <X size={12} /></button>}
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => setFoco({})}>ver todos</button>
+        </div>
+      )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}
 
       <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
@@ -161,7 +257,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
             </thead>
             <tbody className="divide-y divide-slate-100">
               {mapa.setores.map(s => <Linha key={s.id} n={s} />)}
-              {!mapa.setores.length && <tr><td colSpan={7} className="text-center py-8 text-slate-500">Nenhuma pendência encontrada.</td></tr>}
+              {!mapa.setores.length && <tr><td colSpan={7} className="text-center py-8 text-slate-500">{filtrado ? 'Nada com esses filtros.' : 'Nenhuma pendência encontrada.'}</td></tr>}
             </tbody>
             <tfoot className="bg-slate-800 text-white font-bold">
               <tr>
@@ -173,6 +269,67 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           </table>
         </div>
       </div>
+
+      <Modal isOpen={!!detalhe} onClose={() => setDetalhe(null)} title={detalhe?.titulo || ''} maxWidth="max-w-5xl">
+        {detalhe && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-sm text-slate-600">
+                {detalhe.oms && <><b>{fOM.length}</b> OM · {detalhe.modoOM === 'sobra' ? <>sobra <b>{brl(fOM.reduce((s, c) => s + c.sobra, 0))}</b></> : <>a pagar <b>{brl(fOM.reduce((s, c) => s + c.liquido, 0))}</b></>}</>}
+                {detalhe.faturas && <><b>{fFat.length}</b> fatura(s) · saldo <b>{brl(fFat.reduce((s, f) => s + f.saldo, 0))}</b></>}
+                {detalhe.creditos && <>{detalhe.faturas ? ' · ' : ''}<b>{fCre.length}</b> crédito(s) · <b>{brl(fCre.reduce((s, c) => s + c.valor, 0))}</b></>}
+              </div>
+              <div className="flex-1" />
+              <label className="relative"><Search size={14} className="absolute left-2 top-2.5 text-slate-400" /><input className="pl-7 pr-2 py-1.5 text-sm border border-slate-300 rounded-md" placeholder="Buscar..." value={buscaLista} onChange={e => setBuscaLista(e.target.value)} aria-label="Buscar na lista do mapa" /></label>
+              <Button size="sm" variant="secondary" onClick={exportarDetalhe}><Download size={14} className="mr-1" />Excel</Button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto space-y-4">
+              {detalhe.oms && (
+                <table className="w-full text-xs border border-slate-200 rounded">
+                  <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="px-2 py-2 text-left">OM</th><th className="px-2 py-2 text-left">Setor</th><th className="px-2 py-2 text-right">Dívida</th><th className="px-2 py-2 text-right">Crédito</th><th className="px-2 py-2 text-right">{detalhe.modoOM === 'sobra' ? 'Sobra' : 'A pagar'}</th></tr></thead>
+                  <tbody>{fOM.map(c => (
+                    <tr key={c.id} className="border-t border-slate-100 hover:bg-primary-50/40 cursor-pointer" onClick={() => abrirOM(c)}>
+                      <td className="px-2 py-1.5 font-medium"><button type="button" className="text-left hover:text-primary-700 hover:underline" title="Abrir o detalhe da OM">{c.nome}</button><div className="text-[11px] text-slate-500 font-normal">{c.comando}</div></td>
+                      <td className="px-2">{c.setor}</td><td className="px-2 text-right tabular-nums">{vazio(c.divida)}</td><td className="px-2 text-right tabular-nums text-green-700">{vazio(c.credito)}</td>
+                      <td className="px-2 text-right tabular-nums font-semibold">{brl(detalhe.modoOM === 'sobra' ? c.sobra : c.liquido)}</td>
+                    </tr>))}</tbody>
+                </table>
+              )}
+              {detalhe.faturas && (
+                <table className="w-full text-xs border border-slate-200 rounded">
+                  <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="px-2 py-2 text-left">Fatura</th><th className="px-2 py-2 text-left">OM</th><th className="px-2 py-2 text-left">Serviço</th><th className="px-2 py-2 text-center">Vencimento</th><th className="px-2 py-2 text-right">Atraso</th><th className="px-2 py-2 text-right">Saldo</th></tr></thead>
+                  <tbody>
+                    {fFat.slice(0, 500).map(f => (
+                      <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-2 py-1.5 font-mono whitespace-nowrap">{f.numero}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 font-sans">contestada</span>}</td>
+                        <td className="px-2 max-w-[260px] truncate" title={f.om}>{f.om}</td><td className="px-2">{f.tipo}</td>
+                        <td className="px-2 text-center">{dataBR(f.vencimento)}</td>
+                        <td className={`px-2 text-right ${f.atraso ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{f.atraso ? `${f.atraso} dias` : '—'}</td>
+                        <td className="px-2 text-right tabular-nums font-semibold">{brl(f.saldo)}</td>
+                      </tr>
+                    ))}
+                    {!fFat.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura.</td></tr>}
+                  </tbody>
+                </table>
+              )}
+              {detalhe.creditos && (
+                <table className="w-full text-xs border border-green-200 rounded">
+                  <thead className="bg-green-50 text-green-900 sticky top-0"><tr><th className="px-2 py-2 text-left">ALTCRED/GRU</th><th className="px-2 py-2 text-left">OM</th><th className="px-2 py-2 text-left">Origem</th><th className="px-2 py-2 text-right">Crédito disponível</th></tr></thead>
+                  <tbody>
+                    {fCre.map(c => (
+                      <tr key={c.id} className="border-t border-green-100"><td className="px-2 py-1.5 font-mono">{c.numero}</td><td className="px-2">{c.om}</td><td className="px-2 text-slate-500">{c.origem || '—'}</td><td className="px-2 text-right tabular-nums font-semibold text-green-700">{brl(c.valor)}</td></tr>
+                    ))}
+                    {!fCre.length && <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">Nenhum crédito.</td></tr>}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {detalhe.faturas && !detalhe.oms && detalhe.faturas.length > 0 && new Set(detalhe.faturas.map(f => f.om)).size === 1 && (
+              <div className="text-right"><button type="button" className="text-primary-700 underline text-sm" onClick={() => { const nome = detalhe.faturas![0].om; setDetalhe(null); onVerFaturas(nome); }}>ver as faturas desta OM na lista →</button></div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

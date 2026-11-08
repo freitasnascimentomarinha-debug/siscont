@@ -698,7 +698,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
     await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).click();
     await page.getByText('Dívida em aberto').waitFor();
-    const cartao = async (rot) => (await page.locator('div[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
+    const cartao = async (rot) => (await page.locator('button[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
     ok(/R\$ 1\.300,00/.test(await cartao('Dívida em aberto')), 'dívida em aberto R$ 1.300,00 (saldo real das 2 faturas)');
     ok(/R\$ 1\.000,00/.test(await cartao('Vencido')) && /R\$ 300,00/.test(await cartao('A vencer')), 'vencido R$ 1.000,00 e a vencer R$ 300,00');
     ok(/R\$ 900,00/.test(await cartao('A pagar (líquido)')), 'a pagar R$ 900,00: crédito de R$ 400 abate só a dívida da própria OM');
@@ -710,6 +710,45 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/sobra R\$ 5\.000,00/).first().isVisible() && await page.getByText(/sobra R\$ 5\.000,00/).count() === 3, 'OM com crédito maior que a dívida mostra a sobra (e ela soma no comando e no setor)');
     ok((await page.locator('tfoot').innerText()).replace(/\s+/g, ' ').includes('R$ 900,00'), 'rodapé: total a pagar R$ 900,00');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'mapa-analitico.png'), fullPage: true });
+    // ---- interatividade: cartões, detalhe da OM, foco, filtros rápidos e gráficos
+    await page.getByRole('button', { name: /^Vencido/ }).click();
+    const dlg = page.getByRole('dialog');
+    await dlg.getByText('Faturas vencidas').first().waitFor();
+    ok(await dlg.getByText('40030-TC-08-2026-001-0').isVisible() && await dlg.getByText('40030-EL-08-2026-001-0').count() === 0, 'cartão "Vencido" abre só as faturas vencidas');
+    await dlg.getByLabel('Buscar na lista do mapa').fill('zzz-nada');
+    ok(await dlg.getByText('Nenhuma fatura.').isVisible(), 'busca dentro da lista do cartão filtra');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^A pagar \(líquido\)/ }).click();
+    await dlg.getByText('OM com valor a pagar').waitFor();
+    ok(await dlg.getByRole('cell', { name: /Diretoria Industrial da Marinha/ }).first().isVisible() && await dlg.getByText('R$ 900,00').first().isVisible(), 'cartão "A pagar" lista as OM com valor a pagar');
+    await dlg.getByRole('cell', { name: /Diretoria Industrial da Marinha/ }).first().click();
+    await dlg.getByText('ALTCRED/GRU').first().waitFor();
+    ok(await dlg.getByText('40030-TC-08-2026-001-0').isVisible() && await dlg.getByText('G1.2026.AC.00001').isVisible(), 'clicar na OM abre o detalhe com faturas e ALTCRED dela');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: /^Crédito que sobra/ }).click();
+    await dlg.getByText('OM com crédito que sobra').waitFor();
+    ok(await dlg.getByRole('cell', { name: /Arsenal de Marinha do Rio de Janeiro/ }).first().isVisible(), 'cartão "Crédito que sobra" lista a OM que tem a sobra');
+    await page.keyboard.press('Escape');
+    // foco numa OM: chip, mapa só dela, e remover o foco
+    await page.getByRole('button', { name: 'focar', exact: true }).first().click({ force: true });
+    await page.getByLabel('Foco do mapa').waitFor();
+    ok(await page.getByLabel('Foco do mapa').getByText(/OM /).isVisible(), 'foco numa OM mostra o chip do filtro');
+    await page.getByRole('button', { name: 'ver todos' }).click();
+    ok(await page.getByLabel('Foco do mapa').count() === 0, 'remover o foco volta ao mapa completo');
+    // só OM com vencido: o Arsenal (só crédito) sai
+    await page.getByLabel(/Só OM com vencido/).check();
+    ok(await page.getByText('Arsenal de Marinha do Rio de Janeiro').count() === 0, '"só OM com vencido" tira a OM sem dívida vencida');
+    await page.getByLabel(/Só OM com vencido/).uncheck();
+    // gráficos clicáveis
+    const idadeBarra = page.locator('.recharts-wrapper').nth(1).locator('.recharts-bar-rectangle').first();
+    await idadeBarra.click({ force: true });
+    await dlg.getByText(/^Em aberto: /).waitFor();
+    ok(await dlg.locator('tbody tr').count() >= 1, 'clicar numa barra da idade da dívida abre as faturas da faixa');
+    await page.keyboard.press('Escape');
+    await page.locator('.recharts-wrapper').nth(0).locator('.recharts-bar-rectangle').first().click({ force: true });
+    await page.getByLabel('Foco do mapa').waitFor();
+    ok(await page.getByLabel('Foco do mapa').getByText(/OM /).isVisible(), 'clicar numa barra das maiores OM foca nessa OM');
+    await page.getByRole('button', { name: 'ver todos' }).click();
     // busca, ordenação e exportação
     await page.getByLabel('Buscar no mapa').fill('G1.2026.AC.00002');
     await page.getByText('Arsenal de Marinha do Rio de Janeiro').first().waitFor();
@@ -739,7 +778,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
     await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).click();
     await page.getByText('Crédito que sobra').waitFor();
-    const cartao = async (rot) => (await page.locator('div[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
+    const cartao = async (rot) => (await page.locator('button[title]').filter({ hasText: rot }).first().innerText()).replace(/\s+/g, ' ');
     ok(/R\$ 5\.210,74/.test(await cartao('Crédito que sobra')), 'o crédito de R$ 5.210,74 aparece como sobra');
     await page.getByRole('button', { name: 'expandir tudo' }).click();
     ok(await page.getByText('Arsenal de Marinha do Rio de Janeiro').first().isVisible() && await page.getByText(/devolvido da fatura cancelada 41000-TC-09-2025-002-0/).isVisible(), 'crédito está na OM Arsenal, com a origem (fatura cancelada)');

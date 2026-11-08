@@ -8,6 +8,8 @@
  *    cadastro e não do texto digitado em cada documento;
  *  - cada nível é a SOMA dos filhos; o total é a soma dos valores a pagar de cada OM.
  */
+import { FAIXAS, faixaDe } from './relatorios';
+
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86400000);
@@ -25,7 +27,13 @@ export interface NoMapa extends Totais {
   semCadastro?: boolean;
 }
 export interface MapaAnalitico { setores: NoMapa[]; total: Totais }
-export interface OpcoesMapa { hoje: string; ordem?: OrdemMapa; busca?: string; soComValor?: boolean }
+export interface OpcoesMapa {
+  hoje: string; ordem?: OrdemMapa; busca?: string; soComValor?: boolean;
+  /** só OM com algo vencido */
+  soVencido?: boolean;
+  /** foco: um setor ou uma OM (nome exato) escolhidos num gráfico ou cartão */
+  setor?: string; om?: string;
+}
 
 const zero = (): Totais => ({ qtd: 0, divida: 0, vencido: 0, aVencer: 0, credito: 0, liquido: 0, sobra: 0 });
 const somar = (a: Totais, b: Totais): Totais => ({
@@ -61,6 +69,8 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   // filtros (antes de somar, para os totais acompanharem o que está na tela)
   const q = norm(o.busca || '');
   let lista = [...nos.values()];
+  if (o.setor) lista = lista.filter(a => a.setor === o.setor);
+  if (o.om) lista = lista.filter(a => a.nome === o.om);
   if (q) lista = lista.filter(a => norm(`${a.nome} ${a.setor} ${a.comando}`).includes(q) || a.faturas.some(f => norm(f.numero).includes(q)) || a.creditos.some(c => norm(c.numero).includes(q)));
 
   const clienteNo = (a: Acc): NoMapa => {
@@ -77,6 +87,7 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   };
   let clientes = lista.map(a => ({ a, n: clienteNo(a) }));
   if (o.soComValor) clientes = clientes.filter(x => x.n.liquido > 0.005);
+  if (o.soVencido) clientes = clientes.filter(x => x.n.vencido > 0.005);
 
   const ordem = o.ordem || 'liquido';
   const cmp = (x: { nome: string } & Totais, y: { nome: string } & Totais) =>
@@ -154,4 +165,35 @@ export function creditosDoMapa(docs: DocMapa[], baixas: BaixaMapa[], faturas: Fa
     if (resta > 0.005) out.push({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.numero, valor: resta });
   });
   return out;
+}
+
+
+// ------------------------------------------------------------------ listas e gráficos (interatividade)
+
+export interface LinhaFaturaMapa { id: string; om: string; setor: string; comando: string; numero: string; tipo: string; vencimento: string; atraso: number; saldo: number; contestada?: boolean }
+export interface LinhaCreditoMapa { id: string; om: string; setor: string; comando: string; numero: string; valor: number; origem?: string }
+
+/** Todas as OM (nível cliente) do mapa, com o setor e o comando de cada uma. */
+export function clientesDoMapa(m: MapaAnalitico): (NoMapa & { setor: string; comando: string })[] {
+  return m.setores.flatMap(s => s.filhos.flatMap(c => c.filhos.map(x => ({ ...x, setor: s.nome, comando: c.nome }))));
+}
+/** Faturas do mapa (as que estão na tela), com filtro opcional. */
+export function faturasDoMapa(m: MapaAnalitico, filtro: (f: LinhaFaturaMapa) => boolean = () => true): LinhaFaturaMapa[] {
+  return clientesDoMapa(m).flatMap(c => (c.faturas || []).map(f => ({ id: f.id, om: c.nome, setor: c.setor, comando: c.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, atraso: f.atraso, saldo: f.saldo, contestada: f.contestada }))).filter(filtro);
+}
+export function creditosDoMapaLista(m: MapaAnalitico): LinhaCreditoMapa[] {
+  return clientesDoMapa(m).flatMap(c => (c.creditos || []).map(x => ({ id: x.id, om: c.nome, setor: c.setor, comando: c.comando, numero: x.numero, valor: x.valor, origem: x.origem })));
+}
+/** Dívida por faixa de atraso (a vencer, 1–30 dias, ...), para o gráfico de idade da dívida. */
+export function idadeDaDivida(m: MapaAnalitico) {
+  const fs = faturasDoMapa(m);
+  return FAIXAS.map(x => {
+    const dela = fs.filter(f => faixaDe(f.atraso) === x.rotulo);
+    return { faixa: x.rotulo, valor: r2(dela.reduce((s, f) => s + f.saldo, 0)), qtd: dela.length };
+  });
+}
+export const faturasDaFaixaMapa = (m: MapaAnalitico, faixa: string) => faturasDoMapa(m, f => faixaDe(f.atraso) === faixa);
+/** As N OM com maior valor a pagar (para o gráfico de barras). */
+export function maioresOMs(m: MapaAnalitico, n = 10) {
+  return clientesDoMapa(m).filter(c => c.liquido > 0.005).sort((a, b) => b.liquido - a.liquido || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, n);
 }
