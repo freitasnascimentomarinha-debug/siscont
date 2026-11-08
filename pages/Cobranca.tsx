@@ -17,6 +17,8 @@ import { hojeISO } from '../utils/datas';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
 import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
+import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnalitico';
+import { pdfArvore } from '../utils/pdfArvore';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -155,6 +157,35 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   };
   const ultimaCobranca = (c: string) => cobrancas.filter(x => x.comando === c).map(x => x.enviadaEm).sort().pop();
 
+  // ------------- PDF da cobrança no formato da árvore do Mapa Analítico (com o crédito disponível de cada OM)
+  const omsMapa = useMemo<OMRef[]>(() => {
+    if (!base) return [];
+    const cmd = new Map(base.comandos.map(c => [c.id, c]));
+    const set = new Map<string, string>((base.setores as { id: string; sigla: string }[]).map(x => [x.id, x.sigla]));
+    return (base.oms as { id: string; nome: string; comandoId?: string | null; setorId?: string | null }[]).map(o => {
+      const c = o.comandoId ? cmd.get(o.comandoId) : undefined;
+      return { omId: o.id, nome: o.nome, setor: (o.setorId && set.get(o.setorId)) || (c?.setorId && set.get(c.setorId)) || '', comando: c ? `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` : '' };
+    });
+  }, [base]);
+  const creditosMapa = useMemo(() => (base ? creditosDoMapa(
+    base.docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
+    base.baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
+    base.invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), omsMapa) : []), [base, omsMapa]);
+  const pdfCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[] }) => {
+    const fs: FaturaMapa[] = m.faturas.map(f => ({ id: f.id, omId: f.omId ?? null, client: f.cliente, sector: f.setor, command: f.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, saldo: f.saldo, contestada: f.contestada }));
+    // só as OM das faturas cobradas (o filtro 'vencidas' tira as OM que só têm crédito)
+    const mapa = montarMapa(fs, creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
+    const contest = m.faturas.filter(f => f.contestada).length;
+    pdfArvore(mapa, {
+      titulo: `Cobrança de faturas em atraso — ${m.comando}`,
+      linhas: [
+        `Para: ${m.indicativo || '(sem indicativo naval)'} · posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
+        'O crédito (ALTCRED/GRU com saldo) é o disponível da própria OM e abate somente a dívida dela.',
+      ],
+      rotuloTotal: 'TOTAL EM ATRASO / A PAGAR (LÍQUIDO)',
+    }).save(`cobranca_${(m.comando.match(/^\d{4,5}/)?.[0] || m.comando).replace(/[^\w-]+/g, '_').slice(0, 40)}_${h}.pdf`);
+  };
+
   // ------------- painel
   const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60) : []), [base, h]);
   const adiant = useMemo(() => (base ? adiantamentosComSaldo(base) : []), [base]);
@@ -242,6 +273,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
 
       <Modal isOpen={!!msg} onClose={() => setMsg(null)} title={`Mensagem de cobrança — ${msg?.comando ?? ''}`} maxWidth="max-w-3xl"
         footer={<div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => pdfCobranca(msg!)}><FileText size={14} className="mr-1" />PDF das faturas</Button>
           <Button variant="secondary" onClick={() => { navigator.clipboard?.writeText(msg!.texto); notify.success('Mensagem copiada.'); }}><Copy size={14} className="mr-1" />Copiar</Button>
           {podeEditar && <Button onClick={async () => {
             try {
@@ -250,7 +282,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
             } catch (e) { notify.fail('Não foi possível registrar', e); }
           }}>Enviada — registrar</Button>}
         </div>}>
-        <p className="text-xs text-slate-500 mb-2">Texto pronto para o SIGAD; ajuste ao padrão de mensagens antes de enviar.</p>
+        <p className="text-xs text-slate-500 mb-2">Texto pronto para o SIGAD; ajuste ao padrão de mensagens antes de enviar. <b>PDF das faturas</b> gera a relação em árvore (setor › comando › OM › faturas), como no Mapa Analítico, para anexar.</p>
         <textarea className="w-full h-80 font-mono text-xs border border-slate-300 rounded p-2" value={msg?.texto ?? ''} onChange={e => setMsg(m => (m ? { ...m, texto: e.target.value } : m))} aria-label="Texto da cobrança" />
       </Modal>
       <Modal isOpen={!!editarGrupo} onClose={() => setEditarGrupo(null)} title="Grupo de setores destacado">

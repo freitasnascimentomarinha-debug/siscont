@@ -1008,6 +1008,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /gerar mensagem/ }).first().click();
     const texto = await page.getByLabel('Texto da cobrança').inputValue();
     ok(/^PARA: DIMRJ/.test(texto) && /40030-TC-09-2025-014-0/.test(texto) && !/40032-RB/.test(texto), 'mensagem de cobrança: indicativo, vencidas, sem a contestada');
+    const [pdfCob] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF das faturas/ }).click()]);
+    const txtCob = fs.readFileSync(await pdfCob.path(), 'latin1');
+    if (SHOTS) fs.copyFileSync(await pdfCob.path(), path.join(SHOTS, 'cobranca.pdf'));
+    ok(/^cobranca_.+_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfCob.suggestedFilename()), `PDF da cobrança gerado (${pdfCob.suggestedFilename()})`);
+    ok(txtCob.includes('40030-TC-09-2025-014-0') && !txtCob.includes('40032-RB') && txtCob.includes('DIMRJ') && txtCob.includes('Setor') && txtCob.includes('TOTAL EM ATRASO'), 'PDF da cobrança em árvore com as faturas da mensagem');
     await page.getByRole('button', { name: /registrar/ }).click();
     await page.getByText('Cobrança registrada.').waitFor();
     ok(db.cobrancas.length === 1 && db.cobrancas[0].faturas.length === 2, 'cobrança registrada com as 2 faturas');

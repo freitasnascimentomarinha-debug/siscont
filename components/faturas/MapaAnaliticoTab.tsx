@@ -1,16 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Download, FileCheck, FileSpreadsheet, FileText, Network, Search, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { Client, Invoice, InvoiceStatus, PaymentAllocation, ReceivedDocument } from '../../types';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import {
-  CAB_PDF_ARVORE, FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NivelPdf, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDoMapa,
-  idsDoMapa, linhasArvorePdf, linhasMapa, montarMapa,
+  FaturaMapa, LinhaCreditoMapa, LinhaFaturaMapa, NoMapa, OMRef, OrdemMapa, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDoMapa,
+  idsDoMapa, linhasMapa, montarMapa,
 } from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
+import { pdfArvore } from '../../utils/pdfArvore';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
@@ -102,32 +101,10 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     return f.join(' · ');
   };
   const exportarPdf = () => {
-    const doc = new jsPDF('l');
-    doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
-    doc.setFontSize(13); doc.text('Mapa Analítico de Contas — posição líquida por setor, comando e OM', 14, 18);
-    doc.setFontSize(8);
-    doc.text(`Posição em ${dataBR(hoje)} · o crédito abate somente a dívida da própria OM`, 14, 23);
-    doc.text(doc.splitTextToSize(`Filtros: ${descricaoFiltros()}`, 268), 14, 27.5);
-    const linhas = linhasArvorePdf(mapa, brl, dataBR);
-    const niveis: NivelPdf[] = linhas.map(l => l.nivel);
-    const recuo: Record<NivelPdf, number> = { setor: 2, comando: 6, cliente: 10, fatura: 15, credito: 15 };
-    autoTable(doc, {
-      startY: 32, head: [CAB_PDF_ARVORE], body: linhas.map(l => l.celulas),
-      foot: [['TOTAL A PAGAR (LÍQUIDO)', String(t.qtd), vazio(t.vencido), vazio(t.aVencer), vazio(t.divida), vazio(t.credito), brl(t.liquido)]],
-      styles: { fontSize: 7, cellPadding: { top: 1, bottom: 1, left: 2, right: 2 } }, headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [30, 41, 59], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 118 }, 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-      didParseCell: (d: any) => {
-        if (d.section !== 'body') { if (d.column.index >= 1) d.cell.styles.halign = 'right'; return; }
-        const n = niveis[d.row.index];
-        if (d.column.index === 0) d.cell.styles.cellPadding = { top: 1, bottom: 1, left: recuo[n], right: 2 };
-        if (n === 'setor') { d.cell.styles.fillColor = [226, 232, 240]; d.cell.styles.fontStyle = 'bold'; }
-        else if (n === 'comando') { d.cell.styles.fillColor = [241, 245, 249]; d.cell.styles.fontStyle = 'bold'; }
-        else if (n === 'cliente') d.cell.styles.fontStyle = 'bold';
-        else if (n === 'fatura') { d.cell.styles.textColor = [71, 85, 105]; d.cell.styles.fontSize = 6.5; }
-        else if (n === 'credito') { d.cell.styles.textColor = [21, 128, 61]; d.cell.styles.fontSize = 6.5; }
-      },
-    });
-    doc.save(`mapa_analitico_${hoje}.pdf`);
+    pdfArvore(mapa, {
+      titulo: 'Mapa Analítico de Contas — posição líquida por setor, comando e OM',
+      linhas: [`Posição em ${dataBR(hoje)} · o crédito abate somente a dívida da própria OM`, `Filtros: ${descricaoFiltros()}`],
+    }).save(`mapa_analitico_${hoje}.pdf`);
   };
 
   const Linha: React.FC<{ n: NoMapa; setor?: string; comando?: string }> = ({ n, setor, comando }) => {
