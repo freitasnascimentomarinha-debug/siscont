@@ -72,6 +72,9 @@ export const ReceivedBalances: React.FC = () => {
   // faturas escolhidas para pagar já na inclusão do documento
   const [pagarNaInclusao, setPagarNaInclusao] = useState<SelecaoPagamento>({ ids: [], manuais: {} });
   const [porPagina, setPorPagina] = useState(30);
+  // ordem da lista: pela DATA DO DOCUMENTO (padrão, mais recente primeiro) ou agrupada por setor › comando › cliente
+  const [ordemDocs, setOrdemDocs] = useState<'data' | 'data_antiga' | 'grupo'>(() => { try { const v = localStorage.getItem('siscont.recebimentos.ordem'); return v === 'grupo' || v === 'data_antiga' ? v : 'data'; } catch { return 'data'; } });
+  const mudarOrdem = (v: 'data' | 'data_antiga' | 'grupo') => { setOrdemDocs(v); setPagina(0); try { localStorage.setItem('siscont.recebimentos.ordem', v); } catch { /* sem armazenamento */ } };
 
   // Edit Allocation Modal
   const [isEditAllocModalOpen, setIsEditAllocModalOpen] = useState(false);
@@ -210,9 +213,11 @@ export const ReceivedBalances: React.FC = () => {
 
   // --- Grouping Logic (Setor > Comando > Cliente do cadastro), com paginação e subtotais ---
   const ordenados = useMemo(() => [...filteredDocs].sort((a, b) => {
+    if (ordemDocs === 'data') return (b.date || '').localeCompare(a.date || '') || (b.documentNumber || '').localeCompare(a.documentNumber || '');
+    if (ordemDocs === 'data_antiga') return (a.date || '').localeCompare(b.date || '') || (a.documentNumber || '').localeCompare(b.documentNumber || '');
     const ra = rot(a), rb = rot(b);
     return ra.setor.localeCompare(rb.setor, 'pt-BR') || ra.comando.localeCompare(rb.comando, 'pt-BR') || ra.cliente.localeCompare(rb.cliente, 'pt-BR') || (b.date || '').localeCompare(a.date || '');
-  }), [filteredDocs, rotulos]);
+  }), [filteredDocs, rotulos, ordemDocs]);
   const totaisGrupo = useMemo(() => {
     const m = new Map<string, { qtd: number; total: number; disponivel: number }>();
     const add = (k: string, d: ReceivedDocument) => { const t = m.get(k) || { qtd: 0, total: 0, disponivel: 0 }; t.qtd++; t.total += d.totalValue; t.disponivel += d.availableValue; m.set(k, t); };
@@ -510,127 +515,10 @@ export const ReceivedBalances: React.FC = () => {
     XLSX.writeFile(wb, `saldos_recebidos_detalhado${arquivoPublico(publico)}.xlsx`);
   };
 
-  // Helper for Year options
-  const years = Array.from(new Set(documents.map(d => d.date.substring(0, 4)))).sort((a: string, b: string) => b.localeCompare(a));
-  if (years.length === 0) years.push(new Date().getFullYear().toString());
-
-  return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">Recebimentos (ALTCRED/GRU)</h2>
-          <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · agrupados por setor, comando e OM do cadastro</p>
-        </div>
-        <div className="flex gap-2">
-          {!isReadOnly && (
-            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} title="Importa as ALTCRED do PDF 'Solicitações de Alteração de Crédito' do SIPLAD (completa as já cadastradas, sem duplicar)">
-              <FileUp className="w-4 h-4 mr-2" /> Importar ALTCRED (PDF do SIPLAD)
-            </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={exportExcel}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
-          </Button>
-          <Button variant="secondary" size="sm" onClick={exportPDF}>
-            <FileText className="w-4 h-4 mr-2" /> PDF
-          </Button>
-          {!isReadOnly && (
-            <Button onClick={() => { setEditingId(null); setDocFormData({}); setSaveError(null); setPagarNaInclusao({ ids: [], manuais: {} }); setIsDocModalOpen(true); }}>
-              <Plus className="w-4 h-4 mr-2" /> Novo Documento
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Stats Header */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Total Documentos</p>
-          <p className="text-xl font-bold text-slate-800">{stats.count}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Com Saldo Disponível</p>
-          <p className="text-xl font-bold text-green-600">{stats.countWithBalance}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Valor Total Recebido</p>
-          <p className="text-xl font-bold text-blue-600">R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Valor Disponível</p>
-          <p className="text-xl font-bold text-emerald-600">R$ {stats.totalAvailable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-        </div>
-      </div>
-
-      {/* Filters Area */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-        <div className="flex items-center gap-2 text-slate-700 font-medium mb-1">
-          <Filter size={16} /> Filtros Avançados
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          <Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} />
-          <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
-          <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
-          <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
-          <Input label="Cliente (texto)" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Nome no documento..." />
-          <Input label="Fatura paga (nº)" value={filterFatura} onChange={e => setFilterFatura(e.target.value)} placeholder="Ex.: 41000-TC-09..." />
-          <Input label="Nº Doc" value={filterDocNumber} onChange={e => setFilterDocNumber(e.target.value)} placeholder="Buscar Nº..." />
-          <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
-        </div>
-        <div className="flex flex-wrap items-end gap-4">
-          <SeletorPublico valor={publico} onChange={setPublico} />
-          <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
-          <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
-          <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
-          <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={() => {
-            setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
-            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos('');
-          }}>
-            <X size={14} className="mr-1" /> Limpar Filtros
-          </Button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex space-x-1 border-b border-slate-200">
-        {[OperationType.PAGAMENTO, OperationType.ADIANTAMENTO, OperationType.OUTROS].map((op) => (
-          <button
-            key={op}
-            onClick={() => setActiveTab(op)}
-            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === op
-              ? 'border-primary-600 text-primary-700'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-          >
-            {op === OperationType.OUTROS ? 'Outros' : op.charAt(0) + op.slice(1).toLowerCase() + 's'}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === OperationType.ADIANTAMENTO && <ResumoAdiantamentos documentos={documents} baixas={allocations} faturas={invoices} />}
-
-      {/* Hierarchical List: Sector > Command > Client > Documents */}
-      <div className="space-y-6">
-        {Object.keys(groupedDocs).sort().map(sector => (
-          <div key={sector} className="space-y-4">
-            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-300 pb-1 flex items-center">
-              <span className="w-2 h-6 bg-slate-800 rounded mr-2"></span> Setor: {sector}<span className="ml-3 text-xs font-normal text-slate-500">{subtotal(sector)}</span>
-            </h3>
-
-            {Object.keys(groupedDocs[sector]).sort().map(command => (
-              <div key={command} className="pl-4 border-l-2 border-slate-200 ml-1 space-y-4">
-                <h4 className="text-md font-semibold text-slate-600 uppercase tracking-wide">Comando: {command}<span className="ml-2 text-xs font-normal normal-case tracking-normal text-slate-500">{subtotal(`${sector}|${command}`)}</span></h4>
-
-                {Object.keys(groupedDocs[sector][command]).sort().map(client => (
-                  <div key={client} className="pl-4 space-y-2">
-                    <h5 className="text-sm font-bold text-primary-700">Cliente: {client}<span className="ml-2 text-xs font-normal text-slate-500">{subtotal(`${sector}|${command}|${client}`)}</span></h5>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      {groupedDocs[sector][command][client]
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                        .map(doc => (
+  /** Cartão de um documento (usado na lista por data e na lista agrupada). */
+  const renderDoc = (doc: ReceivedDocument, comRotulo = false) => (
                           <div key={doc.id} className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
+                            {comRotulo && (() => { const r = rot(doc); return <div className="px-4 pt-2 text-[11px] text-slate-500 bg-slate-50"><b className="text-slate-600">{r.setor}</b> › {r.comando} › <span className="text-primary-700 font-semibold">{r.cliente}</span></div>; })()}
                             <div className="p-4 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50">
                               {/* Doc Info */}
                               <div className="flex items-center gap-4 flex-1">
@@ -767,6 +655,146 @@ export const ReceivedBalances: React.FC = () => {
                               </div>
                             )}
                           </div>
+  );
+
+  // Helper for Year options
+  const years = Array.from(new Set(documents.map(d => d.date.substring(0, 4)))).sort((a: string, b: string) => b.localeCompare(a));
+  if (years.length === 0) years.push(new Date().getFullYear().toString());
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Recebimentos (ALTCRED/GRU)</h2>
+          <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · pela data do documento (ou agrupados por setor, comando e OM do cadastro)</p>
+        </div>
+        <div className="flex gap-2">
+          {!isReadOnly && (
+            <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} title="Importa as ALTCRED do PDF 'Solicitações de Alteração de Crédito' do SIPLAD (completa as já cadastradas, sem duplicar)">
+              <FileUp className="w-4 h-4 mr-2" /> Importar ALTCRED (PDF do SIPLAD)
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={exportExcel}>
+            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+          </Button>
+          <Button variant="secondary" size="sm" onClick={exportPDF}>
+            <FileText className="w-4 h-4 mr-2" /> PDF
+          </Button>
+          {!isReadOnly && (
+            <Button onClick={() => { setEditingId(null); setDocFormData({}); setSaveError(null); setPagarNaInclusao({ ids: [], manuais: {} }); setIsDocModalOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" /> Novo Documento
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Stats Header */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+          <p className="text-xs text-slate-500 uppercase font-semibold">Total Documentos</p>
+          <p className="text-xl font-bold text-slate-800">{stats.count}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+          <p className="text-xs text-slate-500 uppercase font-semibold">Com Saldo Disponível</p>
+          <p className="text-xl font-bold text-green-600">{stats.countWithBalance}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+          <p className="text-xs text-slate-500 uppercase font-semibold">Valor Total Recebido</p>
+          <p className="text-xl font-bold text-blue-600">R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+          <p className="text-xs text-slate-500 uppercase font-semibold">Valor Disponível</p>
+          <p className="text-xl font-bold text-emerald-600">R$ {stats.totalAvailable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+        </div>
+      </div>
+
+      {/* Filters Area */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
+        <div className="flex items-center gap-2 text-slate-700 font-medium mb-1">
+          <Filter size={16} /> Filtros Avançados
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} />
+          <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
+          <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
+          <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
+          <Input label="Cliente (texto)" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Nome no documento..." />
+          <Input label="Fatura paga (nº)" value={filterFatura} onChange={e => setFilterFatura(e.target.value)} placeholder="Ex.: 41000-TC-09..." />
+          <Input label="Nº Doc" value={filterDocNumber} onChange={e => setFilterDocNumber(e.target.value)} placeholder="Buscar Nº..." />
+          <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
+        </div>
+        <div className="flex flex-wrap items-end gap-4">
+          <SeletorPublico valor={publico} onChange={setPublico} />
+          <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
+          <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
+          <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={() => {
+            setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
+            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos('');
+          }}>
+            <X size={14} className="mr-1" /> Limpar Filtros
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex space-x-1 border-b border-slate-200">
+        {[OperationType.PAGAMENTO, OperationType.ADIANTAMENTO, OperationType.OUTROS].map((op) => (
+          <button
+            key={op}
+            onClick={() => setActiveTab(op)}
+            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === op
+              ? 'border-primary-600 text-primary-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+          >
+            {op === OperationType.OUTROS ? 'Outros' : op.charAt(0) + op.slice(1).toLowerCase() + 's'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === OperationType.ADIANTAMENTO && <ResumoAdiantamentos documentos={documents} baixas={allocations} faturas={invoices} />}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="text-xs text-slate-600 flex items-center gap-2">Ordem da lista
+          <select className="text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={ordemDocs} onChange={e => mudarOrdem(e.target.value as any)} aria-label="Ordem da lista de documentos">
+            <option value="data">Data do documento (mais recente primeiro)</option>
+            <option value="data_antiga">Data do documento (mais antiga primeiro)</option>
+            <option value="grupo">Agrupada por setor › comando › cliente</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Lista pela data do documento */}
+      {ordemDocs !== 'grupo' && (
+        <div className="grid grid-cols-1 gap-3" aria-label="Documentos por data">
+          {daPagina.map(doc => renderDoc(doc, true))}
+        </div>
+      )}
+
+      {/* Hierarchical List: Sector > Command > Client > Documents */}
+      <div className="space-y-6">
+        {ordemDocs === 'grupo' && Object.keys(groupedDocs).sort().map(sector => (
+          <div key={sector} className="space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 border-b border-slate-300 pb-1 flex items-center">
+              <span className="w-2 h-6 bg-slate-800 rounded mr-2"></span> Setor: {sector}<span className="ml-3 text-xs font-normal text-slate-500">{subtotal(sector)}</span>
+            </h3>
+
+            {Object.keys(groupedDocs[sector]).sort().map(command => (
+              <div key={command} className="pl-4 border-l-2 border-slate-200 ml-1 space-y-4">
+                <h4 className="text-md font-semibold text-slate-600 uppercase tracking-wide">Comando: {command}<span className="ml-2 text-xs font-normal normal-case tracking-normal text-slate-500">{subtotal(`${sector}|${command}`)}</span></h4>
+
+                {Object.keys(groupedDocs[sector][command]).sort().map(client => (
+                  <div key={client} className="pl-4 space-y-2">
+                    <h5 className="text-sm font-bold text-primary-700">Cliente: {client}<span className="ml-2 text-xs font-normal text-slate-500">{subtotal(`${sector}|${command}|${client}`)}</span></h5>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {groupedDocs[sector][command][client]
+                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                        .map(doc => (
+                          renderDoc(doc)
                         ))}
                     </div>
                   </div>

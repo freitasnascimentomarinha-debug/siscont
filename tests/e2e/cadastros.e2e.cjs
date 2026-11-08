@@ -817,6 +817,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Ano').selectOption('2026');
     await page.getByText('AMRJ.2026.AC.00001').waitFor();
     ok(true, 'filtro de mês: a ALTCRED de 01/10/2026 aparece em outubro (antes caía em setembro)');
+    // padrão: pela data do documento (mais recente primeiro), com setor › comando › cliente em cada cartão
+    ok((await page.getByLabel('Ordem da lista de documentos').inputValue()) === 'data', 'lista de documentos pela data do documento por padrão');
+    const porData = (await page.getByLabel('Documentos por data').innerText()).replace(/\s+/g, ' ');
+    ok(porData.indexOf('AMRJ.2026.AC.00001') >= 0 && porData.includes('41000 - Arsenal de Marinha do Rio de Janeiro'), 'cartão mostra o comando do cadastro');
+    await page.getByLabel('Ordem da lista de documentos').selectOption('grupo');
     await page.getByText('Comando: 41000 - Arsenal de Marinha do Rio de Janeiro').first().waitFor({ timeout: 10000 }).catch(() => {});
     ok(await page.getByText('Comando: 41000 - Arsenal de Marinha do Rio de Janeiro').first().isVisible() && await page.getByText('Comando: texto livre').count() === 0, 'agrupado pelo comando do cadastro, não pelo texto digitado');
     ok(await page.getByText(/Mostrando 1–2 de 2 documentos/).isVisible(), 'paginação com total de documentos');
@@ -1778,9 +1783,16 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const f3 = fat('40030-AE-02-2026-001-0', '40030 - DIM', '40030', 'Diretoria Industrial da Marinha', '02/2026', '2026-03-15', 300);
     db.invoices.push(f1, f2, f3);
     const doc = { id: uid(), document_number: 'G1.2026.AC.00500', document_type: 'ALTCRED', total_value: 1000, date: '2026-09-10', operation: 'PAGAMENTO', client: 'Diretoria Industrial da Marinha', sector: 'DGMM', command: '40030', ug: '40030', observation: '' };
-    db.received_documents.push(doc);
+    db.received_documents.push(doc, { id: uid(), document_number: 'G1.2026.AC.00400', document_type: 'ALTCRED', total_value: 50, date: '2026-05-02', operation: 'PAGAMENTO', client: 'Arsenal de Marinha do Rio de Janeiro', sector: 'DGMM', command: '41000', ug: '41000', observation: '' });
     await page.reload();
     await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await page.getByLabel('Documentos por data').getByText('G1.2026.AC.00400').waitFor();
+    const txt = await page.getByLabel('Documentos por data').innerText();
+    ok(txt.indexOf('G1.2026.AC.00500') < txt.indexOf('G1.2026.AC.00400'), 'documentos pela data do documento: o mais recente primeiro (DIM 10/09 antes do Arsenal 02/05, mesmo fora da ordem alfabética)');
+    await page.getByLabel('Ordem da lista de documentos').selectOption('data_antiga');
+    const txt2 = await page.getByLabel('Documentos por data').innerText();
+    ok(txt2.indexOf('G1.2026.AC.00400') < txt2.indexOf('G1.2026.AC.00500'), 'opção: mais antiga primeiro');
+    await page.getByLabel('Ordem da lista de documentos').selectOption('data');
     ok(await page.getByRole('button', { name: 'Importar CSV' }).count() === 0 && await page.getByRole('button', { name: /Importar ALTCRED \(PDF do SIPLAD\)/ }).isVisible(), 'sem o "Importar CSV"; importação pelo PDF do SIPLAD em destaque');
     // Excel de verdade
     const [xl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel', exact: true }).click()]);
@@ -1801,8 +1813,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/2 pagamento\(s\) registrado\(s\) em 10\/09\/2026 — SIPLAD pendente/).waitFor();
     const baixas = db.payment_allocations.filter(a => a.document_id === doc.id);
     ok(baixas.length === 2 && baixas.every(a => a.date === '2026-09-10') && baixas.every(a => a.service_type === 'Água e Esgoto'), 'baixas com a data do documento e o serviço de cada fatura');
-    await page.getByText('SIPLAD pendente').first().waitFor();
-    ok(await page.getByText('SIPLAD pendente').count() >= 2, 'histórico mostra "SIPLAD pendente" nas faturas ainda não lançadas');
+    const selo = page.locator('span[title^="A fatura ainda não foi marcada como lançada no SIPLAD"]');
+    await selo.nth(1).waitFor({ timeout: 10000 }).catch(() => {});
+    ok(await selo.count() === 2, 'histórico mostra "SIPLAD pendente" nas faturas ainda não lançadas');
     // editar baixa acima do permitido
     await page.getByTitle('Editar Pagamento').first().click();
     await page.getByLabel('Valor do Pagamento').fill('900');
