@@ -12,6 +12,8 @@ import { criarResolvedor } from '../utils/documentosOM';
 import { dataBR, hojeISO } from '../utils/datas';
 import { notify } from '../utils/notify';
 import { Button } from '../components/ui/Button';
+import { SeletorPublico, usePublico } from '../components/ui/SeletorPublico';
+import { passaPublico } from '../utils/publico';
 import { Escopo, OpcaoEscopo, SeletorEscopo } from '../components/conciliacao/SeletorEscopo';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -91,13 +93,24 @@ export const Conciliacao: React.FC = () => {
   };
   useEffect(() => { carregar(); }, []);
 
-  const opcoes = useMemo<OpcaoEscopo[]>(() => {
+  const [publico, setPublico] = usePublico('extrato');
+  // comando é Extra-MB quando todas as OM dele são Extra-MB (ou o setor é o EXTRA-MB)
+  const extraDe = useMemo(() => {
+    const porCmd = new Map<string, boolean[]>();
+    cad.oms.forEach(o => { if (o.comandoId) porCmd.set(o.comandoId, [...(porCmd.get(o.comandoId) || []), o.tipo === 'EXTRA_MB']); });
+    return (op: OpcaoEscopo) => op.tipo === 'OM' ? cad.oms.find(o => o.id === op.id)?.tipo === 'EXTRA_MB'
+      : /extra/i.test(op.setor) || ((porCmd.get(op.id) || []).length > 0 && (porCmd.get(op.id) || []).every(Boolean));
+  }, [cad]);
+  const opcoesTodas = useMemo<OpcaoEscopo[]>(() => {
     const setorDe = (id?: string | null) => (id && cad.setores.find(x => x.id === id)?.sigla) || '';
     const cmdDe = new Map(cad.comandos.map(c => [c.id, c]));
     const cmds = cad.comandos.filter(c => c.codigo).map(c => ({ tipo: 'COMANDO' as const, id: c.id, rotulo: `${c.codigo} - ${c.nome}${c.sigla ? ` (${c.sigla})` : ''}`, codigo: c.codigo || '', nome: c.nome, sigla: c.sigla, setor: setorDe(c.setorId), ativo: c.ativo !== false }));
     const oms = cad.oms.map(o => ({ tipo: 'OM' as const, id: o.id, rotulo: `${o.codigo} - ${o.nome}`, codigo: o.codigo, nome: o.nome, sigla: o.sigla, setor: setorDe(o.setorId) || setorDe(o.comandoId ? cmdDe.get(o.comandoId)?.setorId : null) || (o.tipo === 'EXTRA_MB' ? 'EXTRA-MB' : ''), ativo: o.ativo }));
     return [...cmds.sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome)), ...oms.sort((a, b) => a.codigo.localeCompare(b.codigo) || a.nome.localeCompare(b.nome))];
   }, [cad]);
+  const opcoes = useMemo(() => opcoesTodas.filter(op => passaPublico(publico, extraDe(op))), [opcoesTodas, publico, extraDe]);
+  const todosExtra = () => setEscopos(opcoesTodas.filter(op => op.tipo === 'OM' && op.ativo && extraDe(op)).map(({ tipo, id, rotulo }) => ({ tipo, id, rotulo })));
+  const soExtra = escopos.length > 0 && escopos.every(e => extraDe(opcoesTodas.find(o => o.tipo === e.tipo && o.id === e.id) || ({ tipo: e.tipo, id: e.id, setor: '' } as OpcaoEscopo)));
   const anos = useMemo(() => [...new Set(docs.map(d => String(d.exercicio ?? d.date?.slice(0, 4))).filter(Boolean))].sort().reverse(), [docs]);
 
   const extrato = useMemo<Extrato | null>(() => {
@@ -146,10 +159,10 @@ export const Conciliacao: React.FC = () => {
   }, [escopos, exercicio, abertasDoExercicio, cad, docs, faturas, baixas, resolv, hoje]);
 
   const qs = extrato ? quadros(extrato) : [];
-  const nomeEscopo = escopos.length <= 2 ? escopos.map(e => e.rotulo).join(' + ') : `${escopos.length} comandos/OM (${escopos.map(e => e.rotulo.split(' - ')[0]).join(', ')})`;
+  const nomeEscopo = soExtra && escopos.length > 2 ? `Extra-Marinha (${escopos.length} clientes)` : escopos.length <= 2 ? escopos.map(e => e.rotulo).join(' + ') : `${escopos.length} comandos/OM (${escopos.map(e => e.rotulo.split(' - ')[0]).join(', ')})`;
   const titulo = escopos.length ? `Extrato de conciliação — ${nomeEscopo}` : '';
   const subtitulo = `Exercício ${exercicio === 'todos' ? 'todos' : exercicio} · faturas em aberto ${abertasDoExercicio && exercicio !== 'todos' ? `só de ${exercicio}` : 'de qualquer exercício'} · pagamentos de qualquer pagador · gerado em ${dataBR(hoje)}`;
-  const nomeArq = escopos.length ? `extrato_${escopos.map(e => e.rotulo.split(' - ')[0]).join('_').slice(0, 60)}_${exercicio}` : 'extrato';
+  const nomeArq = escopos.length ? `extrato_${soExtra && escopos.length > 2 ? 'extra_mb' : ''}${escopos.map(e => e.rotulo.split(' - ')[0]).join('_').slice(0, 60)}_${exercicio}` : 'extrato';
   const fecha = extrato ? Math.abs(extrato.resumo.diferenca) < 0.01 : true;
 
   const exportarPdf = () => {
@@ -203,7 +216,9 @@ export const Conciliacao: React.FC = () => {
 
       <div className="bg-white p-4 rounded-lg border border-slate-200 space-y-3">
         <div className="flex flex-wrap gap-3 items-end">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           <SeletorEscopo opcoes={opcoes} selecionados={escopos} onChange={setEscopos} />
+          {publico === 'EXTRA' && <button type="button" className="text-sm text-amber-800 underline pb-2" onClick={todosExtra} title="Põe no extrato todos os clientes Extra-MB ativos">todos os clientes Extra-MB</button>}
           <label className="text-xs text-slate-600">Exercício (ALTCRED e pagamentos)
             <select value={exercicio} onChange={e => setExercicio(e.target.value)} className={`${sel} block mt-1`} aria-label="Exercício do extrato">
               {[...new Set([String(new Date().getFullYear()), ...anos])].map(a => <option key={a} value={a}>{a}</option>)}

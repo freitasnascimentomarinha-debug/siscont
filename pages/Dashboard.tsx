@@ -15,6 +15,8 @@ import { Modal } from '../components/ui/Modal';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resumoPainel, taxaCondominial } from '../utils/painel';
 import { ComandoCad, OMCad, Rotulo, SetorCad, criarResolvedor } from '../utils/documentosOM';
+import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
+import { OMTipo, ROTULO_PUBLICO, passaPublico } from '../utils/publico';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
 const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
@@ -110,6 +112,7 @@ export const Dashboard: React.FC = () => {
   const [exComando, setExComando] = useState<Set<string>>(new Set());
   const [exCliente, setExCliente] = useState<Set<string>>(new Set());
   const [exServico, setExServico] = useState<Set<string>>(new Set());
+  const [publico, setPublico] = usePublico('painel-inicial');
   const [ordem, setOrdem] = useState<{ campo: 'vencimento' | 'saldo' | 'total' | 'numero' | 'cliente' | 'atraso'; asc: boolean }>({ campo: 'saldo', asc: false });
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaPainel[] } | null>(null);
   const [buscaLista, setBuscaLista] = useState('');
@@ -135,19 +138,21 @@ export const Dashboard: React.FC = () => {
     const memo = new Map<string, Rotulo | undefined>();
     return (id: string) => { if (!memo.has(id)) { const o = porId.get(id); memo.set(id, o ? resolv.rotuloDaOM(o) : undefined); } return memo.get(id); };
   }, [cad, resolv]);
+  const cls = useClassificadorPublico(cad.oms as OMTipo[]);
+  const idsExtra = useMemo(() => new Set(invoices.filter(i => cls.faturaExtra(i)).map(i => i.id)), [invoices, cls]);
   const todas = useMemo(() => invoices.map(i => paraPainel(i, rotuloOM)), [invoices, rotuloOM]);
   const passa = (x: { setor: string; comando: string; cliente: string }) => !exSetor.has(x.setor) && !exComando.has(x.comando) && !exCliente.has(x.cliente);
-  const filtradas = useMemo(() => todas.filter(f => passa(f) && !exServico.has(f.tipo)), [todas, exSetor, exComando, exCliente, exServico]);
+  const filtradas = useMemo(() => todas.filter(f => passa(f) && !exServico.has(f.tipo) && passaPublico(publico, idsExtra.has(f.id))), [todas, exSetor, exComando, exCliente, exServico, publico, idsExtra]);
   const setCliente = (c: string) => setExCliente(new Set(opcoes('cliente').filter(o => o !== c)));
   const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
   // taxa condominial segue os filtros: só as OM que passam no setor/comando/cliente, e some se o serviço TC estiver fora
   const tiposTC = useMemo(() => [...new Set(todas.filter(f => /-TC-/.test(f.numero)).map(f => f.tipo))], [todas]);
   const tcForaDoFiltro = tiposTC.length > 0 && tiposTC.every(t => exServico.has(t));
   const tc = useMemo(() => {
-    const ok = (omId?: string | null) => { if (tcForaDoFiltro) return false; const rt = omId ? rotuloOM(omId) : undefined; return !rt || passa(rt); };
+    const ok = (omId?: string | null) => { if (tcForaDoFiltro || !passaPublico(publico, cls.omExtra(omId))) return false; const rt = omId ? rotuloOM(omId) : undefined; return !rt || passa(rt); };
     // o ano da tabela vem da tabela inteira (o filtro não muda qual tabela está vigente)
     return { ...taxaCondominial(precos.filter(p => p.sigla !== 'TC' || ok(p.omId)), nomesOM, ano), ano: taxaCondominial(precos, nomesOM, ano).ano };
-  }, [precos, nomesOM, ano, rotuloOM, exSetor, exComando, exCliente, tcForaDoFiltro]);
+  }, [precos, nomesOM, ano, rotuloOM, exSetor, exComando, exCliente, tcForaDoFiltro, publico, cls]);
   const anos = useMemo(() => [...new Set([new Date().getFullYear(), ...todas.map(f => f.ano).filter(Boolean)])].sort((a, b) => b - a), [todas]);
   // OM que pagam taxa condominial também entram nas opções (mesmo sem fatura), para o filtro alcançar o quadro da TC
   const rotulosTC = useMemo(() => precos.filter(p => p.sigla === 'TC' && p.omId).map(p => rotuloOM(p.omId!)).filter(Boolean) as Rotulo[], [precos, rotuloOM]);
@@ -160,6 +165,7 @@ export const Dashboard: React.FC = () => {
   const abrir = (titulo: string, g: Grupo) => { setBuscaLista(''); setLista({ titulo, faturas: doGrupo(filtradas, g, ano, hoje) }); };
   const abrirFiltro = (titulo: string, f: (x: FaturaPainel) => boolean) => { setBuscaLista(''); setLista({ titulo, faturas: filtradas.filter(f) }); };
   const filtrosAtivos = ([
+    ['Público', publico !== 'TODOS' ? `só ${ROTULO_PUBLICO[publico]}` : '', () => setPublico('TODOS')],
     ['Setor', resumoFiltro(exSetor, 'setor'), () => setExSetor(new Set())],
     ['Comando', resumoFiltro(exComando, 'comando'), () => setExComando(new Set())],
     ['Cliente', resumoFiltro(exCliente, 'cliente'), () => setExCliente(new Set())],
@@ -220,7 +226,7 @@ export const Dashboard: React.FC = () => {
     const doc = new jsPDF('l');
     doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15);
     doc.setFontSize(9); doc.text(`Posição em ${br(hoje)} · faturas em contestação fora do em aberto${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 20);
-    const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)));
+    const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)) && passaPublico(publico, cls.docExtra(d)));
     autoTable(doc, { startY: 25, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 } });
     autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
     doc.save('extrato_saldos_siscont.pdf');
@@ -250,6 +256,7 @@ export const Dashboard: React.FC = () => {
             {anos.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
+        <SeletorPublico valor={publico} onChange={setPublico} />
         <MultiFiltro rotulo="Setor" opcoes={opcoes('setor')} excluidos={exSetor} onChange={setExSetor} />
         <MultiFiltro rotulo="Comando" opcoes={opcoes('comando')} excluidos={exComando} onChange={setExComando} largura="w-96" />
         <MultiFiltro rotulo="Cliente (OM)" opcoes={opcoes('cliente')} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
@@ -267,7 +274,7 @@ export const Dashboard: React.FC = () => {
         <div className="p-3 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 text-sm flex flex-wrap items-center gap-3" role="status">
           <AlertTriangle size={18} className="shrink-0" />
           <span className="flex-1"><b>Filtro ativo</b> — os valores abaixo <b>não são o total geral</b>: {filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(' · ')}.</span>
-          <button onClick={() => { setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setExServico(new Set()); }} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Limpar filtros (ver total geral)</button>
+          <button onClick={() => { setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setExServico(new Set()); setPublico('TODOS'); }} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Limpar filtros (ver total geral)</button>
         </div>
       )}
       {/* Números de cara: linha 1 = o essencial; linha 2 = detalhamento das vencidas e a taxa condominial */}

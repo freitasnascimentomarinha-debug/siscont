@@ -21,6 +21,8 @@ import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura';
 import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
 import { MapaAnaliticoTab } from '../components/faturas/MapaAnaliticoTab';
+import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
+import { arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, resumoCabecalho, setorDe, temFiltroExtra } from '../utils/filtrosFaturas';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
@@ -40,6 +42,9 @@ export const Invoices: React.FC = () => {
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<'list' | 'map'>('list');
+  // MB × Extra-MB (vale para a lista e para o Mapa analítico)
+  const [publico, setPublico] = usePublico('faturas');
+  const cls = useClassificadorPublico();
 
   // Data State
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -443,9 +448,9 @@ export const Invoices: React.FC = () => {
       const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
       const abertos = pendentes(inv.pontos);
       const matchesPontos = !filterPontos || (filterPontos === 'any' ? abertos.length > 0 : abertos.some(p => p.gravidade === filterPontos));
-      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos && passaFiltrosExtras(inv, extras);
+      return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos && passaFiltrosExtras(inv, extras) && passaPublico(publico, cls.faturaExtra(inv));
     }), ordem);
-  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem, extras]);
+  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem, extras, publico, cls]);
 
   const totalCount = filteredInvoices.length;
   
@@ -479,7 +484,7 @@ export const Invoices: React.FC = () => {
 
   const exportListPDF = () => {
     const doc = new jsPDF('l');
-    doc.text("Relatório de Faturas - SISCONT", 14, 15);
+    doc.text(`Relatório de Faturas - SISCONT${sufixoPublico(publico)}`, 14, 15);
     doc.setFontSize(10);
     doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
     const rows = filteredInvoices.map(inv => {
@@ -513,7 +518,7 @@ export const Invoices: React.FC = () => {
       headStyles: { fillColor: [15, 23, 42] },
       footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' }
     });
-    doc.save("faturas_siscont.pdf");
+    doc.save(`faturas_siscont${arquivoPublico(publico)}.pdf`);
   };
 
   const exportExcel = () => {
@@ -547,7 +552,7 @@ export const Invoices: React.FC = () => {
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...csvRows, totalRow].join("\n");
     const link = document.createElement("a");
     link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", "faturas.csv");
+    link.setAttribute("download", `faturas${arquivoPublico(publico)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -722,7 +727,8 @@ export const Invoices: React.FC = () => {
             {semOM > 0 && <button type="button" className="text-amber-700 underline" onClick={() => setExtra({ cadastro: 'sem' })} title="Faturas cujo cliente não está ligado a uma OM do cadastro">{semOM} sem OM ligada</button>}
           </div>}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-end flex-wrap">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           {isAdmin && (
             <>
               <input type="file" ref={fileInputRef} onChange={handleImport} accept=".csv" className="hidden" />
@@ -1018,7 +1024,7 @@ export const Invoices: React.FC = () => {
 
       {/* --- ANALYTICAL MAP TAB --- */}
       {activeTab === 'map' && (
-        <MapaAnaliticoTab invoices={invoices} docs={allDocs} baixas={allocations} clients={clients}
+        <MapaAnaliticoTab invoices={invoices.filter(i => passaPublico(publico, cls.faturaExtra(i)))} docs={allDocs.filter(d => passaPublico(publico, cls.docExtra(d)))} baixas={allocations} clients={clients} publico={publico}
           onVerFaturas={nome => { setSearchText(nome); setActiveTab('list'); }} />
       )}
 

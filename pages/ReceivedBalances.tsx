@@ -1,6 +1,8 @@
 
 import { dataBR, hojeISO } from '../utils/datas';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
+import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
+import { OMTipo, arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 import { FaturasParaPagar, SelecaoPagamento } from '../components/recebimentos/FaturasParaPagar';
 import { distribuirPagamento, resumoPagamento, saldoDaFatura } from '../utils/pagamentoDocumento';
 import { criarResolvedor, Rotulo } from '../utils/documentosOM';
@@ -154,6 +156,9 @@ export const ReceivedBalances: React.FC = () => {
   // --- OM de cada documento pelo cadastro (setor/comando/cliente), não pelo texto digitado ---
   const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
   const rotulos = useMemo(() => new Map<string, Rotulo>(documents.map(d => [d.id, resolv.rotuloDoDocumento(d)])), [documents, resolv]);
+  const [publico, setPublico] = usePublico('recebimentos');
+  const cls = useClassificadorPublico(cad.oms as OMTipo[]);
+  const docExtra = (d: ReceivedDocument) => { const om = rotulos.get(d.id)?.omId; return om ? cls.omExtra(om) : cls.docExtra(d); };
   const rot = (d: ReceivedDocument) => rotulos.get(d.id) || { omId: null, setor: d.sector || 'Sem setor', comando: d.command || 'Sem comando', cliente: d.client || 'Sem cliente', comandoId: null };
   const faturasPagasPorDoc = useMemo(() => {
     const num = new Map(invoices.map(i => [i.id, (i.invoiceNumber || '').toLowerCase()]));
@@ -187,6 +192,7 @@ export const ReceivedBalances: React.FC = () => {
     // 4. Text Filters
     const r = rot(d);
     if (exSetor.has(r.setor) || exComando.has(r.comando) || exCliente.has(r.cliente)) return false;
+    if (!passaPublico(publico, docExtra(d))) return false;
     if (filterClient && !(d.client || '').toLowerCase().includes(filterClient.toLowerCase())) return false;
     if (filterFatura.trim() && !(faturasPagasPorDoc.get(d.id) || []).some(n => n.includes(filterFatura.trim().toLowerCase()))) return false;
     if (filterDocNumber && !(d.documentNumber || '').toLowerCase().includes(filterDocNumber.toLowerCase())) return false;
@@ -402,7 +408,7 @@ export const ReceivedBalances: React.FC = () => {
   // --- Import/Export ---
   const exportPDF = () => {
     const doc = new jsPDF('l');
-    doc.text("Relatório de Saldos Recebidos e Histórico - SISCONT", 14, 15);
+    doc.text(`Relatório de Saldos Recebidos e Histórico - SISCONT${sufixoPublico(publico)}`, 14, 15);
     doc.setFontSize(10);
     doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
 
@@ -450,7 +456,7 @@ export const ReceivedBalances: React.FC = () => {
       footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' }
     });
 
-    doc.save("saldos_recebidos_historico.pdf");
+    doc.save(`saldos_recebidos_historico${arquivoPublico(publico)}.pdf`);
   };
 
   const exportExcel = () => {
@@ -492,7 +498,7 @@ export const ReceivedBalances: React.FC = () => {
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...csvRows].join("\n");
     const link = document.createElement("a");
     link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", "saldos_recebidos_detalhado.csv");
+    link.setAttribute("download", `saldos_recebidos_detalhado${arquivoPublico(publico)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -618,6 +624,7 @@ export const ReceivedBalances: React.FC = () => {
           <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
         </div>
         <div className="flex flex-wrap items-end gap-4">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
           <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
           <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />

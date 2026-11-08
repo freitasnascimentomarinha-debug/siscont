@@ -10,6 +10,7 @@ import {
 } from '../../utils/mapaAnalitico';
 import { dataBR, hojeISO } from '../../utils/datas';
 import { pdfArvore } from '../../utils/pdfArvore';
+import { Publico, arquivoPublico, sufixoPublico } from '../../utils/publico';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
@@ -27,7 +28,7 @@ type OMLinha = NoMapa & { setor: string; comando: string };
 interface Detalhe { titulo: string; faturas?: LinhaFaturaMapa[]; creditos?: LinhaCreditoMapa[]; oms?: OMLinha[]; modoOM?: 'liquido' | 'sobra' }
 
 /** Mapa Analítico de Contas: posição líquida por Setor › Comando › OM, com o crédito de cada OM abatendo só a dívida dela. */
-export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDocument[]; baixas: PaymentAllocation[]; clients: Client[]; onVerFaturas: (nome: string) => void }> = ({ invoices, docs, baixas, clients, onVerFaturas }) => {
+export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDocument[]; baixas: PaymentAllocation[]; clients: Client[]; onVerFaturas: (nome: string) => void; publico?: Publico }> = ({ invoices, docs, baixas, clients, onVerFaturas, publico = 'TODOS' }) => {
   const [busca, setBusca] = useState('');
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
@@ -85,7 +86,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     const ws = XLSX.utils.aoa_to_sheet(linhasMapa(mapa));
     ws['!cols'] = [14, 44, 50, 9, 16, 16, 16, 18, 18, 18].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Mapa analítico');
-    XLSX.writeFile(wb, `mapa_analitico_${hoje}.xlsx`);
+    XLSX.writeFile(wb, `mapa_analitico${arquivoPublico(publico)}_${hoje}.xlsx`);
   };
   /** Texto dos filtros ligados (vai no cabeçalho do PDF). */
   const descricaoFiltros = () => {
@@ -102,9 +103,9 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   };
   const exportarPdf = () => {
     pdfArvore(mapa, {
-      titulo: 'Mapa Analítico de Contas — posição líquida por setor, comando e OM',
+      titulo: `Mapa Analítico de Contas — posição líquida por setor, comando e OM${sufixoPublico(publico)}`,
       linhas: [`Posição em ${dataBR(hoje)} · o crédito abate somente a dívida da própria OM`, `Filtros: ${descricaoFiltros()}`],
-    }).save(`mapa_analitico_${hoje}.pdf`);
+    }).save(`mapa_analitico${arquivoPublico(publico)}_${hoje}.pdf`);
   };
 
   const Linha: React.FC<{ n: NoMapa; setor?: string; comando?: string }> = ({ n, setor, comando }) => {

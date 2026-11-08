@@ -21,6 +21,8 @@ import { Button } from '../components/ui/Button';
 import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
 import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnalitico';
 import { pdfCobrancaEnxuto } from '../utils/pdfArvore';
+import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
+import { OMTipo, arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -70,7 +72,8 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const [faixaMsg, setFaixaMsg] = useState('');
   const [buscaMsg, setBuscaMsg] = useState('');
   const [ultimaMsg, setUltimaMsg] = useState<'' | 'nunca' | '30' | '60' | '90'>('');
-  const [qExtra, setQExtra] = useState(false);
+  // MB × Extra-MB (a Cobrança começa só na MB, como o quadro da planilha; o Painel do Encarregado, em Todos)
+  const [publico, setPublico] = usePublico(soPainel ? 'painel-encarregado' : 'cobranca', soPainel ? 'TODOS' : 'MB');
   const [qContest, setQContest] = useState(false);
   const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
   const [contestacoesAbertas, setContestacoesAbertas] = useState<number | null>(null);
@@ -93,10 +96,12 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   // setor e comando pelo cadastro da OM (não pelo texto da fatura)
   const abertasTodas = useMemo(() => (base ? rotularPeloCadastro(faturasAbertas(base.invoices), base) : []), [base]);
   const todosSetores = useMemo(() => [...new Set(abertasTodas.map(f => f.setor).filter(Boolean))].sort(), [abertasTodas]);
+  const cls = useClassificadorPublico(base?.oms as OMTipo[] | undefined);
+  const faturaExtra = (f: FaturaAberta) => cls.faturaExtra({ omId: f.omId, client: f.cliente, sector: f.setor, command: f.comando });
   const abertas = useMemo(() => {
     if (!base) return [];
-    return abertasTodas.filter(f => !exSetores.has(f.setor));
-  }, [base, exSetores]);
+    return abertasTodas.filter(f => !exSetores.has(f.setor) && passaPublico(publico, faturaExtra(f)));
+  }, [base, exSetores, abertasTodas, publico, cls]);
   const noGrupo = (s: string) => setoresMaterial.includes(s.toUpperCase());
   const gravarGrupo = async () => {
     if (!editarGrupo) return;
@@ -108,7 +113,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   };
   const q = useMemo(() => quadroAberto(abertas, h), [abertas, h]);
   // quadro como na planilha: sem extra-MB e sem contestadas (abas próprias), salvo se marcado
-  const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => (qExtra || !/EXTRA/i.test(f.setor)) && (qContest || !f.contestada)), h), [abertas, h, qExtra, qContest]);
+  const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => qContest || !f.contestada), h), [abertas, h, qContest]);
   const linha = (f: FaturaAberta) => (linhaPor === 'setor' ? f.setor : linhaPor === 'comando' ? f.comando : f.cliente);
   const blocos = [
     ...qQuadro.porExercicio.map(e => ({ titulo: `Faturas vencidas ${e.ano}`, fs: e.faturas })),
@@ -118,20 +123,20 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const exportarExcel = () => {
     const wb = XLSX.utils.book_new();
     blocos.forEach(b => {
-      const aoa = [[`MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE`], [b.titulo, '', `Atualizado em: ${atualizadoEm}`], [],
+      const aoa = [[`MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE`], [`${b.titulo}${sufixoPublico(publico)}`, '', `Atualizado em: ${atualizadoEm}`], [],
         [linhaPor.toUpperCase(), ...b.p.colunas, 'Total geral'], ...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => b.p.valores[l][c] || null), b.p.totLinha[l]]),
         ['Total geral', ...b.p.colunas.map(c => b.p.totColuna[c]), b.p.total]];
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), b.titulo.replace(/[—/]/g, '-').slice(0, 31));
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Setor', 'Comando', 'Cliente', 'Fatura', 'Tipo', 'Data-limite', 'Saldo', 'Contestada'],
       ...abertas.map(f => [f.setor, f.comando, f.cliente, f.numero, f.tipo, br(f.vencimento), f.saldo, f.contestada ? 'SIM' : ''])]), 'Detalhe');
-    XLSX.writeFile(wb, `faturas_em_aberto_${h}.xlsx`);
+    XLSX.writeFile(wb, `faturas_em_aberto${arquivoPublico(publico)}_${h}.xlsx`);
   };
   const exportarPdf = () => {
     const doc = new jsPDF('l');
     doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
     doc.text(`Atualizado em: ${atualizadoEm}`, 283, 12, { align: 'right' });
-    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, 19);
+    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${sufixoPublico(publico)}${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, 19);
     let y = 24;
     blocos.forEach(b => {
       doc.setFontSize(10); doc.text(b.titulo.toUpperCase(), 14, y + 4);
@@ -139,7 +144,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       y = (doc as any).lastAutoTable.finalY + 4;
       if (y > 175) { doc.addPage(); y = 14; }
     });
-    doc.save(`faturas_em_aberto_${h}.pdf`);
+    doc.save(`faturas_em_aberto${arquivoPublico(publico)}_${h}.pdf`);
   };
 
   // ------------- mensagens de cobrança
@@ -257,15 +262,15 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(indice), 'Lote');
       zip.file(`indice_do_lote_${h}.xlsx`, XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
       const blob = await zip.generateAsync({ type: 'blob' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `cobranca_lote_por_${lotePor === 'cliente' ? 'om' : lotePor}_${h}.zip`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `cobranca_lote${arquivoPublico(publico)}_por_${lotePor === 'cliente' ? 'om' : lotePor}_${h}.zip`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       notify.success(`${grupos.size} PDF(s) gerado(s) — um por ${lotePor === 'cliente' ? 'OM cliente' : lotePor}.`);
     } catch (e) { notify.fail('Não foi possível gerar o lote', e); } finally { setGerandoLote(false); }
   };
 
   // ------------- painel
-  const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60) : []), [base, h]);
-  const adiant = useMemo(() => (base ? adiantamentosComSaldo(base) : []), [base]);
+  const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60).filter(x => passaPublico(publico, cls.docExtra(x.doc))) : []), [base, h, publico, cls]);
+  const adiant = useMemo(() => (base ? adiantamentosComSaldo(base).filter(l => passaPublico(publico, cls.docExtra({ client: l.cliente, command: l.comando }))) : []), [base, publico, cls]);
 
   return (
     <div className="space-y-5">
@@ -285,6 +290,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
 
       {base && (aba === 'quadro' || aba === 'painel') && (
         <div className="flex flex-wrap gap-3 items-end">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
           <div className="flex flex-wrap items-center gap-2 pb-1 text-xs">
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(s => !noGrupo(s))))} title={setoresMaterial.join(', ')}>Só {nomeGrupo}</button>
@@ -298,7 +304,6 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
                 <option value="setor">Setor</option><option value="comando">Comando</option><option value="cliente">OM cliente</option>
               </select>
             </label>
-            <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={qExtra} onChange={e => setQExtra(e.target.checked)} /> Incluir extra-MB</label>
             <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={qContest} onChange={e => setQContest(e.target.checked)} /> Incluir contestadas</label>
             <Button variant="secondary" onClick={exportarExcel}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
             <Button variant="secondary" onClick={exportarPdf}><FileText size={16} className="mr-1" />PDF</Button>
@@ -313,6 +318,7 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
           {semIndicativo > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semIndicativo} comando(s) com faturas vencidas não têm indicativo naval: a mensagem sairia sem o destinatário. Digite o indicativo na coluna e clique em gravar (fica no cadastro do comando).</p>}
           {!cobrancas.length && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-2">Nenhuma cobrança registrada ainda. Depois de enviar a mensagem, clique em <b>Enviada — registrar</b> para a data aparecer em "Última cobrança".</p>}
           <div className="flex flex-wrap gap-3 items-end bg-white rounded-lg border border-slate-200 p-3" aria-label="Filtros da cobrança">
+            <SeletorPublico valor={publico} onChange={setPublico} />
             <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
             <MultiFiltro rotulo="Comandos" opcoes={comandosVencidos} excluidos={exComandos} onChange={setExComandos} largura="w-96" />
             <label className="text-xs text-slate-600">Atraso

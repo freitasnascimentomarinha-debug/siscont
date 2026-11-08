@@ -1024,7 +1024,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const nomes = Object.keys(zip.files).sort();
     if (SHOTS) fs.copyFileSync(await zipDl.path(), path.join(SHOTS, 'cobranca-lote.zip'));
     const pdfs = nomes.filter(n => n.endsWith('.pdf'));
-    ok(pdfs.every(n => n.startsWith('cobranca_OM_')) && /^cobranca_lote_por_om_\d{4}-\d{2}-\d{2}\.zip$/.test(zipDl.suggestedFilename()) && pdfs.length === 2 && nomes.some(n => n.startsWith('indice_do_lote')), `lote: um PDF por OM cliente + índice (${nomes.join(', ')})`);
+    ok(pdfs.every(n => n.startsWith('cobranca_OM_')) && /^cobranca_lote_mb_por_om_\d{4}-\d{2}-\d{2}\.zip$/.test(zipDl.suggestedFilename()) && pdfs.length === 2 && nomes.some(n => n.startsWith('indice_do_lote')), `lote: um PDF por OM cliente + índice (${nomes.join(', ')})`);
     const txtMang = (await zip.file(pdfs.find(n => /Mangaratiba/.test(n))).async('nodebuffer')).toString('latin1');
     ok(txtMang.includes('40032-EL-08-2026-039-0') && !txtMang.includes('40030-TC-09-2025-014-0') && txtMang.includes('DIMRJ'), 'PDF da OM traz só as faturas dela, com o indicativo do comando');
     await page.getByLabel('Um PDF por').selectOption('comando');
@@ -1582,6 +1582,77 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cadastros-migrar-real.png'), fullPage: true });
     });
   }
+
+  await cenario('Público MB × Extra-MB: Painel inicial, Faturas emitidas, Mapa, Recebimentos, Extrato e Cobrança', [], async (page, db) => {
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', ativo: true, nomes_alternativos: [] };
+    const itau = { id: uid(), codigo: '00997', nome: 'Banco Itaú', tipo: 'EXTRA_MB', ativo: true, nomes_alternativos: [] };
+    db.oms.push(dim, itau);
+    const fat = (n, om, cli, setor, valor) => ({
+      id: uid(), ug: n.slice(0, 5), sector: setor, command: setor === 'EXTRA-MB' ? 'EXTRA-MARINHA' : '40030 - DIM', client: cli, invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-08-15', due_date: '2026-09-15', month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Aluguel', service_acronym: n.split('-')[1],
+      is_canceled: false, siplad_settled: false, om_id: om.id, origem: 'Planilha', quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [],
+    });
+    db.invoices.push(fat('40030-AE-08-2026-001-0', dim, dim.nome, 'DGMM', 1000), fat('40015-AL-08-2026-005-0', itau, itau.nome, 'EXTRA-MB', 500));
+    db.received_documents.push(
+      { id: uid(), document_number: 'G1.2026.AC.00001', document_type: 'ALTCRED', total_value: 300, date: '2026-09-01', operation: 'PAGAMENTO', client: dim.nome, sector: 'DGMM', command: '40030', ug: '40030', observation: '' },
+      { id: uid(), document_number: 'GRU ABC123', document_type: 'GRU', total_value: 200, date: '2026-09-02', operation: 'PAGAMENTO', client: itau.nome, sector: 'EXTRA-MB', command: 'EXTRA-MARINHA', ug: '00997', observation: '' });
+    await page.reload();
+    const radio = (nome) => page.getByRole('radiogroup', { name: 'Público' }).first().getByRole('radio', { name: nome, exact: true });
+
+    // Painel inicial
+    await page.getByRole('button', { name: 'Painel inicial' }).click();
+    await page.getByLabel('Ano de referência').selectOption('2026');
+    const venc = async () => (await page.getByRole('button', { name: /^Total vencidas:/ }).innerText()).replace(/\s+/g, ' ');
+    ok((await venc()).includes('R$ 1.500,00'), 'painel: Todos = R$ 1.500,00 vencidas');
+    await radio('Extra-MB').click();
+    ok((await venc()).includes('R$ 500,00') && (await page.getByTitle('Remover filtro').first().innerText()).includes('Extra-MB'), 'painel: só Extra-MB = R$ 500,00, com etiqueta do filtro');
+    await radio('MB').click();
+    ok((await venc()).includes('R$ 1.000,00'), 'painel: só MB = R$ 1.000,00');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'publico-painel.png') });
+
+    // Faturas emitidas (lista e Mapa analítico)
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await radio('Extra-MB').click();
+    await page.getByText('40015-AL-08-2026-005-0').first().waitFor();
+    ok(await page.getByText('40030-AE-08-2026-001-0').count() === 0, 'faturas emitidas: Extra-MB mostra só a fatura do Itaú');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'publico-faturas.png') });
+    await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).first().click();
+    await page.getByRole('button', { name: 'expandir tudo' }).click();
+    await page.getByText('Banco Itaú').first().waitFor();
+    ok(await page.getByText('Diretoria Industrial da Marinha').count() === 0, 'mapa analítico segue o público (só o Itaú)');
+    const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
+    ok(/^mapa_analitico_extra_mb_/.test(pdf.suggestedFilename()), `PDF do mapa marcado como Extra-MB (${pdf.suggestedFilename()})`);
+
+    // Recebimentos
+    await page.getByRole('button', { name: 'Recebimentos (ALTCRED/GRU)' }).first().click();
+    await radio('Extra-MB').click();
+    await page.getByText('GRU ABC123').first().waitFor();
+    ok(await page.getByText('G1.2026.AC.00001').count() === 0, 'recebimentos: Extra-MB mostra só a GRU do Itaú');
+    await radio('MB').click();
+    await page.getByText('G1.2026.AC.00001').first().waitFor();
+    ok(await page.getByText('GRU ABC123').count() === 0, 'recebimentos: MB mostra só a ALTCRED da DIM');
+
+    // Extrato de conciliação
+    await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
+    await radio('Extra-MB').click();
+    await page.getByRole('button', { name: 'todos os clientes Extra-MB' }).click();
+    const chips = await page.getByLabel('Comandos e OM do extrato').innerText();
+    ok(chips.includes('Banco Itaú') && !chips.includes('Diretoria Industrial'), 'extrato: botão põe todos os clientes Extra-MB');
+
+    // Cobrança (começa em MB)
+    await page.getByRole('button', { name: 'Cobrança' }).first().click();
+    await page.getByRole('heading', { name: 'Cobrança' }).waitFor();
+    ok(await radio('MB').getAttribute('aria-checked') === 'true', 'cobrança começa só na MB');
+    const total = async () => (await page.locator('section').filter({ hasText: 'Faturas em aberto — total' }).innerText()).replace(/\s+/g, ' ');
+    ok((await total()).includes('R$ 1.000,00') && !(await total()).includes('R$ 1.500,00'), 'cobrança MB: R$ 1.000,00 em aberto');
+    await radio('Extra-MB').click();
+    ok((await total()).includes('R$ 500,00'), 'cobrança Extra-MB: R$ 500,00 em aberto');
+    const [q] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
+    ok(/^faturas_em_aberto_extra_mb_/.test(q.suggestedFilename()), `quadro em PDF marcado como Extra-MB (${q.suggestedFilename()})`);
+    // a escolha fica lembrada por tela
+    await page.getByRole('button', { name: 'Painel inicial' }).click();
+    ok(await radio('MB').getAttribute('aria-checked') === 'true', 'cada tela lembra a sua escolha (painel continua em MB)');
+  });
 
   await browser.close();
   console.log('\n===== RESUMO =====');
