@@ -393,7 +393,7 @@ export const ReceivedBalances: React.FC = () => {
   const getDocAllocations = (docId: string) => {
     return allocations.filter(a => a.documentId === docId).map(a => {
       const inv = invoicesById.get(a.invoiceId);
-      return { ...a, invoiceNumber: inv?.invoiceNumber, invoiceValue: inv?.value, invoiceClient: inv?.client };
+      return { ...a, invoiceNumber: inv?.invoiceNumber, invoiceValue: inv?.value, invoiceClient: inv?.client, invoiceCanceled: !!inv?.isCanceled };
     });
   };
 
@@ -768,14 +768,17 @@ export const ReceivedBalances: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                       {getDocAllocations(doc.id).map(alloc => (
-                                        <tr key={alloc.id}>
+                                        <tr key={alloc.id} className={alloc.invoiceCanceled ? 'bg-red-50/50' : ''}>
                                           <td className="px-3 py-2">
-                                            <div className="font-medium text-slate-800">{alloc.invoiceNumber}</div>
+                                            <div className="font-medium text-slate-800">
+                                              {alloc.invoiceNumber}
+                                              {alloc.invoiceCanceled && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-semibold" title="Fatura cancelada: o valor não é descontado do documento e volta para o disponível">fatura cancelada</span>}
+                                            </div>
                                             <div className="text-xs text-slate-400">{alloc.invoiceClient}</div>
                                           </td>
                                           <td className="px-3 py-2 text-slate-600">{alloc.serviceType || '-'}</td>
                                           <td className="px-3 py-2 text-slate-500">R$ {alloc.invoiceValue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                          <td className="px-3 py-2 font-medium text-emerald-600">R$ {alloc.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                          <td className={`px-3 py-2 font-medium ${alloc.invoiceCanceled ? 'text-slate-400 line-through' : 'text-emerald-600'}`} title={alloc.invoiceCanceled ? 'Não descontado do disponível (fatura cancelada)' : undefined}>R$ {alloc.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                           <td className="px-3 py-2 text-right">
                                             {!isReadOnly && (
                                               <div className="flex justify-end items-center gap-2">
