@@ -264,3 +264,15 @@ export async function salvarConferencia(ano: number, fechados: Fechado[], extrat
   return true;
 }
 
+
+/**
+ * Rubricas consolidadas do ano (valor final por rubrica, depois dos descontos das OM), calculadas com os dados da
+ * Taxa condominial — é o que o Fluxo de caixa mostra e usa no %RUB. Retorna `semRateio` quando a proposta do ano
+ * ainda não tem OM com lotação (nada a ratear).
+ */
+export async function rubricasConsolidadas(ano: number): Promise<{ rubricas: import('../utils/taxaConsolidada').RubricaConsolidada[]; semRateio: boolean; status: string }> {
+  const [{ calcularTaxaAno, consolidarRubricas }, { cadastroService }] = await Promise.all([import('../utils/taxaConsolidada'), import('./cadastroService')]);
+  const [dados, parametros] = await Promise.all([carregarProposta(ano), cadastroService.listParametros().catch(() => [])]);
+  const calc = calcularTaxaAno(dados, ano, parametros as any);
+  return { rubricas: consolidarRubricas(dados, calc), semRateio: !calc.resultado.oms.length, status: dados.proposta?.status || 'PROPOSTA' };
+}

@@ -9,7 +9,8 @@ import { Campo, br, brl, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
 import { AbaResultado, ImportarProposta } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
-import { PorRubrica, mediaTrienal, montarParticipantes, ratearProposta } from '../utils/taxaCondominial';
+import { PorRubrica, mediaTrienal } from '../utils/taxaCondominial';
+import { calcularTaxaAno } from '../utils/taxaConsolidada';
 import { resolverEmissora } from '../utils/emissora';
 import { cadastroService } from '../services/cadastroService';
 import { notify } from '../utils/notify';
@@ -63,19 +64,12 @@ export const TaxaCondominial: React.FC = () => {
   }, [dados, ano]);
   // OM emissora (BNIC): participa ou não do rateio; nunca é publicada nos Preços (não é cliente de si mesma)
   const emissora = useMemo(() => (dados ? resolverEmissora(dados.oms, parametros) : null), [dados, parametros]);
-  // cálculos separados: taxa condominial (OM de terra × rubricas TC) e diárias (navios × rubricas DA)
+  // cálculos separados: taxa condominial (OM de terra × rubricas TC) e diárias (navios × rubricas DA).
+  // A mesma função é usada pelo Fluxo de caixa (rubrica consolidada), para os números serem sempre iguais.
   const { resultado, resultadoDA, descontosPorOM, porRubrica } = useMemo(() => {
     if (!dados) return { resultado: null, resultadoDA: null, descontosPorOM: new Map<number, number>(), porRubrica: [] as PorRubrica[] };
-    const part = montarParticipantes(dados.oms, dados.lotacoes, medias).filter(p => !(emissora?.omId === p.omId && !emissora.participaRateio));
-    const rubTC = dados.rubricas.filter(r => r.destino === 'TC');
-    const terra = part.filter(p => p.tipo === 'TERRA'), navios = part.filter(p => p.tipo === 'NAVIO');
-    // critério de cada rubrica (lotação, área, partes iguais, peso), % das OM e % dos navios (à parte ou junto)
-    const r = ratearProposta(rubTC, terra, navios, dados.matriz, dados.descontos);
-    const tc = r.tc, da = r.da;
-    const porOM = new Map<number, number>();
-    tc.oms.forEach(o => o.parcelas.forEach(p => porOM.set(p.rubrica, Math.round(((porOM.get(p.rubrica) || 0) + p.desconto) * 100) / 100)));
-    return { resultado: tc, resultadoDA: da, descontosPorOM: porOM, porRubrica: r.porRubrica };
-  }, [dados, medias, emissora]);
+    return calcularTaxaAno(dados, ano, parametros);
+  }, [dados, ano, parametros]);
 
   const status = dados?.proposta.status || 'PROPOSTA';
   const pendencias = resultado ? [

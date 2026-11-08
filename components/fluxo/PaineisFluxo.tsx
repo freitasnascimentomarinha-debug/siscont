@@ -1,13 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BaixarModelo } from '../ui/BaixarModelo';
-import { modeloProposta } from '../../utils/modelos';
-import { FileSpreadsheet, FileUp, Save } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
-  Fase5NaoInstaladaError, Saida, baixasComSigla, carregarBase, listarRubricas, listarSaidas, salvarRubricas, salvarSaidas, tcRecebida,
+  Fase5NaoInstaladaError, Saida, baixasComSigla, carregarBase, listarRubricas, listarSaidas, salvarSaidas, tcRecebida,
 } from '../../services/relatoriosService';
 import {
-  CATEGORIAS, Categoria, Rubrica, categoriaDaSaida, classificarRubrica, condominioPorRubrica, entradasPorCategoria, lerNE, percentuais, saldoMensal,
+  CATEGORIAS, Categoria, Rubrica, categoriaDaSaida, classificarRubrica, condominioPorRubrica, entradasPorCategoria, lerNE, saldoMensal,
 } from '../../utils/relatorios';
 import { chave, limpar } from '../../utils/cadastroImport';
 import { numero, data as dataCelula } from '../../utils/faturasImport';
@@ -16,6 +14,7 @@ import { notify } from '../../utils/notify';
 import { v4 as uuidv4 } from 'uuid';
 import { DocumentType } from '../../types';
 import { Button } from '../ui/Button';
+import { rubricasConsolidadas } from '../../services/taxaCondominialService';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
@@ -75,7 +74,15 @@ export const SaldoMensal: React.FC = () => {
 // ------------------------------------------------------------------ condomínio por rubrica + receita por rubrica
 export const CondominioRubrica: React.FC = () => {
   const [ano, setAno] = useState(new Date().getFullYear());
-  const { base, saidas, rubricas, naoInstalado } = useDados(ano);
+  const { base, saidas, rubricas: rubricasVigentes, naoInstalado } = useDados(ano);
+  // valores da rubrica consolidada da Taxa condominial (depois dos descontos das OM); sem rateio no ano, o vigente
+  const [consolidadas, setConsolidadas] = useState<Rubrica[] | null>(null);
+  useEffect(() => {
+    setConsolidadas(null);
+    rubricasConsolidadas(ano).then(c => setConsolidadas(c.semRateio ? null : c.rubricas.map(r => ({ ano, numero: r.numero, descricao: r.descricao, contaContabil: r.contaContabil, valorAnual: r.final, percentual: null }))))
+      .catch(() => setConsolidadas(null));
+  }, [ano]);
+  const rubricas = consolidadas || rubricasVigentes;
   const dados = useMemo(() => {
     if (!base) return null;
     const emp = new Map<number, number>();
@@ -87,7 +94,7 @@ export const CondominioRubrica: React.FC = () => {
   const exportar = () => {
     if (!dados) return;
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rubrica', 'Descrição', `Valor vigente ${ano}`, '%RUB', 'TC recebida (receita da rubrica)', 'Empenhado', '% executado', 'Saldo em conta', 'A receber'],
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rubrica', 'Descrição', `Valor consolidado ${ano}`, '%RUB', 'TC recebida (receita da rubrica)', 'Empenhado', '% executado', 'Saldo em conta', 'A receber'],
       ...dados.linhas.map(l => [l.numero, l.descricao, l.valorVigente, l.percentual / 100, l.tcRecebida, l.empenhado, l.execucao / 100, l.saldoEmConta, l.aReceber]),
       ['TOTAL', '', dados.total.valorVigente, dados.total.percentual / 100, dados.total.tcRecebida, dados.total.empenhado, dados.total.execucao / 100, dados.total.saldoEmConta, dados.total.aReceber]]), `Condomínio ${ano}`);
     XLSX.writeFile(wb, `condominio_por_rubrica_${ano}.xlsx`);
@@ -97,13 +104,13 @@ export const CondominioRubrica: React.FC = () => {
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-600">Exercício<input type="number" className={`${sel} block mt-1 w-24`} value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Exercício do condomínio" /></label>
         <Button variant="secondary" onClick={exportar} disabled={!dados?.linhas.length}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
-        {dados && <p className="text-sm text-slate-600 pb-2">Taxa condominial recebida em {ano}: <b>{brl(dados.tc)}</b> (baixas em faturas TC, pela data da baixa), distribuída pelo %RUB de cada rubrica.</p>}
+        {dados && <p className="text-sm text-slate-600 pb-2">Taxa condominial recebida em {ano}: <b>{brl(dados.tc)}</b> (baixas em faturas TC, pela data da baixa), distribuída pelo %RUB de cada rubrica. {consolidadas ? 'Valores: rubrica consolidada da Taxa condominial (depois dos descontos das OM).' : 'Proposta sem rateio no ano: usando o valor vigente das rubricas.'}</p>}
       </div>
       {!rubricas.length && <p className="text-sm text-amber-700">Cadastre ou importe as rubricas de {ano} na aba Rubricas.</p>}
       {dados && rubricas.length > 0 && (
         <div className="overflow-x-auto bg-white border border-slate-200 rounded-lg">
           <table className="min-w-full text-xs">
-            <thead className="bg-slate-50 uppercase text-slate-500"><tr>{['Nº', 'Rubrica', 'Valor vigente', '%RUB', 'TC recebida', 'Empenhado', '% exec.', 'Saldo em conta', 'A receber'].map(x => <th key={x} className={`px-2 py-2 ${x === 'Rubrica' || x === 'Nº' ? 'text-left' : 'text-right'}`}>{x}</th>)}</tr></thead>
+            <thead className="bg-slate-50 uppercase text-slate-500"><tr>{['Nº', 'Rubrica', 'Valor consolidado', '%RUB', 'TC recebida', 'Empenhado', '% exec.', 'Saldo em conta', 'A receber'].map(x => <th key={x} className={`px-2 py-2 ${x === 'Rubrica' || x === 'Nº' ? 'text-left' : 'text-right'}`}>{x}</th>)}</tr></thead>
             <tbody className="divide-y divide-slate-100">
               {[...dados.linhas, dados.total].map(l => (
                 <tr key={l.numero} className={l.numero === 0 ? 'bg-slate-100 font-bold' : ''}>
@@ -157,77 +164,56 @@ export const Disponivel: React.FC = () => {
 };
 
 // ------------------------------------------------------------------ rubricas (catálogo do ano)
-export const Rubricas: React.FC<{ podeEditar: boolean }> = ({ podeEditar }) => {
+/**
+ * Rubricas do Fluxo de caixa: SÓ CONSULTA. Mostra a rubrica consolidada da Taxa condominial — o valor final de cada
+ * rubrica, depois dos descontos das OM — e o %RUB calculado sobre ele. Inclusão e valores são feitos na Taxa condominial.
+ */
+export const Rubricas: React.FC<{ podeEditar?: boolean }> = () => {
   const [ano, setAno] = useState(new Date().getFullYear());
-  const { rubricas, naoInstalado, recarregar } = useDados(ano);
-  const [lista, setListaBruta] = useState<Rubrica[]>([]);
-  const [sujo, setSujo] = useState(false);
-  const setLista = (l: Rubrica[]) => { setListaBruta(l); setSujo(true); };
-  const [gravando, setGravando] = useState(false);
-  const ref = useRef<HTMLInputElement>(null);
-  // o banco só substitui a lista quando não há alteração por gravar (evita apagar uma importação)
-  useEffect(() => { if (!sujo) setListaBruta(rubricas); }, [rubricas]);
-  useEffect(() => { setSujo(false); }, [ano]);
-  if (naoInstalado) return <Aviso009 />;
-  const pct = percentuais(lista);
-  const total = lista.reduce((s, r) => s + r.valorAnual, 0);
-
-  /** Proposta anual da taxa condominial (aba Despesas_NOVO): nº de ordem, conta, despesa, valor (atualizado). */
-  const importar = async (files: FileList | null) => {
-    if (!files?.length) return;
-    try {
-      const wb = XLSX.read(new Uint8Array(await lerArquivo(files[0])), { dense: true, cellFormula: false, cellStyles: false });
-      const aba = wb.SheetNames.find(n => /despesas/i.test(n)) ?? wb.SheetNames[0];
-      const m = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any[][];
-      const h = m.findIndex(r => (r || []).some(c => chave(c).startsWith('ndeordem')));
-      if (h < 0) throw new Error('Não achei a coluna "Nº DE ORDEM".');
-      const col = (...p: string[]) => m[h].findIndex((c: any) => p.some(x => chave(c).startsWith(x)));
-      const iN = col('ndeordem'), iConta = col('contacontabil'), iDesp = col('despesas'), iAtual = col('valorrubricaatua'), iValor = col('valorpara');
-      const novas: Rubrica[] = [];
-      let contaAtual = '';
-      m.slice(h + 1).forEach(r => {
-        const n = Number(limpar(r?.[iN]));
-        if (!Number.isInteger(n) || n < 1 || n > 99) return;
-        if (limpar(r?.[iConta])) contaAtual = limpar(r[iConta]);
-        const v = numero(r?.[iAtual >= 0 ? iAtual : iValor]) ?? numero(r?.[iValor]) ?? 0;
-        novas.push({ ano, numero: n, descricao: limpar(r?.[iDesp]) || `Rubrica ${n}`, contaContabil: contaAtual || null, valorAnual: Math.round(v * 100) / 100, percentual: null });
-      });
-      if (!novas.length) throw new Error('Nenhuma rubrica encontrada.');
-      setLista(novas);
-      notify.success(`${novas.length} rubricas lidas (aba ${aba}). Confira e grave.`);
-    } catch (e) { notify.fail('Erro ao ler a proposta', e); } finally { if (ref.current) ref.current.value = ''; }
-  };
-  const gravar = async () => {
-    setGravando(true);
-    try { await salvarRubricas(lista.map(r => ({ ...r, ano }))); notify.success('Rubricas gravadas.'); setSujo(false); recarregar(); } catch (e) { notify.fail('Erro ao gravar', e); } finally { setGravando(false); }
+  const [dados, setDados] = useState<Awaited<ReturnType<typeof rubricasConsolidadas>> | null>(null);
+  const [erro, setErro] = useState('');
+  useEffect(() => {
+    setDados(null); setErro('');
+    rubricasConsolidadas(ano).then(setDados).catch(e => setErro(e?.message || 'Erro ao carregar a taxa condominial.'));
+  }, [ano]);
+  const lista = dados?.rubricas || [];
+  const total = lista.reduce((s, r) => s + r.final, 0);
+  const exportar = () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nº', 'Rubrica', 'Conta contábil', 'Valor final consolidado', '%RUB'],
+      ...lista.map(r => [r.numero, r.descricao, r.contaContabil || '', r.final, total ? Math.round((r.final / total) * 1000000) / 10000 : 0]), ['TOTAL', '', '', Math.round(total * 100) / 100, total ? 100 : 0]]), `Rubricas ${ano}`);
+    XLSX.writeFile(wb, `rubricas_consolidadas_${ano}.xlsx`);
   };
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-600">Exercício<input type="number" className={`${sel} block mt-1 w-24`} value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Exercício das rubricas" /></label>
-        {podeEditar && <>
-          <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
-          <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-1" />Importar proposta (Despesas)</Button>
-          <BaixarModelo modelo={() => modeloProposta(ano)} />
-          <Button variant="secondary" onClick={() => setLista([...lista, { ano, numero: (Math.max(0, ...lista.map(r => r.numero)) + 1), descricao: '', valorAnual: 0, percentual: null }])}>Nova rubrica</Button>
-          <Button onClick={gravar} isLoading={gravando} disabled={!lista.length}><Save size={16} className="mr-1" />Gravar</Button>
-        </>}
-        <p className="text-xs text-slate-500 pb-2">Total vigente: <b>{brl(total)}</b>. %RUB = participação da rubrica no total (ou o valor informado).</p>
+        <Button variant="secondary" onClick={exportar} disabled={!lista.length}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
+        <p className="text-xs text-slate-500 pb-2 max-w-2xl">Rubrica consolidada da <b>Taxa condominial e diárias</b>: valor final de cada rubrica, já descontados os descontos das OM. Só consulta: para incluir rubricas ou mudar valores, use a tela da Taxa condominial. %RUB = participação no total consolidado.</p>
       </div>
-      <table className="min-w-full text-sm bg-white border border-slate-200 rounded-lg">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="px-2 py-2 text-left w-14">Nº</th><th className="px-2 py-2 text-left">Descrição</th><th className="px-2 py-2 text-left">Conta contábil</th><th className="px-2 py-2 text-right">Valor vigente</th><th className="px-2 py-2 text-right">%RUB</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">
-          {lista.sort((a, b) => a.numero - b.numero).map((r, i) => (
-            <tr key={r.numero}>
-              <td className="px-2 py-1">{r.numero}</td>
-              <td className="px-2 py-1"><input disabled={!podeEditar} className="w-full border border-slate-200 rounded px-1" value={r.descricao} onChange={e => setLista(lista.map((x, k) => (k === i ? { ...x, descricao: e.target.value } : x)))} aria-label={`Descrição da rubrica ${r.numero}`} /></td>
-              <td className="px-2 py-1 text-xs text-slate-500">{r.contaContabil}</td>
-              <td className="px-2 py-1 text-right"><input disabled={!podeEditar} type="number" step="0.01" className="w-36 text-right border border-slate-200 rounded px-1" value={r.valorAnual} onChange={e => setLista(lista.map((x, k) => (k === i ? { ...x, valorAnual: Number(e.target.value) || 0 } : x)))} aria-label={`Valor da rubrica ${r.numero}`} /></td>
-              <td className="px-2 py-1 text-right tabular-nums">{(pct.get(r.numero) || 0).toFixed(2)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {erro && <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">{erro}</div>}
+      {!dados && !erro && <p className="text-sm text-slate-500">Carregando...</p>}
+      {dados?.semRateio && <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm" role="alert">A proposta de {ano} ainda não tem OM com lotação na Taxa condominial: não há valor consolidado. Complete a proposta em <b>Taxa condominial e diárias</b>.</div>}
+      {dados && !dados.semRateio && (
+        <table className="min-w-full text-sm bg-white border border-slate-200 rounded-lg" aria-label="Rubricas consolidadas">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>
+            <th className="px-3 py-2 text-left w-14">Nº</th><th className="px-3 py-2 text-left">Rubrica</th><th className="px-3 py-2 text-left">Conta contábil</th>
+            <th className="px-3 py-2 text-right">Valor final consolidado</th><th className="px-3 py-2 text-right">%RUB</th>
+          </tr></thead>
+          <tbody className="divide-y divide-slate-100">
+            {lista.map(r => (
+              <tr key={r.numero} className={r.final > 0.005 ? '' : 'text-slate-400'}>
+                <td className="px-3 py-1.5">{r.numero}</td>
+                <td className="px-3 py-1.5">{r.descricao}{r.semParticipante && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title="Tem valor na proposta, mas nenhuma OM participa (não é cobrada)">sem participante</span>}</td>
+                <td className="px-3 py-1.5 text-xs text-slate-500">{r.contaContabil || ''}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums font-semibold" title={`Vigente ${brl(r.vigente)} − descontos das OM ${brl(r.descontosOM)}${r.navios ? ` + navios ${brl(r.navios)}` : ''}`}>{brl(r.final)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{(total ? (r.final / total) * 100 : 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+              </tr>
+            ))}
+            <tr className="bg-slate-100 font-bold"><td className="px-3 py-1.5" colSpan={3}>Total consolidado {ano}</td><td className="px-3 py-1.5 text-right tabular-nums">{brl(total)}</td><td className="px-3 py-1.5 text-right">{total ? '100,00%' : '—'}</td></tr>
+          </tbody>
+        </table>
+      )}
     </div>
   );
 };

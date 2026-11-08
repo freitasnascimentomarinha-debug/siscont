@@ -1088,14 +1088,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       ['10/10/2026', '740015000012026NE000122', 'AGUAS DO RIO 4 SPE S.A', '', 'R$ 94.860,00', '', 'Água e Esgoto', 'CONTRATACAO DOS SERVICOS'],
       ['11/10/2026', 'G424.2026.AC.00343', 'DIM', 'R$ 30.000,00', '', '', '', '']]), 'OUT2026');
     XLSX.writeFile(wb, nes);
+    // as rubricas vêm da Taxa condominial (a aba Rubricas do fluxo é só consulta)
+    db.rubricas.push({ ano: 2026, numero: 1, descricao: 'Manutenção de Telhados', destino: 'TC', valor_previsto: 200000, desconto_geral: 53903.08, valor_anual: 146096.92 },
+      { ano: 2026, numero: 14, descricao: 'Serviço de Dedetização', destino: 'TC', valor_previsto: 150000, desconto_geral: 27639.27, valor_anual: 122360.73 });
     await page.getByRole('button', { name: 'Fluxo de caixa' }).first().click();
     await page.getByRole('button', { name: 'Rubricas', exact: true }).click();
     await page.getByLabel('Exercício das rubricas').fill('2026');
-    await page.locator('input[type=file]').setInputFiles(prop);
-    await page.getByText(/2 rubricas lidas/).waitFor();
-    await page.getByRole('button', { name: 'Gravar' }).click();
-    await page.getByText('Rubricas gravadas.').waitFor();
-    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).valor_anual) === 146096.92, 'rubricas importadas da proposta (valor atualizado)');
+    await page.getByText(/ainda não tem OM com lotação na Taxa condominial/).waitFor();
+    ok(await page.getByRole('button', { name: /Importar proposta|Nova rubrica|Gravar/ }).count() === 0 && await page.locator('input[aria-label^="Valor da rubrica"]').count() === 0, 'aba Rubricas do fluxo é só consulta (sem importar, incluir ou alterar valores)');
     await page.getByRole('button', { name: 'Lançamentos' }).click();
     await page.getByRole('button', { name: 'Nova Saída' }).click();
     await page.getByLabel('Data', { exact: true }).fill('2026-10-05');
@@ -1265,6 +1265,19 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const tcSec = db.precos.find(p => p.sigla === 'TC' && p.om_id === sec.id), da = db.precos.find(p => p.sigla === 'DA' && p.om_id === bar.id);
     ok(tcSec && Number(tcSec.valor) === 1483.78 && da && Number(da.valor) === 297.62, 'publicado: TC mensal SecNSNQ R$ 1.483,78 e DA da Barroso R$ 297,62 nos Preços de 2026');
     ok(db.propostas_tc.length === 1 && db.propostas_tc[0].status === 'DIVULGADA', 'proposta DIVULGADA');
+    // Fluxo de caixa › Rubricas: rubrica consolidada = parcelas das OM (já sem os descontos) + parte dos navios
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).first().click();
+    await page.getByRole('button', { name: 'Rubricas', exact: true }).click();
+    await page.getByLabel('Exercício das rubricas').fill('2026');
+    const tabRub = page.getByRole('table', { name: 'Rubricas consolidadas' });
+    await tabRub.waitFor();
+    const celFinal = tabRub.locator('tbody tr').first().locator('td').nth(3);
+    const dica = await celFinal.getAttribute('title');
+    const nums = (dica.match(/R\$ [\d.]+,\d{2}/g) || []).map(x => Number(x.replace(/[R$\s.]/g, '').replace(',', '.')));
+    const final1 = Number((await celFinal.innerText()).replace(/[R$\s.]/g, '').replace(',', '.'));
+    ok(nums.length >= 2 && nums[1] > 0 && Math.abs(final1 - (nums[0] - nums[1] + (nums[2] || 0))) < 0.05, `rubrica 1 consolidada = vigente − descontos das OM + navios (${dica} → ${final1})`);
+    ok((await tabRub.innerText()).includes('Total consolidado 2026') && (await tabRub.innerText()).includes('100,00%'), 'total consolidado com %RUB');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-rubricas-consolidadas.png'), fullPage: true });
     // auditoria
     ok(!(await page.getByRole('button', { name: 'Auditoria', exact: true }).count()), 'menu sem item "Auditoria" separado');
     await page.getByRole('button', { name: 'Pontos de Atenção' }).click();
