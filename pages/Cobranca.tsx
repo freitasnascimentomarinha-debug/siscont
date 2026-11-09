@@ -8,9 +8,8 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { podeEditarDados } from '../types';
 import {
-  adiantamentosComSaldo, carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro, saldosParados,
+  carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro,
 } from '../services/relatoriosService';
-import { listarContestacoes } from '../services/fase4Service';
 import { FAIXAS, FaturaAberta, Pivo, diasAtraso, faixaDe, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -18,7 +17,6 @@ import { notify } from '../utils/notify';
 import { hojeISO } from '../utils/datas';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { PainelEncarregado } from '../components/cobranca/PainelEncarregado';
 import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnalitico';
 import { pdfCobrancaEnxuto } from '../utils/pdfArvore';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
@@ -30,7 +28,7 @@ const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse()
 const hoje = () => hojeISO();
 const sel = 'text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white';
 type Base = Awaited<ReturnType<typeof carregarBase>>;
-type Aba = 'quadro' | 'mensagens' | 'painel';
+type Aba = 'quadro' | 'mensagens';
 
 const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = ({ titulo, p, rotuloLinha }) => (
   <section className="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -51,19 +49,18 @@ const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = (
   </section>
 );
 
-/** modo 'cobranca': faturas em aberto e mensagens. modo 'painel': só o Painel do Encarregado (indicadores, dívida por idade, saldos parados). */
-export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'cobranca' }) => {
-  const soPainel = modo === 'painel';
+/** Cobrança: faturas em aberto e mensagens por comando. (O Painel do Encarregado é a página própria PainelEncarregado.) */
+export const Cobranca: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
-  const [aba, setAba] = useState<Aba>(soPainel ? 'painel' : 'quadro');
+  const [aba, setAba] = useState<Aba>('quadro');
   const [base, setBase] = useState<Base | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');
   const [linhaPor, setLinhaPor] = useState<'setor' | 'comando' | 'cliente'>('setor');
   // setores: múltipla escolha (guarda os excluídos) + um grupo nomeado e editável (antes fixo em DGMM)
   // filtro de setores lembrado separado para a Cobrança e para o Painel do Encarregado
-  const [exSetores, setExSetores] = useExcluidosLembrados(soPainel ? 'siscont.painel.setores' : 'siscont.cobranca.setores');
+  const [exSetores, setExSetores] = useExcluidosLembrados('siscont.cobranca.setores');
   const [indicativos, setIndicativos] = useState<Record<string, string>>({});
   const [editarGrupo, setEditarGrupo] = useState<{ nome: string; setores: Set<string> } | null>(null);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
@@ -73,10 +70,9 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
   const [buscaMsg, setBuscaMsg] = useState('');
   const [ultimaMsg, setUltimaMsg] = useState<'' | 'nunca' | '30' | '60' | '90'>('');
   // MB × Extra-MB (a Cobrança começa só na MB, como o quadro da planilha; o Painel do Encarregado, em Todos)
-  const [publico, setPublico] = usePublico(soPainel ? 'painel-encarregado' : 'cobranca', soPainel ? 'TODOS' : 'MB');
+  const [publico, setPublico] = usePublico('cobranca', 'MB');
   const [qContest, setQContest] = useState(false);
   const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
-  const [contestacoesAbertas, setContestacoesAbertas] = useState<number | null>(null);
   const [msg, setMsg] = useState<{ comando: string; indicativo: string | null; texto: string; faturas: FaturaAberta[] } | null>(null);
 
   const carregar = async () => {
@@ -85,7 +81,6 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
       const b = await carregarBase();
       setBase(b); setAtualizadoEm(new Date().toLocaleString('pt-BR'));
       listarCobrancas().then(setCobrancas).catch(() => setCobrancas([]));
-      listarContestacoes().then(c => setContestacoesAbertas(c.filter(x => x.status !== 'ENCERRADA').length)).catch(() => setContestacoesAbertas(null));
     } catch (e) { notify.fail('Erro ao carregar', e); } finally { setCarregando(false); }
   };
   useEffect(() => { carregar(); }, []);
@@ -268,27 +263,23 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
     } catch (e) { notify.fail('Não foi possível gerar o lote', e); } finally { setGerandoLote(false); }
   };
 
-  // ------------- painel
-  const parados = useMemo(() => (base ? saldosParados(base, h, Number(base.par.dias_saldo_parado) || 60).filter(x => passaPublico(publico, cls.docExtra(x.doc))) : []), [base, h, publico, cls]);
-  const adiant = useMemo(() => (base ? adiantamentosComSaldo(base).filter(l => passaPublico(publico, cls.docExtra({ client: l.cliente, command: l.comando }))) : []), [base, publico, cls]);
-
   return (
     <div className="space-y-5">
       <div className="flex justify-between items-start gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">{soPainel ? 'Painel do Encarregado' : 'Cobrança'}</h2>
-          <p className="text-slate-500 text-sm">{soPainel ? 'Indicadores de cobrança, dívida de cada OM por faixa de atraso, saldos parados e adiantamentos.' : 'Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando.'} {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
+          <h2 className="text-2xl font-bold text-slate-800">Cobrança</h2>
+          <p className="text-slate-500 text-sm">Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando. {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
         </div>
         <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
       </div>
-      {!soPainel && <div className="flex space-x-1 border-b border-slate-200">
+      <div className="flex space-x-1 border-b border-slate-200">
         {([['quadro', 'Faturas em aberto'], ['mensagens', 'Mensagens de cobrança']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} className={`px-4 py-2.5 text-sm font-medium border-b-2 ${aba === k ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500'}`}>{l}</button>
         ))}
-      </div>}
+      </div>
       {!base && carregando && <p className="text-sm text-slate-500">Carregando...</p>}
 
-      {base && (aba === 'quadro' || aba === 'painel') && (
+      {base && aba === 'quadro' && (
         <div className="flex flex-wrap gap-3 items-end">
           <SeletorPublico valor={publico} onChange={setPublico} />
           <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
@@ -376,11 +367,6 @@ export const Cobranca: React.FC<{ modo?: 'cobranca' | 'painel' }> = ({ modo = 'c
             </table>
           </div>
         </div>
-      )}
-
-      {base && aba === 'painel' && (
-        <PainelEncarregado abertas={abertas} hoje={h} diasParado={Number(base.par.dias_saldo_parado) || 60} contestacoesAbertas={contestacoesAbertas}
-          parados={parados} adiantamentos={adiant} />
       )}
 
       <Modal isOpen={!!msg} onClose={() => setMsg(null)} title={`Mensagem de cobrança — ${msg?.comando ?? ''}`} maxWidth="max-w-3xl"

@@ -41,6 +41,16 @@ function handler(db, log) {
     if (url.pathname.startsWith('/auth/v1/')) return json(200, {});
     if (url.pathname.startsWith('/storage/v1/object/sign/')) return json(200, { signedURL: '/object/sign/arquivo?token=t' });
     if (url.pathname.startsWith('/storage/v1/')) { (db.storage = db.storage || []).push(`${req.method()} ${url.pathname}`); return json(200, { Key: url.pathname, Id: 'x' }); }
+    if (url.pathname === '/rest/v1/rpc/atividade_usuarios') {   // script 025: atividade por usuário, somada da trilha de auditoria
+      const { p_de, p_ate } = JSON.parse(req.postData() || '{}');
+      const tabelas = ['invoices', 'payment_allocations', 'received_documents', 'contestacoes', 'lotes_faturamento', 'cash_flow_exits'];
+      const m = new Map();
+      (db.auditoria || []).filter(a => a.em.slice(0, 10) >= p_de && a.em.slice(0, 10) <= p_ate && tabelas.includes(a.tabela)).forEach(a => {
+        const usuario = a.usuario_email || 'sem usuário (importação/script)', k = `${usuario}|${a.tabela}|${a.acao}`;
+        const x = m.get(k) || { usuario, tabela: a.tabela, acao: a.acao, qtd: 0, ultima: a.em }; x.qtd++; if (a.em > x.ultima) x.ultima = a.em; m.set(k, x);
+      });
+      return json(200, [...m.values()]);
+    }
     if (url.pathname === '/rest/v1/rpc/om_adicionar_nome_alternativo') {
       const { p_om, p_nome } = JSON.parse(req.postData() || '{}');
       const o = db.oms.find(x => x.id === p_om); if (o && !(o.nomes_alternativos || []).includes(p_nome)) o.nomes_alternativos = [...(o.nomes_alternativos || []), p_nome];
@@ -1058,25 +1068,79 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Buscar nas faturas vencidas').fill('MANGARATIBA');
     ok(/1 fatura\(s\)/.test(await page.getByLabel('Filtros da cobrança').innerText()), 'busca por OM nas faturas vencidas (sem diferenciar maiúsculas)');
     await page.getByRole('button', { name: 'limpar filtros' }).click();
+    // ---- Painel do Encarregado (visão gerencial somente de consulta) ----
+    const rb = db.invoices.find(x => x.invoice_number === '40032-RB-08-2026-004-0');
+    db.contestacoes.push({ id: uid(), invoice_id: rb.id, numero_fatura: rb.invoice_number, aberta_em: '2026-08-01', origem: 'OFÍCIO', justificativa: 'Valor acima do consumo', status: 'ABERTA', anexos: [], historico: [{ em: '2026-08-01', por: 'Maria', acao: 'ABERTA', texto: 'Aberta' }], aberta_por: 'Maria' });
+    const aud = (usuario, tabela, acao, n) => { for (let k = 0; k < n; k++) db.auditoria.push({ id: db.auditoria.length + 1, tabela, registro_id: 'x', acao, em: '2026-11-03T12:00:00Z', usuario_email: usuario }); };
+    aud('ana@mb.br', 'invoices', 'INSERT', 3); aud('ana@mb.br', 'payment_allocations', 'INSERT', 2); aud(null, 'invoices', 'UPDATE', 5);
     await page.getByRole('button', { name: 'Painel do Encarregado' }).first().click(); // item do menu (tela própria)
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
-    await page.getByText('Dívida por condômino e idade').waitFor();
-    ok(await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'painel do Encarregado com dívida por idade e saldos parados');
-    // interatividade: indicador, linha da OM, valor de faixa e gráfico abrem a lista de faturas
-    await page.getByRole('button', { name: /^Vencido/ }).click();
+    await page.getByText('Pontos que exigem atenção').first().waitFor();
+    const kpi = async (nome) => page.getByRole('button', { name: new RegExp('^' + nome) }).first().getAttribute('aria-label');
+    ok((await kpi('Total vencido')).includes('R$ 21.674,37') && (await kpi('Total vencido')).includes('2 fatura'), 'total vencido R$ 21.674,37 (contestada fora)');
+    ok((await kpi('Em aberto em')).includes('R$ 45.788,97'), 'em aberto R$ 45.788,97 (mesmo valor do quadro da Cobrança, sem contestadas)');
+    ok((await kpi('Inadimplência')).includes('47,3%'), 'inadimplência = vencido ÷ em aberto = 47,3%');
+    ok((await kpi('Total faturado')).includes('R$ 90.996,18') && (await kpi('Valor contestado')).includes('R$ 45.207,21'), 'faturado do período (competência 2026) e valor contestado');
+    ok(await page.getByText('Faturas vencidas há mais de 365 dias').isVisible() && await page.getByText('Contestações em tramitação há mais de 60 dias').isVisible(), 'alertas: dívida de mais de 365 dias (crítico) e contestação em tramitação longa');
+    await page.getByRole('button', { name: 'Ver detalhes: Faturas vencidas há mais de 365 dias' }).click();
+    await page.getByRole('dialog').getByText('40030-TC-09-2025-014-0').waitFor();
+    ok(await page.getByRole('dialog').locator('tbody tr').count() === 1, 'alerta abre só a fatura vencida há mais de 365 dias');
+    await page.keyboard.press('Escape');
+    // indicador abre a lista de faturas; a busca filtra
+    await page.getByRole('button', { name: /^Total vencido/ }).click();
     await page.getByRole('dialog').getByText('Faturas vencidas').first().waitFor();
     const nVenc = await page.getByRole('dialog').locator('tbody tr').count();
-    ok(nVenc >= 1, `indicador "Vencido" abre a lista de faturas (${nVenc})`);
+    ok(nVenc === 2, `indicador "Total vencido" abre a lista de faturas (${nVenc})`);
     await page.getByLabel('Buscar na lista').fill('zzzz-nada');
     ok(await page.getByRole('dialog').getByText('Nenhuma fatura.').isVisible(), 'busca dentro da lista filtra as faturas');
     await page.keyboard.press('Escape');
-    await page.getByRole('cell', { name: 'Diretoria Industrial da Marinha', exact: true }).click();
-    ok(await page.getByRole('dialog').getByText(/Faturas de Diretoria Industrial da Marinha/).first().isVisible(), 'clicar na linha da OM abre as faturas dela');
+    ok(await page.getByText('Idade da dívida', { exact: true }).isVisible() && await page.getByText('Faturamento × recebimentos').isVisible() && await page.getByText('Evolução da inadimplência').isVisible() && await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'gráficos: idade da dívida, faturado × recebido, evolução da inadimplência e saldos parados');
+    ok((await page.getByRole('list', { name: 'Valor por faixa de atraso' }).innerText()).includes('R$ 24.114,60'), 'faixas de atraso: a vencer R$ 24.114,60');
+    // filtros integrados: público Extra-MB zera tudo; limpar volta
+    await page.getByRole('radio', { name: 'Extra-MB' }).click();
+    await page.getByText('0 faturas no recorte').waitFor();
+    ok((await kpi('Total vencido')).includes('R$ 0,00') && (await page.getByLabel('Recorte consultado').innerText()).includes('só Extra-MB'), 'filtro de público vale para todos os indicadores e aparece no recorte');
+    await page.getByRole('button', { name: 'Limpar filtros' }).click();
+    await page.getByText('5 faturas no recorte').waitFor();
+    ok((await kpi('Total vencido')).includes('R$ 21.674,37'), 'limpar filtros devolve o recorte completo');
+    await page.getByLabel('Período inicial').fill('2026-10');
+    ok((await page.getByLabel('Recorte consultado').innerText()).includes('período 10/2026 a 11/2026') && (await kpi('Total faturado')).includes('R$ 0,00'), 'período muda o faturado (nenhuma competência 2026-10/11 nos dados) e fica visível no recorte');
+    await page.getByLabel('Exercício').selectOption('2026');
+    await page.getByText('período 01/2026 a 11/2026').waitFor();
+    // aba OM: situação, ranking, tabela e ficha
+    await page.getByRole('tab', { name: /^OM/ }).click();
+    await page.getByText('Situação geral das OM').waitFor();
+    ok((await page.getByRole('group', { name: 'Situação das OM' }).innerText()).includes('Débitos críticos'), 'situação das OM em categorias não exclusivas');
+    ok(await page.getByText('Ranking das OM').isVisible() && await page.getByLabel('Critério do ranking').isVisible(), 'ranking das OM com critério escolhido');
+    await page.getByLabel('Buscar OM').fill('mangaratiba');
+    ok(await page.getByRole('table', { name: 'Situação por OM' }).locator('tbody tr').count() === 1, 'busca na tabela de OM');
+    await page.getByLabel('Buscar OM').fill('');
+    await page.getByRole('table', { name: 'Situação por OM' }).getByRole('cell', { name: /^Diretoria Industrial da Marinha/ }).click();
+    const ficha = page.getByRole('dialog');
+    await ficha.getByText('Faturas com saldo (2)').waitFor();
+    ok((await ficha.innerText()).includes('não registrado') && (await ficha.innerText()).includes('Histórico de cobranças (1)') && (await ficha.innerText()).includes('cobrança enviada em'), 'ficha da OM: faturas com saldo, cobrança registrada (última providência) e responsável (não registrado)');
     await page.keyboard.press('Escape');
-    await page.getByLabel('Buscar na dívida').fill('mangaratiba');
-    ok(await page.getByRole('cell', { name: /Mangaratiba/ }).count() === 1 && await page.getByRole('cell', { name: 'Diretoria Industrial da Marinha', exact: true }).count() === 0, 'busca na tabela de dívida filtra as OM');
-    await page.getByLabel('Buscar na dívida').fill('');
-    ok(await page.getByText('Maiores valores vencidos por OM').isVisible() && await page.getByText('Idade da dívida', { exact: true }).isVisible(), 'gráficos de idade da dívida e maiores devedores');
+    // aba Contestações e pendências
+    await page.getByRole('tab', { name: /^Contestações e pendências/ }).click();
+    await page.getByText('Tempo de tramitação').waitFor();
+    ok((await page.getByRole('table', { name: 'Contestações abertas' }).innerText()).includes('40032-RB-08-2026-004-0') && await page.getByRole('button', { name: /^Tramitação longa: 1/ }).count() === 1 && await page.getByRole('button', { name: /^Sem movimentação: 1/ }).count() === 1, 'contestação aberta aparece, com tramitação longa e sem movimentação');
+    await page.getByRole('table', { name: 'Contestações abertas' }).getByText('40032-RB-08-2026-004-0').click();
+    await page.getByRole('dialog').getByText('Somente consulta').waitFor();
+    ok((await page.getByRole('dialog').innerText()).includes('Valor acima do consumo') && (await page.getByRole('dialog').innerText()).includes('Maria'), 'detalhe da contestação (somente consulta) com justificativa e histórico');
+    await page.keyboard.press('Escape');
+    // aba Equipe: atividade registrada, sem ranking e sem números inventados
+    await page.getByRole('tab', { name: 'Equipe' }).click();
+    await page.getByText('Atividade registrada por usuário').waitFor();
+    const tAtiv = page.getByRole('table', { name: 'Atividade por usuário' });
+    await tAtiv.waitFor();
+    const linhaAna = (await tAtiv.getByRole('row').filter({ hasText: 'ana@mb.br' }).innerText()).replace(/\s+/g, ' ');
+    ok(/ana@mb\.br 3 0 2 0 0 0 0 5/.test(linhaAna), `atividade da Ana: 3 faturas emitidas e 2 baixas (${linhaAna})`);
+    ok((await tAtiv.innerText()).includes('sem usuário (importação/script)') && await page.getByText(/não avaliação de desempenho/).first().isVisible() && await page.getByText(/ainda não existem; nenhum número inventado/).isVisible(), 'sem usuário separado, aviso de que não é avaliação de desempenho e do que falta registrar');
+    ok((await page.getByRole('table', { name: 'Ações em contestações' }).innerText()).includes('Maria'), 'andamento das contestações por usuário');
+    // PDF resumo
+    const [pdfPainel] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF resumo' }).click()]);
+    ok(/^painel_encarregado_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfPainel.suggestedFilename()), `PDF resumo do painel gerado (${pdfPainel.suggestedFilename()})`);
+    await page.getByRole('tab', { name: 'Visão geral' }).click();
     await page.waitForTimeout(1500); // animação dos gráficos
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });
 

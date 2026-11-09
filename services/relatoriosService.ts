@@ -133,8 +133,8 @@ export async function registrarCobranca(c: { comando: string; indicativo?: strin
   const { error } = await supabase.from('cobrancas').insert({ comando: c.comando, indicativo: c.indicativo ?? null, faturas: c.faturas, valor: c.valor, texto: c.texto, enviada_por: c.usuario, enviada_em: new Date().toISOString() });
   checar(error);
 }
-export async function listarCobrancas(): Promise<{ comando: string; enviadaEm: string; faturas: string[]; valor: number }[]> {
-  const { data, error } = await supabase.from('cobrancas').select('comando, enviada_em, faturas, valor').order('enviada_em', { ascending: false });
+export async function listarCobrancas(): Promise<{ comando: string; enviadaEm: string; faturas: string[]; valor: number; enviadaPor?: string | null }[]> {
+  const { data, error } = await supabase.from('cobrancas').select('comando, enviada_em, faturas, valor, enviada_por').order('enviada_em', { ascending: false });
   checar(error);
-  return (data || []).map(r => ({ comando: r.comando, enviadaEm: r.enviada_em, faturas: r.faturas || [], valor: Number(r.valor) }));
+  return (data || []).map(r => ({ comando: r.comando, enviadaEm: r.enviada_em, faturas: r.faturas || [], valor: Number(r.valor), enviadaPor: r.enviada_por ?? null }));
 }

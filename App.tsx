@@ -4,6 +4,7 @@ import { Conciliacao } from './pages/Conciliacao';
 import { Faturamento } from './pages/Faturamento';
 import { Contestacoes } from './pages/Contestacoes';
 import { Cobranca } from './pages/Cobranca';
+import { PainelEncarregado } from './pages/PainelEncarregado';
 import { TaxaCondominial } from './pages/TaxaCondominial';
 import { ExtraMarinha } from './pages/ExtraMarinha';
 import React, { useState, useEffect } from 'react';
@@ -44,7 +45,7 @@ const AuthenticatedApp = () => {
       case 'cashflow': return <CashFlow />;
       case 'cobranca': return <Cobranca key="cobranca" />;
       case 'extramb': return <ExtraMarinha />;
-      case 'painel': return <Cobranca key="painel" modo="painel" />;
+      case 'painel': return <PainelEncarregado key="painel" />;
       case 'taxa': return <TaxaCondominial />;
       case 'auditoria': return <PontosAtencaoPage key="historico" abaInicial="historico" />;
       case 'conciliacao': return <Conciliacao />;
