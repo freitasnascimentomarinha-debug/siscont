@@ -82,6 +82,12 @@ export function tcRecebida(base: Awaited<ReturnType<typeof carregarBase>>, ano: 
   return Math.round(base.baixas.filter(b => tc.has(b.invoiceId) && b.date.startsWith(String(ano))).reduce((s, b) => s + b.amount, 0) * 100) / 100;
 }
 
+/** TC recebida entre dois meses (AAAA-MM): baixas (pagamento e adiantamento) em faturas de taxa condominial, pela data da baixa. */
+export function tcRecebidaNoPeriodo(base: Awaited<ReturnType<typeof carregarBase>>, de: string, ate: string) {
+  const tc = new Set(base.invoices.filter(i => siglaDe(i) === 'TC' && !i.isCanceled).map(i => i.id));
+  return Math.round(base.baixas.filter(b => tc.has(b.invoiceId) && b.date.slice(0, 7) >= de && b.date.slice(0, 7) <= ate).reduce((s, b) => s + b.amount, 0) * 100) / 100;
+}
+
 /** Baixas com a sigla da fatura (para classificar as entradas por categoria). */
 export function baixasComSigla(base: Awaited<ReturnType<typeof carregarBase>>) {
   const sig = new Map(base.invoices.map(i => [i.id, siglaDe(i)]));

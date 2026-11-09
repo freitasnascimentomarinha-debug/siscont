@@ -185,7 +185,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ p
           {podeEditar && <Button size="sm" onClick={salvarParams} isLoading={salvando} disabled={Object.keys(editados).length === 0}><Save size={14} className="mr-1" /> Salvar alterações</Button>}
         </div>
         <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO && !Object.values(PARAM_NORMAS).includes(p.chave as any)).map(p => (
+          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO && !p.chave.startsWith('gastos_') && !Object.values(PARAM_NORMAS).includes(p.chave as any)).map(p => (
             <div key={p.chave} className="p-3 grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
               <div className="md:col-span-2"><div className="text-sm font-medium text-slate-800">{p.descricao || p.chave}</div><div className="text-[11px] font-mono text-slate-400">{p.chave}</div></div>
               <input

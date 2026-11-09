@@ -93,3 +93,65 @@ describe('consumo da própria base', () => {
   });
   it('sem OM emissora definida: nada', () => expect(utilidadesDaBase(med, null, { de: '2026-09', ate: '2026-10' }, [])).toEqual([]));
 });
+
+import { condominioPorRubrica } from '../utils/relatorios';
+import { chaveFornecedor, grupoDaRubrica } from '../utils/gastosBNIC';
+
+describe('recebido das OM por rubrica (rateio proporcional)', () => {
+  const RL = (numero: number, descricao: string, vigente: number, omLiquido: number): RubricaGasto => ({ numero, descricao, tipo: 'TC', vigente, omLiquido });
+  const rubricas = [RL(12, 'Varrição', 1000, 600), RL(10, 'Coleta de Lixo', 500, 300), RL(27, 'Instalações do Hospital', 200, 100)];   // pesos 60% / 30% / 10%
+  const saidas = [S('2026-03-01', 250, 12), S('2026-03-02', 40, 27)];
+  const r = montarGastos(rubricas, saidas, { de: '2026-01', ate: '2026-12' }, { tcRecebida: 5000 });
+  it('divide a taxa recebida pela participação de cada rubrica no valor cobrado das OM', () => {
+    const l = (n: number) => r.grupos.flatMap(g => g.linhas).find(x => x.numero === n)!;
+    expect([l(12).recebido, l(10).recebido, l(27).recebido]).toEqual([3000, 1500, 500]);
+    expect([l(12).pesoRateio, l(10).pesoRateio, l(27).pesoRateio]).toEqual([60, 30, 10]);
+    expect(l(12).saldoEmConta).toBe(2750); expect(l(27).saldoEmConta).toBe(460);                // recebido − empenhado
+  });
+  it('soma por grupo e no total; o rateio fecha com o valor recebido', () => {
+    expect(r.grupos.find(g => g.id === 'limpeza')).toMatchObject({ recebido: 4500, saldoEmConta: 4250 });
+    expect(r.grupos.find(g => g.id === 'hospital')).toMatchObject({ recebido: 500, saldoEmConta: 460 });
+    expect(r.totais).toMatchObject({ recebido: 5000, saldoEmConta: 4710, rateioDisponivel: true });
+  });
+  it('é a mesma conta da aba Rubricas do Fluxo de caixa', () => {
+    const fluxo = condominioPorRubrica(rubricas.map(x => ({ ano: 2026, numero: x.numero, descricao: x.descricao, valorAnual: x.omLiquido!, percentual: null })), 5000, new Map([[12, 250], [27, 40]]));
+    fluxo.linhas.forEach(f => expect(r.grupos.flatMap(g => g.linhas).find(x => x.numero === f.numero)!.recebido).toBe(f.tcRecebida));
+  });
+  it('sem rateio no exercício (nada cobrado das OM), o recebido não é distribuído', () => {
+    const v = montarGastos(rubricas.map(x => ({ ...x, omLiquido: 0 })), saidas, { de: '2026-01', ate: '2026-12' }, { tcRecebida: 5000 });
+    expect(v.totais).toMatchObject({ recebido: 0, rateioDisponivel: false });
+  });
+});
+
+describe('grupo escolhido à mão e fornecedores juntados', () => {
+  it('o grupo escolhido sobrepõe a regra automática (e grupo inválido é ignorado)', () => {
+    const r = { numero: 12, descricao: 'Serviço de Varrição', tipo: 'TC' as const };
+    expect(grupoDaRubrica(r)).toBe('limpeza');
+    expect(grupoDaRubrica(r, { 12: 'infra' })).toBe('infra');
+    expect(grupoDaRubrica(r, { 12: 'inexistente' as any })).toBe('limpeza');
+    const g = montarGastos([{ ...r, vigente: 100 }], [S('2026-02-01', 30, 12)], { de: '2026-01', ate: '2026-12' }, { grupos: { 12: 'infra' } });
+    expect(g.grupos.map(x => [x.id, x.previsto, x.empenhado])).toEqual([['infra', 100, 30]]);
+    expect(g.porMes[1]).toMatchObject({ infra: 30 });
+  });
+  it('fornecedores com nomes diferentes podem ser juntados num só, mantendo os nomes originais', () => {
+    const ss = [S('2026-01-10', 100, 12, { client: 'AGUAS DO RIO 4 SPE S.A' }), S('2026-01-11', 50, 12, { client: 'Águas do Rio 4' }), S('2026-01-12', 25, 12, { client: 'CEDAE' })];
+    const sem = montarGastos([{ numero: 12, descricao: 'x', tipo: 'TC', vigente: 1 }], ss, { de: '2026-01', ate: '2026-01' });
+    expect(sem.fornecedores).toHaveLength(3);
+    const com = montarGastos([{ numero: 12, descricao: 'x', tipo: 'TC', vigente: 1 }], ss, { de: '2026-01', ate: '2026-01' }, { uniao: { [chaveFornecedor('Águas do Rio 4')]: 'AGUAS DO RIO 4 SPE S.A' } });
+    expect(com.fornecedores).toHaveLength(2);
+    expect(com.fornecedores[0]).toMatchObject({ nome: 'AGUAS DO RIO 4 SPE S.A', valor: 150, qtd: 2, variantes: ['Águas do Rio 4'] });
+    expect(com.fornecedores.reduce((s, f) => s + f.valor, 0)).toBe(com.totais.empenhado);     // o total não muda
+  });
+});
+
+describe('quem mais consome', () => {
+  const med = [
+    { competencia: '2026-09', sigla: 'AE', omId: 'a', quantidade: 10, valor: 500 }, { competencia: '2026-09', sigla: 'AE', omId: 'bnic', quantidade: 5, valor: 300 },
+    { competencia: '2026-10', sigla: 'AE', omId: 'a', quantidade: 10, valor: 100 }, { competencia: '2026-09', sigla: 'AE', omId: 'c', quantidade: 1, valor: 50 },
+  ];
+  it('ranking das OM no período e a posição da BNIC', () => {
+    const [u] = utilidadesDaBase(med, 'bnic', { de: '2026-09', ate: '2026-10' }, []);
+    expect(u.ranking).toEqual([{ omId: 'a', valor: 600 }, { omId: 'bnic', valor: 300 }, { omId: 'c', valor: 50 }]);
+    expect(u.posicao).toBe(2);
+  });
+});

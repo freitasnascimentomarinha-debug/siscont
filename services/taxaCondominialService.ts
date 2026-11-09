@@ -353,5 +353,7 @@ export async function taxaParaGastos(ano: number) {
     emissora: { omId: emissora.omId, nome: emissora.nome, participaRateio: emissora.participaRateio },
     quota: linha ? { anual: linha.anual, mensal: linha.mensal, percentual: linha.percentual } : null,
     aRatear: calc.resultado.total,
+    parametros: parametros as { chave: string; valor: string | null }[],
+    nomes: Object.fromEntries(dados.oms.map((o: any) => [o.id, o.nome as string])) as Record<string, string>,
   };
 }

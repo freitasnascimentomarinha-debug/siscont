@@ -6,7 +6,7 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { FaturaGer, Prioridade, ROTULO_PRIORIDADE, atrasoDe } from '../../utils/painelGerencial';
 
-export const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const brl = (n: number) => `${n < 0 ? '−' : ''}R$ ${Math.abs(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const compacto = (n: number) => { const a = Math.abs(n); const s = n < 0 ? '−' : ''; return a >= 1e6 ? `${s}${(a / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi` : a >= 1e3 ? `${s}${Math.round(a / 1e3)} mil` : `${s}${Math.round(a)}`; };
 export const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
 export const mesBR = (ym: string) => (/^\d{4}-\d{2}$/.test(ym) ? `${ym.slice(5)}/${ym.slice(2, 4)}` : ym);

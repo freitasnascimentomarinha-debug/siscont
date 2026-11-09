@@ -1824,6 +1824,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.cash_flow_exits.push(ne('2026NE000001', '2026-03-10', 'Limpeza Urbana Ltda', 400000, 12), ne('2026NE000002', '2026-04-02', 'LIMPEZA URBANA LTDA', -50000, 12), ne('2026NE000003', '2026-05-05', 'LIGHT', 210000, null, 'ENERGIA'),
       { ...ne('2026NE000004', '2026-05-06', 'CANCELADA SA', 999999, 12), is_canceled: true });
     db.service_definitions.push({ id: uid(), name: 'Energia Elétrica', unit_measure: 'KWH', acronym: 'EL', ordem: 30, ativo: true });
+    // taxa condominial recebida: R$ 40.000,00 (fatura TC da AMRJ paga em abril)
+    const tcFat = { id: uid(), ug: '41000', sector: 'DGMM', command: 'x', client: amrj.nome, invoice_number: '41000-TC-03-2026-001-0', value: 100000, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-03-10', due_date: '2026-04-10', month_competence: 3, year_competence: 2026, competence: '03/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: true, contestada: false, pontos_atencao: [], om_id: amrj.id };
+    db.invoices.push(tcFat);
+    const tcDoc = { id: uid(), document_number: 'X488.2026.AC.00001', document_type: 'ALTCRED', total_value: 40000, date: '2026-04-05', operation: 'PAGAMENTO', client: 'AMRJ', sector: 'DGMM', command: '41000', exercicio: 2026 };
+    db.received_documents.push(tcDoc);
+    db.payment_allocations.push({ id: uid(), document_id: tcDoc.id, invoice_id: tcFat.id, amount: 40000, date: '2026-04-05', tipo_baixa: 'PAGAMENTO' });
     db.medicoes.push({ id: uid(), competencia: '2026-09', sigla: 'AE', om_id: bnic.id, quantidade: 100, valor: 5000, estimada: false, detalhe: [] }, { id: uid(), competencia: '2026-09', sigla: 'AE', om_id: amrj.id, quantidade: 300, valor: 15000, estimada: false, detalhe: [] });
     await page.reload();
     await page.getByRole('button', { name: 'Gastos da BNIC' }).first().click();
@@ -1831,7 +1837,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Exercício').selectOption('2026');
     await page.getByLabel('Período inicial').fill('2026-01'); await page.getByLabel('Período final').fill('2026-12');
     const kpi = async (nome) => page.getByRole('button', { name: new RegExp('^' + nome) }).first().getAttribute('aria-label');
-    await page.getByText('Previsto por grupo de gasto').waitFor();
+    await page.getByText('Previsto, empenhado e recebido por grupo').first().waitFor();
     const rot = async (re) => (await page.getByLabel(re).first().getAttribute('aria-label'));
     const txt = (await page.locator('section[aria-label="Indicadores dos gastos"]').innerText()).replace(/\s+/g, ' ');
     ok(/PREVISTO EM 2026.*R\$ 1\.600\.000,00/.test(txt), `previsto do exercício = soma das rubricas (R$ 1.600.000,00) [${txt.slice(0, 120)}]`);
@@ -1839,16 +1845,70 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/R\$ 1\.250\.000,00/.test(txt) && /21,9% executado/.test(txt), 'saldo do previsto = 1.600.000 − 350.000 (só rubricas) e 21,9% executado');
     ok(/R\$ 5\.000,00/.test(txt) && /Água e Esgoto/.test(txt), 'consumo medido da própria base (água, R$ 5.000,00)');
     ok(/R\$ 400\.000,00/.test(txt) && /25% da taxa/.test(txt), 'parte da BNIC no rateio: 100 de 400 pessoas = 25% da taxa (R$ 400.000,00)');
-    const tabela = page.getByRole('table', { name: 'Previsto e empenhado por grupo' });
+    ok(/RECEBIDO DAS OM.*R\$ 40\.000,00/.test(txt), 'recebido das OM no período: taxa condominial R$ 40.000,00');
+    const tabela = page.getByRole('table', { name: 'Previsto, empenhado e recebido por grupo' });
     const linhaLimpeza = (await tabela.getByRole('row').filter({ hasText: 'Limpeza, coleta e controle de pragas' }).innerText()).replace(/\s+/g, ' ');
     ok(/R\$ 1\.500\.000,00 R\$ 350\.000,00/.test(linhaLimpeza), `grupo Limpeza: previsto 1,5 mi e empenhado 350 mil (${linhaLimpeza})`);
+    ok(linhaLimpeza.includes('R$ 37.500,00') && linhaLimpeza.includes('312.500,00'), `recebido proporcional no grupo Limpeza: 40.000 × (1,5 mi ÷ 1,6 mi) = R$ 37.500,00 e saldo em conta negativo (${linhaLimpeza})`);
+    ok((await tabela.getByRole('row').filter({ hasText: 'Hospital' }).innerText()).replace(/\s+/g, ' ').includes('R$ 2.500,00'), 'recebido proporcional no grupo Hospital: 6,25% de 40.000 = R$ 2.500,00');
     await tabela.getByRole('row').filter({ hasText: 'Limpeza, coleta e controle de pragas' }).click();
     ok((await tabela.innerText()).includes('12 · Serviço de Varrição das Ruas do CNIC') && (await tabela.innerText()).includes('10 · Coleta de Lixo'), 'abrir o grupo mostra as rubricas');
+    ok((await tabela.getByRole('row').filter({ hasText: '12 · Serviço de Varrição' }).innerText()).replace(/\s+/g, ' ').includes('R$ 25.000,00'), 'recebido da rubrica 12 = 62,5% de 40.000 = R$ 25.000,00 (rateio proporcional)');
+    // detalhes ao clicar: empenhos da rubrica, do grupo e de uma rubrica sem empenho
+    await tabela.getByRole('row').filter({ hasText: '12 · Serviço de Varrição' }).click();
+    await page.getByRole('dialog').getByText('Somente consulta').first().waitFor();
+    ok(await page.getByRole('dialog').getByRole('table', { name: 'Detalhe' }).locator('tbody tr').count() === 3 && (await page.getByRole('dialog').innerText()).includes('R$ 350.000,00') && (await page.getByRole('dialog').innerText()).includes('2 empenho(s)'), 'clicar na rubrica abre os empenhos dela (400.000 e a anulação −50.000 = 350.000)');
+    await page.keyboard.press('Escape');
+    await tabela.getByRole('row').filter({ hasText: '10 · Coleta de Lixo' }).click();
+    await page.getByRole('dialog').getByText('Nada neste recorte.').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Ver empenhos do grupo Limpeza, coleta e controle de pragas' }).click();
+    ok((await page.getByRole('dialog').innerText()).includes('2026NE000001') && (await page.getByRole('dialog').innerText()).includes('Limpeza Urbana'), 'o botão "empenhos" do grupo lista as notas de empenho dele');
+    await page.keyboard.press('Escape');
     ok((await tabela.innerText()).replace(/\s+/g, ' ').includes('Total empenhado R$ 560.000,00'), 'tabela separa total das rubricas, empenhos sem rubrica e total empenhado');
     ok((await page.getByRole('table', { name: 'Empenhos sem rubrica' }).innerText()).includes('Energia elétrica') && (await page.getByRole('table', { name: 'Empenhos sem rubrica' }).innerText()).includes('R$ 210.000,00'), 'empenho sem rubrica fica à parte, por categoria');
+    await page.getByRole('table', { name: 'Empenhos sem rubrica' }).getByText('Energia elétrica').click();
+    ok((await page.getByRole('dialog').innerText()).includes('LIGHT') && (await page.getByRole('dialog').innerText()).includes('R$ 210.000,00'), 'clicar no empenho sem rubrica abre as notas da categoria');
+    await page.keyboard.press('Escape');
+    // maiores rubricas: critério escolhido
+    await page.getByRole('group', { name: 'Critério das maiores rubricas' }).getByRole('button', { name: 'Empenhado' }).click();
+    ok(await page.getByRole('button', { name: 'Empenhado', pressed: true }).count() >= 1 && await page.getByRole('img', { name: 'Gráfico das maiores rubricas' }).isVisible(), 'maiores rubricas: critério Empenhado');
     const forn = (await page.getByRole('table', { name: 'Empenhos por fornecedor' }).innerText()).replace(/\s+/g, ' ');
     ok(/Limpeza Urbana Ltda 2 R\$ 350\.000,00/.test(forn) && /LIGHT 1 R\$ 210\.000,00/.test(forn) && !/CANCELADA/.test(forn), 'fornecedor: nomes iguais com maiúsculas diferentes viram um só (350 mil, 2 empenhos)');
     ok((await page.getByRole('table', { name: 'Consumo da própria base' }).innerText()).includes('25%') && (await page.getByText(/Ainda sem medição da BNIC no período: Energia Elétrica/).isVisible()), 'consumo: 25% do complexo e aviso do que falta lançar (energia)');
+    await page.getByRole('table', { name: 'Consumo da própria base' }).getByText('Água e Esgoto').click();
+    ok((await page.getByRole('dialog').innerText()).includes('2ª maior de 2 OM') && (await page.getByRole('dialog').innerText()).includes('← BNIC') && (await page.getByRole('dialog').innerText()).includes('Arsenal de Marinha'), 'quem mais consome: a BNIC é a 2ª de 2 OM medidas e o ranking mostra as OM');
+    await page.keyboard.press('Escape');
+    await page.getByRole('table', { name: 'Empenhos por fornecedor' }).getByText('Limpeza Urbana Ltda').click();
+    ok((await page.getByRole('dialog').getByRole('table', { name: 'Detalhe' }).locator('tbody tr').count()) === 3, 'clicar no fornecedor abre as notas dele (as duas grafias juntas)');
+    await page.keyboard.press('Escape');
+    // administrador: junta fornecedores com nomes diferentes (sem alterar as notas) e desfaz
+    db.cash_flow_exits.push(ne('2026NE000005', '2026-06-10', 'Light Serviços de Eletricidade S.A.', 40000, null, 'ENERGIA'));
+    await page.getByRole('button', { name: 'Atualizar' }).click();
+    await page.getByRole('button', { name: /Juntar Light Serviços de Eletricidade S\.A\. com outro fornecedor/ }).waitFor();
+    await page.getByRole('button', { name: /Juntar Light Serviços de Eletricidade S\.A\. com outro fornecedor/ }).click();
+    await page.getByLabel('Fornecedor de destino').selectOption('LIGHT');
+    await page.getByRole('button', { name: 'Juntar', exact: true }).click();
+    await page.getByText('Fornecedores juntados.').waitFor();
+    await page.getByText(/inclui: Light Serviços de Eletricidade S\.A\./).waitFor();
+    const forn2 = (await page.getByRole('table', { name: 'Empenhos por fornecedor' }).innerText()).replace(/\s+/g, ' ');
+    ok(/LIGHT inclui: Light Serviços de Eletricidade S\.A\. 2 R\$ 250\.000,00/.test(forn2) && db.parametros.some(x => x.chave === 'gastos_fornecedores_unidos') && db.cash_flow_exits.some(e => e.client === 'Light Serviços de Eletricidade S.A.'), 'fornecedores juntados: LIGHT soma 250.000 e as notas continuam com o nome original');
+    await page.getByRole('button', { name: /Desfazer a junção de LIGHT/ }).click();
+    await page.getByText('Junção desfeita.').waitFor();
+    await page.getByRole('button', { name: /Juntar Light Serviços de Eletricidade S\.A\. com outro fornecedor/ }).waitFor();
+    ok(/Light Serviços de Eletricidade S\.A\. 1 R\$ 40\.000,00/.test((await page.getByRole('table', { name: 'Empenhos por fornecedor' }).innerText()).replace(/\s+/g, ' ')), 'junção desfeita: voltam os dois fornecedores');
+    // administrador: ajusta o grupo de uma rubrica
+    await page.getByRole('button', { name: /Editar grupos/ }).click();
+    await page.getByLabel('Grupo da rubrica 12').selectOption('infra');
+    await page.getByRole('button', { name: 'Gravar grupos' }).click();
+    await page.getByText('Grupos gravados.').waitFor();
+    await page.getByRole('table', { name: 'Previsto, empenhado e recebido por grupo' }).getByRole('row').filter({ hasText: 'Infraestrutura e manutenção predial' }).waitFor();
+    const lInfra = (await page.getByRole('table', { name: 'Previsto, empenhado e recebido por grupo' }).getByRole('row').filter({ hasText: 'Infraestrutura e manutenção predial' }).innerText()).replace(/\s+/g, ' ');
+    ok(/R\$ 1\.000\.000,00 R\$ 350\.000,00/.test(lInfra) && JSON.parse(db.parametros.find(x => x.chave === 'gastos_grupos_rubricas').valor)['12'] === 'infra', `grupo escolhido à mão: a rubrica 12 passou para Infraestrutura (${lInfra})`);
+    await page.getByRole('button', { name: /Editar grupos/ }).click();
+    await page.getByLabel('Grupo da rubrica 12').selectOption('');
+    await page.getByRole('button', { name: 'Gravar grupos' }).click();
+    await page.getByText('Grupos gravados.').last().waitFor();
     // período: só até março → só o empenho de março
     await page.getByLabel('Período final').fill('2026-03');
     await page.waitForTimeout(400);
@@ -1862,7 +1922,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     const resumo = page.locator('#painel-gastos');
     await resumo.getByText('R$ 1.600.000,00').waitFor();
-    ok((await resumo.innerText()).includes('R$ 560.000,00') && (await resumo.innerText()).includes('Parte da BNIC no rateio'), 'painel: resumo dos gastos com os mesmos números da página');
+    ok((await resumo.innerText()).includes('R$ 600.000,00') && (await resumo.innerText()).includes('Parte da BNIC no rateio'), 'painel: resumo dos gastos com os mesmos números da página');
     await page.getByRole('button', { name: 'Ver detalhes dos gastos da BNIC' }).click();
     await page.getByRole('heading', { name: 'Gastos da BNIC' }).waitFor();
     ok(true, 'o resumo do painel abre a página Gastos da BNIC');
