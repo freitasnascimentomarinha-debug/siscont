@@ -182,7 +182,7 @@ export const db = {
       usado.set(a.documentId, (usado.get(a.documentId) || 0) + a.amount);
     });
     const pontos = avaliarPontos(invoices, docs, allocations).documentos;
-    return docs.map(doc => ({ ...doc, availableValue: doc.totalValue - (usado.get(doc.id) || 0), pontos: pontos.get(doc.id) || [] }));
+    return docs.map(doc => ({ ...doc, availableValue: Math.round((doc.totalValue - (usado.get(doc.id) || 0)) * 100) / 100, /* centavos: evita resíduo de ponto flutuante (0,0000000000036 aparecia como saldo R$ 0,00) */ pontos: pontos.get(doc.id) || [] }));
   },
 
   // --- PONTOS DE ATENÇÃO ---
