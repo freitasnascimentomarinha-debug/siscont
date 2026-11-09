@@ -8,6 +8,7 @@ import { VisaoGeral } from '../components/painel/VisaoGeral';
 import { OMsTab } from '../components/painel/OMsTab';
 import { ContestacoesTab } from '../components/painel/ContestacoesTab';
 import { EquipeTab } from '../components/painel/EquipeTab';
+import { PlanilhaCongestionamento } from '../components/painel/PlanilhaCongestionamento';
 import { AbaPainel, CtxPainel } from '../components/painel/tipos';
 import { adiantamentosComSaldo, carregarBase, listarCobrancas, saldosParados } from '../services/relatoriosService';
 import { listarContestacoes } from '../services/fase4Service';
@@ -102,6 +103,13 @@ export const PainelEncarregado: React.FC = () => {
     return { bs: lista, idx: baixasPorFatura(lista) };
   }, [base, fs]);
 
+  // baixas de TODAS as faturas (a planilha de congestionamento não depende dos filtros da tela)
+  const idxTodas = useMemo(() => {
+    if (!base) return new Map<string, BaixaGer[]>();
+    const docPorId = new Map(base.docs.map(d => [d.id, d]));
+    return baixasPorFatura(base.baixas.map(a => ({ invoiceId: a.invoiceId, docId: a.documentId, valor: a.amount, data: a.date, adiantamento: ehAdiantamento(a, docPorId.get(a.documentId)) })));
+  }, [base]);
+
   // documentos (ALTCRED/GRU): só os do recorte (público, setor, comando)
   const docNoRecorte = (d: { client: string; sector?: string; command?: string; ug?: string | null; comandoId?: string | null }) => {
     const om = resolv?.omDoDocumento(d as any);
@@ -170,6 +178,8 @@ export const PainelEncarregado: React.FC = () => {
           <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
         </div>
       </div>
+
+      {base && <PlanilhaCongestionamento faturas={todas} idx={idxTodas} hoje={hoje} />}
 
       {base && (
         <section aria-label="Filtros" className="bg-white rounded-xl border border-slate-200 p-3 space-y-2">

@@ -20,6 +20,7 @@ function novoBanco() {
     setores: ['COMOPNAV', 'DGMM', 'EXTRA-MB'].map((s, i) => ({ id: uid(), sigla: s, nome: null, ordem: (i + 1) * 10, ativo: true })),
     comandos: [], classes_navio: [], oms: [],
     service_definitions: [{ id: uid(), name: 'Água e Esgoto', unit_measure: 'M³', acronym: 'AE', nome_oficial: 'FORNECIMENTO DE ÁGUA POTÁVEL E COLETA DE ESGOTO', anexo_oi: 'Anexo C', ordem: 20, ativo: true }],
+    divida_mensal: [{ mes: '2026-08', valor: 3503293.31, origem: 'planilha' }],
     parametros: [{ chave: 'prazo_certificacao_dias_uteis', valor: '10', descricao: 'Data-limite de certificação no SIPLAD' }],
     feriados: [{ data: '2026-11-02', descricao: 'Finados', tipo: 'NACIONAL' }],
     profiles: [{ id: 'a1', name: 'CC Admin', email: 'admin@mb.br', role: 'ADMIN', active: true }],
@@ -104,7 +105,7 @@ function handler(db, log) {
       for (const l of linhas) {
         if (t === 'oms' && db.oms.some(o => o.codigo === l.codigo && o.nome.toLowerCase() === l.nome.toLowerCase())) return json(409, { code: '23505', message: 'duplicate key value violates unique constraint "oms_codigo_nome_uk"' });
         if (t === 'feriados') { db.feriados = db.feriados.filter(f => f.data !== l.data); }
-        const PK = { propostas_tc: ['ano'], rubricas: ['ano', 'numero'], parametros: ['chave'] };
+        const PK = { propostas_tc: ['ano'], rubricas: ['ano', 'numero'], parametros: ['chave'], divida_mensal: ['mes'] };
         const conflito = (url.searchParams.get('on_conflict') || '').split(',').filter(Boolean);
         if (!conflito.length && !l.id && PK[t]) conflito.push(...PK[t]);
         const ja = (l.id && db[t].find(r => r.id === l.id)) || (conflito.length && db[t].find(r => conflito.every(c => String(r[c]) === String(l[c]))));
@@ -1096,6 +1097,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.keyboard.press('Escape');
     ok(await page.getByText('Idade da dívida', { exact: true }).isVisible() && await page.getByText('Faturamento × recebimentos').isVisible() && await page.getByText('Evolução da inadimplência').isVisible() && await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'gráficos: idade da dívida, faturado × recebido, evolução da inadimplência e saldos parados');
     ok((await page.getByRole('list', { name: 'Valor por faixa de atraso' }).innerText()).includes('R$ 24.114,60'), 'faixas de atraso: a vencer R$ 24.114,60');
+    // planilha do gráfico de congestionamento: baixa o .xlsx e registra o fechamento do mês na série
+    const [dlc] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar planilha (.xlsx)' }).click()]);
+    ok(/GRAFICO_CONGEST_[A-Z]{3}_\d{4}\.xlsx/.test(dlc.suggestedFilename()), `planilha de congestionamento gerada (${dlc.suggestedFilename()})`);
+    for (let i = 0; i < 20 && db.divida_mensal.length < 2; i++) await page.waitForTimeout(250);
+    ok(db.divida_mensal.length === 2 && db.divida_mensal.some(x => x.origem === 'sistema'), 'fechamento do mês registrado na série da dívida');
     // filtros integrados: público Extra-MB zera tudo; limpar volta
     await page.getByRole('radio', { name: 'Extra-MB' }).click();
     await page.getByText('0 faturas no recorte').waitFor();
