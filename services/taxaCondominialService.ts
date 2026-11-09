@@ -262,6 +262,13 @@ export async function publicar(ano: number, r: ResultadoRateio, usuario: string,
   return precos.length;
 }
 
+/** Ids das OM cadastradas na matriz do ano (com ao menos uma linha marcada): só elas pagam taxa condominial. */
+export async function omsNaMatriz(ano: number): Promise<string[]> {
+  const { data, error } = await lerTudo('matriz_tc', q => q.eq('ano', ano), ['rubrica', 'om_id'], 'om_id');
+  checar(error);
+  return [...new Set((data || []).map((m: any) => m.om_id as string))];
+}
+
 /** TC mensal e diária do ano anterior (para os comparativos). */
 export async function tcAnterior(ano: number, sigla: 'TC' | 'DA' = 'TC') {
   const p = (await listarPrecos([ano - 1])).filter(x => x.sigla === sigla && x.omId);

@@ -15,6 +15,8 @@ export interface DadosResumo {
   servicos: { sigla: string; nome: string }[];
   /** OM (não extra-MB) ativas: base do preço da taxa condominial */
   omsTC: string[];
+  /** true quando omsTC são as OM da matriz da taxa do ano (sem matriz, vale o cadastro inteiro) */
+  omsTCDaMatriz?: boolean;
   medicoes: { sigla: string; omId: string }[];
   atracacoesRealizadas: { omId: string }[];
   /** preços do ano da competência */
@@ -37,7 +39,7 @@ export function resumoDoMes(d: DadosResumo): ItemResumo[] {
     const n = d.omsTC.filter(id => com.has(id)).length;
     out.push({ id: 'preco-TC', rotulo: `Taxa condominial ${partes(d.comp).ano}`, aba: 'precos',
       status: n === 0 ? 'pendente' : n < d.omsTC.length ? 'aviso' : 'ok',
-      detalhe: n === 0 ? 'Nenhum preço carregado. Publique na página Taxa condominial e diárias ou importe a tabela da TC.' : `${n} de ${d.omsTC.length} OM com preço${n < d.omsTC.length ? ' (as demais não geram fatura de TC)' : ''}.` });
+      detalhe: n === 0 ? 'Nenhum preço carregado. Publique na página Taxa condominial e diárias ou importe a tabela da TC.' : `${n} de ${d.omsTC.length} OM ${d.omsTCDaMatriz ? 'da matriz' : 'ativas'} com preço${n < d.omsTC.length ? (d.omsTCDaMatriz ? ' (as demais da matriz ainda não têm preço publicado)' : ' (as demais não geram fatura de TC)') : ''}.` });
   }
   if (tem('DA')) {
     const comPreco = new Set(d.precos.filter(p => p.sigla === 'DA' && p.omId).map(p => p.omId!));

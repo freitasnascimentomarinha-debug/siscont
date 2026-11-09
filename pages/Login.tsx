@@ -77,7 +77,7 @@ export const Login: React.FC = () => {
 
         <div className="text-center mb-8">
           <img src="/logo-siscont.png" alt="SISCONT" className="mx-auto h-36 w-auto mb-2" />
-          <p className="text-slate-500 text-sm font-medium uppercase tracking-widest">Sist. de Controle de Faturas</p>
+          <p className="text-slate-500 text-sm font-medium uppercase tracking-widest">Sistema da Contabilidade</p>
           {mode === 'forgot' && <KeyRound size={22} className="mx-auto mt-3 text-primary-600" aria-hidden />}
           {title && <p className="mt-3 text-sm font-bold text-primary-700">{title}</p>}
         </div>

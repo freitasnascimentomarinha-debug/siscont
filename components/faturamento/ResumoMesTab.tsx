@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from 'lucide-react';
+import { omsNaMatriz } from '../../services/taxaCondominialService';
 import { ContextoFaturamento, listarAtracacoes, listarLotes, listarMedicoes, listarPrecos } from '../../services/faturamentoService';
 import { partes, referencia } from '../../utils/faturamento';
 import { AbaFaturamento, ItemResumo, pendencias, resumoDoMes } from '../../utils/resumoFaturamento';
@@ -26,9 +27,12 @@ export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; se
     try {
       const [med, atr, precos, lotes] = await Promise.all([listarMedicoes([comp]), listarAtracacoes([comp]), listarPrecos([partes(comp).ano]), listarLotes().catch(() => [])]);
       const { ano, mes } = partes(comp);
+      // a taxa condominial só é emitida para OM cadastrada na matriz do ano (menos a emissora, que não recebe fatura)
+      const daMatriz = (await omsNaMatriz(ano).catch(() => [] as string[])).filter(id => id !== ctx.emissora?.omId);
       setItens(resumoDoMes({
         comp, servicos: ctx.servicos.map(s => ({ sigla: s.sigla, nome: s.nome })),
-        omsTC: ctx.omsFat.filter(o => o.ativo && o.tipo !== 'EXTRA_MB').map(o => o.id),
+        omsTC: daMatriz.length ? daMatriz : ctx.omsFat.filter(o => o.ativo && o.tipo !== 'EXTRA_MB').map(o => o.id),
+        omsTCDaMatriz: daMatriz.length > 0,
         medicoes: med.map(m => ({ sigla: m.sigla, omId: m.omId })),
         atracacoesRealizadas: atr.filter(a => !a.previsao && (a.diasAtracado ?? 0) > 0).map(a => ({ omId: a.omId })),
         precos: precos.map(p => ({ sigla: p.sigla, omId: p.omId })), nomeOM: id => nomes.get(id) || 'OM',

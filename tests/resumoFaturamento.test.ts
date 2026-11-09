@@ -23,6 +23,11 @@ describe('quadro de pendências do mês', () => {
     expect(r.find(i => i.id === 'preco-DA')!.detalhe).toContain('OM n2');
     expect(st(resumoDoMes({ ...base, precos: ['a', 'b', 'c'].map(o => ({ sigla: 'TC', omId: o })) }), 'preco-TC')).toBe('ok');
   });
+  it('TC: a base são as OM da matriz — quem tem preço e está na matriz fecha "ok" (sem alerta pelas demais OM do cadastro)', () => {
+    const r = resumoDoMes({ ...base, omsTC: ['a', 'b'], omsTCDaMatriz: true, precos: [{ sigla: 'TC', omId: 'a' }, { sigla: 'TC', omId: 'b' }] });
+    expect(st(r, 'preco-TC')).toBe('ok');
+    expect(r.find(i => i.id === 'preco-TC')!.detalhe).toBe('2 de 2 OM da matriz com preço.');
+  });
   it('medição e atracação lançadas ficam ok; lote já emitido ou faturas existentes são informados', () => {
     const r = resumoDoMes({ ...base, medicoes: [{ sigla: 'EL', omId: 'a' }, { sigla: 'EL', omId: 'a' }], atracacoesRealizadas: [{ omId: 'n1' }], faturasDaCompetencia: 7 });
     expect(st(r, 'medicao-EL')).toBe('ok'); expect(r.find(i => i.id === 'medicao-EL')!.detalhe).toContain('1 OM');
