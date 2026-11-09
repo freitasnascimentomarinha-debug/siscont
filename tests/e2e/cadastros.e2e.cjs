@@ -1097,9 +1097,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.keyboard.press('Escape');
     ok(await page.getByText('Idade da dívida', { exact: true }).isVisible() && await page.getByText('Faturamento × recebimentos').isVisible() && await page.getByText('Evolução da inadimplência').isVisible() && await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'gráficos: idade da dívida, faturado × recebido, evolução da inadimplência e saldos parados');
     ok((await page.getByRole('list', { name: 'Valor por faixa de atraso' }).innerText()).includes('R$ 24.114,60'), 'faixas de atraso: a vencer R$ 24.114,60');
-    // planilha do gráfico de congestionamento: baixa o .xlsx e registra o fechamento do mês na série
+    // planilha do gráfico CONGEST (Conselho de Gestão): baixa o .xlsx e registra o fechamento do mês na série
     const [dlc] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Baixar planilha (.xlsx)' }).click()]);
-    ok(/GRAFICO_CONGEST_[A-Z]{3}_\d{4}\.xlsx/.test(dlc.suggestedFilename()), `planilha de congestionamento gerada (${dlc.suggestedFilename()})`);
+    ok(/GRAFICO_CONGEST_[A-Z]{3}\d{2}\.xlsx/.test(dlc.suggestedFilename()), `planilha do CONGEST gerada (${dlc.suggestedFilename()})`);
     for (let i = 0; i < 20 && db.divida_mensal.length < 2; i++) await page.waitForTimeout(250);
     ok(db.divida_mensal.length === 2 && db.divida_mensal.some(x => x.origem === 'sistema'), 'fechamento do mês registrado na série da dívida');
     // filtros integrados: público Extra-MB zera tudo; limpar volta
@@ -1144,8 +1144,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await tAtiv.innerText()).includes('sem usuário (importação/script)') && await page.getByText(/não avaliação de desempenho/).first().isVisible() && await page.getByText(/ainda não existem; nenhum número inventado/).isVisible(), 'sem usuário separado, aviso de que não é avaliação de desempenho e do que falta registrar');
     ok((await page.getByRole('table', { name: 'Ações em contestações' }).innerText()).includes('Maria'), 'andamento das contestações por usuário');
     // PDF resumo
-    const [pdfPainel] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF resumo' }).click()]);
+    const [pdfPainel] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF com gráficos' }).click()]);
     ok(/^painel_encarregado_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfPainel.suggestedFilename()), `PDF resumo do painel gerado (${pdfPainel.suggestedFilename()})`);
+    const [xlsPainel] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel com gráficos' }).click()]);
+    ok(/^painel_encarregado_\d{4}-\d{2}-\d{2}\.xlsx$/.test(xlsPainel.suggestedFilename()), `Excel do painel gerado (${xlsPainel.suggestedFilename()})`);
+    const zipX = await (await require('jszip').loadAsync(fs.readFileSync(await xlsPainel.path())));
+    ok(Object.keys(zipX.files).filter(n => /^xl\/charts\/chart\d+\.xml$/.test(n)).length === 4, 'Excel do painel traz os 4 gráficos nativos');
     await page.getByRole('tab', { name: 'Visão geral' }).click();
     await page.waitForTimeout(1500); // animação dos gráficos
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-painel.png'), fullPage: true });

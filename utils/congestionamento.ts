@@ -1,9 +1,10 @@
 /**
- * Planilha mensal "Gráfico de congestionamento": dívida geral mês a mês, e faturamento × dívida por ODS (setor)
+ * Planilha mensal "Gráfico CONGEST" (Conselho de Gestão): dívida geral mês a mês, e faturamento × dívida por ODS (setor)
  * do ano anterior, do ano corrente e dos dois juntos. Mesmo posicionamento das células do modelo (ODS), para que
  * os gráficos da planilha de vocês continuem apontando para os mesmos intervalos.
  */
 import * as XLSX from 'xlsx';
+import { injetarGraficos } from './xlsxGraficos';
 import { BaixaGer, FaturaGer, abertoNaData, fimDoMes, somaMeses, vencidoNaData } from './painelGerencial';
 
 export type CriterioDivida = 'vencido' | 'aberto';
@@ -40,6 +41,8 @@ export interface DadosCongestionamento {
   quadroAnterior: LinhaODS[]; quadroAtual: LinhaODS[];
   serie: { mes: string; valor: number | null }[]; // 13 meses terminando em `mes`
   criterio: CriterioDivida;
+  /** mês do CONGEST (AAAA-MM): o gráfico é de novembro, com a posição dos dados em outubro (`mes`) */
+  mesCongest?: string;
 }
 
 /** Os 13 meses que terminam em `mes`, com o valor guardado (ou o calculado, no último). */
@@ -82,8 +85,8 @@ export function planilhaCongestionamento(d: DadosCongestionamento): XLSX.WorkBoo
     const a = get(d.quadroAnterior, o), c = get(d.quadroAtual, o);
     return { ods: o, b: r2(a.faturamento + c.faturamento), c: r2(a.divida + c.divida), fb: `B${t1 + 1 + i}+B${t2 + 1 + i}`, fc: `C${t1 + 1 + i}+C${t2 + 1 + i}` };
   }));
-  put(`A${t3 + n + 3}`, `Posição em ${fimDoMes(d.mes).split('-').reverse().join('/')} · dívida = ${d.criterio === 'vencido' ? 'saldo vencido' : 'saldo em aberto (vencido + a vencer)'} · faturas canceladas fora · contestadas fora da dívida`);
-  ws['!ref'] = `A1:D${t3 + n + 3}`; ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 20 }, { wch: 14 }];
+  put(`A${t3 + n + 3}`, `${d.mesCongest ? `CONGEST de ${rotuloMes(d.mesCongest)} · ` : ''}Posição em ${fimDoMes(d.mes).split('-').reverse().join('/')} · dívida = ${d.criterio === 'vencido' ? 'saldo vencido' : 'saldo em aberto (vencido + a vencer)'} · faturas canceladas fora · contestadas fora da dívida`);
+  ws['!ref'] = `A1:D${t3 + n + 3}`; ws['!rows'] = Array.from({ length: t3 + n + 3 }, () => ({ hpt: 15 })); ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 20 }, { wch: 14 }];
 
   // dívida por ODS (valor e % do total) — quadro da pizza
   const tot = ods.map(o => ({ ods: o, v: r2(get(d.quadroAnterior, o).divida + get(d.quadroAtual, o).divida) }));
@@ -97,4 +100,23 @@ export function planilhaCongestionamento(d: DadosCongestionamento): XLSX.WorkBoo
   XLSX.utils.book_append_sheet(wb, ws, `Dívida Geral ${ano}`);
   XLSX.utils.book_append_sheet(wb, ws2, 'Dívida Geral');
   return wb;
+}
+
+const anosTitulo = (d: DadosCongestionamento) => `${Number(d.mes.slice(0, 4)) - 1}/${d.mes.slice(0, 4)}`;
+
+/** Arquivo .xlsx final: a planilha acima com dois gráficos (fechamento da dívida mês a mês e faturamento × dívida por ODS). */
+export async function arquivoCongest(d: DadosCongestionamento): Promise<Uint8Array> {
+  const wb = planilhaCongestionamento(d);
+  const aba = wb.SheetNames[0];
+  const n = setoresOrdenados(d.quadroAnterior, d.quadroAtual).length, t3 = 35 + 2 * (n + 6);
+  const q = `'${aba}'`;
+  const bruto = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  return injetarGraficos(bruto, aba, [
+    { titulo: 'Dívida Geral — fechamento de cada mês', de: { col: 0, row: 18 }, ate: { col: 6, row: 33 }, formato: '#,##0',
+      series: [{ nome: 'Dívida', cat: `${q}!$A$5:$A$17`, val: `${q}!$B$5:$B$17`, cor: '#d03b3b', tipo: 'bar' }] },
+    { titulo: `Faturamento × dívida por ODS (${anosTitulo(d)})`, de: { col: 7, row: 18 }, ate: { col: 16, row: 33 }, formato: '#,##0',
+      series: [
+        { nome: 'Faturamento', cat: `${q}!$A$${t3 + 1}:$A$${t3 + n}`, val: `${q}!$B$${t3 + 1}:$B$${t3 + n}`, cor: '#2a78d6', tipo: 'bar' },
+        { nome: 'Dívida', cat: `${q}!$A$${t3 + 1}:$A$${t3 + n}`, val: `${q}!$C$${t3 + 1}:$C$${t3 + n}`, cor: '#d03b3b', tipo: 'bar' }] },
+  ]);
 }

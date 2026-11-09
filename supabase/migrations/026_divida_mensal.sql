@@ -1,5 +1,5 @@
 -- =====================================================================
--- SISCONT - 026: Dívida de cada fim de mês (gráfico de congestionamento)
+-- SISCONT - 026: Dívida de cada fim de mês (gráfico CONGEST, do Conselho de Gestão)
 -- ---------------------------------------------------------------------
 -- Idempotente: pode ser executado novamente.
 -- Guarda o valor que fechou a dívida vencida de cada mês, para o quadro

@@ -6,7 +6,7 @@ const f = (o: Partial<FaturaGer>): FaturaGer => ({ id: 'x', numero: 'n', cliente
 const idx = baixasPorFatura([{ invoiceId: 'b', docId: 'd', valor: 400, data: '2026-03-10', adiantamento: false }]);
 const fs = [f({ id: 'a' }), f({ id: 'b', saldo: 600 }), f({ id: 'c', setor: 'SGM', vencimento: '2026-05-01' }), f({ id: 'd', cancelada: true }), f({ id: 'e', ano: 2025, total: 500, saldo: 500, vencimento: '2025-12-01', emissao: '2025-11-01' })];
 
-describe('congestionamento', () => {
+describe('CONGEST (Conselho de Gestão)', () => {
   it('dívida só vencida × todo em aberto, reconstruída pela data', () => {
     const q = quadroPorODS(fs, idx, '2026-11-09', '2026-04-30', 2026, 'vencido');
     expect(q.find(l => l.ods === 'DGMM')).toEqual({ ods: 'DGMM', faturamento: 2000, divida: 1600 }); // 1000 + (1000 − 400 pago em 10/03)

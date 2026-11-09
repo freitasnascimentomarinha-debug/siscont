@@ -23,6 +23,8 @@ import {
   BaixaGer, FaturaGer, Recebimento, analisarContestacoes, baixasPorFatura, criteriosDe, gerarAlertas, linhasOM, mesDe,
 } from '../utils/painelGerencial';
 import { pdfPainel } from '../utils/pdfPainel';
+import { excelPainel } from '../utils/excelPainel';
+import { baixarBytes } from '../utils/baixarArquivo';
 
 type Base = Awaited<ReturnType<typeof carregarBase>>;
 const ABAS: { id: AbaPainel; rotulo: string }[] = [
@@ -103,7 +105,7 @@ export const PainelEncarregado: React.FC = () => {
     return { bs: lista, idx: baixasPorFatura(lista) };
   }, [base, fs]);
 
-  // baixas de TODAS as faturas (a planilha de congestionamento não depende dos filtros da tela)
+  // baixas de TODAS as faturas (a planilha do CONGEST não depende dos filtros da tela)
   const idxTodas = useMemo(() => {
     if (!base) return new Map<string, BaixaGer[]>();
     const docPorId = new Map(base.docs.map(d => [d.id, d]));
@@ -162,6 +164,12 @@ export const PainelEncarregado: React.FC = () => {
     } catch (e) { notify.fail('Não foi possível gerar o PDF', e); }
   };
 
+  const gerarExcel = async () => {
+    try {
+      baixarBytes(await excelPainel({ hoje, periodo, fs, bs, idx, recebimentos, linhas, alertas, contest, criterios, parados, adiantamentos, filtros: filtrosAtivos.map(([r, v]) => `${r}: ${v}`), atualizadoEm }), `painel_encarregado_${hoje}.xlsx`);
+    } catch (e) { notify.fail('Não foi possível gerar o Excel', e); }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-start gap-3 flex-wrap">
@@ -174,7 +182,8 @@ export const PainelEncarregado: React.FC = () => {
           {base && (integro
             ? <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200" title={`${todas.length} faturas e ${base.baixas.length} baixas lidas, sem inconsistências apontadas`}><ShieldCheck size={13} />Dados íntegros</span>
             : <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200" title={`${semOM} fatura(s) sem OM ligada ao cadastro e ${comPonto} com ponto de atenção (página Pontos de Atenção). Os números do painel usam o que está gravado.`}><TriangleAlert size={13} />{comPonto} com ponto de atenção{semOM ? ` · ${semOM} sem OM` : ''}</span>)}
-          <Button size="sm" variant="secondary" onClick={gerarPdf} disabled={!base}>PDF resumo</Button>
+          <Button size="sm" variant="secondary" onClick={gerarPdf} disabled={!base}>PDF com gráficos</Button>
+          <Button size="sm" variant="secondary" onClick={gerarExcel} disabled={!base}>Excel com gráficos</Button>
           <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
         </div>
       </div>
