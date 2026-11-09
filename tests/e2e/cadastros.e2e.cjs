@@ -1452,6 +1452,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText(/1 de 2 conferem/).isVisible() && (await page.getByText(/1 de 2 conferem/).innerText()).includes('AMRJ'), 'conferência com o valor fechado da planilha aponta a OM diferente (AMRJ)');
     await page.getByRole('row').filter({ hasText: 'AMRJ' }).first().click();
     ok((await page.locator('table').last().innerText()).includes('R$ 166.912,50 ✓'), 'extrato da AMRJ confere rubrica a rubrica com a aba do cliente');
+    // PDF da proposta e do resultado da taxa (Anexo B, rubricas e descontos), para anexar a processo
+    const [pdfTaxa] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /^PDF \(proposta e resultado\)/ }).click()]);
+    const txtTaxa = fs.readFileSync(await pdfTaxa.path(), 'latin1');
+    if (SHOTS) fs.copyFileSync(await pdfTaxa.path(), path.join(SHOTS, 'taxa_condominial.pdf'));
+    ok(pdfTaxa.suggestedFilename() === 'taxa_condominial_2026.pdf' && txtTaxa.includes('Anexo B') && txtTaxa.includes('SecNSNQ') && txtTaxa.includes('1.483,78') && txtTaxa.includes('Rubricas da taxa condominial') && txtTaxa.includes('P\xe1gina 1 de'), `PDF da taxa condominial gerado com o Anexo B e as rubricas (${pdfTaxa.suggestedFilename()})`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-resultado.png'), fullPage: true });
     // diárias: 50% de 200.000 = 100.000 ÷ (148×28×12) × 148 = 297,62/dia
     await page.getByRole('button', { name: '7. Resultado das diárias' }).click();
@@ -1917,6 +1922,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Período final').fill('2026-12');
     const [xl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
     ok(/^gastos_bnic_2026_2026-01_2026-12\.xlsx$/.test(xl.suggestedFilename()), `Excel dos gastos (${xl.suggestedFilename()})`);
+    const [pdfG] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
+    const txtG = fs.readFileSync(await pdfG.path(), 'latin1');
+    ok(pdfG.suggestedFilename() === 'gastos_bnic_2026_2026-01_2026-12.pdf' && txtG.includes('Gastos da BNIC') && txtG.includes('Previsto, empenhado e recebido por grupo') && txtG.includes('1.600.000,00') && txtG.includes('Limpeza Urbana') && txtG.includes('Total das rubricas'), `PDF dos gastos gerado com grupos, empenhos e fornecedores (${pdfG.suggestedFilename()})`);
+    if (SHOTS) fs.copyFileSync(await pdfG.path(), path.join(SHOTS, 'gastos_bnic.pdf'));
     // resumo no Painel do Encarregado, com o mesmo número, e atalho para a página
     await page.getByRole('button', { name: 'Painel do Encarregado' }).first().click();
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();

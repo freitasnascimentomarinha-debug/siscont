@@ -13,6 +13,8 @@ import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
 import { CATEGORIAS_SEM_RUBRICA, Fornecedor, GrupoGasto, LinhaGasto, SUBGRUPOS, SubgrupoId, Utilidade, chaveFornecedor, grupoDaRubrica, mesDe } from '../utils/gastosBNIC';
 import { notify } from '../utils/notify';
+import { baixarRelatorio } from '../utils/pdfRelatorio';
+import { relatorioGastos } from '../utils/relatoriosPdf';
 import { hojeISO } from '../utils/datas';
 
 const COR_SEM = '#94a3b8';
@@ -92,6 +94,11 @@ export const GastosBNIC: React.FC = () => {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Serviço', 'Quantidade', 'Unidade', 'Valor (R$)', 'Total medido no complexo (R$)', '% da BNIC', 'Posição entre as OM'], ...utilidades.map(u => [u.nome, u.quantidade, u.unidade, u.valor, u.totalComplexo, u.pct === null ? '' : u.pct / 100, u.posicao ?? ''])]), 'Consumo da base');
     XLSX.writeFile(wb, `gastos_bnic_${ano}_${periodo.de}_${periodo.ate}.xlsx`);
   };
+  const exportarPdf = () => {
+    try {
+      baixarRelatorio(relatorioGastos({ ano, periodo, hoje, statusProposta: taxa?.status, gastos, utilidades, tcRecebida, quota: taxa?.quota ?? null, aRatear: taxa?.aRatear ?? 0 }));
+    } catch (e) { notify.fail('Não foi possível gerar o PDF', e); }
+  };
   const juntados = gastos.fornecedores.filter(f => f.variantes.length > 0);
   const alteradas = Object.keys(opcoes.grupos).length;
 
@@ -104,6 +111,7 @@ export const GastosBNIC: React.FC = () => {
           {taxa && <p className="text-xs text-slate-400 mt-0.5">Proposta {ano}: {taxa.status.toLowerCase()} · posição em {br(hoje)}</p>}
         </div>
         <div className="flex gap-2">
+          <Button size="sm" variant="secondary" onClick={exportarPdf} disabled={carregando || !taxa || gastos.grupos.length === 0}><Download size={14} className="mr-1" />PDF</Button>
           <Button size="sm" variant="secondary" onClick={exportar} disabled={carregando || !taxa}><Download size={14} className="mr-1" />Excel</Button>
           <Button size="sm" variant="ghost" onClick={() => setVersao(v => v + 1)} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
         </div>

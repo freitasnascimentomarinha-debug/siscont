@@ -14,6 +14,9 @@ import { ClienteModal } from './ClienteModal';
 import { ResultadoRateio } from '../../utils/taxaCondominial';
 import { lerAbas, lerProposta, ligarOMs } from '../../utils/taxaCondominialImport';
 import { acharNavio } from '../../utils/importMedicoes';
+import { baixarRelatorio } from '../../utils/pdfRelatorio';
+import { relatorioTaxa } from '../../utils/relatoriosPdf';
+import { hojeISO } from '../../utils/datas';
 
 const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`);
 
@@ -57,6 +60,18 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
     XLSX.writeFile(wb, da ? `diarias_atracacao_${ano}.xlsx` : `taxa_condominial_${ano}.xlsx`);
   };
 
+  /** PDF para anexar a processo: cartões, Anexo B (ou diárias por navio), rubricas e descontos. */
+  const exportarPdf = () => {
+    const bruto = (o: ResultadoRateio['oms'][number]) => Math.round(o.parcelas.reduce((s, p) => s + p.bruto, 0) * 100) / 100;
+    const rubricasPdf = da
+      ? resultado.valorRubricas.filter(v => v.valor > 0).map(v => ({ numero: v.numero, descricao: rub.get(v.numero)?.descricao || '', previsto: v.valor, descontoGeral: 0, vigente: v.valor }))
+      : dados.rubricas.filter(r => r.destino === 'TC' || r.destino === 'OG').map(r => ({ numero: r.numero, descricao: r.descricao, previsto: r.valorPrevisto, descontoGeral: r.descontoGeral, vigente: Math.round((r.valorPrevisto - r.descontoGeral) * 100) / 100 }));
+    baixarRelatorio(relatorioTaxa({
+      ano, modo, status: dados.proposta.status || 'PROPOSTA', hoje: hojeISO(), cartoes, custoMilitarDia: resultado.custoMilitarDia,
+      oms: resultado.oms.map(o => ({ nome: o.nome, lotacao: o.lotacao, dias: o.dias ?? null, anual: o.anual, mensal: o.mensal, percentual: o.percentual, bruto: bruto(o), descontos: o.descontos, diaria: o.diaria ?? null, semHistorico: o.regraDiaria === 'SEM_HISTORICO', anteriorMensal: antDe(o) ?? null, variacao: variacao(o) })),
+      rubricas: rubricasPdf, descontos: dados.descontos.map(d => ({ om: dados.oms.find(o => o.id === d.omId)?.nome || '', rubrica: d.rubrica === null ? 'Total' : `${d.rubrica} – ${rub.get(d.rubrica)?.descricao || ''}`, tipo: d.tipo, valor: d.valor, justificativa: d.justificativa })),
+    }));
+  };
   const cartoes: [string, string][] = da
     ? [['Valor destinado às diárias', brl(totalVig)], ['Navios', String(resultado.oms.length)], ['Custo por militar-dia', `R$ ${resultado.custoMilitarDia.toLocaleString('pt-BR', { minimumFractionDigits: 4 })}`], ['Diárias (soma de 1 dia de cada navio)', brl(resultado.oms.reduce((s, o) => s + (o.diaria || 0), 0))]]
     : [['Taxas condominiais (rubricas)', brl(liqPor('TC'))], ['Outros gastos', brl(liqPor('OG'))], ['Total rateado entre as OM', brl(resultado.total)], ['Descontos por OM', brl(descontos)], ['Taxa mensal (todas as OM)', brl(resultado.oms.reduce((s, o) => s + o.mensal, 0))]];
@@ -74,7 +89,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
         <b>Navios sem dias de atracação no histórico:</b> {semHist.map(o => o.nome).join(', ')}. Recebem a diária pela lotação = custo por militar-dia × lotação (como a "diária a ser considerada com base na lotação" da planilha).
       </Aviso>}
       {!resultado.oms.length && <Aviso>{da ? 'Nenhum navio com lotação no ano. Preencha a aba Navios ou importe a proposta.' : 'Nenhuma OM com lotação no ano. Preencha a aba Clientes e matriz ou importe a proposta.'}</Aviso>}
-      <div className="flex flex-wrap gap-2 justify-end"><Button variant="secondary" onClick={exportar} disabled={!resultado.oms.length}><Download size={16} className="mr-1" />{da ? 'Exportar Excel (diárias)' : `Exportar Excel (taxa, ${obterNormas().anexoTC}, extrato)`}</Button></div>
+      <div className="flex flex-wrap gap-2 justify-end"><Button variant="secondary" onClick={exportarPdf} disabled={!resultado.oms.length}><Download size={16} className="mr-1" />PDF {da ? '(diárias)' : '(proposta e resultado)'}</Button><Button variant="secondary" onClick={exportar} disabled={!resultado.oms.length}><Download size={16} className="mr-1" />{da ? 'Exportar Excel (diárias)' : `Exportar Excel (taxa, ${obterNormas().anexoTC}, extrato)`}</Button></div>
       <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[60vh] overflow-y-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>
