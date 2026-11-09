@@ -336,3 +336,22 @@ export async function rubricasConsolidadas(ano: number): Promise<{ rubricas: imp
   const calc = calcularTaxaAno(dados, ano, parametros as any);
   return { rubricas: consolidarRubricas(dados, calc), semRateio: !calc.resultado.oms.length, status: dados.proposta?.status || 'PROPOSTA' };
 }
+
+
+/**
+ * Base dos "Gastos da BNIC": rubricas do ano com o valor vigente (previsto) e a parte da OM emissora no rateio.
+ * Usa o mesmo cálculo da tela Taxa condominial e diárias, então os números não divergem.
+ */
+export async function taxaParaGastos(ano: number) {
+  const [{ calcularTaxaAno, consolidarRubricas }, { cadastroService }, { resolverEmissora }] = await Promise.all([import('../utils/taxaConsolidada'), import('./cadastroService'), import('../utils/emissora')]);
+  const [dados, parametros] = await Promise.all([carregarProposta(ano), cadastroService.listParametros().catch(() => [])]);
+  const calc = calcularTaxaAno(dados, ano, parametros as any);
+  const emissora = resolverEmissora(dados.oms, parametros as any);
+  const linha = emissora.omId ? calc.resultado.oms.find(o => o.omId === emissora.omId) : undefined;
+  return {
+    rubricas: consolidarRubricas(dados, calc), status: dados.proposta?.status || 'PROPOSTA',
+    emissora: { omId: emissora.omId, nome: emissora.nome, participaRateio: emissora.participaRateio },
+    quota: linha ? { anual: linha.anual, mensal: linha.mensal, percentual: linha.percentual } : null,
+    aRatear: calc.resultado.total,
+  };
+}

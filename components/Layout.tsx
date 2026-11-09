@@ -21,6 +21,7 @@ import {
   Landmark,
   DatabaseBackup,
   Briefcase,
+  Coins,
 } from 'lucide-react';
 import { ultimoBackup } from '../services/auditoriaService';
 import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
@@ -63,6 +64,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       { id: 'extramb', label: 'Extra-Marinha', icon: Briefcase, dica: 'Clientes de fora da Marinha: faturas, GRU, extrato por cliente e e-mail de envio' },
     ] },
     { titulo: 'Contabilidade de custos', itens: [
+      { id: 'gastos', label: 'Gastos da BNIC', icon: Coins, dica: 'Previsto, empenhado, consumo da base e fornecedores, por grupo de gasto' },
       { id: 'cashflow', label: 'Fluxo de caixa', icon: ArrowLeftRight, dica: 'Saídas (NE), saldo mensal, condomínio por rubrica e disponível' },
       { id: 'taxa', label: 'Taxa condominial e diárias', icon: Landmark, dica: 'Rotina anual: proposta da taxa, média trienal e diárias de atracação' },
     ] },

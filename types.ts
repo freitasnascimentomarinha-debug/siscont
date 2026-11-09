@@ -52,14 +52,14 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 /**
  * Páginas que cada perfil vê:
  *  - Administrador: todas;  - Operador: todas, exceto Administração;
- *  - Consulta: só o Painel inicial;  - Encarregado: Painel inicial e Painel do Encarregado.
+ *  - Consulta: só o Painel inicial;  - Encarregado: Painel inicial, Painel do Encarregado e Gastos da BNIC (só consulta).
  * (null = todas as páginas, menos as listadas em `exceto`)
  */
 export const PAGINAS_DO_PERFIL: Record<UserRole, { somente?: string[]; exceto?: string[] }> = {
   [UserRole.ADMIN]: {},
   [UserRole.USER]: { exceto: ['admin'] },
   [UserRole.READ_ONLY]: { somente: ['dashboard'] },
-  [UserRole.ENCARREGADO]: { somente: ['dashboard', 'painel'] },
+  [UserRole.ENCARREGADO]: { somente: ['dashboard', 'painel', 'gastos'] },
 };
 /** Só administrador e operador incluem, alteram e excluem (Consulta e Encarregado só visualizam e exportam). */
 export const podeEditarDados = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.USER;

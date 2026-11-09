@@ -5,6 +5,7 @@ import { Faturamento } from './pages/Faturamento';
 import { Contestacoes } from './pages/Contestacoes';
 import { Cobranca } from './pages/Cobranca';
 import { PainelEncarregado } from './pages/PainelEncarregado';
+import { GastosBNIC } from './pages/GastosBNIC';
 import { TaxaCondominial } from './pages/TaxaCondominial';
 import { ExtraMarinha } from './pages/ExtraMarinha';
 import React, { useState, useEffect } from 'react';
@@ -26,13 +27,20 @@ import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
 
-export type PageID = 'dashboard' | 'painel' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'cobranca' | 'conciliacao' | 'contestacoes' | 'pontos' | 'taxa' | 'auditoria' | 'cadastros' | 'admin' | 'extramb';
+export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'cobranca' | 'conciliacao' | 'contestacoes' | 'pontos' | 'taxa' | 'auditoria' | 'cadastros' | 'admin' | 'extramb';
 
 const AuthenticatedApp = () => {
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
   // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
   useEffect(() => { cadastroService.listParametros().then(p => definirNormas(normasDe(p))).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
+
+  // páginas pedem para abrir outra página (ex.: o resumo do painel abre os Gastos da BNIC) sem conhecer o menu
+  useEffect(() => {
+    const ir = (e: Event) => setCurrentPage((e as CustomEvent).detail as PageID);
+    window.addEventListener('siscont:ir', ir);
+    return () => window.removeEventListener('siscont:ir', ir);
+  }, []);
 
   const renderPage = () => {
     // página que o perfil não vê: volta ao Painel inicial (todos os perfis veem)
@@ -46,6 +54,7 @@ const AuthenticatedApp = () => {
       case 'cobranca': return <Cobranca key="cobranca" />;
       case 'extramb': return <ExtraMarinha />;
       case 'painel': return <PainelEncarregado key="painel" />;
+      case 'gastos': return <GastosBNIC key="gastos" />;
       case 'taxa': return <TaxaCondominial />;
       case 'auditoria': return <PontosAtencaoPage key="historico" abaInicial="historico" />;
       case 'conciliacao': return <Conciliacao />;

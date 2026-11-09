@@ -6,6 +6,7 @@ import {
   Alerta, Granularidade, agruparFR, faixaDaFatura, faturadoRecebido, indicadores, mesDe, recuperacaoMensal, serieInadimplencia,
 } from '../../utils/painelGerencial';
 import { COR, COR_FAIXA, COR_PRIO, Grupo, Kpi, Secao, Selo, Vazio, br, brl, compacto, mesBR, qtdBR } from './comum';
+import { ResumoGastos } from './ResumoGastos';
 import { CtxPainel } from './tipos';
 
 const TIT_FAIXA: Record<string, string> = { 'A vencer': 'A vencer' };
@@ -198,6 +199,8 @@ export const VisaoGeral: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
           )}
         </Secao>
       </div>
+
+      <ResumoGastos ano={Number(periodo.ate.slice(0, 4))} periodo={periodo} />
 
       <div className="grid md:grid-cols-2 gap-4">
         <Secao id="painel-parados" titulo={`ALTCRED/GRU com saldo parado (mais de ${c.diasSaldoParado} dias)`} subtitulo="Dinheiro recebido ainda não atribuído a faturas.">

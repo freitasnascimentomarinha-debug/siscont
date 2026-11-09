@@ -1811,6 +1811,63 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('41000-EL-08-2026-001-0').isVisible() && !(await page.getByText(/40015-EL-08-2026/).count()), 'lote sem fatura para a OM emissora');
   });
 
+  await cenario('Gastos da BNIC: previsto por grupo, empenhado, consumo da base, fornecedores e resumo no painel', [], async (page, db) => {
+    const bnic = { id: uid(), codigo: '40015', nome: 'Base Naval da Ilha das Cobras', sigla: 'BNIC', tipo: 'TERRA', ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    const amrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    db.oms.push(bnic, amrj);
+    db.parametros.push({ chave: 'om_emissora_id', valor: bnic.id, descricao: 'OM emissora' });
+    const rub = (numero, descricao, previsto, destino = 'TC') => ({ ano: 2026, numero, descricao, destino, valor_previsto: previsto, desconto_geral: 0, valor_anual: previsto, criterio: 'LOTACAO', percentual_om: 100, rateio_todas: false, navios_modo: 'NAO' });
+    db.rubricas.push(rub(12, 'Serviço de Varrição das Ruas do CNIC', 1000000), rub(10, 'Coleta de Lixo', 500000), rub(27, 'Manutenção de Instalações do Hospital', 100000), rub(35, 'Material Permanente da BNIC', 0, 'OG'));
+    db.lotacoes_tc.push({ ano: 2026, om_id: bnic.id, lotacao: 100, dias: null }, { ano: 2026, om_id: amrj.id, lotacao: 300, dias: null });
+    [12, 10, 27].forEach(r => [bnic, amrj].forEach(o => db.matriz_tc.push({ ano: 2026, rubrica: r, om_id: o.id })));
+    const ne = (n, date, client, value, rubrica_numero, categoria = null) => ({ id: uid(), date, document_number: `74001500001${n}`, document_type: 'NE', client, value, rubric: '', description: '', observation: null, is_canceled: false, rubrica_numero, categoria, anulada_em: null });
+    db.cash_flow_exits.push(ne('2026NE000001', '2026-03-10', 'Limpeza Urbana Ltda', 400000, 12), ne('2026NE000002', '2026-04-02', 'LIMPEZA URBANA LTDA', -50000, 12), ne('2026NE000003', '2026-05-05', 'LIGHT', 210000, null, 'ENERGIA'),
+      { ...ne('2026NE000004', '2026-05-06', 'CANCELADA SA', 999999, 12), is_canceled: true });
+    db.service_definitions.push({ id: uid(), name: 'Energia Elétrica', unit_measure: 'KWH', acronym: 'EL', ordem: 30, ativo: true });
+    db.medicoes.push({ id: uid(), competencia: '2026-09', sigla: 'AE', om_id: bnic.id, quantidade: 100, valor: 5000, estimada: false, detalhe: [] }, { id: uid(), competencia: '2026-09', sigla: 'AE', om_id: amrj.id, quantidade: 300, valor: 15000, estimada: false, detalhe: [] });
+    await page.reload();
+    await page.getByRole('button', { name: 'Gastos da BNIC' }).first().click();
+    await page.getByRole('heading', { name: 'Gastos da BNIC' }).waitFor();
+    await page.getByLabel('Exercício').selectOption('2026');
+    await page.getByLabel('Período inicial').fill('2026-01'); await page.getByLabel('Período final').fill('2026-12');
+    const kpi = async (nome) => page.getByRole('button', { name: new RegExp('^' + nome) }).first().getAttribute('aria-label');
+    await page.getByText('Previsto por grupo de gasto').waitFor();
+    const rot = async (re) => (await page.getByLabel(re).first().getAttribute('aria-label'));
+    const txt = (await page.locator('section[aria-label="Indicadores dos gastos"]').innerText()).replace(/\s+/g, ' ');
+    ok(/PREVISTO EM 2026.*R\$ 1\.600\.000,00/.test(txt), `previsto do exercício = soma das rubricas (R$ 1.600.000,00) [${txt.slice(0, 120)}]`);
+    ok(/R\$ 560\.000,00/.test(txt) && /3 empenho\(s\)/.test(txt), 'empenhado = 400.000 − 50.000 (anulação parcial) + 210.000 sem rubrica; a NE cancelada não conta');
+    ok(/R\$ 1\.250\.000,00/.test(txt) && /21,9% executado/.test(txt), 'saldo do previsto = 1.600.000 − 350.000 (só rubricas) e 21,9% executado');
+    ok(/R\$ 5\.000,00/.test(txt) && /Água e Esgoto/.test(txt), 'consumo medido da própria base (água, R$ 5.000,00)');
+    ok(/R\$ 400\.000,00/.test(txt) && /25% da taxa/.test(txt), 'parte da BNIC no rateio: 100 de 400 pessoas = 25% da taxa (R$ 400.000,00)');
+    const tabela = page.getByRole('table', { name: 'Previsto e empenhado por grupo' });
+    const linhaLimpeza = (await tabela.getByRole('row').filter({ hasText: 'Limpeza, coleta e controle de pragas' }).innerText()).replace(/\s+/g, ' ');
+    ok(/R\$ 1\.500\.000,00 R\$ 350\.000,00/.test(linhaLimpeza), `grupo Limpeza: previsto 1,5 mi e empenhado 350 mil (${linhaLimpeza})`);
+    await tabela.getByRole('row').filter({ hasText: 'Limpeza, coleta e controle de pragas' }).click();
+    ok((await tabela.innerText()).includes('12 · Serviço de Varrição das Ruas do CNIC') && (await tabela.innerText()).includes('10 · Coleta de Lixo'), 'abrir o grupo mostra as rubricas');
+    ok((await tabela.innerText()).replace(/\s+/g, ' ').includes('Total empenhado R$ 560.000,00'), 'tabela separa total das rubricas, empenhos sem rubrica e total empenhado');
+    ok((await page.getByRole('table', { name: 'Empenhos sem rubrica' }).innerText()).includes('Energia elétrica') && (await page.getByRole('table', { name: 'Empenhos sem rubrica' }).innerText()).includes('R$ 210.000,00'), 'empenho sem rubrica fica à parte, por categoria');
+    const forn = (await page.getByRole('table', { name: 'Empenhos por fornecedor' }).innerText()).replace(/\s+/g, ' ');
+    ok(/Limpeza Urbana Ltda 2 R\$ 350\.000,00/.test(forn) && /LIGHT 1 R\$ 210\.000,00/.test(forn) && !/CANCELADA/.test(forn), 'fornecedor: nomes iguais com maiúsculas diferentes viram um só (350 mil, 2 empenhos)');
+    ok((await page.getByRole('table', { name: 'Consumo da própria base' }).innerText()).includes('25%') && (await page.getByText(/Ainda sem medição da BNIC no período: Energia Elétrica/).isVisible()), 'consumo: 25% do complexo e aviso do que falta lançar (energia)');
+    // período: só até março → só o empenho de março
+    await page.getByLabel('Período final').fill('2026-03');
+    await page.waitForTimeout(400);
+    const txt2 = (await page.locator('section[aria-label="Indicadores dos gastos"]').innerText()).replace(/\s+/g, ' ');
+    ok(/EMPENHADO.*R\$ 400\.000,00 1 empenho\(s\)/.test(txt2) && /R\$ 0,00/.test(txt2), 'período muda o empenhado e o consumo da base (previsto continua o do exercício)');
+    await page.getByLabel('Período final').fill('2026-12');
+    const [xl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    ok(/^gastos_bnic_2026_2026-01_2026-12\.xlsx$/.test(xl.suggestedFilename()), `Excel dos gastos (${xl.suggestedFilename()})`);
+    // resumo no Painel do Encarregado, com o mesmo número, e atalho para a página
+    await page.getByRole('button', { name: 'Painel do Encarregado' }).first().click();
+    await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
+    const resumo = page.locator('#painel-gastos');
+    await resumo.getByText('R$ 1.600.000,00').waitFor();
+    ok((await resumo.innerText()).includes('R$ 560.000,00') && (await resumo.innerText()).includes('Parte da BNIC no rateio'), 'painel: resumo dos gastos com os mesmos números da página');
+    await page.getByRole('button', { name: 'Ver detalhes dos gastos da BNIC' }).click();
+    await page.getByRole('heading', { name: 'Gastos da BNIC' }).waitFor();
+    ok(true, 'o resumo do painel abre a página Gastos da BNIC');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

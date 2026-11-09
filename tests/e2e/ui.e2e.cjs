@@ -165,11 +165,14 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     await login(page, 'enc@mb.br', 'senha12345');
     await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
     const m = await menu(page);
-    assert(m.join('|') === 'Painel inicial|Painel do Encarregado', `menu com os dois painéis (${m.join(', ')})`);
+    assert(m.join('|') === 'Painel inicial|Painel do Encarregado|Gastos da BNIC', `menu com os dois painéis e os Gastos da BNIC (${m.join(', ')})`);
     assert(await page.getByText('Encarregado', { exact: true }).first().isVisible(), 'perfil "Encarregado" exibido');
     await page.locator('nav').getByRole('button', { name: 'Painel do Encarregado' }).click();
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     assert(!(await page.getByText('definir grupo…').count()), 'encarregado não edita o grupo de setores (só visualiza)');
+    await page.locator('nav').getByRole('button', { name: 'Gastos da BNIC' }).click();
+    await page.getByRole('heading', { name: 'Gastos da BNIC' }).waitFor();
+    assert(await page.getByRole('button', { name: 'Excel' }).count() === 1 && !(await page.getByRole('button', { name: /Salvar|Gravar|Nova/ }).count()), 'encarregado vê os Gastos da BNIC só para consulta (Excel, sem gravar)');
   });
 
   await scenario('Operador vê todas as páginas, menos Administração', baseState(), async page => {
