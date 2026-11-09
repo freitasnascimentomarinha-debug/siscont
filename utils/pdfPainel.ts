@@ -1,6 +1,7 @@
 /** PDF "resumo do Painel do Encarregado": uma visão executiva do recorte consultado (somente leitura). */
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cabecalhoCompacto } from './pdfCabecalho';
 import {
   Alerta, BaixaGer, ContestacaoGer, Criterios, FaturaGer, LinhaOM, Periodo, ROTULO_PRIORIDADE, Recebimento, indicadores, ordenarOM, resumoContestacoes,
 } from './painelGerencial';
@@ -19,11 +20,11 @@ export function pdfPainel(e: EntradaPdf): jsPDF {
   const doc = new jsPDF('p');
   const ind = indicadores(e.fs, e.bs, e.idx, e.periodo, e.hoje, e.criterios, e.recebimentos);
   const ctn = resumoContestacoes(e.contest, e.periodo, e.criterios);
-  doc.setFontSize(8); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
-  doc.setFontSize(14); doc.text('Painel do Encarregado — resumo', 14, 19);
+  const y0 = cabecalhoCompacto(doc);
+  doc.setFontSize(14); doc.text('Painel do Encarregado — resumo', 14, y0 + 7);
   doc.setFontSize(8);
   const cab = [`Posição em ${br(e.hoje)} · período ${mes(e.periodo.de)} a ${mes(e.periodo.ate)} · gerado em ${e.atualizadoEm || br(e.hoje)}`, `Recorte: ${e.filtros.length ? e.filtros.join('; ') : 'todos os setores, comandos e públicos'} · ${e.fs.length.toLocaleString('pt-BR')} faturas`];
-  let y = 24; cab.forEach(l => { const p = doc.splitTextToSize(l, 182); doc.text(p, 14, y); y += 4 * p.length; });
+  let y = y0 + 12; cab.forEach(l => { const p = doc.splitTextToSize(l, 182); doc.text(p, 14, y); y += 4 * p.length; });
 
   const tabela = (titulo: string, head: string[], body: (string | number)[][], opts: { largura?: number[] } = {}) => {
     autoTable(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: [15, 23, 42], halign: 'left' } }], head], body,

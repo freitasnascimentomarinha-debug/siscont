@@ -17,6 +17,7 @@ import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resum
 import { ComandoCad, OMCad, Rotulo, SetorCad, criarResolvedor } from '../utils/documentosOM';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, ROTULO_PUBLICO, passaPublico } from '../utils/publico';
+import { cabecalhoCompacto } from '../utils/pdfCabecalho';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
 const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
@@ -200,10 +201,11 @@ export const Dashboard: React.FC = () => {
   };
   const exportarResumoPDF = () => {
     const doc = new jsPDF('l');
-    doc.setFontSize(13); doc.text(`SISCONT — Painel de faturamento ${ano}`, 14, 15);
-    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)}${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 21);
+    const dy = cabecalhoCompacto(doc) - 8;
+    doc.setFontSize(13); doc.text(`SISCONT — Painel de faturamento ${ano}`, 14, 15 + dy);
+    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)}${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 21 + dy);
     autoTable(doc, {
-      startY: 26, head: [['Indicador', 'Valor', 'Faturas']],
+      startY: 26 + dy, head: [['Indicador', 'Valor', 'Faturas']],
       body: [
         [`Faturado em ${ano}`, brl(r.faturadoAno.valor), String(r.faturadoAno.qtd)],
         [`Vencidas até ${ano - 1}`, brl(r.vencidasAnteriores.valor), String(r.vencidasAnteriores.qtd)],
@@ -224,10 +226,11 @@ export const Dashboard: React.FC = () => {
   };
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
-    doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15);
-    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)} · faturas em contestação fora do em aberto${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 20);
+    const dy = cabecalhoCompacto(doc) - 8;
+    doc.setFontSize(13); doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15 + dy);
+    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)} · faturas em contestação fora do em aberto${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 20 + dy);
     const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)) && passaPublico(publico, cls.docExtra(d)));
-    autoTable(doc, { startY: 25, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 } });
+    autoTable(doc, { startY: 25 + dy, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 } });
     autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
     doc.save('extrato_saldos_siscont.pdf');
   };

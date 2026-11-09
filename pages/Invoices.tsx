@@ -28,6 +28,7 @@ import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, r
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
 
 /** Por que a fatura não tem ALTCRED/GRU vinculada (evita parecer erro quando não é). */
 function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
@@ -505,9 +506,10 @@ export const Invoices: React.FC = () => {
 
   const exportListPDF = () => {
     const doc = new jsPDF('l');
-    doc.text(`Relatório de Faturas - SISCONT${sufixoPublico(publico)}`, 14, 15);
+    const dy = cabecalhoCompacto(doc) - 8;
+    doc.setFontSize(13); doc.text(`Relatório de Faturas - SISCONT${sufixoPublico(publico)}`, 14, 15 + dy);
     doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
     const rows = filteredInvoices.map(inv => {
       const calc = getInvoiceCalculations(inv);
       return [
@@ -531,7 +533,7 @@ export const Invoices: React.FC = () => {
       `R$ ${totals.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
     ];
     autoTable(doc, {
-      startY: 25,
+      startY: 25 + dy,
       head: [['Status', 'UG', 'Cliente', 'Fatura', 'Tipo', 'Comp.', 'Vl Serviço', 'Acres.', 'Deb.', 'Adiant.', 'Vl Fatura', 'Saldo']],
       body: rows,
       foot: [footerRow],
@@ -581,13 +583,10 @@ export const Invoices: React.FC = () => {
 
   const generateInvoicePDF = (inv: Invoice) => {
     const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("Marinha do Brasil", 105, 20, { align: "center" });
-    doc.setFontSize(12);
-    doc.text("Base Naval da Ilha das Cobras", 105, 28, { align: "center" });
+    cabecalhoInstitucional(doc, 8);
     doc.setLineWidth(0.5);
-    doc.line(20, 35, 190, 35);
+    doc.line(20, 36, 190, 36);
+    doc.setFont("helvetica", "bold");
     doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
 

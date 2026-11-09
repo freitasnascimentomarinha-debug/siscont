@@ -1,6 +1,7 @@
 /** Gerador de PDF de relatório (cabeçalho oficial, quadro de indicadores, tabelas e paginação). Usado pelos gastos e pela taxa condominial. */
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cabecalhoCompacto } from './pdfCabecalho';
 
 export interface TabelaPdf {
   titulo: string; head: string[]; body: (string | number)[][];
@@ -23,9 +24,9 @@ export function pdfRelatorio(r: RelatorioPdf): jsPDF {
   const doc = new jsPDF(r.orientacao || 'p');
   const larg = doc.internal.pageSize.getWidth();
   const util = larg - 28;
-  doc.setFontSize(8); doc.text(BRASAO, 14, 11);
-  doc.setFontSize(14); const tit = doc.splitTextToSize(r.titulo, util); doc.text(tit, 14, 19);
-  let y = 19 + 6 * tit.length - 2;
+  const y0 = cabecalhoCompacto(doc);
+  doc.setFontSize(14); const tit = doc.splitTextToSize(r.titulo, util); doc.text(tit, 14, y0 + 6);
+  let y = y0 + 6 + 6 * tit.length - 2;
   doc.setFontSize(8);
   r.linhas.forEach(l => { const p = doc.splitTextToSize(l, util); doc.text(p, 14, y); y += 4 * p.length; });
   if (r.cartoes?.length) {

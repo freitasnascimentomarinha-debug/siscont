@@ -6,6 +6,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { CAB_PDF_ARVORE, MapaAnalitico, NivelPdf, linhasArvorePdf } from './mapaAnalitico';
 import { dataBR } from './datas';
+import { cabecalhoCompacto } from './pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
@@ -19,10 +20,10 @@ export interface OpcoesPdfArvore {
 
 export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const doc = new jsPDF('l');
-  doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
-  doc.setFontSize(13); doc.text(o.titulo, 14, 18);
+  const y0 = cabecalhoCompacto(doc);
+  doc.setFontSize(13); doc.text(o.titulo, 14, y0 + 6);
   doc.setFontSize(8);
-  let y = 23;
+  let y = y0 + 11;
   o.linhas.forEach(l => { const partes = doc.splitTextToSize(l, 268); doc.text(partes, 14, y); y += 4.5 * partes.length; });
   const linhas = linhasArvorePdf(mapa, brl, dataBR);
   const niveis: NivelPdf[] = linhas.map(l => l.nivel);
@@ -54,9 +55,9 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
  */
 export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const doc = new jsPDF('p');
-  doc.setFontSize(8); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
-  doc.setFontSize(12); const tit = doc.splitTextToSize(o.titulo, 182); doc.text(tit, 14, 18);
-  let y = 18 + 5.5 * tit.length;
+  const y0 = cabecalhoCompacto(doc);
+  doc.setFontSize(12); const tit = doc.splitTextToSize(o.titulo, 182); doc.text(tit, 14, y0 + 6);
+  let y = y0 + 6 + 5.5 * tit.length;
   doc.setFontSize(8);
   o.linhas.forEach(l => { const partes = doc.splitTextToSize(l, 182); doc.text(partes, 14, y); y += 4 * partes.length; });
   // quadro com o valor a pagar

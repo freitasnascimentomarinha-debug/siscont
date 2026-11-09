@@ -15,6 +15,7 @@ import { Button } from '../components/ui/Button';
 import { SeletorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { passaPublico } from '../utils/publico';
 import { Escopo, OpcaoEscopo, SeletorEscopo } from '../components/conciliacao/SeletorEscopo';
+import { cabecalhoCompacto } from '../utils/pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -168,12 +169,11 @@ export const Conciliacao: React.FC = () => {
   const exportarPdf = () => {
     if (!extrato) return;
     const doc = new jsPDF();
-    doc.setFontSize(9);
-    doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
-    doc.setFontSize(12); doc.text(doc.splitTextToSize(titulo, 182), 14, 19);
-    doc.setFontSize(8); doc.text(subtitulo, 14, 27);
-    doc.setFontSize(10); doc.text('RESUMO DA CONCILIAÇÃO', 14, 34);
-    autoTable(doc, { startY: 36, body: linhasResumo(extrato), theme: 'grid', styles: { fontSize: 8, cellPadding: 1.2 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
+    const y0 = cabecalhoCompacto(doc);
+    doc.setFontSize(12); doc.text(doc.splitTextToSize(titulo, 182), 14, y0 + 7);
+    doc.setFontSize(8); doc.text(subtitulo, 14, y0 + 15);
+    doc.setFontSize(10); doc.text('RESUMO DA CONCILIAÇÃO', 14, y0 + 22);
+    autoTable(doc, { startY: y0 + 24, body: linhasResumo(extrato), theme: 'grid', styles: { fontSize: 8, cellPadding: 1.2 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
       didParseCell: d => { if ([3, 5].includes(d.row.index)) d.cell.styles.fontStyle = 'bold'; } });
     let y = (doc as any).lastAutoTable.finalY + 6;
     qs.forEach(q => {

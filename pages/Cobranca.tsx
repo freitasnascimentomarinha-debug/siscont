@@ -21,6 +21,7 @@ import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnal
 import { pdfCobrancaEnxuto } from '../utils/pdfArvore';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
+import { cabecalhoCompacto } from '../utils/pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -129,10 +130,10 @@ export const Cobranca: React.FC = () => {
   };
   const exportarPdf = () => {
     const doc = new jsPDF('l');
-    doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 12);
-    doc.text(`Atualizado em: ${atualizadoEm}`, 283, 12, { align: 'right' });
-    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${sufixoPublico(publico)}${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, 19);
-    let y = 24;
+    const y0 = cabecalhoCompacto(doc);
+    doc.text(`Atualizado em: ${atualizadoEm}`, 283, y0 - 2, { align: 'right' });
+    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${sufixoPublico(publico)}${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, y0 + 6);
+    let y = y0 + 11;
     blocos.forEach(b => {
       doc.setFontSize(10); doc.text(b.titulo.toUpperCase(), 14, y + 4);
       autoTable(doc, { startY: y + 6, head: [[linhaPor.toUpperCase(), ...b.p.colunas, 'Total']], body: [...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => (b.p.valores[l][c] ? brl(b.p.valores[l][c]) : '')), brl(b.p.totLinha[l])]), ['Total geral', ...b.p.colunas.map(c => brl(b.p.totColuna[c])), brl(b.p.total)]], styles: { fontSize: 7 }, headStyles: { fillColor: [30, 41, 59] } });

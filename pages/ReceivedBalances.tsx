@@ -29,6 +29,7 @@ import { FileUp, Wand2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
 
 export const ReceivedBalances: React.FC = () => {
   const { user } = useAuth();
@@ -444,9 +445,10 @@ export const ReceivedBalances: React.FC = () => {
   // --- Import/Export ---
   const exportPDF = () => {
     const doc = new jsPDF('l');
-    doc.text(`Relatório de Saldos Recebidos e Histórico - SISCONT${sufixoPublico(publico)}`, 14, 15);
+    const dy = cabecalhoCompacto(doc) - 8;
+    doc.setFontSize(13); doc.text(`Relatório de Saldos Recebidos e Histórico - SISCONT${sufixoPublico(publico)}`, 14, 15 + dy);
     doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
+    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
 
     const bodyRows: any[] = [];
 
@@ -483,7 +485,7 @@ export const ReceivedBalances: React.FC = () => {
     ];
 
     autoTable(doc, {
-      startY: 25,
+      startY: 25 + dy,
       head: [['Data', 'Setor', 'Comando', 'Cliente', 'Nº Doc', 'Operação', 'Valor Total', 'Saldo Disp.']],
       body: bodyRows,
       foot: [footer],

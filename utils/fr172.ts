@@ -7,6 +7,7 @@
 import { citarCorrecao, obterNormas } from './normas';
 import jsPDF from 'jspdf';
 import { mesesDoAno } from './faturamento';
+import { cabecalhoInstitucional } from './pdfCabecalho';
 
 export interface DadosFr172 {
   numero: string; emissao: string; limite: string; vencimento?: string | null; mesCompetencia: number; anoCompetencia: number;
@@ -48,66 +49,88 @@ export function detalhamento(d: DadosFr172): [string, string][] {
 
 export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   const W = doc.internal.pageSize.getWidth();
-  const M = 15;
-  let y = 16;
-  const centro = (t: string, tam = 10, negrito = true) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); doc.setFontSize(tam); doc.text(t, W / 2, y, { align: 'center' }); y += tam * 0.45; };
-  const linha = (t: string, tam = 9, negrito = false, x = M) => { doc.setFont('helvetica', negrito ? 'bold' : 'normal'); doc.setFontSize(tam); const ls = doc.splitTextToSize(t, W - x - M); doc.text(ls, x, y); y += ls.length * tam * 0.45 + 1; };
+  const ML = 8, MR = W - 14; // moldura (mm)
+  const tx = ML + 3;         // texto interno
+  doc.setTextColor(0); doc.setDrawColor(0); doc.setLineWidth(0.25);
+  const txt = (t: string, x: number, y: number, tam = 9.5, neg = false, align: 'left' | 'center' | 'right' = 'left') => {
+    doc.setFont('helvetica', neg ? 'bold' : 'normal'); doc.setFontSize(tam); doc.text(t, x, y, { align });
+  };
+  const par = (t: string, x: number, y: number, larg: number, tam = 9, neg = false) => {
+    doc.setFont('helvetica', neg ? 'bold' : 'normal'); doc.setFontSize(tam);
+    const ls = doc.splitTextToSize(t, larg); doc.text(ls, x, y); return y + ls.length * tam * 0.42;
+  };
 
-  centro('MARINHA DO BRASIL', 11); centro('BASE NAVAL DA ILHA DAS COBRAS', 10); centro('DEPARTAMENTO DE INTENDÊNCIA', 9);
-  y += 2;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(`CÓDIGO OMPS-E: ${d.params.codigo_omps || '40015'}`, M, y); doc.text(br(d.emissao, true), W - M, y, { align: 'right' }); y += 6;
-  centro('FATURAMENTO PARA SERVIÇOS DE APOIO BASE', 11);
-  y += 2;
-  doc.setDrawColor(60); doc.rect(M, y, W - 2 * M, d.comimsup ? 15 : 10);
-  y += 6;
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.text(`Nº ${d.numero}`, M + 3, y);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  if (d.comimsup) { doc.text(`COMIMSUP: ${d.comimsup}`, W / 2, y); y += 5; }
-  doc.text(doc.splitTextToSize(`OM USUÁRIA: ${d.omUsuaria}`, W / 2 - M)[0], W / 2, y); y += 9;
-  linha(`DATA-LIMITE PARA A CERTIFICAÇÃO DESTA FATURA, A SER FEITA VIA SIPLAD: ${br(d.limite)}`, 9, true);
-  if (d.vencimento) linha(`VENCIMENTO (PAGAMENTO): ${br(d.vencimento)}`, 9, true);
-  linha(`REFERÊNCIA: ${mesesDoAno[d.mesCompetencia - 1]}${String(d.anoCompetencia).slice(2)}${d.estimado ? ' (ESTIMADO OUT–DEZ)' : ''}`, 9);
-  linha(`EMITIDA DE ACORDO COM ${(d.emitidaDeAcordoCom || 'O DETALHAMENTO NO CAMPO OBSERVAÇÃO').toUpperCase()}`, 9);
-  y += 2;
-  doc.setFillColor(235, 238, 242); doc.rect(M, y - 4, W - 2 * M, 7, 'F');
-  linha('DETALHAMENTO', 9, true, M + 2);
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text('FR-172', W - M, y, { align: 'right' });
-  linha(`SERVIÇO PRESTADO: ${d.servicoOficial.toUpperCase()}`, 9, true);
-  y += 2;
+  cabecalhoInstitucional(doc, 6);
+  let y = 33.5;
+  txt(`CÓDIGO OMPS-E: ${d.params.codigo_omps || '40015'}`, tx, y, 9.5, true); txt(br(d.emissao, true), MR, y, 9.5, true, 'right');
+  y = 43; txt('FATURAMENTO PARA SERVIÇOS DE APOIO BASE', W / 2 - 14, y, 9.5, true, 'center');
+  y += 4.6; txt(`Nº: ${d.numero}`, tx, y, 9.5, true);
+  const xc = 60;
+  if (d.comimsup) { txt('COMIMSUP:', xc, y, 9.5, true); txt(d.comimsup, xc + 23, y, 9.5); y += 4.6; }
+  txt('OM USUÁRIA:', xc, y, 9.5, true); txt(doc.splitTextToSize(d.omUsuaria, MR - xc - 26)[0], xc + 26, y, 9.5);
+  y += 9.5;
+  txt('DATA-LIMITE PARA A CERTIFICAÇÃO DESTA FATURA, A SER FEITA VIA SIPLAD:', tx, y, 9); txt(br(d.limite, true), MR - 4, y, 9.5, true, 'right');
+  if (d.vencimento) { y += 5; txt('VENCIMENTO (PAGAMENTO):', tx, y, 9, true); txt(br(d.vencimento, true), MR - 4, y, 9.5, true, 'right'); }
+  y += 7.5; txt(`REFERÊNCIA: ${mesesDoAno[d.mesCompetencia - 1]}${String(d.anoCompetencia).slice(2)}${d.estimado ? ' (ESTIMADO OUT–DEZ)' : ''}`, tx, y, 9.5, true);
+  y += 7; y = par(`EMITIDA DE ACORDO COM ${(d.emitidaDeAcordoCom || 'O DETALHAMENTO NO CAMPO OBSERVAÇÃO').toUpperCase()}`, tx, y, MR - tx - 4, 9.5, true) - 1;
+  y += 6; txt('DETALHAMENTO', tx, y, 9.5);
+
+  // Moldura única do detalhamento até o responsável
+  const topo = y + 2.5;
+  y = topo + 6.2; txt(`SERVIÇO PRESTADO: ${d.servicoOficial.toUpperCase()}`, (ML + MR) / 2, y, 9.5, true, 'center');
+  y += 3.3; doc.line(ML, y, MR, y);
+  y += 4.5; txt('FR-172', ML + 5, y, 9);
   const final = Math.round((d.valorServico - d.adiantamento + d.acrescimo - d.debito) * 100) / 100;
-  const linhasFr: [string, number, boolean?][] = [
-    ['01 (+) TOTAL SERVIÇO PRESTADO', d.valorServico], ['02 (-) ADIANTAMENTO', d.adiantamento], ['03 (+) ACERTO ACRÉSCIMO', d.acrescimo],
-    ['04 (-) ACERTO DÉBITO', d.debito], ['05 TOTAL A PAGAR', Math.max(0, final), true], ['06 TOTAL FATURA (01 – 02 + 03 – 04)', final, true],
+  const linhasFr: [string, string, number][] = [
+    ['01', '(+) TOTAL SERVIÇO PRESTADO', d.valorServico], ['02', '(-) ADIANTAMENTO', d.adiantamento], ['03', '(+) ACERTO ACRÉSCIMO', d.acrescimo], ['04', '(-) ACERTO DÉBITO', d.debito],
   ];
-  linhasFr.forEach(([t, v, neg]) => {
-    doc.setFont('helvetica', neg ? 'bold' : 'normal'); doc.setFontSize(9);
-    doc.text(t, M + 4, y); doc.text(`VALOR: ${brl(v)}`, W - M - 2, y, { align: 'right' });
-    doc.setDrawColor(210); doc.line(M + 2, y + 1.5, W - M - 2, y + 1.5); y += 6;
+  const xn = 68, xt = 76, xv = 128, xr = 172;
+  linhasFr.forEach(([n, t, v]) => { txt(n, xn, y, 9.5); txt(t, xt, y, 9.5); txt('- VALOR:', xv, y, 9.5); txt(brl(v), xr, y, 9.5, false, 'right'); y += 4.7; });
+  txt('05', xn, y, 9.5); txt('TOTAL A PAGAR', xt + 6, y, 9.5); txt(':', xv + 10, y, 9.5); txt(brl(Math.max(0, final)), xr, y, 9.5, false, 'right');
+  y += 3; doc.line(ML, y, MR, y);
+  y += 4.5; txt('06', xn, y, 9.5); txt('TOTAL FATURA (01 – 02 + 03 – 04)', xt, y, 9.5); txt(':', xv + 10, y, 9.5, false); txt(brl(final), xr, y, 9.5, false, 'right');
+  y += 3.2; doc.line(ML, y, MR, y);
+
+  // Tabelinha de detalhamento (OBS.)
+  const linhasDet = detalhamento(d);
+  const largo = linhasDet.some(([k, v]) => k.length + v.length > 52);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  const maxK = Math.max(...linhasDet.map(([k]) => doc.getTextWidth(k))) + 4;
+  const tw = largo ? MR - ML - 8 : Math.max(96, maxK + 40), tx0 = ML + 3, col = largo ? tw - 38 : Math.max(50, maxK), rh = 4.6;
+  y += 11;
+  linhasDet.forEach(([k, v]) => {
+    doc.setLineWidth(0.2); doc.rect(tx0, y, tw, rh); doc.line(tx0 + col, y, tx0 + col, y + rh);
+    txt(k, tx0 + 1, y + 3.3, 8.5); txt(v, tx0 + tw - 1, y + 3.3, 8.5, false, 'right'); y += rh;
   });
-  y += 2;
-  linha('OBS.:', 9, true);
-  detalhamento(d).forEach(([k, v]) => { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(k, M + 4, y); doc.text(v, W - M - 2, y, { align: 'right' }); y += 5; });
-  y += 1;
-  if (d.setorResponsavel || d.telefoneSetor) {
-    linha(`Dúvidas com relação aos valores apurados deverão ser sanadas com ${d.setorResponsavel || 'a divisão responsável'}${d.telefoneSetor ? ` pelo(s) telefone(s) ${d.telefoneSetor}` : ''}.`, 8);
-  }
-  d.altcreds.forEach(a => linha(`Baixa na ALTCRED ${a}.`, 8, true));
-  if (d.acertoDe) linha((d.base as any)?.tipo === 'CORRECAO'
-    ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`
-    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}.`, 8, true);
-  if (d.substitui) linha(`Esta fatura cancela e substitui a de nº ${d.substitui}.`, 8, true);
-  y += 3;
-  linha('INSTRUÇÕES PARA O PAGAMENTO DA FATURA:', 9, true);
-  if (d.params.instrucao_uno) linha(`UNO) ${d.params.instrucao_uno}`, 8);
-  if (d.params.instrucao_dois) linha(`DOIS) ${d.params.instrucao_dois}`, 8);
-  y = Math.max(y + 8, 245);
-  centro('RESPONSÁVEL PELA EMISSÃO', 9);
-  if (d.params.telefone_contabilidade) centro(d.params.telefone_contabilidade, 8, false);
+  doc.setLineWidth(0.25);
   y += 6;
-  centro(d.params.encarregado_nome || '______________________________', 9);
-  if (d.params.encarregado_posto) centro(d.params.encarregado_posto, 8, false);
-  centro('Encarregado da Divisão de Contabilidade', 8, false);
+  const larg = MR - ML - 12;
+  if (d.setorResponsavel || d.telefoneSetor) {
+    y = par(`Dúvidas com relação aos valores apurados deverão ser sanadas com ${d.setorResponsavel || 'a divisão responsável'}${d.telefoneSetor ? ` pelo(s) telefone(s) ${d.telefoneSetor}` : ''}.`, tx + 1, y, larg, 9.5, true) + 1;
+  }
+  d.altcreds.forEach(a => { y = par(`Baixa na ALTCRED ${a}.`, tx + 1, y + 1.5, larg, 8.5, true); });
+  if (d.acertoDe) y = par((d.base as any)?.tipo === 'CORRECAO'
+    ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`
+    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}.`, tx + 1, y + 1.5, larg, 8.5, true);
+  if (d.substitui) y = par(`Esta fatura cancela e substitui a de nº ${d.substitui}.`, tx + 1, y + 1.5, larg, 8.5, true);
+  y += 9;
+  txt('INSTRUÇÕES PARA O PAGAMENTO DA FATURA:', tx + 1, y, 10, true);
+  y += 1;
+  if (d.params.instrucao_uno) y = par(`UNO) ${d.params.instrucao_uno}`, tx + 1, y + 3.8, larg, 9);
+  if (d.params.instrucao_dois) y = par(`DOIS) ${d.params.instrucao_dois}`, tx + 1, y + 1.2, larg, 9);
+
+  // Responsável pela emissão
+  y = Math.max(y + 6, 207); doc.line(ML, y, MR, y);
+  const cx = (ML + MR) / 2;
+  y += 5; txt('RESPONSÁVEL PELA EMISSÃO', cx, y, 9.5, false, 'center');
+  if (d.params.telefone_contabilidade) { y += 4.2; txt(d.params.telefone_contabilidade, cx, y, 8.5, false, 'center'); }
+  y += 8.5; txt((d.params.encarregado_nome || '______________________________').toUpperCase(), cx, y, 9.5, false, 'center');
+  if (d.params.encarregado_posto) { y += 4.4; txt(d.params.encarregado_posto, cx, y, 9.5, false, 'center'); }
+  y += 4.4; txt('Encarregado da Divisão de Contabilidade', cx, y, 9.5, false, 'center');
+  y += 1.5; doc.rect(cx - 35, y, 70, 4.8); txt('ASSINADO DIGITALMENTE', cx, y + 3.5, 9.5, false, 'center');
+  y += 8;
+  // laterais e base da moldura
+  doc.line(ML, topo, MR, topo); doc.line(ML, topo, ML, y); doc.line(MR, topo, MR, y); doc.line(ML, y, MR, y);
 }
 
 export function pdfFr172(d: DadosFr172): jsPDF {

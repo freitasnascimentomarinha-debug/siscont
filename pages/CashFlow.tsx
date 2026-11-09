@@ -18,6 +18,7 @@ import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
 
 const Lancamentos: React.FC = () => {
   const { user } = useAuth();
@@ -210,9 +211,10 @@ const Lancamentos: React.FC = () => {
   // ... (Export functions remain unchanged) ...
   const exportPDF = () => {
     const doc = new jsPDF('l');
-    doc.text("Relatório de Fluxo de Caixa - SISCONT", 14, 15);
+    const dy = cabecalhoCompacto(doc) - 8;
+    doc.setFontSize(13); doc.text("Relatório de Fluxo de Caixa - SISCONT", 14, 15 + dy);
     doc.setFontSize(10);
-    doc.text(`Período: ${filterMonth ? filterMonth : 'Todos'}/${filterYear ? filterYear : 'Todos'} | Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
+    doc.text(`Período: ${filterMonth ? filterMonth : 'Todos'}/${filterYear ? filterYear : 'Todos'} | Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
 
     const rows = filteredItems.map(item => [
       dataBR(item.date),
@@ -231,7 +233,7 @@ const Lancamentos: React.FC = () => {
     rows.push(['TOTAL', '', '', '', '', `R$ ${totalEntries.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, `R$ ${totalExits.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']);
 
     autoTable(doc, {
-      startY: 25,
+      startY: 25 + dy,
       head: [['Data', 'Doc', 'Cliente', 'Descrição/Rubrica', 'Obs', 'Entrada', 'Saída', 'Saldo']],
       body: rows,
       styles: { fontSize: 8 },

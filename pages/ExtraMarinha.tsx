@@ -13,6 +13,7 @@ import { Modal } from '../components/ui/Modal';
 import { notify } from '../utils/notify';
 import { dataBR, hojeISO } from '../utils/datas';
 import { AlertaEx, ContratoEx, FaturaEx, GruEx, SituacaoEx, alertaGru, alertasContratos, alertasGru, atrasoEx, brlEx, fiscalTexto, emailEnvio, resumoExtraMB, siglaFatura, situacaoEx } from '../utils/extraMB';
+import { cabecalhoCompacto } from '../utils/pdfCabecalho';
 
 type Aba = 'resumo' | 'faturas' | 'gru' | 'extrato' | 'email' | 'contratos';
 const COR_GRAV: Record<AlertaEx['gravidade'], string> = { alta: 'bg-red-50 text-red-700 border-red-200', media: 'bg-amber-50 text-amber-800 border-amber-200', baixa: 'bg-sky-50 text-sky-700 border-sky-200' };
@@ -108,12 +109,12 @@ export const ExtraMarinha: React.FC = () => {
     if (!cliente) return;
     const om = omDoCliente(cliente);
     const doc = new jsPDF('l');
-    doc.setFontSize(9); doc.text('MARINHA DO BRASIL · BASE NAVAL DA ILHA DAS COBRAS · DIVISÃO DE CONTABILIDADE', 14, 11);
-    doc.setFontSize(13); doc.text(`Extrato de faturas e GRU — ${cliente}`, 14, 18);
+    const y0 = cabecalhoCompacto(doc);
+    doc.setFontSize(13); doc.text(`Extrato de faturas e GRU — ${cliente}`, 14, y0 + 6);
     doc.setFontSize(8);
-    doc.text(`${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Exercício ${ano} (e faturas em aberto de anos anteriores) · posição em ${dataBR(hoje)}`, 14, 23);
+    doc.text(`${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Exercício ${ano} (e faturas em aberto de anos anteriores) · posição em ${dataBR(hoje)}`, 14, y0 + 11);
     autoTable(doc, {
-      startY: 27, head: [['Competência', 'Fatura', 'Serviço', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situação', 'GRU']], body: linhasExtrato(),
+      startY: y0 + 15, head: [['Competência', 'Fatura', 'Serviço', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situação', 'GRU']], body: linhasExtrato(),
       foot: [['TOTAL', '', '', '', brlEx(exTot.valor), brlEx(exTot.pago), brlEx(exTot.saldo), '', '']],
       styles: { fontSize: 7.5 }, headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [30, 41, 59] },
       columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
