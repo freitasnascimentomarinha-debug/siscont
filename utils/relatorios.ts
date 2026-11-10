@@ -1,6 +1,8 @@
 /**
  * Fase 5 — cobrança, relatórios gerenciais e fluxo de caixa (regras puras).
  */
+import { PRAZO_PADRAO_DIAS, mensagemCobrancaPadrao, somarDias } from './cobrancaMensagem';
+
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86400000);
 
@@ -57,22 +59,9 @@ export function dividaPorCondomino(fs: FaturaAberta[], hoje: string): LinhaDivid
 }
 
 // ------------------------------------------------------------------ 5.2 cobrança
-export function mensagemCobranca(cmd: { nome: string; indicativo?: string | null }, fs: FaturaAberta[], hoje: string) {
-  const ord = [...fs].sort((a, b) => a.vencimento.localeCompare(b.vencimento));
-  const br = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
-  const brl = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const total = r2(ord.reduce((s, f) => s + f.saldo, 0));
-  return [
-    `PARA: ${cmd.indicativo || `[indicativo de ${cmd.nome}]`}`,
-    'DE: BNIC',
-    'BT',
-    'COBRANÇA DE FATURAS EM ATRASO',
-    `ALFA - INFORMO QUE AS FATURAS DE SERVIÇOS DE APOIO ABAIXO, EMITIDAS POR ESTA BASE PARA OM SUBORDINADAS A ESSE COMANDO, ENCONTRAM-SE PENDENTES DE CERTIFICAÇÃO/PAGAMENTO NO SIPLAD (POSIÇÃO EM ${br(hoje)}):`,
-    ...ord.map((f, k) => `${String(k + 1).padStart(2, '0')}) ${f.numero} - ${f.cliente} - ${f.tipo.toUpperCase()} - ${brl(f.saldo)} - DATA-LIMITE ${br(f.vencimento)} (${diasAtraso(f.vencimento, hoje)} DIAS)${f.contestada ? ' - EM CONTESTAÇÃO' : ''}`),
-    `BRAVO - TOTAL EM ATRASO: ${brl(total)}.`,
-    'CHARLIE - SOLICITO PROVIDÊNCIAS PARA A CERTIFICAÇÃO E O ENVIO DA ALTCRED CORRESPONDENTE, INDICANDO NA OBSERVAÇÃO OS NÚMEROS DAS FATURAS, OU A INFORMAÇÃO DE EVENTUAL CONTESTAÇÃO.',
-    'BT',
-  ].join('\n');
+/** Mensagem de cobrança no padrão da Base Naval (ver utils/cobrancaMensagem.ts). As faturas vão no extrato (PDF) anexo. */
+export function mensagemCobranca(cmd: { nome: string; indicativo?: string | null }, _fs: FaturaAberta[], hoje: string, prazo?: string) {
+  return mensagemCobrancaPadrao({ indicativo: cmd.indicativo, nome: cmd.nome, posicao: hoje, prazo: prazo || somarDias(hoje, PRAZO_PADRAO_DIAS) });
 }
 
 // ------------------------------------------------------------------ 5.4 / 5A.4 condomínio por rubrica

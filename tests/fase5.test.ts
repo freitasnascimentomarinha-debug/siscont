@@ -31,10 +31,18 @@ describe('quadro de faturas em aberto (5.1)', () => {
     expect(d[0].porFaixa['A vencer']).toBe(500);
     expect(d[0].maisAntiga).toBe('2025-02-28');
   });
-  it('mensagem de cobrança com indicativo e dias de atraso', () => {
-    const t = mensagemCobranca({ nome: 'DIM', indicativo: 'DIMRJ' }, [fs[2]], '2026-11-05');
-    expect(t).toMatch(/^PARA: DIMRJ/);
-    expect(t).toMatch(/c - DIM - ELETRICIDADE - R\$ 1\.000,00 - DATA-LIMITE 29\/09\/2026 \(37 DIAS\)/);
+  it('mensagem de cobrança no padrão da Base Naval, com as datas da posição e do prazo', () => {
+    const t = mensagemCobranca({ nome: 'DIM', indicativo: 'DIMRJ' }, [fs[2]], '2026-08-18', '2026-11-18');
+    expect(t).toMatch(/^PARA: DIMRJ\nDE: BNIC\nBT\nA fim de auxiliar no controle das faturas em aberto das OM apoiadas por esta Base Naval, PTC:/);
+    expect(t).toContain('ALFA) Enviado, anexo a esta mensagem, extrato das dívidas em aberto até 18AGO; e');
+    expect(t).toContain('BRAVO) Indicar recurso na AI R.901.16 / ND33.90.39 / AO 2000 (administração da unidade) ou 21A0 (aprestamento das forças), conforme observada a Circular nº 7/2026 da SGM.');
+    expect(t).toContain('CHARLIE) A indicação dos respectivos créditos deverá ser realizada até 18NOV2026.');
+    expect(t).toContain('- CC (IM) Caroline - Tel: 8110-4790;');
+    expect(t).toContain('- 2º SG-AD Tamara / 3º SG-EN Marcele La Cerda - Tel: 8110-3764; ou');
+    expect(t).toContain('com cópia para tamara.nascimento@marinha.mil.br e marcele.campello@marinha.mil.br\nBT');
+  });
+  it('prazo padrão: 30 dias depois da posição', () => {
+    expect(mensagemCobranca({ nome: 'DIM', indicativo: 'DIMRJ' }, [], '2026-11-10')).toContain('realizada até 10DEZ2026.');
   });
 });
 

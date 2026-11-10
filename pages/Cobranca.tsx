@@ -11,6 +11,7 @@ import {
   carregarBase, comandoDoTexto, faturasAbertas, listarCobrancas, registrarCobranca, rotularPeloCadastro,
 } from '../services/relatoriosService';
 import { FAIXAS, FaturaAberta, Pivo, diasAtraso, faixaDe, mensagemCobranca, pivo, quadroAberto } from '../utils/relatorios';
+import { PRAZO_PADRAO_DIAS, somarDias, trocarDataNoTexto } from '../utils/cobrancaMensagem';
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 import { notify } from '../utils/notify';
@@ -74,7 +75,7 @@ export const Cobranca: React.FC = () => {
   const [publico, setPublico] = usePublico('cobranca', 'MB');
   const [qContest, setQContest] = useState(false);
   const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
-  const [msg, setMsg] = useState<{ comando: string; indicativo: string | null; texto: string; faturas: FaturaAberta[] } | null>(null);
+  const [msg, setMsg] = useState<{ comando: string; indicativo: string | null; texto: string; faturas: FaturaAberta[]; posicao: string; prazo: string } | null>(null);
 
   const carregar = async () => {
     setCarregando(true);
@@ -200,7 +201,7 @@ export const Cobranca: React.FC = () => {
     creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
   const REGRA_CREDITO = 'Valor a pagar = soma das faturas vencidas. Crédito da OM (ALTCRED/GRU com saldo) não é abatido enquanto não for atribuído às faturas.';
   const nomeArquivo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
-  const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string }) => {
+  const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string; posicao?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
     const lista = (k: 'cliente' | 'comando') => [...new Set(m.faturas.map(f => f[k]))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return pdfCobrancaEnxuto(mapaDasFaturas(m.faturas), {
@@ -209,7 +210,7 @@ export const Cobranca: React.FC = () => {
       linhas: [
         ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
           : m.cliente ? [`Comando: ${m.comando}`] : [`OM devedoras do comando (${lista('cliente').length}): ${lista('cliente').join('; ')}`]),
-        `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
+        `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(m.posicao || h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
       ],
       nota: REGRA_CREDITO,
       rotuloTotal: m.setor ? 'VALOR A PAGAR PELO SETOR' : m.cliente ? 'VALOR A PAGAR PELA OM' : 'VALOR A PAGAR PELO COMANDO',
@@ -358,7 +359,7 @@ export const Cobranca: React.FC = () => {
                       <td className="px-3 py-2 tabular-nums font-semibold">{brl(v.total)}</td>
                       <td className="px-3 py-2 text-xs">{br(v.maisAntiga)}</td>
                       <td className="px-3 py-2 text-xs">{ultimaCobranca(v.comando) ? br(ultimaCobranca(v.comando)) : <span className="text-amber-700">nunca</span>}</td>
-                      <td className="px-3 py-2 text-right"><button className="text-primary-700 underline text-xs" onClick={() => setMsg({ comando: v.comando, indicativo: c.indicativo, faturas: v.fs, texto: mensagemCobranca(c, v.fs, h) })}><Mail size={12} className="inline mr-1" />gerar mensagem</button></td>
+                      <td className="px-3 py-2 text-right"><button className="text-primary-700 underline text-xs" onClick={() => setMsg({ comando: v.comando, indicativo: c.indicativo, faturas: v.fs, posicao: h, prazo: somarDias(h, PRAZO_PADRAO_DIAS), texto: mensagemCobranca(c, v.fs, h, somarDias(h, PRAZO_PADRAO_DIAS)) })}><Mail size={12} className="inline mr-1" />gerar mensagem</button></td>
                     </tr>
                   );
                 })}
@@ -380,7 +381,15 @@ export const Cobranca: React.FC = () => {
             } catch (e) { notify.fail('Não foi possível registrar', e); }
           }}>Enviada — registrar</Button>}
         </div>}>
-        <p className="text-xs text-slate-500 mb-2">Texto pronto para o SIGAD; ajuste ao padrão de mensagens antes de enviar. <b>PDF das faturas</b> gera a relação em árvore (setor › comando › OM › faturas), como no Mapa Analítico, para anexar.</p>
+        <div className="flex flex-wrap items-end gap-4 mb-2">
+          <label className="text-xs font-semibold text-slate-600">Dívidas em aberto até (posição do extrato)
+            <input type="date" aria-label="Posição do extrato" className="mt-1 block border border-slate-300 rounded px-2 py-1 text-sm font-normal" value={msg?.posicao ?? ''}
+              onChange={e => { const v = e.target.value; if (!v) return; setMsg(m => (m ? { ...m, posicao: v, texto: trocarDataNoTexto(m.texto, m.posicao, v, false) } : m)); }} /></label>
+          <label className="text-xs font-semibold text-slate-600">Prazo para indicar os créditos
+            <input type="date" aria-label="Prazo para indicar os créditos" className="mt-1 block border border-slate-300 rounded px-2 py-1 text-sm font-normal" value={msg?.prazo ?? ''}
+              onChange={e => { const v = e.target.value; if (!v) return; setMsg(m => (m ? { ...m, prazo: v, texto: trocarDataNoTexto(m.texto, m.prazo, v, true) } : m)); }} /></label>
+        </div>
+        <p className="text-xs text-slate-500 mb-2">Mensagem no padrão da Base Naval. As duas datas acima atualizam o texto; o texto todo continua editável. As faturas vão no <b>PDF das faturas</b> (extrato em árvore, setor › comando › OM › faturas) para anexar à mensagem.</p>
         <textarea className="w-full h-80 font-mono text-xs border border-slate-300 rounded p-2" value={msg?.texto ?? ''} onChange={e => setMsg(m => (m ? { ...m, texto: e.target.value } : m))} aria-label="Texto da cobrança" />
       </Modal>
       <Modal isOpen={!!editarGrupo} onClose={() => setEditarGrupo(null)} title="Grupo de setores destacado">

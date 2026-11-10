@@ -1070,7 +1070,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Mensagens de cobrança' }).click();
     await page.getByRole('button', { name: /gerar mensagem/ }).first().click();
     const texto = await page.getByLabel('Texto da cobrança').inputValue();
-    ok(/^PARA: DIMRJ/.test(texto) && /40030-TC-09-2025-014-0/.test(texto) && !/40032-RB/.test(texto), 'mensagem de cobrança: indicativo, vencidas, sem a contestada');
+    ok(/^PARA: DIMRJ\nDE: BNIC\nBT\nA fim de auxiliar no controle das faturas em aberto das OM apoiadas por esta Base Naval, PTC:/.test(texto) && /ALFA\) Enviado, anexo a esta mensagem, extrato das dívidas em aberto até \d{2}[A-Z]{3}; e/.test(texto) && /CHARLIE\) A indicação dos respectivos créditos deverá ser realizada até \d{2}[A-Z]{3}\d{4}\./.test(texto) && /BRAVO\) Indicar recurso na AI R\.901\.16/.test(texto) && /Tel: 8110-4790/.test(texto) && !/40032-RB/.test(texto), 'mensagem de cobrança no padrão da Base Naval (ALFA, BRAVO, CHARLIE e contatos), com o PDF das faturas anexo');
+    // as duas datas atualizam o texto e o resto continua editável
+    await page.getByLabel('Texto da cobrança').fill(texto.replace('Eventuais esclarecimentos', 'EDITADO PELO USUÁRIO: Eventuais esclarecimentos'));
+    await page.getByLabel('Posição do extrato').fill('2026-08-18');
+    await page.getByLabel('Prazo para indicar os créditos').fill('2026-11-18');
+    const t2 = await page.getByLabel('Texto da cobrança').inputValue();
+    ok(/em aberto até 18AGO; e/.test(t2) && /realizada até 18NOV2026\./.test(t2) && /EDITADO PELO USUÁRIO/.test(t2), 'trocar as datas atualiza ALFA (18AGO) e CHARLIE (18NOV2026) sem perder o texto editado');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cobranca-mensagem.png') });
     const [pdfCob] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF das faturas/ }).click()]);
     const txtCob = fs.readFileSync(await pdfCob.path(), 'latin1');
     if (SHOTS) fs.copyFileSync(await pdfCob.path(), path.join(SHOTS, 'cobranca.pdf'));
