@@ -13,7 +13,7 @@ import { Modal } from '../components/ui/Modal';
 import { notify } from '../utils/notify';
 import { dataBR, hojeISO } from '../utils/datas';
 import { AlertaEx, ContratoEx, FaturaEx, GruEx, SituacaoEx, alertaGru, alertasContratos, alertasGru, atrasoEx, brlEx, fiscalTexto, emailEnvio, resumoExtraMB, siglaFatura, situacaoEx } from '../utils/extraMB';
-import { cabecalhoCompacto } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 type Aba = 'resumo' | 'faturas' | 'gru' | 'extrato' | 'email' | 'contratos';
 const COR_GRAV: Record<AlertaEx['gravidade'], string> = { alta: 'bg-red-50 text-red-700 border-red-200', media: 'bg-amber-50 text-amber-800 border-amber-200', baixa: 'bg-sky-50 text-sky-700 border-sky-200' };
@@ -109,25 +109,24 @@ export const ExtraMarinha: React.FC = () => {
     if (!cliente) return;
     const om = omDoCliente(cliente);
     const doc = new jsPDF('l');
-    const y0 = cabecalhoCompacto(doc);
-    doc.setFontSize(13); doc.text(`Extrato de faturas e GRU — ${cliente}`, 14, y0 + 6);
-    doc.setFontSize(8);
-    doc.text(`${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Exercício ${ano} (e faturas em aberto de anos anteriores) · posição em ${dataBR(hoje)}`, 14, y0 + 11);
-    autoTable(doc, {
-      startY: y0 + 15, head: [['Competência', 'Fatura', 'Serviço', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situação', 'GRU']], body: linhasExtrato(),
+    cabecalhoCompacto(doc);
+    const y0 = tituloRelatorio(doc, `Extrato de faturas e GRU — ${cliente}`, `${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Posição em ${dataBR(hoje)}`, 26) - 6;
+    tabelaPdf(doc, {
+      startY: y0 + 8, head: [['Competência', 'Fatura', 'Serviço', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situação', 'GRU']], body: linhasExtrato(),
       foot: [['TOTAL', '', '', '', brlEx(exTot.valor), brlEx(exTot.pago), brlEx(exTot.saldo), '', '']],
-      styles: { fontSize: 7.5 }, headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [30, 41, 59] },
+      styles: { fontSize: 8 },
       columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     });
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 6, head: [['Data do pagamento', 'GRU', 'Autenticação', 'Valor', 'Faturas pagas']],
+    tabelaPdf(doc, {
+      startY: fimDaTabela(doc) + 6, head: [['Data do pagamento', 'GRU', 'Autenticação', 'Valor', 'Faturas pagas']],
       body: exGrus.map(g => [dataBR(g.dataPagamento), g.numero, g.autenticacao || '—', brlEx(g.valor), g.faturas.map(f => f.numero).join(', ') || '—']),
-      foot: [['TOTAL RECEBIDO', '', '', brlEx(exTot.gru), '']], styles: { fontSize: 7.5 }, headStyles: { fillColor: [15, 23, 42] }, footStyles: { fillColor: [30, 41, 59] },
+      foot: [['TOTAL RECEBIDO', '', '', brlEx(exTot.gru), '']], styles: { fontSize: 8 },
       columnStyles: { 3: { halign: 'right' } },
     });
-    doc.setFontSize(9);
-    doc.text(`Saldo a pagar: ${brlEx(exTot.saldo)}${exTot.credito > 0.005 ? ` · crédito de GRU ainda não atribuído às faturas: ${brlEx(exTot.credito)} (não abatido)` : ''}`, 14, (doc as any).lastAutoTable.finalY + 8);
-    doc.save(`extrato_extra_mb_${cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '_').slice(0, 40)}_${ano}.pdf`);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...TEMA.faixa);
+    doc.text(`Saldo a pagar: ${brlEx(exTot.saldo)}${exTot.credito > 0.005 ? ` · crédito de GRU ainda não atribuído às faturas: ${brlEx(exTot.credito)} (não abatido)` : ''}`, 14, fimDaTabela(doc) + 8);
+    doc.setTextColor(0);
+    salvarPdf(doc, `extrato_extra_mb_${cliente.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '_').slice(0, 40)}_${ano}.pdf`, { yFim: fimDaTabela(doc) + 8 });
   };
   const excelExtrato = () => {
     if (!cliente) return;

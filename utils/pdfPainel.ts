@@ -1,7 +1,6 @@
 /** PDF "resumo do Painel do Encarregado": uma visão executiva do recorte consultado (somente leitura). */
 import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { cabecalhoCompacto } from './pdfCabecalho';
+import { TEMA, cabecalhoCompacto, salvarPdf, tabelaPdf, tituloRelatorio } from './pdfCabecalho';
 import { graficosDoPainel } from './graficosPainel';
 import { desenharGrafico } from './pdfGraficos';
 import {
@@ -42,15 +41,12 @@ export function linhasIndicadores(e: EntradaPdf): LinhaIndicador[] {
 export function pdfPainel(e: EntradaPdf): jsPDF {
   const doc = new jsPDF('p');
   const ind = indicadores(e.fs, e.bs, e.idx, e.periodo, e.hoje, e.criterios, e.recebimentos);
-  const y0 = cabecalhoCompacto(doc);
-  doc.setFontSize(14); doc.text('Painel do Encarregado — resumo', 14, y0 + 7);
-  doc.setFontSize(8);
-  const cab = [`Posição em ${br(e.hoje)} · período ${mes(e.periodo.de)} a ${mes(e.periodo.ate)} · gerado em ${e.atualizadoEm || br(e.hoje)}`, `Recorte: ${e.filtros.length ? e.filtros.join('; ') : 'todos os setores, comandos e públicos'} · ${e.fs.length.toLocaleString('pt-BR')} faturas`];
-  let y = y0 + 12; cab.forEach(l => { const p = doc.splitTextToSize(l, 182); doc.text(p, 14, y); y += 4 * p.length; });
+  cabecalhoCompacto(doc);
+  let y = tituloRelatorio(doc, 'Painel do Encarregado — resumo', `Posição em ${br(e.hoje)}`, 26) - 2;
 
   const tabela = (titulo: string, head: string[], body: (string | number)[][], opts: { largura?: number[] } = {}) => {
-    autoTable(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: [15, 23, 42], halign: 'left' } }], head], body,
-      styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [51, 65, 85] }, theme: 'grid',
+    tabelaPdf(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: TEMA.faixa, halign: 'left' } }], head], body,
+      headStyles: { fillColor: TEMA.cab },
       columnStyles: Object.fromEntries((opts.largura || []).map((w, i) => [i, { cellWidth: w }])) });
     y = (doc as any).lastAutoTable.finalY + 5;
   };
@@ -58,9 +54,9 @@ export function pdfPainel(e: EntradaPdf): jsPDF {
   /** Página só de gráficos (2 × 2), logo depois dos indicadores. */
   const pgGraficos = () => {
     const gs = graficosDoPainel(e);
-    doc.addPage(); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(15, 23, 42); doc.text('Gráficos', 14, 16);
+    doc.addPage(); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...TEMA.faixa); doc.text('Gráficos', 14, 16);
     gs.forEach((g, i) => desenharGrafico(doc, g, 14 + (i % 2) * 93, 22 + Math.floor(i / 2) * 82, 89, 78));
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70);
     doc.text('Faturado pela competência; recebido = ALTCRED/GRU pela data do documento. O passado da inadimplência é reconstruído pelas datas das baixas.', 14, 188, { maxWidth: 182 });
     doc.setTextColor(0); doc.addPage(); y = 16;
   };
@@ -72,8 +68,9 @@ export function pdfPainel(e: EntradaPdf): jsPDF {
   if (e.alertas.length) tabela('Pontos que exigem atenção', ['Prioridade', 'Ocorrência', 'OM', 'Valor', 'Qtd'], e.alertas.slice(0, 12).map(a => [ROTULO_PRIORIDADE[a.prioridade], a.tipo, a.om, a.valor === null ? '—' : brl(a.valor), a.qtd]), { largura: [22, 66, 48, 32, 14] });
   const top = ordenarOM(e.linhas.filter(l => l.vencido > 0), 'vencido').slice(0, 10);
   if (top.length) tabela('10 OM com maior valor vencido', ['OM', 'Vencido', '% inad.', `> ${e.criterios.diasAtencao} d`, 'Contestado'], top.map(l => [l.cliente, brl(l.vencido), pct(l.pctInad), l.v90 ? brl(l.v90) : '', l.contestado ? brl(l.contestado) : '']), { largura: [78, 32, 18, 28, 26] });
-  doc.setFontSize(7); doc.setTextColor(100);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70);
   doc.text('Em aberto exclui faturas contestadas (mostradas à parte). Recebido = ALTCRED/GRU pela data do documento. Definições completas na tela, em "Como cada indicador é calculado".', 14, Math.min(y + 2, 285), { maxWidth: 182 });
-  doc.save(`painel_encarregado_${e.hoje}.pdf`);
+  doc.setTextColor(0);
+  salvarPdf(doc, `painel_encarregado_${e.hoje}.pdf`, { yFim: Math.min(y + 2, 285) + 4 });
   return doc;
 }

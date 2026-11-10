@@ -18,7 +18,7 @@ import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, cabecalhoInstitucional, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 const Lancamentos: React.FC = () => {
   const { user } = useAuth();
@@ -211,10 +211,8 @@ const Lancamentos: React.FC = () => {
   // ... (Export functions remain unchanged) ...
   const exportPDF = () => {
     const doc = new jsPDF('l');
-    const dy = cabecalhoCompacto(doc) - 8;
-    doc.setFontSize(13); doc.text("Relatório de Fluxo de Caixa - SISCONT", 14, 15 + dy);
-    doc.setFontSize(10);
-    doc.text(`Período: ${filterMonth ? filterMonth : 'Todos'}/${filterYear ? filterYear : 'Todos'} | Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
+    cabecalhoCompacto(doc);
+    const yIni = tituloRelatorio(doc, 'Relatório de Fluxo de Caixa', `Posição em ${dataBR(new Date().toISOString().slice(0, 10))}`, 26);
 
     const rows = filteredItems.map(item => [
       dataBR(item.date),
@@ -232,15 +230,16 @@ const Lancamentos: React.FC = () => {
     // Footer row
     rows.push(['TOTAL', '', '', '', '', `R$ ${totalEntries.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, `R$ ${totalExits.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']);
 
-    autoTable(doc, {
-      startY: 25 + dy,
+    tabelaPdf(doc, {
+      startY: yIni,
       head: [['Data', 'Doc', 'Cliente', 'Descrição/Rubrica', 'Obs', 'Entrada', 'Saída', 'Saldo']],
       body: rows,
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [15, 23, 42] }
+      columnStyles: { 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+      didParseCell: (d: any) => { if (d.section === 'body' && d.row.index === rows.length - 1) { d.cell.styles.fillColor = TEMA.total; d.cell.styles.fontStyle = 'bold'; } },
     });
 
-    doc.save("fluxo_caixa_siscont.pdf");
+    salvarPdf(doc, 'fluxo_caixa_siscont.pdf');
   };
 
   /** Excel (.xlsx) de verdade, com valores numéricos. */

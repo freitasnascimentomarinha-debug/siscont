@@ -29,7 +29,7 @@ import { FileUp, Wand2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, cabecalhoInstitucional, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 /** Centavos: evita resíduo de ponto flutuante (ex.: 0,1 + 0,2) nas somas e nas baixas gravadas. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -448,10 +448,8 @@ export const ReceivedBalances: React.FC = () => {
   // --- Import/Export ---
   const exportPDF = () => {
     const doc = new jsPDF('l');
-    const dy = cabecalhoCompacto(doc) - 8;
-    doc.setFontSize(13); doc.text(`Relatório de Saldos Recebidos e Histórico - SISCONT${sufixoPublico(publico)}`, 14, 15 + dy);
-    doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
+    cabecalhoCompacto(doc);
+    const yIni = tituloRelatorio(doc, `Relatório de Saldos Recebidos e Histórico${sufixoPublico(publico)}`, `Posição em ${dataBR(hojeISO())}`, 26);
 
     const bodyRows: any[] = [];
 
@@ -475,7 +473,7 @@ export const ReceivedBalances: React.FC = () => {
         docAllocs.forEach(a => {
           const inv = invoicesById.get(a.invoiceId);
           bodyRows.push([
-            { content: `-> Pgto Fatura: ${inv?.invoiceNumber || '?'} (${inv?.competence}) | Vl Pago: R$ ${a.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, colSpan: 8, styles: { fillColor: [248, 250, 252], textColor: [100, 116, 139], fontStyle: 'italic' } }
+            { content: `-> Pgto Fatura: ${inv?.invoiceNumber || '?'} (${inv?.competence}) | Vl Pago: R$ ${a.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, colSpan: 8, styles: { fillColor: TEMA.zebra, textColor: [51, 65, 85], fontStyle: 'italic' } }
           ]);
         });
       }
@@ -487,17 +485,17 @@ export const ReceivedBalances: React.FC = () => {
       `R$ ${stats.totalAvailable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
     ];
 
-    autoTable(doc, {
-      startY: 25 + dy,
+    tabelaPdf(doc, {
+      startY: yIni,
       head: [['Data', 'Setor', 'Comando', 'Cliente', 'Nº Doc', 'Operação', 'Valor Total', 'Saldo Disp.']],
       body: bodyRows,
       foot: [footer],
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [15, 23, 42] },
-      footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' }
+      alternateRowStyles: { fillColor: [255, 255, 255] },
+      columnStyles: { 6: { halign: 'right' }, 7: { halign: 'right' } }
     });
 
-    doc.save(`saldos_recebidos_historico${arquivoPublico(publico)}.pdf`);
+    salvarPdf(doc, `saldos_recebidos_historico${arquivoPublico(publico)}.pdf`);
   };
 
   /** Excel (.xlsx) de verdade: uma linha por documento e uma por baixa, com valores numéricos. */

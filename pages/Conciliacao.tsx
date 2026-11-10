@@ -15,7 +15,7 @@ import { Button } from '../components/ui/Button';
 import { SeletorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { passaPublico } from '../utils/publico';
 import { Escopo, OpcaoEscopo, SeletorEscopo } from '../components/conciliacao/SeletorEscopo';
-import { cabecalhoCompacto } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -169,29 +169,28 @@ export const Conciliacao: React.FC = () => {
   const exportarPdf = () => {
     if (!extrato) return;
     const doc = new jsPDF();
-    const y0 = cabecalhoCompacto(doc);
-    doc.setFontSize(12); doc.text(doc.splitTextToSize(titulo, 182), 14, y0 + 7);
-    doc.setFontSize(8); doc.text(subtitulo, 14, y0 + 15);
-    doc.setFontSize(10); doc.text('RESUMO DA CONCILIAÇÃO', 14, y0 + 22);
-    autoTable(doc, { startY: y0 + 24, body: linhasResumo(extrato), theme: 'grid', styles: { fontSize: 8, cellPadding: 1.2 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
+    cabecalhoCompacto(doc);
+    const y0 = tituloRelatorio(doc, titulo, `Posição em ${dataBR(hoje)}`, 26);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text('RESUMO DA CONCILIAÇÃO', 14, y0 + 2); doc.setTextColor(0);
+    tabelaPdf(doc, { startY: y0 + 4, body: linhasResumo(extrato), styles: { fontSize: 8.5, cellPadding: 1.5 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
       didParseCell: d => { if ([3, 5].includes(d.row.index)) d.cell.styles.fontStyle = 'bold'; } });
-    let y = (doc as any).lastAutoTable.finalY + 6;
+    let y = fimDaTabela(doc) + 6;
     qs.forEach(q => {
-      if (y > 255) { doc.addPage(); y = 14; }
-      doc.setFontSize(10); doc.text(q.titulo.toUpperCase(), 14, y + 4);
-      autoTable(doc, {
-        startY: y + 6, head: [q.colunas], body: [...q.linhas.map(l => l.c), q.total], theme: 'grid',
-        styles: { fontSize: 7, cellPadding: 1.2 }, headStyles: { fillColor: [30, 41, 59] },
+      if (y > 250) { doc.addPage(); y = 16; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text(q.titulo.toUpperCase(), 14, y + 4); doc.setTextColor(0);
+      tabelaPdf(doc, {
+        startY: y + 6, head: [q.colunas], body: [...q.linhas.map(l => l.c), q.total],
+        styles: { fontSize: 8, cellPadding: 1.3 }, headStyles: { fillColor: TEMA.cab },
         didParseCell: d => {
           const linha = q.linhas[d.row.index];
           if (d.section === 'body' && (d.row.index === q.linhas.length || linha?.sub)) d.cell.styles.fontStyle = 'bold';
-          if (d.section === 'body' && linha?.nota) d.cell.styles.textColor = [120, 53, 15];
+          if (d.section === 'body' && linha?.nota) d.cell.styles.textColor = TEMA.nota;
           if (d.column.index === q.colunas.length - 1) d.cell.styles.halign = 'right';
         },
       });
-      y = (doc as any).lastAutoTable.finalY + 6;
+      y = fimDaTabela(doc) + 6;
     });
-    doc.save(`${nomeArq}.pdf`);
+    salvarPdf(doc, `${nomeArq}.pdf`);
   };
   const exportarExcel = () => {
     if (!extrato) return;

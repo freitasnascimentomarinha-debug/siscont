@@ -17,7 +17,7 @@ import { FAIXAS_IDADE, FaturaPainel, Grupo, doGrupo, emAberto, faixaIdade, resum
 import { ComandoCad, OMCad, Rotulo, SetorCad, criarResolvedor } from '../utils/documentosOM';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, ROTULO_PUBLICO, passaPublico } from '../utils/publico';
-import { cabecalhoCompacto } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 import { excelPainelInicial, pdfPainelInicial } from '../utils/exportPainelInicial';
 import { baixarBytes } from '../utils/baixarArquivo';
 
@@ -216,13 +216,12 @@ export const Dashboard: React.FC = () => {
   };
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
-    const dy = cabecalhoCompacto(doc) - 8;
-    doc.setFontSize(13); doc.text('Extrato de saldos disponíveis e faturas em aberto - SISCONT', 14, 15 + dy);
-    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)} · faturas em contestação fora do em aberto${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 20 + dy);
+    cabecalhoCompacto(doc);
+    const yIni = tituloRelatorio(doc, 'Extrato de saldos disponíveis e faturas em aberto', `Posição em ${br(hoje)}`, 26);
     const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)) && passaPublico(publico, cls.docExtra(d)));
-    autoTable(doc, { startY: 25 + dy, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 } });
-    autoTable(doc, { startY: (doc as any).lastAutoTable.finalY + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 } });
-    doc.save('extrato_saldos_siscont.pdf');
+    tabelaPdf(doc, { startY: yIni, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
+    tabelaPdf(doc, { startY: fimDaTabela(doc) + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
+    salvarPdf(doc, 'extrato_saldos_siscont.pdf');
   };
 
   const devedores = r.porCliente.slice(0, 10);

@@ -21,7 +21,7 @@ import { FaturaMapa, OMRef, creditosDoMapa, montarMapa } from '../utils/mapaAnal
 import { pdfCobrancaEnxuto } from '../utils/pdfArvore';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
-import { cabecalhoCompacto } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
@@ -130,17 +130,15 @@ export const Cobranca: React.FC = () => {
   };
   const exportarPdf = () => {
     const doc = new jsPDF('l');
-    const y0 = cabecalhoCompacto(doc);
-    doc.text(`Atualizado em: ${atualizadoEm}`, 283, y0 - 2, { align: 'right' });
-    doc.setFontSize(12); doc.text(`Quadro resumo — faturas em aberto${sufixoPublico(publico)}${exSetores.size ? ` (setores: ${todosSetores.filter(x => !exSetores.has(x)).join(', ')})` : ''}`, 14, y0 + 6);
-    let y = y0 + 11;
+    cabecalhoCompacto(doc);
+    let y = tituloRelatorio(doc, `Quadro resumo — faturas em aberto${sufixoPublico(publico)}`, `Posição em ${br(h)}`, 26) - 2;
     blocos.forEach(b => {
-      doc.setFontSize(10); doc.text(b.titulo.toUpperCase(), 14, y + 4);
-      autoTable(doc, { startY: y + 6, head: [[linhaPor.toUpperCase(), ...b.p.colunas, 'Total']], body: [...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => (b.p.valores[l][c] ? brl(b.p.valores[l][c]) : '')), brl(b.p.totLinha[l])]), ['Total geral', ...b.p.colunas.map(c => brl(b.p.totColuna[c])), brl(b.p.total)]], styles: { fontSize: 7 }, headStyles: { fillColor: [30, 41, 59] } });
-      y = (doc as any).lastAutoTable.finalY + 4;
-      if (y > 175) { doc.addPage(); y = 14; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text(b.titulo.toUpperCase(), 14, y + 4); doc.setTextColor(0);
+      tabelaPdf(doc, { startY: y + 6, head: [[linhaPor.toUpperCase(), ...b.p.colunas, 'Total']], body: [...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => (b.p.valores[l][c] ? brl(b.p.valores[l][c]) : '')), brl(b.p.totLinha[l])]), ['Total geral', ...b.p.colunas.map(c => brl(b.p.totColuna[c])), brl(b.p.total)]], styles: { fontSize: 8 }, headStyles: { fillColor: TEMA.cab } });
+      y = fimDaTabela(doc) + 5;
+      if (y > 165) { doc.addPage(); y = 16; }
     });
-    doc.save(`faturas_em_aberto${arquivoPublico(publico)}_${h}.pdf`);
+    salvarPdf(doc, `faturas_em_aberto${arquivoPublico(publico)}_${h}.pdf`, { yFim: y - 5 });
   };
 
   // ------------- mensagens de cobrança
@@ -211,8 +209,8 @@ export const Cobranca: React.FC = () => {
         ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
           : m.cliente ? [`Comando: ${m.comando}`] : [`OM devedoras do comando (${lista('cliente').length}): ${lista('cliente').join('; ')}`]),
         `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
-        REGRA_CREDITO,
       ],
+      nota: REGRA_CREDITO,
       rotuloTotal: m.setor ? 'VALOR A PAGAR PELO SETOR' : m.cliente ? 'VALOR A PAGAR PELA OM' : 'VALOR A PAGAR PELO COMANDO',
     });
   };

@@ -38,8 +38,7 @@ export function relatorioGastos(e: EntradaGastosPdf): RelatorioPdf {
   });
   return {
     titulo: `Gastos da BNIC — exercício ${e.ano}`, arquivo: `gastos_bnic_${e.ano}_${e.periodo.de}_${e.periodo.ate}.pdf`, orientacao: 'p',
-    linhas: [`Posição em ${br(e.hoje)} · período ${rotulo}${e.statusProposta ? ` · proposta ${e.statusProposta.toLowerCase()}` : ''}`,
-      'O previsto é do exercício inteiro; o empenhado, o recebido e o consumo da base são do período.'],
+    linhas: [`Posição em ${br(e.hoje)}`],
     cartoes: [
       [`Previsto em ${e.ano}`, brl(t.previsto)], [`Empenhado (${rotulo})`, brl(t.empenhado)],
       ['Saldo do previsto', brl(t.saldo)], ['% executado (rubricas)', pct(t.execucao)],
@@ -48,7 +47,7 @@ export function relatorioGastos(e: EntradaGastosPdf): RelatorioPdf {
       ['Total rateado às OM', brl(e.aRatear)], [`Empenhos no período`, String(t.qtdEmpenhos)],
     ],
     tabelas,
-    rodape: 'Previsto = valor vigente das rubricas (depois do desconto geral). Empenhado = notas de empenho do Fluxo de caixa no período, sem canceladas e anuladas; empenho sem rubrica fica à parte e não é somado duas vezes. '
+    rodape: `O previsto é do exercício inteiro; o empenhado, o recebido e o consumo da base são do período ${rotulo}. ` + 'Previsto = valor vigente das rubricas (depois do desconto geral). Empenhado = notas de empenho do Fluxo de caixa no período, sem canceladas e anuladas; empenho sem rubrica fica à parte e não é somado duas vezes. '
       + 'Recebido das OM = taxa condominial recebida no período, dividida entre as rubricas na proporção de cada uma no valor cobrado das OM (rateio proporcional; estimativa por rubrica, total exato). A parte da BNIC no rateio é só controle, não é gasto a mais.',
   };
 }
@@ -84,7 +83,7 @@ export function relatorioTaxa(e: EntradaTaxaPdf): RelatorioPdf {
   if (!da && e.descontos.length) tabelas.push({ titulo: 'Descontos por OM', head: ['OM', 'Rubrica', 'Tipo', 'Valor', 'Justificativa'], body: e.descontos.map(d => [d.om, d.rubrica, d.tipo === 'PERCENTUAL' ? '%' : 'R$', d.tipo === 'PERCENTUAL' ? pct(d.valor) : brl(d.valor), d.justificativa]), direita: [3] });
   return {
     titulo: da ? `Diária de atracação ${e.ano}` : `Taxa condominial ${e.ano} — proposta e resultado`, arquivo: da ? `diarias_atracacao_${e.ano}.pdf` : `taxa_condominial_${e.ano}.pdf`, orientacao: 'l',
-    linhas: [`Proposta ${e.ano}: ${e.status.toLowerCase()} · gerado em ${br(e.hoje)}`, ...(da && e.custoMilitarDia ? [`Custo por militar-dia: R$ ${e.custoMilitarDia.toLocaleString('pt-BR', { minimumFractionDigits: 4 })}. * navio sem dias de atracação no histórico: diária pela lotação.`] : [])],
+    linhas: [`Posição em ${br(e.hoje)}`, ...(da && e.custoMilitarDia ? [`Custo por militar-dia: R$ ${e.custoMilitarDia.toLocaleString('pt-BR', { minimumFractionDigits: 4 })}. * navio sem dias de atracação no histórico: diária pela lotação.`] : [])],
     cartoes: e.cartoes, tabelas,
     rodape: da ? 'Diária de cada navio = custo por militar-dia × lotação (rateio entre os navios pela lotação × dias atracados).' : 'Descontos por OM não são redistribuídos às demais OM. Variação em relação à taxa mensal publicada no ano anterior.',
   };

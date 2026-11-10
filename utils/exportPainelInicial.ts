@@ -9,7 +9,7 @@ import { FaturaPainel, FAIXAS_IDADE, resumoPainel, taxaCondominial, vencida } fr
 import { GraficoPainel } from './graficosPainel';
 import { GraficoXl, injetarGraficos } from './xlsxGraficos';
 import { desenharGrafico } from './pdfGraficos';
-import { cabecalhoCompacto } from './pdfCabecalho';
+import { TEMA, cabecalhoCompacto, finalizarPdf, tabelaPdf, tituloRelatorio } from './pdfCabecalho';
 
 export interface EntradaPainelInicial {
   ano: number; hoje: string; geradoEm: string;
@@ -153,15 +153,12 @@ export async function excelPainelInicial(e: EntradaPainelInicial): Promise<Uint8
 export function montarPdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   const { r, tc } = e;
   const doc = new jsPDF('p');
-  const y0 = cabecalhoCompacto(doc);
-  doc.setFontSize(14); doc.text(`Painel inicial — faturamento ${e.ano}`, 14, y0 + 7);
-  doc.setFontSize(8);
-  let y = y0 + 12;
-  cabecalhoTexto(e).forEach(l => { const p = doc.splitTextToSize(l, 182); doc.text(p, 14, y); y += 4 * p.length; });
+  cabecalhoCompacto(doc);
+  let y = tituloRelatorio(doc, `Painel inicial — faturamento ${e.ano}`, `Posição em ${br(e.hoje)}`, 26) - 2;
 
   const tabela = (titulo: string, head: string[], body: (string | number)[][], largura: number[]) => {
-    autoTable(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: [15, 23, 42], halign: 'left' } }], head], body,
-      styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [51, 65, 85] }, theme: 'grid',
+    tabelaPdf(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: TEMA.faixa, halign: 'left' } }], head], body,
+      headStyles: { fillColor: TEMA.cab },
       columnStyles: Object.fromEntries(largura.map((w, i) => [i, { cellWidth: w, ...(i > 0 ? { halign: 'right' as const } : {}) }])) });
     y = (doc as any).lastAutoTable.finalY + 5;
   };
@@ -172,10 +169,10 @@ export function montarPdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   // gráficos: 2 colunas × 3 linhas por página
   const gs = graficosPainelInicial(e);
   for (let p = 0; p < gs.length; p += 6) {
-    doc.addPage(); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(15, 23, 42); doc.text(p === 0 ? 'Gráficos' : 'Gráficos (continuação)', 14, 16);
+    doc.addPage(); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...TEMA.faixa); doc.text(p === 0 ? 'Gráficos' : 'Gráficos (continuação)', 14, 16);
     gs.slice(p, p + 6).forEach((g, i) => desenharGrafico(doc, g, 14 + (i % 2) * 93, 22 + Math.floor(i / 2) * 83, 89, 79));
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100);
-    doc.text('Em aberto exclui faturas em contestação. Vermelho = vencido · verde = a vencer. Os mesmos números do Painel inicial (respeitam os filtros ativos).', 14, 288, { maxWidth: 182 });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70);
+    doc.text('Em aberto exclui faturas em contestação. Vermelho = vencido · verde = a vencer.', 14, 281, { maxWidth: 182 });
     doc.setTextColor(0);
   }
 
@@ -186,8 +183,10 @@ export function montarPdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   lista('Maiores devedores', 'Cliente / OM', r.porCliente, 20);
   lista('Em aberto por serviço', 'Serviço', r.porTipo);
   if (tc.oms.length) tabela(`Taxa condominial ${tc.ano} — total mensal ${brl(tc.mensal)} · anual ${brl(tc.anual)}`, ['OM', 'Mensal', '% do total'], tc.oms.slice(0, 25).map(o => [o.nome, brl(o.mensal), `${o.percentual.toLocaleString('pt-BR')}%`]), [110, 40, 32]);
-  doc.setFontSize(7); doc.setTextColor(100);
-  doc.text('O Excel traz todas as OM, todas as faturas em aberto e os gráficos editáveis.', 14, Math.min(y + 2, 288), { maxWidth: 182 });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(70);
+  doc.text('O Excel traz todas as OM, todas as faturas em aberto e os gráficos editáveis.', 14, Math.min(y + 2, 280), { maxWidth: 182 });
+  doc.setTextColor(0);
+  finalizarPdf(doc, { yFim: Math.min(y + 2, 280) + 4 });
   return doc;
 }
 

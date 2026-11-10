@@ -28,7 +28,7 @@ import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, r
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
+import { TEMA, cabecalhoCompacto, cabecalhoInstitucional, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 /** Por que a fatura não tem ALTCRED/GRU vinculada (evita parecer erro quando não é). */
 function semCreditoTexto(inv: Invoice, calc?: { valInvoice: number }): string {
@@ -506,10 +506,8 @@ export const Invoices: React.FC = () => {
 
   const exportListPDF = () => {
     const doc = new jsPDF('l');
-    const dy = cabecalhoCompacto(doc) - 8;
-    doc.setFontSize(13); doc.text(`Relatório de Faturas - SISCONT${sufixoPublico(publico)}`, 14, 15 + dy);
-    doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22 + dy);
+    cabecalhoCompacto(doc);
+    const yIni = tituloRelatorio(doc, `Relatório de Faturas${sufixoPublico(publico)}`, `Posição em ${dataBR(hojeISO())}`, 26);
     const rows = filteredInvoices.map(inv => {
       const calc = getInvoiceCalculations(inv);
       return [
@@ -532,16 +530,15 @@ export const Invoices: React.FC = () => {
       `R$ ${totals.valInvoice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
       `R$ ${totals.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
     ];
-    autoTable(doc, {
-      startY: 25 + dy,
+    tabelaPdf(doc, {
+      startY: yIni,
       head: [['Status', 'UG', 'Cliente', 'Fatura', 'Tipo', 'Comp.', 'Vl Serviço', 'Acres.', 'Deb.', 'Adiant.', 'Vl Fatura', 'Saldo']],
       body: rows,
       foot: [footerRow],
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [15, 23, 42] },
-      footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' }
+      columnStyles: Object.fromEntries([6, 7, 8, 9, 10, 11].map(i => [i, { halign: 'right' as const }]))
     });
-    doc.save(`faturas_siscont${arquivoPublico(publico)}.pdf`);
+    salvarPdf(doc, `faturas_siscont${arquivoPublico(publico)}.pdf`);
   };
 
   const exportExcel = () => {
