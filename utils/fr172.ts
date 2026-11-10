@@ -82,7 +82,7 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   txt('OM USUÁRIA:', xc, y, 9.5, true); txt(doc.splitTextToSize(d.omUsuaria, MR - xc - 26)[0], xc + 26, y, 9.5);
   y += 9.5;
   txt('DATA-LIMITE PARA A CERTIFICAÇÃO DESTA FATURA, A SER FEITA VIA SIPLAD:', tx, y, 9); txt(br(d.limite, true), MR - 4, y, 9.5, true, 'right');
-  if (d.vencimento) { y += 5; txt('DATA-LIMITE PARA O PAGAMENTO DESTA FATURA (VENCIMENTO):', tx, y, 9, true); txt(br(d.vencimento, true), MR - 4, y, 9.5, true, 'right'); }
+  if (d.vencimento) { y += 5; txt('VENCIMENTO:', tx, y, 9, true); txt(br(d.vencimento, true), MR - 4, y, 9.5, true, 'right'); }
   y += 7.5; txt(`REFERÊNCIA: ${mesesDoAno[d.mesCompetencia - 1]}${String(d.anoCompetencia).slice(2)}${d.estimado ? ' (ESTIMADO OUT–DEZ)' : ''}`, tx, y, 9.5, true);
   y += 7; y = par(`EMITIDA DE ACORDO COM ${(d.emitidaDeAcordoCom || 'O DETALHAMENTO NO CAMPO OBSERVAÇÃO').toUpperCase()}`, tx, y, MR - tx - 4, 9.5, true) - 1;
   y += 6; txt('DETALHAMENTO', tx, y, 9.5);
