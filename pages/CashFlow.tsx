@@ -212,7 +212,7 @@ const Lancamentos: React.FC = () => {
   const exportPDF = () => {
     const doc = new jsPDF('l');
     cabecalhoCompacto(doc);
-    const yIni = tituloRelatorio(doc, 'Relatório de Fluxo de Caixa', `Posição em ${dataBR(new Date().toISOString().slice(0, 10))}`, 26);
+    const yIni = tituloRelatorio(doc, 'Relatório de Fluxo de Caixa', `Período: ${filterMonth ? filterMonth : 'Todos'}/${filterYear ? filterYear : 'Todos'} · posição em ${dataBR(new Date().toISOString().slice(0, 10))}`, 26);
 
     const rows = filteredItems.map(item => [
       dataBR(item.date),

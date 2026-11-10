@@ -131,7 +131,7 @@ export const Cobranca: React.FC = () => {
   const exportarPdf = () => {
     const doc = new jsPDF('l');
     cabecalhoCompacto(doc);
-    let y = tituloRelatorio(doc, `Quadro resumo — faturas em aberto${sufixoPublico(publico)}`, `Posição em ${br(h)}`, 26) - 2;
+    let y = tituloRelatorio(doc, `Quadro resumo — faturas em aberto${sufixoPublico(publico)}`, `Posição em ${br(h)} · atualizado em ${atualizadoEm}`, 26) - 2;
     blocos.forEach(b => {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text(b.titulo.toUpperCase(), 14, y + 4); doc.setTextColor(0);
       tabelaPdf(doc, { startY: y + 6, head: [[linhaPor.toUpperCase(), ...b.p.colunas, 'Total']], body: [...b.p.linhas.map(l => [l, ...b.p.colunas.map(c => (b.p.valores[l][c] ? brl(b.p.valores[l][c]) : '')), brl(b.p.totLinha[l])]), ['Total geral', ...b.p.colunas.map(c => brl(b.p.totColuna[c])), brl(b.p.total)]], styles: { fontSize: 8 }, headStyles: { fillColor: TEMA.cab } });

@@ -154,7 +154,7 @@ export function montarPdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   const { r, tc } = e;
   const doc = new jsPDF('p');
   cabecalhoCompacto(doc);
-  let y = tituloRelatorio(doc, `Painel inicial — faturamento ${e.ano}`, `Posição em ${br(e.hoje)}`, 26) - 2;
+  let y = tituloRelatorio(doc, `Painel inicial — faturamento ${e.ano}`, `Posição em ${br(e.hoje)} · exercício de referência ${e.ano} · gerado em ${e.geradoEm}`, 26) - 2;
 
   const tabela = (titulo: string, head: string[], body: (string | number)[][], largura: number[]) => {
     tabelaPdf(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: TEMA.faixa, halign: 'left' } }], head], body,

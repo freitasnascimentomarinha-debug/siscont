@@ -42,7 +42,7 @@ export function pdfPainel(e: EntradaPdf): jsPDF {
   const doc = new jsPDF('p');
   const ind = indicadores(e.fs, e.bs, e.idx, e.periodo, e.hoje, e.criterios, e.recebimentos);
   cabecalhoCompacto(doc);
-  let y = tituloRelatorio(doc, 'Painel do Encarregado — resumo', `Posição em ${br(e.hoje)}`, 26) - 2;
+  let y = tituloRelatorio(doc, 'Painel do Encarregado — resumo', `Posição em ${br(e.hoje)} · período ${mes(e.periodo.de)} a ${mes(e.periodo.ate)} · gerado em ${e.atualizadoEm || br(e.hoje)}`, 26) - 2;
 
   const tabela = (titulo: string, head: string[], body: (string | number)[][], opts: { largura?: number[] } = {}) => {
     tabelaPdf(doc, { startY: y + 1, head: [[{ content: titulo, colSpan: head.length, styles: { fillColor: TEMA.faixa, halign: 'left' } }], head], body,

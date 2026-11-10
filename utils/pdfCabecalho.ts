@@ -94,7 +94,7 @@ export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolea
     const ultima = doc.getNumberOfPages();
     const t = (doc as any).lastAutoTable;
     let y = (opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + 8;
-    if (y > H - 23) { doc.addPage(); y = 40; }
+    if (y > H - 23) { doc.addPage(); y = 40; (doc as any).__assinaturaSozinha = true; }
     doc.setPage(doc.getNumberOfPages());
     const cx = W / 2;
     doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(cx - 40, y, cx + 40, y);

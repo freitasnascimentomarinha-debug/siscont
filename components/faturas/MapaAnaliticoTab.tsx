@@ -104,7 +104,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const exportarPdf = () => {
     pdfArvore(mapa, {
       titulo: `Mapa Analítico de Contas — posição líquida por setor, comando e OM${sufixoPublico(publico)}`,
-      linhas: [`Posição em ${dataBR(hoje)}`], nota: 'O crédito abate somente a dívida da própria OM.',
+      linhas: [`Posição em ${dataBR(hoje)} · o crédito abate somente a dívida da própria OM`],
     }).save(`mapa_analitico${arquivoPublico(publico)}_${hoje}.pdf`);
   };
 

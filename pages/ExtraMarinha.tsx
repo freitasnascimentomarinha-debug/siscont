@@ -110,7 +110,7 @@ export const ExtraMarinha: React.FC = () => {
     const om = omDoCliente(cliente);
     const doc = new jsPDF('l');
     cabecalhoCompacto(doc);
-    const y0 = tituloRelatorio(doc, `Extrato de faturas e GRU — ${cliente}`, `${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Posição em ${dataBR(hoje)}`, 26) - 6;
+    const y0 = tituloRelatorio(doc, `Extrato de faturas e GRU — ${cliente}`, `${om?.cnpj ? `CNPJ ${om.cnpj} · ` : ''}Exercício ${ano} (e faturas em aberto de anos anteriores) · posição em ${dataBR(hoje)}`, 26) - 6;
     tabelaPdf(doc, {
       startY: y0 + 8, head: [['Competência', 'Fatura', 'Serviço', 'Vencimento', 'Valor', 'Pago', 'Saldo', 'Situação', 'GRU']], body: linhasExtrato(),
       foot: [['TOTAL', '', '', '', brlEx(exTot.valor), brlEx(exTot.pago), brlEx(exTot.saldo), '', '']],

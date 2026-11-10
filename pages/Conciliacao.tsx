@@ -170,7 +170,7 @@ export const Conciliacao: React.FC = () => {
     if (!extrato) return;
     const doc = new jsPDF();
     cabecalhoCompacto(doc);
-    const y0 = tituloRelatorio(doc, titulo, `Posição em ${dataBR(hoje)}`, 26);
+    const y0 = tituloRelatorio(doc, titulo, subtitulo, 26);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text('RESUMO DA CONCILIAÇÃO', 14, y0 + 2); doc.setTextColor(0);
     tabelaPdf(doc, { startY: y0 + 4, body: linhasResumo(extrato), styles: { fontSize: 8.5, cellPadding: 1.5 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
       didParseCell: d => { if ([3, 5].includes(d.row.index)) d.cell.styles.fontStyle = 'bold'; } });

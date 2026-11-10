@@ -217,7 +217,7 @@ export const Dashboard: React.FC = () => {
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
     cabecalhoCompacto(doc);
-    const yIni = tituloRelatorio(doc, 'Extrato de saldos disponíveis e faturas em aberto', `Posição em ${br(hoje)}`, 26);
+    const yIni = tituloRelatorio(doc, 'Extrato de saldos disponíveis e faturas em aberto', `Posição em ${br(hoje)} · faturas em contestação fora do em aberto`, 26);
     const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)) && passaPublico(publico, cls.docExtra(d)));
     tabelaPdf(doc, { startY: yIni, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
     tabelaPdf(doc, { startY: fimDaTabela(doc) + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
