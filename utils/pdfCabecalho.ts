@@ -35,10 +35,41 @@ export const TEMA = {
 };
 
 /**
+ * Registra, página por página, até onde chegou o que foi desenhado (texto, retângulos, linhas, imagens...). A assinatura vai
+ * logo abaixo disso, então nunca cai em cima de dados, mesmo com notas e textos depois da última tabela.
+ */
+function rastrear(doc: any) {
+  if (doc.__rastro) return;
+  doc.__rastro = {} as Record<number, number>;
+  const reg = (y: number) => {
+    if (!Number.isFinite(y)) return;
+    const p = doc.internal.getCurrentPageInfo().pageNumber;
+    if (y > (doc.__rastro[p] || 0)) doc.__rastro[p] = y;
+  };
+  const embrulhar = (nome: string, fundo: (a: any[]) => number) => {
+    const orig = doc[nome]?.bind(doc);
+    if (!orig) return;
+    doc[nome] = (...a: any[]) => { try { reg(fundo(a)); } catch { /* o rastro nunca atrapalha o PDF */ } return orig(...a); };
+  };
+  embrulhar('text', a => {
+    const [t, , y, o] = a;
+    const n = Array.isArray(t) ? t.length : o?.maxWidth ? doc.splitTextToSize(String(t), o.maxWidth).length : 1;
+    return y + (n - 1) * (doc.getFontSize() * doc.getLineHeightFactor()) / doc.internal.scaleFactor + 1;
+  });
+  embrulhar('rect', a => a[1] + (a[3] || 0));
+  embrulhar('roundedRect', a => a[1] + (a[3] || 0));
+  embrulhar('line', a => Math.max(a[1], a[3]));
+  embrulhar('addImage', a => (typeof a[0] === 'object' ? a[0].y + (a[0].h || 0) : a[3] + (a[5] || 0)));
+  embrulhar('circle', a => a[1] + (a[2] || 0));
+  embrulhar('triangle', a => Math.max(a[1], a[3], a[5]));
+}
+
+/**
  * Cabeçalho dos relatórios: brasão da Marinha do Brasil à esquerda, brasão da Base Naval à direita, as três linhas
  * institucionais ao centro e um filete. Devolve o `y` onde o conteúdo começa (26 mm).
  */
 export function cabecalhoCompacto(doc: jsPDF, margem = 14): number {
+  rastrear(doc);
   const W = doc.internal.pageSize.getWidth();
   const alt = 17, y = 5;
   try { doc.addImage(BRASAO_MARINHA_PNG, 'PNG', W - margem - alt * BRASAO_PROPORCAO, y, alt * BRASAO_PROPORCAO, alt); } catch { /* sem brasão não impede o PDF */ }
@@ -93,7 +124,8 @@ export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolea
   if (opts.assinar !== false) {
     const ultima = doc.getNumberOfPages();
     const t = (doc as any).lastAutoTable;
-    let y = (opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + 8;
+    const rastro: number | undefined = (doc as any).__rastro?.[ultima];
+    let y = (rastro ?? opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + 9;
     if (y > H - 23) { doc.addPage(); y = 40; (doc as any).__assinaturaSozinha = true; }
     doc.setPage(doc.getNumberOfPages());
     const cx = W / 2;
