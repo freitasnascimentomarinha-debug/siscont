@@ -4,6 +4,7 @@ import { ReceivedDocument } from '../../types';
 import { itensDoPdf, lerSolicitacoesDetalhado, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
+import { classificarSituacao } from '../../utils/situacaoSiplad';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 
@@ -44,8 +45,10 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         sols.push(...lido.lidas); fora.push(...lido.descartadas);
       }
       setSemSolicitacao(vazios); setDescartadas(fora);
-      setItens(planejarImportacaoSiplad(sols, documentos, await carregarCadastro()));
-      setIgnorados(new Set());
+      const plano = planejarImportacaoSiplad(sols, documentos, await carregarCadastro());
+      setItens(plano);
+      // devolvida, cancelada e não processada não são recebimento: já vêm como "Não importar" (dá para trocar)
+      setIgnorados(new Set(plano.map((p, k) => (classificarSituacao(p.sol.situacao).importarPadrao ? -1 : k)).filter(k => k >= 0)));
     } catch (e) {
       notify.fail('Não foi possível ler o PDF', e);
     } finally {
@@ -100,6 +103,11 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
             <div className="font-mono mt-1 break-words">{descartadas.map(d => `${d.numero} (${d.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`).join(' · ')}</div>
           </div>
         )}
+        {itens.length > 0 && (() => {
+          const cont = new Map<string, number>();
+          itens.forEach(i => { const r = classificarSituacao(i.sol.situacao).rotulo; cont.set(r, (cont.get(r) || 0) + 1); });
+          return <p className="text-sm text-slate-700" data-testid="resumo-situacoes"><b>{itens.length}</b> solicitação(ões) no PDF: {[...cont.entries()].map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · ')}. Só as <b>processadas</b> já são crédito recebido; devolvidas, canceladas e não processadas vêm marcadas como "Não importar".</p>;
+        })()}
         {itens.length > 0 && (
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="min-w-full text-sm divide-y divide-slate-200">
@@ -119,7 +127,10 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                       <div className="text-[11px] text-slate-500">{i.doc.command}</div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{brl(i.sol.valor)}</td>
-                    <td className="px-3 py-2 text-xs">{i.sol.situacao || '—'}<div className="text-slate-500">{br(i.sol.dataSituacao)}</div></td>
+                    <td className="px-3 py-2 text-xs">
+                      {(() => { const st = classificarSituacao(i.sol.situacao); return <span className={`inline-block px-2 py-0.5 rounded font-semibold ${st.classe}`} title={st.explicacao}>{st.rotulo}</span>; })()}
+                      <div className="text-slate-500">{br(i.sol.dataSituacao)}</div>
+                    </td>
                     <td className="px-3 py-2 text-xs max-w-[220px]">
                       {i.doc.destinacao?.length ? i.doc.destinacao.map(d => <div key={d.valor} className="font-mono">{d.valor}</div>) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
                       <div className="text-slate-500 mt-1 line-clamp-3" title={i.sol.observacao}>{i.sol.observacao}</div>

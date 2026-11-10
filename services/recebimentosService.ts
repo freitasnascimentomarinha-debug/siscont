@@ -5,6 +5,7 @@ import { cadastroService } from './cadastroService';
 import { SolicitacaoAltcred } from '../utils/altcredSiplad';
 import { FaturaCandidata, ItemProposta } from '../utils/baixaAssistida';
 import { ehAdiantamento } from '../utils/baixas';
+import { classificarSituacao } from '../utils/situacaoSiplad';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -62,7 +63,11 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
         avisos.push(`Valor no sistema R$ ${existente.totalValue.toFixed(2)} × no SIPLAD R$ ${sol.valor.toFixed(2)}; o valor do sistema foi mantido.`);
       }
       const destinacao = existente.destinacao?.length ? existente.destinacao : sol.faturasCitadas.map(n => ({ tipo: 'FATURA' as const, valor: n }));
-      return { sol, acao: 'COMPLETAR', existente, avisos, doc: { ...existente, ...detalhes, destinacao, valorOriginal: existente.valorOriginal ?? sol.valor } };
+      // situação que mudou desde a última importação (ex.: aguardando → processada): a data do documento passa a ser a do processamento
+      const antes = classificarSituacao(existente.situacaoSiplad), agora = classificarSituacao(sol.situacao);
+      const virouProcessada = !!existente.situacaoSiplad && !antes.recebido && agora.codigo === 'PROCESSADA' && !!sol.dataSituacao;
+      if (existente.situacaoSiplad && antes.codigo !== agora.codigo) avisos.push(`Situação mudou: ${antes.rotulo} → ${agora.rotulo}${virouProcessada ? `; data do documento atualizada para ${sol.dataSituacao!.split('-').reverse().join('/')}` : ''}.`);
+      return { sol, acao: 'COMPLETAR', existente, avisos, doc: { ...existente, ...detalhes, ...(virouProcessada ? { date: sol.dataSituacao! } : {}), destinacao, valorOriginal: existente.valorOriginal ?? sol.valor } };
     }
     const origem = sol.altcredOrigem ? porNumero.get(sol.altcredOrigem.toUpperCase()) : undefined;
     if (origem && ehEstorno(sol)) {

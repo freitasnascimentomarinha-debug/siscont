@@ -290,6 +290,12 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
+- **Situação da ALTCRED no SIPLAD** (importação do PDF): cada solicitação é classificada em *Processada* (crédito já entrou),
+  *Aguardando processamento*, *Em análise / tramitação*, *Devolvida à origem*, *Cancelada / rejeitada* ou *Não processada*. A tela
+  da importação mostra a etiqueta colorida e um resumo ("1 aguardando · 1 devolvida · 1 processada"); devolvida, cancelada e não
+  processada já vêm como "Não importar" (dá para trocar). Na lista de Recebimentos toda ALTCRED traz a etiqueta "SIPLAD: ..." e há o
+  filtro **Situação no SIPLAD**. A baixa assistida avisa quando a ALTCRED ainda não é crédito recebido. Importar o PDF de novo atualiza
+  a situação, e quando passa de "aguardando" para "processada" a data do documento vira a data do processamento.
 - **Reimpressão da FR-172 depois do pagamento**: a fatura que já recebeu baixa sai com o quadro "PAGAMENTO(S) REGISTRADO(S)" —
   **data do documento de pagamento** (ALTCRED ou GRU), número do documento e valor — e a situação (**fatura paga** ou **pagamento parcial, com o saldo em aberto**).
   Baixas de adiantamento seguem como "Baixa na ALTCRED ...". Fatura em aberto sai sem esse quadro.

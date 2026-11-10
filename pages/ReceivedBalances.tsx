@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
+import { FILTRO_SITUACAO, classificarSituacao, passaFiltroSituacao } from '../utils/situacaoSiplad';
 import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
 import { ResumoAdiantamentos } from '../components/recebimentos/ResumoAdiantamentos';
 import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
@@ -48,6 +49,7 @@ export const ReceivedBalances: React.FC = () => {
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'with_balance' | 'no_balance'>('all');
+  const [filterSiplad, setFilterSiplad] = useState('todas');
   const [filterClient, setFilterClient] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [filterCommand, setFilterCommand] = useState('');
@@ -126,7 +128,7 @@ export const ReceivedBalances: React.FC = () => {
 
   useEffect(() => { refresh(); }, []);
   // volta para a 1ª página quando os filtros ou a aba mudam
-  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterClient, filterDocNumber, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
+  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterClient, filterDocNumber, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
 
   // --- Auto-fill Service Type when selecting invoice ---
   useEffect(() => {
@@ -190,6 +192,8 @@ export const ReceivedBalances: React.FC = () => {
     // 3. Status Filter
     if (filterStatus === 'with_balance' && d.availableValue <= 0) return false;
     if (filterStatus === 'no_balance' && d.availableValue > 0) return false;
+
+    if (!passaFiltroSituacao(filterSiplad, d.situacaoSiplad)) return false;
 
     // 4. Text Filters
     const r = rot(d);
@@ -537,7 +541,7 @@ export const ReceivedBalances: React.FC = () => {
                                     {doc.aguardando && doc.availableValue > 0.005 && <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800" title="O cliente ainda não indicou as faturas">Aguardando destinação</span>}
                                     {doc.sobraAdiantamento && <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800" title="A sobra desta ALTCRED de pagamento é usada como adiantamento">Sobra em adiantamento</span>}
                                     {!!doc.valorEstornado && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">Estorno R$ {doc.valorEstornado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
-                                    {doc.situacaoSiplad && !/processad/i.test(doc.situacaoSiplad) && <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-700">SIPLAD: {doc.situacaoSiplad}</span>}
+                                    {doc.situacaoSiplad && (() => { const st = classificarSituacao(doc.situacaoSiplad); return <span className={`text-xs px-2 py-0.5 rounded font-medium ${st.classe}`} title={st.explicacao}>SIPLAD: {st.rotulo}</span>; })()}
                                   </div>
                                   <p className="text-sm text-slate-500">{dataBR(doc.date)} - {doc.client}</p>
                                 </div>
@@ -728,6 +732,7 @@ export const ReceivedBalances: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3">
           <Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} />
           <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
+          <Select label="Situação no SIPLAD" value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} options={FILTRO_SITUACAO} />
           <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
           <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
           <Input label="Cliente (texto)" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Nome no documento..." />
@@ -742,7 +747,7 @@ export const ReceivedBalances: React.FC = () => {
           <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={() => {
-            setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
+            setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterSiplad('todas'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
             setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos('');
           }}>
             <X size={14} className="mr-1" /> Limpar Filtros

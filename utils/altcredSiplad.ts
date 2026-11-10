@@ -7,6 +7,7 @@
  * vêm centralizados e às vezes quebrados em duas linhas, como "91600 -" / "ComForSup").
  */
 import type { CelulaCredito } from '../types';
+import { classificarSituacao } from './situacaoSiplad';
 
 export interface ItemPdf { s: string; x: number; y: number; w: number }
 
@@ -153,7 +154,7 @@ export function lerSolicitacao(itens: ItemPdf[], pagina = 1): SolicitacaoAltcred
   const origem = campo(itens, 'ALTCRED de Origem');
   const dataCriacao = dataIso(campo(itens, 'Dt. de Criação'));
   if (!dataSituacao && /processad/i.test(situacao)) avisos.push('Data em que a solicitação foi processada não encontrada no histórico; usada a data de criação.');
-  if (situacao && !/processad/i.test(situacao)) avisos.push(`Situação no SIPLAD: ${situacao} (ainda não processada).`);
+  { const st = classificarSituacao(situacao); if (situacao && !st.recebido) avisos.push(`Situação no SIPLAD: ${st.rotulo}. ${st.explicacao}`); }
 
   return {
     numero, dataCriacao, tipoAlteracao: campo(itens, 'Tipo Alteração'), setorCriacao: campo(itens, 'Setor de Criação'),

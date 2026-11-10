@@ -5,6 +5,7 @@ import { ItemProposta, proporBaixa, validarBaixa } from '../../utils/baixaAssist
 import { RE_FATURA_TEXTO } from '../../utils/altcredSiplad';
 import { faturasCandidatas, gravarBaixaAssistida } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
+import { classificarSituacao } from '../../utils/situacaoSiplad';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 
@@ -85,6 +86,12 @@ export const BaixaAssistidaModal: React.FC<{
         </div>
       }>
       <div className="space-y-4 text-sm">
+        {doc.situacaoSiplad && !classificarSituacao(doc.situacaoSiplad).recebido && (
+          <p className="p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 flex gap-2" role="alert">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <span>Situação no SIPLAD: <b>{classificarSituacao(doc.situacaoSiplad).rotulo}</b>. {classificarSituacao(doc.situacaoSiplad).explicacao} Confira antes de dar baixa nas faturas.</span>
+          </p>
+        )}
         <div className="grid md:grid-cols-3 gap-3">
           <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
             <div className="text-[11px] uppercase text-slate-500 font-semibold">Cliente</div>

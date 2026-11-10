@@ -178,20 +178,20 @@ function planilhaPagamento() {
 }
 
 /** PDF fictício no leiaute da "Solicitação de Alteração de Crédito" do SIPLAD (posições como no original). */
-function pdfSiplad() {
+function pdfSiplad(situacao = 'Processada', numero = 'Z999.2026.AC.00001') {
   const { jsPDF } = require(path.join(__dirname, '../../node_modules/jspdf/dist/jspdf.node.min.js'));
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   doc.setFontSize(8);
   const t = (s, x, y) => doc.text(s, x, 842 - y);
   [['Solicitações de Alteração de', 180, 794], ['Crédito', 271, 773],
    ['N° da Solicitação', 22, 712], ['Dt. de Criação', 196, 712], ['Tipo Alteração', 396, 712],
-   ['Z999.2026.AC.00001', 22, 698], ['10/03/2026', 196, 697], ['Indenização Serviços Prestados', 396, 697],
+   [numero, 22, 698], ['10/03/2026', 196, 697], ['Indenização Serviços Prestados', 396, 697],
    ['ID do Usuário', 22, 669], ['Setor de Criação', 196, 669], ['ALTCRED de Origem', 396, 668],
    ['00.0000.00 - FULANO', 22, 654], ['12345 - ComTeste', 196, 654], ['--', 396, 654],
    ['UG Cliente', 196, 626], ['Tipo Tramitação', 23, 625], ['Origem Suplementação', 396, 625],
    ['--', 396, 610], ['Normal', 23, 607], ['12345 - ComTeste', 196, 607],
    ['Destino Destaque', 23, 532], ['UO Favorecida', 196, 532], ['Situação', 398, 532],
-   ['--', 23, 517], ['--', 196, 517], ['Processada', 398, 517],
+   ['--', 23, 517], ['--', 196, 517], [situacao, 398, 517],
    ['Observação do Solicitante', 23, 495], ['Quitação das faturas 12346-EL-08-2026-010-0 e 12346-AE-08-2026-004-0.', 23, 480],
    ['Célula de Débito (CDD)', 245, 444],
    ['Moeda', 24, 427], ['PTRES', 63, 427], ['UO', 114, 427], ['Esfera', 147, 427], ['FR', 201, 427], ['ND', 255, 427], ['Plano Interno', 305, 427], ['UGR', 389, 427], ['UGE', 439, 427], ['Valor a Debitar', 494, 427],
@@ -205,7 +205,7 @@ function pdfSiplad() {
    ['Histórico Trâmite', 260, 272],
    ['OM', 48, 215], ['FULANO', 227, 215], ['10/03/2026', 300, 215],
    ['DGOM 20', 35, 195], ['Processamento em Batch', 100, 195], ['10/03/2026', 300, 195],
-   ['DGOM 20', 35, 175], ['Processada', 128, 175], ['12/03/2026', 300, 175]].forEach(([s, x, y]) => t(s, x, y));
+   ['DGOM 20', 35, 175], [situacao, 128, 175], ['12/03/2026', 300, 175]].forEach(([s, x, y]) => t(s, x, y));
   const f = path.join(os.tmpdir(), `siscont-e2e-siplad-${Date.now()}.pdf`);
   fs.writeFileSync(f, Buffer.from(doc.output('arraybuffer')));
   return f;
@@ -2183,6 +2183,30 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('Não está ligado ao cadastro').count() === 0, 'documento com o cliente igual ao nome da OM aparece "Ligado ao cadastro" (sem o aviso de não ligado)');
     await page.getByLabel('Cliente', { exact: true }).fill('Cliente que não existe');
     ok(await page.getByText('Não está ligado ao cadastro').isVisible(), 'texto que não é de nenhuma OM continua avisando');
+  });
+
+  await cenario('SIPLAD: situação da ALTCRED (processada, aguardando, devolvida) identificada na importação, na lista e no filtro', [pdfSiplad('Aguardando processamento', 'Z999.2026.AC.00002'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00003'), pdfSiplad('Processada', 'Z999.2026.AC.00004')], async (page, db, arquivos) => {
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00004').first().waitFor({ timeout: 20000 });
+    const resumo = (await page.getByTestId('resumo-situacoes').innerText()).replace(/\s+/g, ' ');
+    ok(/3 solicitação/.test(resumo) && /1 aguardando processamento/.test(resumo) && /1 devolvida à origem/.test(resumo) && /1 processada/.test(resumo), `resumo das situações lido do PDF (${resumo.slice(0, 120)})`);
+    ok(await page.getByLabel('Ação para Z999.2026.AC.00003').inputValue() === 'IGNORAR', 'devolvida à origem já vem como "Não importar"');
+    ok(await page.getByLabel('Ação para Z999.2026.AC.00002').inputValue() === 'NOVA' && await page.getByLabel('Ação para Z999.2026.AC.00004').inputValue() === 'NOVA', 'aguardando e processada vêm para importar');
+    ok(await page.locator('table span').filter({ hasText: 'Aguardando processamento' }).first().isVisible() && await page.locator('table span').filter({ hasText: 'Devolvida à origem' }).first().isVisible(), 'etiquetas de situação na tabela de importação');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-situacoes.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
+    const nums = db.received_documents.map(d => d.document_number).sort();
+    ok(nums.includes('Z999.2026.AC.00002') && nums.includes('Z999.2026.AC.00004') && !nums.includes('Z999.2026.AC.00003'), 'gravou a aguardando e a processada; a devolvida ficou de fora');
+    ok(db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00002').situacao_siplad === 'Aguardando processamento', 'situação guardada no documento');
+    await page.getByRole('heading', { name: 'Z999.2026.AC.00002' }).waitFor();
+    ok(await page.getByText('SIPLAD: Aguardando processamento').isVisible() && await page.getByText('SIPLAD: Processada').isVisible(), 'lista mostra a situação de cada ALTCRED');
+    await page.getByLabel('Situação no SIPLAD').selectOption('PROCESSADA');
+    await page.getByRole('heading', { name: 'Z999.2026.AC.00004' }).waitFor();
+    ok(await page.getByRole('heading', { name: 'Z999.2026.AC.00002' }).count() === 0, 'filtro "Processada" esconde a que está aguardando');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-situacoes-lista.png'), fullPage: false });
   });
 
   if (extras.length) {
