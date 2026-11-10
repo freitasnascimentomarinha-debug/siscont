@@ -274,6 +274,12 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   fora e mostra o valor dela só como controle e contabilidade de custos — e pode **participar ou não dos rateios**:
   participando, entra na taxa condominial como as demais (a TC dela não é publicada nos Preços); não participando, a
   parte dela é dividida entre as outras OM. Parâmetros `om_emissora_id` e `om_emissora_rateio` (SIM/NAO).
+- **Planilha de faturas de viatura (VT)** — *Medições do mês › Importar rateio da divisão*: reconhece o arquivo da divisão de
+  transportes (uma aba por OM, aba MODELO ignorada) e abre a conferência. O valor de cada OM é o *TOTAL SERVIÇO PRESTADO* da aba;
+  a viatura é cobrada com atraso, então o valor pode juntar vários meses (a tabela Mês | Valor aparece como detalhe). A OM é ligada
+  pelo código do número da fatura e pelo nome; abas sem valor (sem fatura no mês) são listadas. Avisos: REFERÊNCIA da aba
+  desatualizada, total diferente da soma da tabela e fatura que cobra meses muito atrasados (pode ser sobra do mês anterior). Ao
+  lançar, a tela vai para a competência da planilha e o serviço VT; confira e clique em **Gravar**.
 - **Importar ALTCRED do SIPLAD (PDF)**: lê todas as páginas do relatório "Solicitações de Alteração de Crédito" e traz só o que a
   BNIC **recebeu** (crédito na UGR da BNIC, ou na UGE da BNIC em indenização de serviços/estorno). O resto (compras no exterior,
   ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números

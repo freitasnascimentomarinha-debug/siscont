@@ -2033,6 +2033,52 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await page.getByText('Nenhum crédito com esse filtro.').count()) === 1, 'crédito zerado sai da lista (só com saldo)');
   });
 
+  await cenario('Planilha de viatura: uma aba por OM, meses atrasados somados, conferência e lançamento no serviço VT', [], async (page, db) => {
+    const om = (codigo, nome, extra = {}) => { const o = { id: uid(), codigo, nome, tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [], ...extra }; db.oms.push(o); return o; };
+    const sim = om('64100', 'Serviço de Identificação da Marinha'), ccem = om('11101', 'Centro de Comunicação Estratégica da Marinha'), hcm = om('65730', 'Hospital Central da Marinha');
+    db.service_definitions.push({ id: uid(), name: 'Viatura', unit_measure: 'H/KM', acronym: 'VT', nome_oficial: 'ALUGUEL DE VIATURAS', setor_responsavel: 'a Divisão de Transportes (BNIC-34)', ordem: 60, ativo: true });
+    const L = c => { const l = Array(12).fill(null); Object.entries(c).forEach(([k, x]) => { l[k.charCodeAt(0) - 65] = x; }); return l; };
+    const aba = (numero, omu, total, tabela, ref = 'SET26') => [
+      L({ B: 'MARINHA DO BRASIL' }), L({ B: 'BASE NAVAL DA ILHA DAS COBRAS' }), [], L({ B: 'FATURAMENTO PARA SERVIÇOS DE APOIO BASE' }),
+      L({ A: `Nº ${numero}`, D: `OM USUÁRIA: ${omu}` }), [], L({ A: 'REFERÊNCIA:', C: ref }), [], L({ A: '   SERVIÇO PRESTADO: ALUGUEL DE VIATURAS' }),
+      L({ D: 1, E: '(+)', F: 'TOTAL SERVIÇO PRESTADO', H: ' VALOR:', I: total }), L({ D: 2, E: '(-)', F: 'ADIANTAMENTO', H: ' VALOR:', I: 0 }),
+      L({ B: 'OBS.:' }), L({ B: 'Mês', C: 'Valor (R$)' }), ...tabela.map(([m, v]) => L({ B: m, C: v })),
+    ];
+    const wb = XLSX.utils.book_new();
+    const add = (nome, linhas) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), nome);
+    add('MODELO', aba('00000-VT-09-2026-000-0', 'modelo', 1, []));
+    add('SIM', aba('64100-VT-09-2026-011-0', 'Serviço de Identificação da Marinha', 92.93, [['SET26', 92.93]]));
+    add('CCEM', aba('11101-VT-09-2026-001-0', 'Centro de Comunicação Estratégica da Marinha', 4499.06, [['OUT25', 363.64], ['NOV25', 1669.37], ['DEZ25', 434.82], ['JAN26', 2031.23]]));
+    add('HCM', aba('65730-VT-09-2026-015-0', 'Hospital Central da Marinha', 33.85, [['SET26', 33.85]], 'ABR24'));
+    add('ESTRANHA', aba('99999-VT-09-2026-030-0', 'Organização que não está no cadastro', 77.7, [['SET26', 77.7]]));
+    add('Tikuna', aba('91534-VT-09-2026-012-0', 'COMIMSUP: Comando da Força de Submarinos', null, [], null));
+    const arq = path.join(os.tmpdir(), `siscont-vt-${Date.now()}.xlsx`); XLSX.writeFile(wb, arq);
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Medições do mês', exact: true }).click();
+    await page.getByLabel('Competência das medições').fill('2026-08');
+    await page.locator('input[type=file]').setInputFiles(arq);
+    const dlg = page.getByRole('dialog', { name: 'Conferir planilha de faturas de viatura' });
+    await dlg.waitFor();
+    ok(await dlg.getByText('Abas com fatura:').isVisible() && (await dlg.getByText(/1 aba\(s\) sem valor/).count()) > 0, 'planilha reconhecida: 4 abas com fatura, 1 sem valor, MODELO ignorada');
+    ok(await dlg.getByText(/CCEM.*OUT25 363,64 \+ NOV25 1\.669,37 \+ DEZ25 434,82 \+ JAN26 2\.031,23/).isVisible() || await dlg.getByText('OUT25 363,64 + NOV25 1.669,37 + DEZ25 434,82 + JAN26 2.031,23').isVisible(), 'fatura que junta 4 meses mostra o detalhe mês a mês');
+    ok(await dlg.getByText(/HCM: a REFERÊNCIA da aba \(ABR24\) está desatualizada/).isVisible() && await dlg.getByText(/cobram meses atrasados.*CCEM/).isVisible(), 'avisos: referência desatualizada e meses atrasados');
+    ok(await dlg.getByText('ligada pelo código: Serviço de Identificação da Marinha').isVisible(), 'aba ligada à OM pelo código da fatura');
+    ok(await dlg.getByText('Escolha a OM ou deixe "não lançar"').isVisible(), 'aba de organização fora do cadastro fica pendente (em vermelho)');
+    await dlg.getByLabel('OM da aba ESTRANHA').selectOption(hcm.id);   // à mão: vai para o HCM, somando com a aba do HCM
+    await dlg.getByRole('button', { name: 'Lançar nas medições (VT)' }).click();
+    await page.getByText(/Planilha de viatura lida: 3 OM/).waitFor();
+    ok(await page.getByLabel('Competência das medições').inputValue() === '2026-09' && await page.getByLabel('Serviço', { exact: true }).inputValue() === 'VT', 'tela passa para 09/2026 e o serviço VT');
+    await page.getByRole('button', { name: /Gravar \(3\)/ }).click();
+    await page.getByText('3 medição(ões) gravada(s).').waitFor();
+    const m = id => db.medicoes.find(x => x.om_id === id && x.competencia === '2026-09' && x.sigla === 'VT');
+    ok(Number(m(sim.id).valor) === 92.93 && Number(m(ccem.id).valor) === 4499.06, 'valores gravados: SIM R$ 92,93 e CCEM R$ 4.499,06 (4 meses)');
+    ok(Math.abs(Number(m(hcm.id).valor) - 111.55) < 0.005 && (m(hcm.id).detalhe || []).length === 2, 'HCM soma as duas abas (33,85 + 77,70) e guarda o detalhe');
+    ok(db.oms.find(o => o.id === hcm.id).nomes_alternativos.includes('Organização que não está no cadastro'), 'ligação feita à mão guardada como nome alternativo');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

@@ -9,6 +9,8 @@ import { agruparRateio, lerRateio } from '../../utils/importMedicoes';
 import { AvisoAgua, PlanilhaAgua, RegraObservacao, avisosAgua, conferirObservacoes, ehPlanilhaAgua, lerPlanilhaAgua } from '../../utils/importAgua';
 import { cadastroService } from '../../services/cadastroService';
 import { ImportarAguaModal, ResultadoAgua } from './ImportarAguaModal';
+import { ImportarViaturaModal, ResultadoVT } from './ImportarViaturaModal';
+import { PlanilhaVT, ehPlanilhaViatura, lerPlanilhaViatura } from '../../utils/importViatura';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { BaixarModelo } from '../ui/BaixarModelo';
@@ -40,6 +42,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   const [contaConcess, setContaConcess] = useState('');
   const [relImport, setRelImport] = useState<string[]>([]);
   const ref = useRef<HTMLInputElement>(null);
+  const [viatura, setViatura] = useState<{ planilha: PlanilhaVT; arquivo: string } | null>(null);
   const [agua, setAgua] = useState<{ planilha: PlanilhaAgua; regras: RegraObservacao[]; avisos: AvisoAgua[]; arquivo: string } | null>(null);
   // lançamento da planilha de água que espera a troca de competência/serviço terminar de carregar
   const pendente = useRef<{ linhas: Record<string, Linha>; rel: string[]; conta: string } | null>(null);
@@ -83,6 +86,15 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     if (!files?.length) return;
     try {
       const wb = XLSX.read(new Uint8Array(await lerArquivo(files[0])), { dense: true, cellFormula: false, cellStyles: false });
+      // planilha de faturas de viatura (uma aba por OM): conferência própria
+      if (wb.SheetNames.length >= 3) {
+        const abas = wb.SheetNames.map(n => ({ nome: n, m: (XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any[][]).slice(0, 80).map(l => l.slice(0, 20)) }));
+        if (ehPlanilhaViatura(abas)) {
+          const planilha = lerPlanilhaViatura(abas);
+          if (!planilha.linhas.length) throw new Error('A planilha parece a de viatura, mas nenhuma aba tem valor em "TOTAL SERVIÇO PRESTADO".');
+          setViatura({ planilha, arquivo: files[0].name }); return;
+        }
+      }
       // planilha de água e esgoto da divisão (seções por cais, hidrômetros, observações): conferência própria
       for (const n of wb.SheetNames) {
         const mat = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any;
@@ -140,6 +152,28 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     notify.success(`Planilha de água lida: ${r.grupos.length} OM. Confira e clique em Gravar.${lembrados ? ` ${lembrados} nome(s) guardado(s) no cadastro.` : ''}`);
   };
 
+  const lancarViatura = async (r: ResultadoVT) => {
+    setViatura(null);
+    const novas: Record<string, Linha> = {};
+    r.grupos.forEach(g => {
+      novas[g.omId] = {
+        quantidade: '', quantidade2: '', valor: txt(g.valor), estimada: false, origem: `Planilha de viatura ${r.competencia || ''}`.trim(),
+        detalhe: g.linhas.flatMap(l => (l.meses.length ? l.meses : [{ mes: l.referencia || l.competencia, valor: l.valor }]).map(x => ({ sigla: `${l.aba} · ${x.mes}`, dias: null, consumo: null, demanda: null, valor: x.valor }))),
+      };
+    });
+    const siglaVT = medidos.find(s => s.sigla === 'VT')?.sigla ?? sigla;
+    const novaComp = r.competencia || comp;
+    if (novaComp !== comp || siglaVT !== sigla) { pendente.current = { linhas: novas, rel: r.relatorio, conta: '' }; setComp(novaComp); setSigla(siglaVT); }
+    else { setLinhas(p => ({ ...p, ...novas })); setRelImport(r.relatorio); }
+    let lembrados = 0;
+    for (const { omId, nome } of r.lembrar) {
+      const o = ctx.oms.find(x => x.id === omId);
+      if (!o || (o.nomesAlternativos || []).some(n => n.trim().toLowerCase() === nome.trim().toLowerCase())) continue;
+      try { await cadastroService.saveOM({ ...o, nomesAlternativos: [...(o.nomesAlternativos || []), nome] }); o.nomesAlternativos = [...(o.nomesAlternativos || []), nome]; lembrados++; } catch { /* sem permissão: segue sem lembrar */ }
+    }
+    notify.success(`Planilha de viatura lida: ${r.grupos.length} OM. Confira e clique em Gravar.${lembrados ? ` ${lembrados} nome(s) guardado(s) no cadastro.` : ''}`);
+  };
+
   const gravar = async () => {
     setGravando(true);
     try {
@@ -187,6 +221,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         </div>
         {semLeitura.length > 0 && <Aviso>{semLeitura.length} OM com leitura nos meses anteriores e sem leitura agora. Use "estimar" (média das 3 últimas, {obterNormas().anexoEstimativa}) ou confirme com a divisão.</Aviso>}
       </div>
+      <ImportarViaturaModal planilha={viatura?.planilha ?? null} arquivo={viatura?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp} onFechar={() => setViatura(null)} onLancar={lancarViatura} />
       <ImportarAguaModal planilha={agua?.planilha ?? null} regras={agua?.regras ?? []} avisos={agua?.avisos ?? []} arquivo={agua?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp}
         onFechar={() => setAgua(null)} onLancar={lancarAgua} />
       {relImport.length > 0 && <Aviso tom="slate"><ul className="list-disc pl-5 text-xs">{relImport.map(r => <li key={r}>{r}</li>)}</ul></Aviso>}
