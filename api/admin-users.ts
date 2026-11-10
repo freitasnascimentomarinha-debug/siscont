@@ -18,8 +18,8 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-export type Role = 'ADMIN' | 'USER' | 'READ_ONLY' | 'ENCARREGADO';
-const ROLES: Role[] = ['ADMIN', 'USER', 'READ_ONLY', 'ENCARREGADO'];
+export type Role = 'ADMIN' | 'USER' | 'READ_ONLY' | 'ENCARREGADO' | 'TREINAMENTO';
+const ROLES: Role[] = ['ADMIN', 'USER', 'READ_ONLY', 'ENCARREGADO', 'TREINAMENTO'];
 const MIN_PASSWORD = 8;
 const BAN_FOREVER = '876000h'; // ~100 anos
 

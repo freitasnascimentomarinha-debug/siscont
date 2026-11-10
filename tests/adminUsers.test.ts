@@ -82,6 +82,16 @@ describe('criar', () => {
     expect(fake.authUsers.get(id)!.email_confirmed_at).toBeTruthy();
     expect(fake.profiles.get(id)).toMatchObject({ name: 'Novo', role: 'USER', active: true, email: 'novo@mb.br' });
   });
+  it('cria e muda para o perfil Treinamento (o servidor aceita o perfil)', async () => {
+    const r = await call('tok-admin', { action: 'create', name: 'Aluno', email: 'aluno@mb.br', password: 'senhaforte1', role: 'TREINAMENTO' });
+    expect(r.status).toBe(200);
+    expect(fake.profiles.get(r.body.id)).toMatchObject({ role: 'TREINAMENTO', active: true });
+    const u = await call('tok-admin', { action: 'update', id: OPER, role: 'TREINAMENTO' });
+    expect(u.status).toBe(200);
+    expect(fake.profiles.get(OPER)).toMatchObject({ role: 'TREINAMENTO' });
+    const lista = await call('tok-admin', { action: 'list' });
+    expect(lista.body.users.find((x: any) => x.id === OPER).role).toBe('TREINAMENTO');   // a lista não rebaixa para Consulta
+  });
   it('valida senha curta, e-mail e perfil', async () => {
     expect((await call('tok-admin', { action: 'create', name: 'X', email: 'x@mb.br', password: '123', role: 'USER' })).status).toBe(400);
     expect((await call('tok-admin', { action: 'create', name: 'X', email: 'invalido', password: '12345678', role: 'USER' })).status).toBe(400);
