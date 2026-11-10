@@ -26,12 +26,16 @@ export function clientePorUG(codigo: string | null | undefined, cad: Cadastro) {
   const setor = (id?: string | null) => (id && cad.setores.find(s => s.id === id)?.sigla) || '';
   const c = cad.comandos.find(x => x.codigo === codigo);
   if (c) return { comandoId: c.id, client: `${codigo} - ${c.sigla || c.nome}`, command: `${codigo} - ${c.nome}`, sector: setor(c.setorId) };
-  const o = cad.oms.find(x => x.codigo === codigo && x.ativo) || cad.oms.find(x => x.codigo === codigo);
+  const atual = cad.oms.find(x => x.codigo === codigo && x.ativo) || cad.oms.find(x => x.codigo === codigo);
+  // a UG pode ser uma que a OM já teve (mudou de UG): acha a OM ativa e avisa qual é a UG de hoje
+  const antiga = atual ? undefined : cad.oms.find(x => x.ativo && (x.codigosAnteriores || []).includes(codigo));
+  const o = atual || antiga;
   if (!o) return null;
   const oc = o.comandoId ? cad.comandos.find(x => x.id === o.comandoId) : undefined;
   return {
-    comandoId: oc?.id ?? null, client: `${codigo} - ${o.sigla || o.nome}`,
+    comandoId: oc?.id ?? null, client: `${antiga ? o.codigo : codigo} - ${o.sigla || o.nome}`, omId: o.id,
     command: oc ? `${oc.codigo ? oc.codigo + ' - ' : ''}${oc.nome}` : '', sector: setor(o.setorId || oc?.setorId),
+    ugAntiga: antiga ? { de: codigo, para: o.codigo } : undefined,
   };
 }
 
@@ -88,6 +92,7 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
     if (sol.altcredOrigem && !origem && ehEstorno(sol)) avisos.push(`ALTCRED de origem ${sol.altcredOrigem} não está no sistema: importada como documento separado.`);
     const cli = clientePorUG(sol.ugClienteCodigo, cad);
     if (!cli) avisos.push(`UG cliente ${sol.ugCliente || '(vazia)'} não encontrada no cadastro de comandos/OM.`);
+    if ((cli as any)?.ugAntiga) avisos.push(`UG antiga: ${(cli as any).ugAntiga.de} agora é ${(cli as any).ugAntiga.para} (a OM mudou de UG); ligada à OM de hoje.`);
     const adiant = /adiantament/i.test(sol.observacao);
     const destinacao = sol.faturasCitadas.map(n => ({ tipo: 'FATURA' as const, valor: n }));
     return {
@@ -98,7 +103,7 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
         date: sol.dataSituacao || sol.dataCriacao || new Date().toISOString().slice(0, 10),
         operation: adiant ? OperationType.ADIANTAMENTO : OperationType.PAGAMENTO,
         observation: sol.situacao && !/processad/i.test(sol.situacao) ? `Situação no SIPLAD: ${sol.situacao}` : '',
-        comandoId: cli?.comandoId ?? null, availableValue: sol.valor, informedAdvance: adiant,
+        comandoId: cli?.comandoId ?? null, omId: (cli as any)?.omId ?? null, availableValue: sol.valor, informedAdvance: adiant,
         ...detalhes, valorOriginal: sol.valor, valorEstornado: 0, destinacao,
         aguardando: !adiant && destinacao.length === 0, sobraAdiantamento: false,
       },

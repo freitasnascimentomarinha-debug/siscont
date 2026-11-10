@@ -9,23 +9,26 @@
  */
 const norm = (t: string) => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-export interface OMCad { id: string; nome: string; codigo: string; comandoId?: string | null; setorId?: string | null; tipo?: string; ativo: boolean; nomesAlternativos?: string[] }
+export interface OMCad { id: string; nome: string; codigo: string; comandoId?: string | null; setorId?: string | null; tipo?: string; ativo: boolean; nomesAlternativos?: string[]; /** UGs que a OM já teve */ codigosAnteriores?: string[] }
 export interface ComandoCad { id: string; nome: string; codigo?: string | null; setorId?: string | null }
 export interface SetorCad { id: string; sigla: string }
-export interface DocRef { client: string; ug?: string | null; comandoId?: string | null; sector?: string; command?: string }
+export interface DocRef { /** OM gravada no documento (script 029): vale antes do nome e da UG */ omId?: string | null; client: string; ug?: string | null; comandoId?: string | null; sector?: string; command?: string }
 export interface Rotulo { omId: string | null; setor: string; comando: string; cliente: string; comandoId: string | null }
 
 export function criarResolvedor(oms: OMCad[], comandos: ComandoCad[], setores: SetorCad[]) {
   const porNome = new Map<string, OMCad[]>();
   oms.forEach(o => [o.nome, ...(o.nomesAlternativos || [])].forEach(n => { const k = norm(n); if (k) porNome.set(k, [...(porNome.get(k) || []), o]); }));
   const ativasPorCodigo = new Map<string, OMCad[]>();
-  oms.filter(o => o.ativo).forEach(o => ativasPorCodigo.set(o.codigo, [...(ativasPorCodigo.get(o.codigo) || []), o]));
+  // a UG atual e as que a OM já teve (mudou de UG: o documento antigo e a importação do SIPLAD continuam achando a OM)
+  oms.filter(o => o.ativo).forEach(o => [o.codigo, ...(o.codigosAnteriores || [])].forEach(c => { const l = ativasPorCodigo.get(c) || []; if (!l.includes(o)) ativasPorCodigo.set(c, [...l, o]); }));
+  const porId = new Map(oms.map(o => [o.id, o]));
   const cmd = new Map(comandos.map(c => [c.id, c]));
   const set = new Map(setores.map(s => [s.id, s]));
   const rotuloComando = (c?: ComandoCad) => (c ? `${c.codigo ? `${c.codigo} - ` : ''}${c.nome}` : '');
 
   /** OM do documento, ou null quando não dá para saber com segurança. */
   const omDoDocumento = (d: DocRef): OMCad | null => {
+    if (d.omId && porId.has(d.omId)) return porId.get(d.omId)!;
     const pelo = porNome.get(norm(d.client)) || [];
     if (pelo.length) return pelo.find(o => o.ativo) || pelo[0];
     const pelaUg = d.ug ? ativasPorCodigo.get(d.ug.trim()) || [] : [];

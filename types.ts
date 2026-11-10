@@ -157,6 +157,8 @@ export interface Invoice {
 }
 
 export interface ReceivedDocument {
+  /** OM do cadastro a que o documento pertence (script 029); documentos antigos são ligados pelo nome. */
+  omId?: string | null;
   id: string;
   ug?: string; // Added: Unidade Gestora for filtering
   sector: string;
@@ -328,6 +330,15 @@ export interface OM {
   foraDaIlha?: boolean;
   /** Outros nomes/abreviações já usados para esta OM (ajudam a reconhecer planilhas). */
   nomesAlternativos?: string[];
+  /** UGs que a OM já teve (script 029): a importação do SIPLAD e das planilhas continua achando a OM. */
+  codigosAnteriores?: string[];
+}
+
+/** Uma mudança nos dados da OM, com a data em que passou a valer (script 029). */
+export interface OMHistorico {
+  id: string; omId: string; campo: 'nome' | 'codigo' | 'comando_id' | 'setor_id' | 'sigla';
+  valorAnterior: string | null; valorNovo: string | null; rotuloAnterior: string | null; rotuloNovo: string | null;
+  vigenteDesde: string; motivo?: string | null; ato?: string | null; criadoEm?: string | null;
 }
 
 /** Tipo de serviço com os campos do catálogo da OI 40-04. */

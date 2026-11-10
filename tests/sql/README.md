@@ -134,3 +134,7 @@ sem dados é excluída; a sem destino com fatura fica, com o motivo "Unificaçã
 
 Com 001–016 aplicados: `psql -d sb -f tests/sql/creditos_028_tests.sql` (aplica o 028 duas vezes). Esperado: Operador registra uso;
 valor zero e tipo inválido recusados; Consulta lê mas não grava; a auditoria registra a inclusão.
+
+## Script 029 (histórico da OM com vigência)
+
+Com 001–003 aplicados: `psql -d sb -f tests/sql/om_historico_029_tests.sql` (aplica o 029 duas vezes). Esperado: documentos ligados à OM pelo nome (inclusive com caixa/espaço diferentes); o operador muda nome, UG e comando (3 campos) e o nome/UG antigos ficam em `nomes_alternativos`/`codigos_anteriores`; histórico com rótulos legíveis; recusados: vigência futura, sem data, sem mudança, UG inválida e comando inexistente; leitor não altera; o administrador também altera.

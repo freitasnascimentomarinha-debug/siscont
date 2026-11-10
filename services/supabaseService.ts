@@ -263,6 +263,7 @@ export const supabaseService = {
                 operation: d.operation,
                 observation: d.observation,
                 comandoId: 'comando_id' in d ? d.comando_id : undefined,
+                omId: 'om_id' in d ? d.om_id : undefined,
                 pontosRegistro: Array.isArray(d.pontos_atencao) ? d.pontos_atencao : undefined,
                 origem: d.origem ?? null,
                 ...doFase2(d),
@@ -287,6 +288,7 @@ export const supabaseService = {
                 operation: doc.operation,
                 observation: doc.observation,
                 ...(doc.comandoId !== undefined ? { comando_id: doc.comandoId } : {}),
+                ...(doc.omId !== undefined ? { om_id: doc.omId } : {}),   // script 029
                 ...paraFase2(doc),
             });
             if (error && /column/i.test(error.message) && CAMPOS_DOC_FASE2.some(([, c]) => error.message.includes(c))) {

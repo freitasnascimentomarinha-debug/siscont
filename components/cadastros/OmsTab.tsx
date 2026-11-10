@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Plus, Power, RotateCcw, Trash2 } from 'lucide-react';
+import { Edit, History, Plus, Power, RotateCcw, Trash2 } from 'lucide-react';
 import { AREAS_CNIC, OM, TIPO_OM_LABELS, TipoOM } from '../../types';
 import { cadastroService } from '../../services/cadastroService';
 import { notify, friendlyError } from '../../utils/notify';
@@ -8,6 +8,7 @@ import { Input, Select } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Busca, DesativarModal, Filtro, Situacao, Td, Th } from './comum';
 import { DadosCadastro } from './useCadastros';
+import { AlterarOMModal } from './AlterarOMModal';
 import { chave, CODIGO_BNIC } from '../../utils/cadastroImport';
 
 const TIPO_COR: Record<TipoOM, string> = {
@@ -19,7 +20,10 @@ const TIPO_COR: Record<TipoOM, string> = {
 const vazio = (): Partial<OM> => ({ tipo: 'TERRA', ativo: true, codigoProprio: true });
 const INDICATIVO_RE = /^[A-Z0-9]{2,8}$/;
 
-export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recarregar: () => Promise<void> }> = ({ dados, podeEditar, recarregar }) => {
+/** podeEditar = administrador (edita, desativa e exclui); podeCadastrar = quem grava (operador também): cadastra cliente novo e registra mudança de nome/UG/comando com vigência. */
+export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; podeCadastrar?: boolean; recarregar: () => Promise<void> }> = ({ dados, podeEditar, podeCadastrar, recarregar }) => {
+  const gravador = podeEditar || !!podeCadastrar;
+  const [alterar, setAlterar] = useState<OM | null>(null);
   const [busca, setBusca] = useState('');
   const [fTipo, setFTipo] = useState('');
   const [fSetor, setFSetor] = useState('');
@@ -127,12 +131,12 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
           <Filtro label="Localização" value={fLocal} onChange={setFLocal} options={[{ value: '', label: 'Na Ilha e fora' }, { value: 'ILHA', label: 'Na Ilha das Cobras' }, { value: 'FORA', label: 'Fora da Ilha' }]} />
           <span className="text-xs text-slate-500">{lista.length} de {dados.oms.length}</span>
         </div>
-        {podeEditar && <Button size="sm" onClick={() => { setErro(null); setForm(vazio()); }}><Plus size={14} className="mr-1" /> Nova OM / cliente</Button>}
+        {gravador && <Button size="sm" onClick={() => { setErro(null); setForm(vazio()); }}><Plus size={14} className="mr-1" /> Nova OM / cliente</Button>}
       </div>
 
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Nome</Th><Th>Indicativo</Th><Th>Tipo</Th><Th>Comando</Th><Th>Setor</Th><Th>Classe / lotação</Th><Th>Situação</Th>{podeEditar && <Th right>Ações</Th>}</tr></thead>
+          <thead className="bg-slate-50"><tr><Th>Código</Th><Th>Nome</Th><Th>Indicativo</Th><Th>Tipo</Th><Th>Comando</Th><Th>Setor</Th><Th>Classe / lotação</Th><Th>Situação</Th>{gravador && <Th right>Ações</Th>}</tr></thead>
           <tbody className="divide-y divide-slate-100 bg-white">
             {lista.map(o => {
               const c = o.comandoId ? cmd.get(o.comandoId) : undefined;
@@ -154,13 +158,16 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
                   <Td className="text-xs font-semibold">{setorDe(o) || '—'}</Td>
                   <Td className="text-xs">{[o.classeId && cls.get(o.classeId)?.nome, o.lotacao != null && `${o.lotacao} militares`, o.areaCnic && `Área ${o.areaCnic}`, o.edificio].filter(Boolean).join(' · ') || '—'}</Td>
                   <Td><Situacao ativo={o.ativo} desde={o.desativadoEm} motivo={o.motivoDesativacao} /></Td>
-                  {podeEditar && (
+                  {gravador && (
                     <Td className="text-right whitespace-nowrap">
+                      <button onClick={() => setAlterar(o)} className="p-1.5 text-slate-400 hover:text-primary-600" title="Mudou de nome, UG ou comando? Registrar com data de vigência" aria-label={`Alterar dados com vigência de ${o.nome}`}><History size={15} /></button>
+                      {podeEditar && <>
                       <button onClick={() => { setErro(null); setForm({ ...o }); }} className="p-1.5 text-slate-400 hover:text-primary-600" title="Editar"><Edit size={15} /></button>
                       {o.ativo
                         ? <button onClick={() => setDesativar(o)} className="p-1.5 text-slate-400 hover:text-amber-600" title="Desativar (mantém o histórico)"><Power size={15} /></button>
                         : <button onClick={() => reativar(o)} className="p-1.5 text-slate-400 hover:text-emerald-600" title="Reativar"><RotateCcw size={15} /></button>}
                       <button onClick={() => setExcluir(o)} className="p-1.5 text-slate-400 hover:text-red-600" title="Excluir (só sem faturas)"><Trash2 size={15} /></button>
+                      </>}
                     </Td>
                   )}
                 </tr>
@@ -232,6 +239,8 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; recar
           await recarregar();
         }}
       />
+
+      <AlterarOMModal om={alterar} dados={dados} onClose={() => setAlterar(null)} onFeito={recarregar} />
 
       <Modal isOpen={!!excluir} onClose={() => setExcluir(null)} title="Excluir OM">
         <div className="space-y-4">

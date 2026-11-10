@@ -32,6 +32,7 @@ const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
 export const Cadastros: React.FC = () => {
   const { user } = useAuth();
   const admin = user?.role === UserRole.ADMIN;
+  const gravador = admin || user?.role === UserRole.USER;   // operador também cadastra clientes e registra mudança de OM
   const [aba, setAba] = useState<Aba>('servicos');
   const { dados, carregando, erro, naoInstalado, recarregar } = useCadastros();
 
@@ -72,7 +73,7 @@ export const Cadastros: React.FC = () => {
           </div>
           {!admin && <p className="text-xs text-slate-500">Somente administradores alteram os cadastros.</p>}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-            {aba === 'oms' && <OmsTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
+            {aba === 'oms' && <OmsTab dados={dados} podeEditar={admin} podeCadastrar={gravador} recarregar={recarregar} />}
             {aba === 'duplicidades' && admin && <DuplicidadesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'comandos' && <ComandosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'setores' && <SetoresTab dados={dados} podeEditar={admin} recarregar={recarregar} />}

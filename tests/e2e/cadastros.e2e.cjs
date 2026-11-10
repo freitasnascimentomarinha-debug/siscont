@@ -27,7 +27,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], om_historico: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -64,6 +64,22 @@ function handler(db, log) {
       const m = db.oms.find(x => x.id === p_manter), r = db.oms.find(x => x.id === p_remover);
       db.invoices.forEach(i => { if (i.om_id === p_manter && (i.client || '').toLowerCase() === r.nome.toLowerCase()) i.client = m.nome; });
       db.oms.splice(db.oms.indexOf(r), 1);   // script 016: o duplicado é excluído e o nome dele não é guardado
+      return json(200, n);
+    }
+    if (url.pathname === '/rest/v1/rpc/om_alterar_dados') {   // script 029
+      const a = JSON.parse(req.postData() || '{}');
+      const papel = db.profiles[0].role;
+      if (papel !== 'ADMIN' && papel !== 'USER') return json(400, { message: 'Sem permissão para alterar dados de OM.' });
+      const o = db.oms.find(x => x.id === a.p_om); if (!o) return json(400, { message: 'OM não encontrada.' });
+      if (!a.p_vigencia) return json(400, { message: 'Informe a data em que a mudança passou a valer.' });
+      if (a.p_vigencia > new Date().toISOString().slice(0, 10)) return json(400, { message: 'A vigência não pode ser futura: registre quando a mudança entrar em vigor.' });
+      const rot = id => { const c = db.comandos.find(x => x.id === id); return c ? (c.codigo ? c.codigo + ' - ' : '') + c.nome : null; };
+      const reg = (campo, ant, novo, ra, rn) => db.om_historico.push({ id: uid(), om_id: o.id, campo, valor_anterior: ant, valor_novo: novo, rotulo_anterior: ra, rotulo_novo: rn, vigente_desde: a.p_vigencia, motivo: a.p_motivo, ato: a.p_ato, criado_em: new Date().toISOString() });
+      let n = 0;
+      if (a.p_nome && a.p_nome !== o.nome) { reg('nome', o.nome, a.p_nome, o.nome, a.p_nome); o.nomes_alternativos = [...new Set([...(o.nomes_alternativos || []), o.nome])]; o.nome = a.p_nome; n++; }
+      if (a.p_codigo && a.p_codigo !== o.codigo) { reg('codigo', o.codigo, a.p_codigo, o.codigo, a.p_codigo); o.codigos_anteriores = [...new Set([...(o.codigos_anteriores || []), o.codigo])]; o.codigo = a.p_codigo; n++; }
+      if (a.p_comando && a.p_comando !== o.comando_id) { reg('comando_id', o.comando_id, a.p_comando, rot(o.comando_id), rot(a.p_comando)); o.comando_id = a.p_comando; n++; }
+      if (!n) return json(400, { message: 'Nada mudou: informe o novo nome, UG, comando, setor ou sigla.' });
       return json(200, n);
     }
     if (url.pathname === '/rest/v1/rpc/om_tem_movimento') {
@@ -2234,6 +2250,47 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await cardAg.getByRole('button', { name: 'Baixa assistida' }).isDisabled() && await cardAg.getByRole('button', { name: 'Pagar Faturas' }).isDisabled(), 'ALTCRED aguardando processamento: "Baixa assistida" e "Pagar Faturas" bloqueados');
     const cardPr = await abrir('Z999.2026.AC.00004');
     ok(await cardPr.getByRole('button', { name: 'Baixa assistida' }).isEnabled() && await cardPr.getByRole('button', { name: 'Pagar Faturas' }).isEnabled(), 'ALTCRED processada: baixa liberada');
+  });
+
+  await cenario('OM muda de nome, UG e comando: operador registra com vigência; nome e UG antigos continuam reconhecidos', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmdA = { id: uid(), codigo: '90001', nome: 'Comando Velho', sigla: 'CV', setor_id: setor.id, ativo: true };
+    const cmdB = { id: uid(), codigo: '90002', nome: 'Comando Novo', sigla: 'CN', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '90010', nome: 'Centro Antigo', tipo: 'TERRA', comando_id: cmdA.id, ativo: true, codigo_proprio: true, nomes_alternativos: [], codigos_anteriores: [] };
+    db.comandos.push(cmdA, cmdB); db.oms.push(om);
+    db.received_documents.push({ id: uid(), document_number: 'G1.2026.AC.29001', document_type: 'ALTCRED', total_value: 500, date: '2026-09-01', operation: 'PAGAMENTO', client: 'Centro Antigo', sector: 'DGMM', command: '90001 - Comando Velho', ug: '90010', observation: '' });
+    db.profiles[0].role = 'USER';   // OPERADOR, não administrador
+    await page.reload();
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByText('Centro Antigo').first().waitFor();
+    ok(await page.getByRole('button', { name: /Nova OM \/ cliente/ }).isVisible(), 'operador vê "Nova OM / cliente" (pode cadastrar clientes)');
+    ok(await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Antigo' }).isVisible() && await page.getByTitle('Excluir (só sem faturas)').count() === 0 && await page.getByTitle('Editar', { exact: true }).count() === 0, 'operador vê o assistente de vigência, mas não Editar/Excluir (continuam do administrador)');
+    await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Antigo' }).click();
+    await page.getByLabel('Novo nome').fill('Centro Moderno');
+    await page.getByLabel('Nova UG (4 a 6 dígitos)').fill('90020');
+    await page.getByLabel('Novo comando (subordinação)').selectOption(cmdB.id);
+    await page.getByLabel('Ato (portaria, BONO, ordem...)').fill('Portaria nº 29/2026');
+    await page.getByLabel('Motivo').fill('Reestruturação');
+    await page.getByLabel('Data de vigência (a partir de quando vale)').fill('2026-09-15');
+    const resumo = (await page.getByTestId('resumo-mudancas').innerText()).replace(/\s+/g, ' ');
+    ok(/Nome: Centro Antigo → Centro Moderno/.test(resumo) && /UG: 90010 → 90020/.test(resumo) && /Comando: 90001 - Comando Velho → 90002 - Comando Novo/.test(resumo) && /1 ALTCRED\/GRU com saldo/.test(resumo), `resumo mostra o que muda e o impacto (${resumo.slice(0, 110)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'om-vigencia.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Registrar mudança' }).click();
+    await page.getByText(/Mudança registrada em Centro Antigo, valendo desde 15\/09\/2026/).waitFor();
+    const o = db.oms.find(x => x.id === om.id);
+    ok(o.nome === 'Centro Moderno' && o.codigo === '90020' && o.comando_id === cmdB.id, 'nome, UG e comando novos gravados');
+    ok((o.nomes_alternativos || []).includes('Centro Antigo') && (o.codigos_anteriores || []).includes('90010'), 'nome antigo vai para os nomes alternativos e a UG antiga para os códigos anteriores');
+    ok(db.om_historico.length === 3 && db.om_historico.every(h => h.vigente_desde === '2026-09-15' && h.ato === 'Portaria nº 29/2026'), 'histórico: 3 linhas com a data de vigência e o ato');
+    await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Moderno' }).click();
+    const tempo = (await page.getByTestId('linha-do-tempo').innerText()).replace(/\s+/g, ' ');
+    ok(/Desde 15\/09\/2026 · Portaria nº 29\/2026 · Reestruturação/.test(tempo) && /Nome: Centro Antigo → Centro Moderno/.test(tempo) && /UG: 90010 → 90020/.test(tempo), 'linha do tempo da OM mostra a mudança');
+    await page.getByRole('button', { name: 'Cancelar' }).click();
+    // a ALTCRED que ainda diz "Centro Antigo" continua ligada à OM (agora Centro Moderno)
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'G1.2026.AC.29001' }).waitFor();
+    await page.getByText(/90002 - Comando Novo/).first().waitFor();
+    ok(true, 'ALTCRED com o nome antigo passa a aparecer no comando novo (ligada pelo nome alternativo)');
   });
 
   if (extras.length) {

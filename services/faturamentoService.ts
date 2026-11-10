@@ -5,7 +5,8 @@ import { supabase } from './supabase';
 import { db } from './db';
 import { cadastroService } from './cadastroService';
 import { supabaseService } from './supabaseService';
-import { Comando, Invoice, OM, Setor } from '../types';
+import { Comando, Invoice, OM, OMHistorico, Setor } from '../types';
+import { dadosDaOMEm } from '../utils/historicoOM';
 import { listaAdiantamentos } from '../utils/adiantamentos';
 import { datasDaFatura, somarDiasUteis } from '../utils/diasUteis';
 import { textoConsumo,
@@ -155,12 +156,37 @@ export function competenciasDoLote(tipo: TipoLote, comp: string): string[] {
   return [10, 11, 12].map(m => `${ano}-${pad(m)}`); // ACERTO: comp = ano do OND (AAAA-10)
 }
 
+/**
+ * OM como era na data da emissão (histórico com vigência, script 029): mudou de nome, UG ou comando? O lote usa os dados
+ * vigentes naquela data. A sequência das faturas é por serviço e mês, então não depende da UG e continua a mesma.
+ */
+export function omsNaData(ctx: ContextoFaturamento, historico: OMHistorico[], data: string): OMFat[] {
+  if (!historico.length) return ctx.omsFat;
+  const cmd = new Map(ctx.comandos.map(c => [c.id, c]));
+  const set = new Map(ctx.setores.map(s => [s.id, s]));
+  const hist = new Map<string, OMHistorico[]>();
+  historico.forEach(h => hist.set(h.omId, [...(hist.get(h.omId) || []), h]));
+  const cad = new Map(ctx.oms.map(o => [o.id, o]));
+  return ctx.omsFat.map(f => {
+    const h = hist.get(f.id), om = cad.get(f.id);
+    if (!h || !om) return f;
+    const d = dadosDaOMEm(om, h, data);
+    const c = d.comandoId ? cmd.get(d.comandoId) : undefined;
+    const setorId = (d.setorId !== om.setorId ? d.setorId : null) || (c ? c.setorId : null) || om.setorId;
+    return {
+      ...f, codigo: d.codigo, nome: d.nome, comandoId: d.comandoId,
+      comando: c ? `${c.codigo ? c.codigo + ' - ' : ''}${c.nome}` : f.comando,
+      setor: (setorId && set.get(setorId)?.sigla) || f.setor,
+    };
+  });
+}
+
 export async function montarDados(ctx: ContextoFaturamento, tipo: TipoLote, comp: string): Promise<DadosLote> {
   const { ano } = partes(comp);
   const comps = competenciasDoLote(tipo, comp);
-  const [precos, medicoes, atracacoes] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps)]);
+  const [precos, medicoes, atracacoes, historicoOM] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps), cadastroService.listarHistoricoOM()]);
   return {
-    competencia: comp, tipo, oms: ctx.omsFat, servicos: ctx.servicos, precos, medicoes, atracacoes,
+    competencia: comp, tipo, oms: omsNaData(ctx, historicoOM, dataEmissaoPadrao(comp, ctx.diaEmissao)), servicos: ctx.servicos, precos, medicoes, atracacoes,
     historico: historicoDe(ctx.invoices),
   };
 }

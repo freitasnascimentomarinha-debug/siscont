@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import {
-  ClasseNavio, Client, Comando, Feriado, OM, Parametro, ServicoCatalogo, Setor, TipoOM,
+  ClasseNavio, Client, Comando, Feriado, OM, OMHistorico, Parametro, ServicoCatalogo, Setor, TipoOM,
 } from '../types';
 
 /** Lançado quando as tabelas da Fase 1 ainda não foram criadas (script 002 não executado). */
@@ -41,6 +41,7 @@ const toOM = (r: any): OM => ({
   telefone: r.telefone, observacao: r.observacao, ativo: r.ativo !== false, ativadoEm: r.ativado_em,
   desativadoEm: r.desativado_em, motivoDesativacao: r.motivo_desativacao,
   foraDaIlha: r.fora_da_ilha === true, nomesAlternativos: Array.isArray(r.nomes_alternativos) ? r.nomes_alternativos : [],
+  codigosAnteriores: Array.isArray(r.codigos_anteriores) ? r.codigos_anteriores : [],
 });
 const toServico = (r: any): ServicoCatalogo => ({
   id: r.id, name: r.name, unitMeasure: r.unit_measure, acronym: (r.acronym || '').trim(),
@@ -152,6 +153,27 @@ export const cadastroService = {
     const { data, error } = await supabase.rpc('unificar_om', { p_manter: manter, p_remover: remover });
     check(error);
     return data as number;
+  },
+  /** Histórico de mudanças das OM (script 029); sem o script, devolve vazio. */
+  listarHistoricoOM: async (omId?: string): Promise<OMHistorico[]> => {
+    let q = supabase.from('om_historico').select('*').order('vigente_desde', { ascending: false });
+    if (omId) q = q.eq('om_id', omId);
+    const { data, error } = await q;
+    if (error) return [];
+    return (data || []).map((r: any) => ({
+      id: r.id, omId: r.om_id, campo: r.campo, valorAnterior: r.valor_anterior, valorNovo: r.valor_novo, rotuloAnterior: r.rotulo_anterior,
+      rotuloNovo: r.rotulo_novo, vigenteDesde: String(r.vigente_desde).slice(0, 10), motivo: r.motivo, ato: r.ato, criadoEm: r.criado_em,
+    }));
+  },
+  /** Muda nome, UG, comando, setor ou sigla da OM com data de vigência (script 029; operador e administrador). */
+  alterarDadosOM: async (a: { omId: string; nome?: string; codigo?: string; comandoId?: string; setorId?: string; sigla?: string; vigencia: string; motivo?: string; ato?: string }): Promise<number> => {
+    const { data, error } = await supabase.rpc('om_alterar_dados', {
+      p_om: a.omId, p_nome: a.nome || null, p_codigo: a.codigo || null, p_comando: a.comandoId || null, p_setor: a.setorId || null, p_sigla: a.sigla || null,
+      p_vigencia: a.vigencia, p_motivo: a.motivo?.trim() || null, p_ato: a.ato?.trim() || null,
+    });
+    if (error && /om_alterar_dados/.test(error.message || '') && /does not exist|Could not find/i.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/029_om_historico_vigencia.sql no Supabase.');
+    check(error);
+    return Number(data) || 0;
   },
   omTemMovimento: async (id: string): Promise<boolean> => {
     const { data, error } = await supabase.rpc('om_tem_movimento', { p_om_id: id });

@@ -307,6 +307,9 @@ export const ReceivedBalances: React.FC = () => {
       informedAdvance: false,
       operation: (docFormData.operation as OperationType) || OperationType.PAGAMENTO,
       observation: docFormData.observation || '',
+      // OM e comando escolhidos no cadastro (script 029): o documento deixa de depender só do nome em texto
+      ...(docFormData.omId ? { omId: docFormData.omId } : {}),
+      ...(docFormData.comandoId ? { comandoId: docFormData.comandoId } : {}),
       // campos da Fase 2 (ALTCRED do SIPLAD, destinação, GRU): só os que existem no formulário/registro
       ...Object.fromEntries(CAMPOS_DOC_FASE2.map(([k]) => [k, docFormData[k]]).filter(([, v]) => v !== undefined)),
     };
@@ -886,7 +889,7 @@ export const ReceivedBalances: React.FC = () => {
 
           <SeletorCliente valor={docFormData.client || ''} ug={docFormData.ug}
             onTexto={t => setDocFormData({ ...docFormData, client: t })}
-            onEscolher={c => setDocFormData({ ...docFormData, client: c.client, ug: c.ug, sector: c.sector, command: c.command, ...(c.comandoId ? { comandoId: c.comandoId } : {}) })} />
+            onEscolher={c => setDocFormData({ ...docFormData, client: c.client, ug: c.ug, sector: c.sector, command: c.command, omId: c.omId, ...(c.comandoId ? { comandoId: c.comandoId } : {}) })} />
           <Input label="Setor" required value={docFormData.sector || ''} onChange={e => setDocFormData({ ...docFormData, sector: e.target.value })} />
           <Input label="Comando" required value={docFormData.command || ''} onChange={e => setDocFormData({ ...docFormData, command: e.target.value })} />
 

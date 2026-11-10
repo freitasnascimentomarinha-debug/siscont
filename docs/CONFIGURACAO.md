@@ -290,6 +290,15 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
+- **OM que muda de nome, UG ou comando** (script 029): em Cadastros › OM / Clientes, o botão do relógio ("Mudou de nome, UG ou
+  comando?") abre o assistente. Informe o novo nome, UG, comando, setor ou sigla, a **data de vigência** (hoje ou no passado), o ato
+  (portaria/BONO) e o motivo; o sistema mostra o que muda e o impacto antes de gravar. **Operador e administrador** podem usar o
+  assistente e cadastrar clientes novos; editar, desativar e excluir continuam só do administrador. Faturas já emitidas **não mudam**
+  (número e texto da época ficam como saíram). O nome antigo vai para os "outros nomes" e a UG antiga para os "códigos anteriores":
+  ALTCRED/GRU com o nome antigo, planilhas e PDF do SIPLAD com a UG antiga continuam achando a OM (o PDF avisa "UG antiga"). O lote
+  usa os dados da OM **na data da emissão** (antes da vigência, os antigos; depois, os novos) e a **sequência das faturas continua**
+  (é por serviço e mês, não por UG). A ALTCRED/GRU agora também guarda a OM (`om_id`), escolhida no formulário ou ligada pelo nome.
+  A linha do tempo de cada OM mostra todas as mudanças.
 - **Situação da ALTCRED no SIPLAD** (importação do PDF): cada solicitação é classificada em *Processada* (crédito já entrou),
   *Aguardando processamento*, *Em análise / tramitação*, *Devolvida à origem*, *Cancelada / rejeitada* ou *Não processada*. A tela
   da importação mostra a etiqueta colorida e um resumo ("1 aguardando · 1 devolvida · 1 processada"); devolvida, cancelada e não
