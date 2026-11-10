@@ -2079,6 +2079,43 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.oms.find(o => o.id === hcm.id).nomes_alternativos.includes('Organização que não está no cadastro'), 'ligação feita à mão guardada como nome alternativo');
   });
 
+  await cenario('Conciliação: adiantamentos utilizados (ALTCRED de adiantamento e sobra de ALTCRED de pagamento)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    db.comandos.push(cmd); db.oms.push(dim);
+    const fat = (n, valor, mes) => ({ id: uid(), invoice_number: n, ug: '40030', sector: 'DGMM', command: '40030 - DIM', client: dim.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `2026-${String(mes).padStart(2, '0')}-15`, due_date: `2026-${String(mes + 1).padStart(2, '0')}-15`, month_competence: mes, year_competence: 2026, competence: `${String(mes).padStart(2, '0')}/2026`,
+      type: 'Água e Esgoto', service_acronym: 'AE', is_canceled: false, siplad_settled: false, om_id: dim.id });
+    const f1 = fat('40030-AE-06-2026-004-0', 9000, 6), f2 = fat('40030-AE-07-2026-004-0', 7732.59, 7), f3 = fat('40030-TC-08-2026-014-0', 19615.73, 8);
+    db.invoices = [f1, f2, f3];
+    const doc = (n, valor, op, extra = {}) => ({ id: uid(), document_number: n, document_type: 'ALTCRED', total_value: valor, date: '2026-06-19', operation: op, client: 'Diretoria Industrial da Marinha', sector: 'DGMM', command: '40030 - DIM', ug: '40030', ...extra });
+    const adi = doc('G424.2026.AC.00244', 47000, 'ADIANTAMENTO');                            // ALTCRED inteira de adiantamento
+    const pag = doc('R.2026.AC.02738', 30000, 'PAGAMENTO', { date: '2026-08-19', sobra_adiantamento: true });   // ALTCRED de pagamento com parte em adiantamento
+    db.received_documents.push(adi, pag);
+    const bx = (d, f, v, tipo, obs) => ({ id: uid(), document_id: d.id, invoice_id: f.id, amount: v, date: '2026-08-20', tipo_baixa: tipo, observation: obs });
+    db.payment_allocations.push(
+      bx(adi, f1, 1424.71, 'ADIANTAMENTO', 'RESUMO ADIANTAMENTO (uso de adiantamento)'), bx(adi, f2, 7732.59, 'ADIANTAMENTO', 'RESUMO ADIANTAMENTO (uso de adiantamento)'),
+      bx(pag, f3, 16674.41, 'ADIANTAMENTO', 'RESUMO ADIANTAMENTO (uso de adiantamento)'), bx(pag, f3, 2941.32, 'PAGAMENTO', 'LANÇAMENTOS (pagamento)'));
+    await page.reload();
+    await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
+    await page.getByRole('button', { name: /^Escolher comandos e OM/ }).click();
+    await page.getByLabel('Buscar comando ou OM').fill('40030');
+    await page.getByRole('radio', { name: 'OM', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'OM 40030 - Diretoria Industrial da Marinha' }).check();
+    await page.getByRole('button', { name: 'fechar' }).click();
+    await page.getByLabel('Exercício do extrato').selectOption('2026');
+    const quadro = page.locator('section', { has: page.getByRole('heading', { name: 'Adiantamentos utilizados' }) });
+    await quadro.waitFor();
+    const txt = (await quadro.innerText()).replace(/\s+/g, ' ');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'conciliacao-adiantamentos.png'), fullPage: true });
+    ok(txt.includes('G424.2026.AC.00244') && txt.includes('40030-AE-06-2026-004-0') && txt.includes('40030-AE-07-2026-004-0'), 'ALTCRED de adiantamento: aparece com as faturas em que foi usada');
+    ok(txt.includes('R.2026.AC.02738') && txt.includes('40030-TC-08-2026-014-0'), 'ALTCRED de PAGAMENTO com parte em adiantamento: a parte usada como adiantamento aparece');
+    ok(txt.includes('R$ 25.831,71'), `total do quadro = 1.424,71 + 7.732,59 + 16.674,41 = R$ 25.831,71 (lido: ${(txt.match(/Total geral[^R]*(R\$ [\d.,]+)/) || [])[1]})`);
+    ok(!txt.includes('2.941,32'), 'a parte paga em dinheiro (R$ 2.941,32) fica fora do quadro de adiantamentos');
+    ok((await page.getByRole('region', { name: 'Resumo da conciliação' }).count()) > 0 || (await page.getByText(/Resumo da conciliação/).count()) > 0, 'resumo da conciliação presente');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();
