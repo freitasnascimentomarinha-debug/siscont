@@ -2410,6 +2410,50 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.oms.some(o => o.nome === 'OM Real Nova'), 'fora do treinamento o operador grava normalmente no banco');
   });
 
+  await cenario('Pontos de atenção: corrigir pela própria janela (vencimento, baixa a mais, valor do documento)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [], codigos_anteriores: [] };
+    db.comandos.push(cmd); db.oms.push(om);
+    const fat = (n, valor, extra = {}) => ({ id: uid(), invoice_number: n, ug: '40030', sector: 'DGMM', command: '40030 - Diretoria Industrial da Marinha', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-08-15', due_date: '2026-08-10', month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: om.id, lote_id: null, base_calculo: null, acerto_de: null, pontos_atencao: [], ...extra });
+    const fVenc = fat('40030-EL-08-2026-010-0', 1000);                                   // vencimento antes da emissão
+    const fOk = fat('40030-EL-08-2026-011-0', 400, { due_date: '2026-09-15' });
+    db.invoices = [fVenc, fOk];
+    const alt = { id: uid(), document_number: 'G1.2026.AC.50001', document_type: 'ALTCRED', total_value: 100, date: '2026-09-01', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
+    const zerado = { id: uid(), document_number: 'G1.2026.AC.50002', document_type: 'ALTCRED', total_value: 0, date: '2026-09-02', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
+    db.received_documents.push(alt, zerado);
+    const bx = (f, v) => ({ id: uid(), document_id: alt.id, invoice_id: f.id, amount: v, date: '2026-09-03', tipo_baixa: 'PAGAMENTO', observation: '' });
+    db.payment_allocations.push(bx(fOk, 90), bx(fVenc, 60));                              // 150 de uma ALTCRED de 100
+    await page.reload();
+    await page.locator('nav').getByRole('button', { name: 'Pontos de Atenção' }).click();
+    await page.getByText('Vencimento inválido').first().waitFor();
+    // 1. vencimento inválido: corrige pela janela
+    await page.getByRole('row', { name: /40030-EL-08-2026-010-0/ }).getByRole('button', { name: 'Ver / resolver' }).click();
+    ok(await page.getByTestId('corrigir-agora').isVisible(), 'a janela do ponto traz "Corrigir agora, sem sair desta janela"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-corrigir.png') });
+    await page.getByLabel('Vencimento da fatura').fill('2026-09-14');
+    await page.getByRole('button', { name: 'Gravar as datas' }).click();
+    await page.getByText(/Corrigido: emissão 15\/08\/2026 e vencimento 14\/09\/2026/).waitFor();
+    ok(db.invoices.find(i => i.id === fVenc.id).due_date === '2026-09-14', 'o vencimento foi gravado na fatura, sem sair da tela');
+    await page.getByRole('button', { name: 'Fechar' }).first().click().catch(() => page.keyboard.press('Escape'));
+    // 2. ALTCRED com baixas a mais: remover a baixa errada pela janela
+    await page.getByText('Crédito usado a mais').first().waitFor();
+    await page.getByRole('row', { name: /G1\.2026\.AC\.50001/ }).getByRole('button', { name: 'Ver / resolver' }).first().click();
+    ok(await page.getByText(/Baixas deste documento/).isVisible(), 'lista as baixas do documento para escolher a errada');
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Remover a baixa de R$ 60,00' }).click();
+    await page.getByText(/Corrigido: baixa de R\$ 60,00 removida/).waitFor();
+    ok(db.payment_allocations.length === 1 && db.payment_allocations[0].amount === 90, 'a baixa de R$ 60,00 foi removida (sobrou a de R$ 90,00, dentro do valor da ALTCRED)');
+    await page.keyboard.press('Escape');
+    // 3. documento com valor zerado: informar o valor
+    await page.getByRole('row', { name: /G1\.2026\.AC\.50002/ }).getByRole('button', { name: 'Ver / resolver' }).first().click();
+    await page.getByLabel('Valor do documento').fill('250');
+    await page.getByRole('button', { name: 'Gravar o valor' }).click();
+    await page.getByText(/Corrigido: valor do documento R\$ 250,00/).waitFor();
+    ok(Number(db.received_documents.find(d => d.id === zerado.id).total_value) === 250, 'o valor do documento foi gravado pela janela');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

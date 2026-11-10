@@ -5,6 +5,7 @@ import { db } from '../services/db';
 import { notify } from '../utils/notify';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
+import { CorrigirAgora } from './pontos/CorrigirAgora';
 
 export const COR_GRAVIDADE: Record<Gravidade, { texto: string; fundo: string; rotulo: string }> = {
   alta: { texto: 'text-red-600', fundo: 'bg-red-50 border-red-200 text-red-700', rotulo: 'Alta' },
@@ -81,6 +82,7 @@ export const PontosModal: React.FC<{
                   </div>
                   <p className="text-sm text-slate-800">{p.mensagem}</p>
                   <p className="text-xs text-slate-600"><b>Como corrigir:</b> {p.comoCorrigir}</p>
+                  {podeEditar && !p.resolvido && <CorrigirAgora alvo={alvo.alvo} id={alvo.id} ponto={p} usuario={usuario} onFeito={onAlterado} />}
                   {p.automatico && !p.resolvido && <p className="text-[11px] text-slate-500">Some sozinho quando o dado for corrigido.</p>}
                   {p.resolvido && (
                     <p className="text-xs text-emerald-800">
