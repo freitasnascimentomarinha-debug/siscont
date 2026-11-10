@@ -21,7 +21,8 @@ export const ResumoAdiantamentos: React.FC<{ documentos: ReceivedDocument[]; bai
     return resumoPorCliente(linhas.filter(l => (!soComSaldo || l.saldo > 0.005)
       && (!q || `${l.cliente} ${l.comando} ${l.numero} ${l.usos.map(u => u.fatura).join(' ')}`.toLowerCase().includes(q))));
   }, [linhas, soComSaldo, busca]);
-  const tot = grupos.reduce((t, g) => ({ enviado: t.enviado + g.enviado, utilizado: t.utilizado + g.utilizado, saldo: t.saldo + g.saldo }), { enviado: 0, utilizado: 0, saldo: 0 });
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const tot = grupos.reduce((t, g) => ({ enviado: r2(t.enviado + g.enviado), utilizado: r2(t.utilizado + g.utilizado), saldo: r2(t.saldo + g.saldo) }), { enviado: 0, utilizado: 0, saldo: 0 });
   const negativos = linhas.filter(l => l.saldo < -0.005);
 
   const exportar = () => {

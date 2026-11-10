@@ -31,6 +31,9 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cabecalhoCompacto, cabecalhoInstitucional } from '../utils/pdfCabecalho';
 
+/** Centavos: evita resíduo de ponto flutuante (ex.: 0,1 + 0,2) nas somas e nas baixas gravadas. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 export const ReceivedBalances: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = !podeEditarDados(user?.role);
@@ -208,8 +211,8 @@ export const ReceivedBalances: React.FC = () => {
   const stats = {
     count: filteredDocs.length,
     countWithBalance: filteredDocs.filter(d => d.availableValue > 0).length,
-    totalValue: filteredDocs.reduce((acc, d) => acc + d.totalValue, 0),
-    totalAvailable: filteredDocs.reduce((acc, d) => acc + d.availableValue, 0)
+    totalValue: r2(filteredDocs.reduce((acc, d) => acc + d.totalValue, 0)),
+    totalAvailable: r2(filteredDocs.reduce((acc, d) => acc + d.availableValue, 0))
   };
 
   // --- Grouping Logic (Setor > Comando > Cliente do cadastro), com paginação e subtotais ---
@@ -221,7 +224,7 @@ export const ReceivedBalances: React.FC = () => {
   }), [filteredDocs, rotulos, ordemDocs]);
   const totaisGrupo = useMemo(() => {
     const m = new Map<string, { qtd: number; total: number; disponivel: number }>();
-    const add = (k: string, d: ReceivedDocument) => { const t = m.get(k) || { qtd: 0, total: 0, disponivel: 0 }; t.qtd++; t.total += d.totalValue; t.disponivel += d.availableValue; m.set(k, t); };
+    const add = (k: string, d: ReceivedDocument) => { const t = m.get(k) || { qtd: 0, total: 0, disponivel: 0 }; t.qtd++; t.total = r2(t.total + d.totalValue); t.disponivel = r2(t.disponivel + d.availableValue); m.set(k, t); };
     filteredDocs.forEach(d => { const r = rot(d); add(r.setor, d); add(`${r.setor}|${r.comando}`, d); add(`${r.setor}|${r.comando}|${r.cliente}`, d); });
     return m;
   }, [filteredDocs, rotulos]);
@@ -277,7 +280,7 @@ export const ReceivedBalances: React.FC = () => {
 
     // editar: o valor total não pode ficar menor do que já foi baixado nas faturas (o disponível ficaria negativo)
     if (editingId) {
-      const usado = Math.round(allocations.filter(a => a.documentId === editingId && !invoicesById.get(a.invoiceId)?.isCanceled).reduce((t, a) => t + a.amount, 0) * 100) / 100;
+      const usado = r2(allocations.filter(a => a.documentId === editingId && !invoicesById.get(a.invoiceId)?.isCanceled).reduce((t, a) => t + a.amount, 0));
       if (Number(docFormData.totalValue) < usado - 0.005) {
         setSaveError(`O valor total não pode ser menor que o já baixado nas faturas (R$ ${usado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Tire ou reduza as baixas antes.`);
         return;
@@ -294,8 +297,8 @@ export const ReceivedBalances: React.FC = () => {
       client: docFormData.client!,
       documentNumber: docFormData.documentNumber!,
       documentType: type,
-      totalValue: Number(docFormData.totalValue),
-      availableValue: editingId ? (docFormData.availableValue || 0) : Number(docFormData.totalValue),
+      totalValue: r2(Number(docFormData.totalValue)),
+      availableValue: editingId ? (docFormData.availableValue || 0) : r2(Number(docFormData.totalValue)),
       date: docFormData.date || hojeISO(),
       informedAdvance: false,
       operation: (docFormData.operation as OperationType) || OperationType.PAGAMENTO,
@@ -353,12 +356,12 @@ export const ReceivedBalances: React.FC = () => {
     try {
     for (const invId of selectedInvoiceIds) {
       const inv = invoices.find(i => i.id === invId);
-      if (!inv || currentBalance <= 0) continue;
+      if (!inv || currentBalance <= 0.005) continue;
 
-      const totalUsed = allocations.filter(a => a.invoiceId === inv.id).reduce((sum, a) => sum + a.amount, 0);
+      const totalUsed = r2(allocations.filter(a => a.invoiceId === inv.id).reduce((sum, a) => sum + a.amount, 0));
       const debt = saldoDaFatura(inv, totalUsed);
 
-      const payment = Math.min(debt, currentBalance);
+      const payment = r2(Math.min(debt, currentBalance));
 
       if (payment > 0.005) {
         await db.saveAllocation({
@@ -373,7 +376,7 @@ export const ReceivedBalances: React.FC = () => {
           serviceType: inv.type || inv.serviceAcronym || '',
           tipoBaixa: activeDoc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO',
         });
-        currentBalance -= payment;
+        currentBalance = r2(currentBalance - payment);
         created++;
         pagas.push(inv.id);
       }
