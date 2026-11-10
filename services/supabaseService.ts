@@ -57,7 +57,8 @@ function doFase2(d: any): Partial<ReceivedDocument> {
 }
 function paraFase2(doc: ReceivedDocument): Record<string, any> {
     const out: Record<string, any> = {};
-    CAMPOS_DOC_FASE2.forEach(([k, col]) => { if (doc[k] !== undefined) out[col] = doc[k]; });
+    // data em branco vira nulo (o banco não aceita texto vazio numa coluna de data)
+    CAMPOS_DOC_FASE2.forEach(([k, col]) => { if (doc[k] !== undefined) out[col] = (col === 'data_criacao' || col === 'gru_data_pagamento') && doc[k] === '' ? null : doc[k]; });
     return out;
 }
 
@@ -333,7 +334,7 @@ export const supabaseService = {
                 date: alloc.date,
                 service_type: alloc.serviceType,
                 siscont_settled: alloc.siscontSettled,
-                siscont_due_date: alloc.siscontDueDate,
+                siscont_due_date: alloc.siscontDueDate || null,   // '' não é data: o banco recusa (erro de sintaxe do tipo date)
                 observation: alloc.observation,
                 ...(alloc.tipoBaixa ? { tipo_baixa: alloc.tipoBaixa } : {}),
             };

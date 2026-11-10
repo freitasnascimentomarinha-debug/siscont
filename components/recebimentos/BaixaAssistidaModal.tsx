@@ -22,6 +22,7 @@ export const BaixaAssistidaModal: React.FC<{
   const [enviarSobra, setEnviarSobra] = useState(true);
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [gravando, setGravando] = useState(false);
+  const [busca, setBusca] = useState('');
 
   const candidatas = useMemo(() => (doc ? faturasCandidatas(invoices, documentos, baixas, oms) : []), [doc, invoices, documentos, baixas, oms]);
   const citadas = useMemo(() => [...new Set(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`.match(RE_FATURA_TEXTO) || [])], [doc]);
@@ -44,6 +45,17 @@ export const BaixaAssistidaModal: React.FC<{
   const ehPagamento = doc.operation !== 'ADIANTAMENTO';
 
   const alterar = (k: number, valor: number) => setItens(itens.map((x, n) => (n === k ? { ...x, valor: Math.max(0, Math.round(valor * 100) / 100) } : x)));
+  // outras faturas em aberto (de qualquer cliente) que podem receber esta baixa, escolhidas à mão
+  const q = busca.trim().toLowerCase();
+  const extras = q.length < 2 ? [] : candidatas
+    .filter(c => !itens.some(i => i.faturaId === c.id) && (incluirContestadas || !c.contestada) && `${c.numero} ${c.cliente} ${c.ug} ${c.tipo || ''}`.toLowerCase().includes(q))
+    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '') || a.numero.localeCompare(b.numero)).slice(0, 8);
+  const adicionar = (c: (typeof candidatas)[number]) => {
+    const resta = Math.max(0, doc.availableValue - itens.reduce((t, x) => t + x.valor, 0));
+    setItens([...itens, { faturaId: c.id, numero: c.numero, cliente: c.cliente, vencimento: c.vencimento, saldoFatura: c.saldo, valor: Math.round(Math.min(c.saldo, resta) * 100) / 100,
+      grupo: 'COMANDO', foraDestinacao: temDestinacao, contestada: !!c.contestada }]);
+    setBusca('');
+  };
   const preencher = (k: number) => {
     const outros = itens.reduce((s, x, n) => s + (n === k ? 0 : x.valor), 0);
     alterar(k, Math.min(itens[k].saldoFatura, Math.max(0, doc.availableValue - outros)));
@@ -98,7 +110,7 @@ export const BaixaAssistidaModal: React.FC<{
 
         {itens.length === 0 ? (
           <p className="p-6 text-center text-slate-500 border border-dashed border-slate-300 rounded-lg">
-            Nenhuma fatura em aberto encontrada para este cliente/comando. Confira a UG e o comando do documento, ou use "Pagar Faturas" para escolher manualmente.
+            Nenhuma fatura em aberto encontrada para este cliente/comando. Confira a UG e o comando do documento ou procure a fatura no campo abaixo ("Adicionar outra fatura em aberto").
           </p>
         ) : (
           <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[50vh] overflow-y-auto">
@@ -132,6 +144,20 @@ export const BaixaAssistidaModal: React.FC<{
             </table>
           </div>
         )}
+
+        <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/60 space-y-2">
+          <label className="block text-xs font-semibold text-slate-600">Adicionar outra fatura em aberto (qualquer cliente)
+            <input aria-label="Buscar fatura para adicionar" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o nº da fatura, a UG ou o nome do cliente (mín. 2 letras)"
+              className="mt-1 w-full border border-slate-300 rounded px-2 py-1.5 text-sm font-normal bg-white" /></label>
+          {q.length >= 2 && !extras.length && <p className="text-xs text-slate-500">Nenhuma outra fatura em aberto encontrada.</p>}
+          {extras.map(c => (
+            <button key={c.id} type="button" onClick={() => adicionar(c)} aria-label={`Adicionar a fatura ${c.numero}`}
+              className="w-full flex flex-wrap items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 hover:border-primary-400 rounded px-2 py-1.5">
+              <span><span className="font-mono">{c.numero}</span> · {c.cliente}{c.contestada ? ' · contestada' : ''}</span>
+              <span className="tabular-nums text-slate-600">venc. {br(c.vencimento)} · saldo {brl(c.saldo)}</span>
+            </button>
+          ))}
+        </div>
 
         {erros.map(e => <p key={e} className="text-red-600 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />{e}</p>)}
         {temDestinacao && foraUsadas.length > 0 && (

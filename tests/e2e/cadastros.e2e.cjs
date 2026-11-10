@@ -102,6 +102,9 @@ function handler(db, log) {
     if (metodo === 'POST') {
       const body = JSON.parse(req.postData() || '[]');
       const linhas = Array.isArray(body) ? body : [body];
+      // como o Postgres: texto vazio numa coluna de data é erro ("invalid input syntax for type date")
+      const COL_DATA = new Set(['date', 'due_date', 'issue_date', 'siscont_due_date', 'data_criacao', 'gru_data_pagamento', 'quitada_em', 'enviada_em']);
+      for (const l of linhas) for (const [c, v] of Object.entries(l)) if (COL_DATA.has(c) && v === '') return json(400, { code: '22007', message: 'invalid input syntax for type date: ""' });
       for (const l of linhas) {
         if (t === 'oms' && db.oms.some(o => o.codigo === l.codigo && o.nome.toLowerCase() === l.nome.toLowerCase())) return json(409, { code: '23505', message: 'duplicate key value violates unique constraint "oms_codigo_nome_uk"' });
         if (t === 'feriados') { db.feriados = db.feriados.filter(f => f.data !== l.data); }
@@ -438,7 +441,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const om = { id: uid(), codigo: '12346', nome: 'Navio Teste', tipo: 'NAVIO', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
     db.comandos.push(cmd); db.oms.push(om);
     const nova = (n, v, venc) => ({ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] });
-    db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31')];
+    db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31'),
+      { ...nova('99999-AE-08-2026-001-0', 120, '2026-09-29'), ug: '99999', client: 'Outra OM Teste', command: '99999 - Outro Comando', om_id: null }];
     await page.reload();
     await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
@@ -467,6 +471,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Valor para 12346-EL-08-2026-010-0').fill('500');
     ok(await page.getByText(/passa do saldo da fatura/).isVisible(), 'não deixa passar do saldo da fatura');
     await page.getByLabel('Valor para 12346-EL-08-2026-010-0').fill('400');
+    // escolher à mão uma fatura de outro cliente (fora da proposta)
+    ok(await page.getByLabel('Valor para 99999-AE-08-2026-001-0').count() === 0, 'fatura de outro cliente não vem na proposta');
+    await page.getByLabel('Buscar fatura para adicionar').fill('99999');
+    await page.getByRole('button', { name: 'Adicionar a fatura 99999-AE-08-2026-001-0' }).click();
+    ok(await page.getByLabel('Valor para 99999-AE-08-2026-001-0').isVisible(), 'baixa assistida: fatura de outro cliente adicionada à mão');
+    await page.getByLabel('Valor para 99999-AE-08-2026-001-0').fill('0');   // só testei a escolha; não baixa
     await page.getByRole('button', { name: 'Gravar baixas' }).click();
     await page.getByText(/baixa\(s\) gravada\(s\); sobra de R\$ 250,00 enviada para adiantamento/).waitFor();
     const bx = db.payment_allocations.filter(b => b.document_id === d.id);
