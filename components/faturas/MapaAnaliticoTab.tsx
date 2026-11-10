@@ -160,7 +160,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           ))}
           {n.creditos!.map(c => (
             <tr key={c.id} className="bg-white text-xs text-green-700 border-l-4 border-l-green-200">
-              <td className="py-1 pl-24 pr-2 font-medium"><FileCheck size={12} className="inline mr-1" />ALTCRED/GRU: {c.numero}{c.origem && <span className="ml-2 font-normal text-green-800/80">({c.origem})</span>}</td>
+              <td className="py-1 pl-24 pr-2 font-medium"><FileCheck size={12} className="inline mr-1" />ALTCRED/GRU: {c.numero}<span className="ml-2 font-normal text-green-800/80">saldo ainda não lançado em fatura{c.origem ? ` · ${c.origem}` : ''}</span></td>
               <td></td><td></td><td></td><td></td>
               <td className="px-2 py-1 text-right tabular-nums">{brl(c.valor)}</td><td></td>
             </tr>
@@ -177,13 +177,18 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         <p className="text-xs text-slate-500 mt-1">Por setor, comando e OM do cadastro. A dívida é o saldo a pagar de cada fatura; o crédito (ALTCRED/GRU com saldo) abate <b>somente a dívida da própria OM</b>. Cada nível é a soma do que está dentro dele. <b>Clique nos cartões</b> para filtrar a árvore (clique de novo para tirar); clique no nome da OM para ver o detalhe dela. O PDF imprime a árvore com os filtros que estiverem ligados.</p>
       </div>
 
+      <div className="p-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 space-y-1" data-testid="como-ler-mapa">
+        <p><b>Como ler:</b> a <b>dívida</b> é a soma das faturas em aberto, e é o que as OM realmente devem. O <b>crédito</b> é o saldo de uma ALTCRED/GRU que <b>ainda não foi lançado em nenhuma fatura</b> (a "sobra" do documento) e reduz só a dívida da própria OM. <b>A pagar (líquido) = dívida − esse crédito.</b></p>
+        <p>Se esse saldo já pagou alguma fatura, falta lançar a baixa: em <b>Recebimentos</b>, abra o documento e use <b>Baixa assistida</b> ou <b>Pagar Faturas</b>; o crédito sai daqui e a fatura sai da dívida.</p>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar. Clique para tirar os filtros dos cartões.`} ativo={!filtroFat && !soComValor && !soComCredito && !soSobra} onClick={limparCartoes} />
         <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Clique para deixar na árvore só as faturas vencidas" ativo={filtroFat === 'vencidas'} onClick={() => alternarFat('vencidas')} />
         <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Clique para deixar na árvore só as faturas a vencer" ativo={filtroFat === 'aVencer'} onClick={() => alternarFat('aVencer')} />
-        <Cartao rotulo="Crédito usado" valor={brl(t.credito - t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM que têm crédito" ativo={soComCredito} onClick={() => setSoComCredito(v => !v)} />
+        <Cartao rotulo="Crédito que abate a dívida" valor={brl(t.credito - t.sobra)} tom="ok" dica="Saldo de ALTCRED/GRU que ainda NÃO foi lançado em nenhuma fatura e que reduz a dívida da própria OM. Clique para deixar na árvore só as OM que têm crédito" ativo={soComCredito} onClick={() => setSoComCredito(v => !v)} />
         <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM com crédito maior que a dívida" ativo={soSobra} onClick={() => setSoSobra(v => !v)} />
-        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
+        <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Dívida menos o crédito de cada OM. Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

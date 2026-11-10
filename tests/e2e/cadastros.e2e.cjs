@@ -729,6 +729,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/R\$ 1\.300,00/.test(await cartao('Dívida em aberto')), 'dívida em aberto R$ 1.300,00 (saldo real das 2 faturas)');
     ok(/R\$ 1\.000,00/.test(await cartao('Vencido')) && /R\$ 300,00/.test(await cartao('A vencer')), 'vencido R$ 1.000,00 e a vencer R$ 300,00');
     ok(/R\$ 900,00/.test(await cartao('A pagar (líquido)')), 'a pagar R$ 900,00: crédito de R$ 400 abate só a dívida da própria OM');
+    ok(await page.getByTestId('como-ler-mapa').isVisible() && /ainda não foi lançado em nenhuma fatura/.test(await page.getByTestId('como-ler-mapa').innerText()) && /R\$ 400,00/.test(await cartao('Crédito que abate a dívida')), 'mapa explica o que é dívida e crédito (saldo ainda não lançado em fatura) e o cartão chama "Crédito que abate a dívida"');
     ok(/R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'crédito do Arsenal (R$ 5.000,00) sobra e não paga fatura da Diretoria Industrial');
     // estrutura: o comando é o do cadastro e o crédito está junto da dívida da mesma OM
     await page.getByRole('button', { name: 'expandir tudo' }).click();
