@@ -1988,6 +1988,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('65701-AE-01-2027-001-0').waitFor();
     await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
     ok(await page.getByText(/Consumo real R\$ 80\.000,00 − estimado já faturado R\$ 100\.000,00 = crédito da OM de R\$ 20\.000,00/).isVisible(), 'prévia do acerto: consumo real 80.000, estimado 100.000, crédito da OM de 20.000');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-1-previa.png'), fullPage: true });
     await page.getByRole('button', { name: 'Emitir lote' }).click();
     await page.getByRole('button', { name: 'Sim, emitir' }).click();
     await page.getByText(/Lote emitido: 1 faturas/).waitFor({ timeout: 15000 });
@@ -1998,7 +1999,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Créditos de acerto', exact: true }).click();
     await page.getByText('Saldo a favor das OM').waitFor();
     ok((await page.getByText('R$ 20.000,00').count()) >= 2 && await page.getByText('65701-AE-01-2027-001-0').first().isVisible(), 'aba Créditos de acerto mostra o crédito de R$ 20.000,00 da OM');
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-acerto.png'), fullPage: true });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-2-creditos.png'), fullPage: true });
 
     // lote mensal seguinte: o crédito abate a fatura de água da mesma OM
     await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
@@ -2010,6 +2011,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const compensacao = page.getByText(/Compensação do crédito do acerto nº 65701-AE-01-2027-001-0: R\$ 15\.000,00 \(linha 04\)/);
     if (!(await compensacao.isVisible())) await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
     ok(await compensacao.isVisible(), 'a fatura de água de 15.000 é compensada pelo crédito (linha 04)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-3-compensacao.png'), fullPage: true });
     await page.getByRole('button', { name: 'Emitir lote' }).click();
     await page.getByRole('button', { name: 'Sim, emitir' }).click();
     for (let t = 0; t < 50 && !db.invoices.some(x => x.invoice_number === '65701-AE-02-2027-001-0'); t++) await page.waitForTimeout(200);   // o aviso do lote anterior ainda está na tela
@@ -2023,6 +2025,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('R$ 5.000,00').first().waitFor();
     await page.getByRole('button', { name: 'Registrar uso' }).click();
     ok(await page.getByLabel('Valor do uso').inputValue() === '5000', 'registrar uso sugere o saldo de R$ 5.000,00');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-4-devolucao.png'), fullPage: false });
     await page.getByLabel('Valor do uso').fill('7000');
     ok(await page.getByText(/passa do saldo do crédito/).isVisible(), 'valor acima do saldo é barrado');
     await page.getByLabel('Valor do uso').fill('5000');
