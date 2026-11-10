@@ -20,6 +20,15 @@ describe('mapa analítico', () => {
     expect(m.setores[0].filhos[0].nome).toBe('40030 - Diretoria Industrial da Marinha'); // comando do cadastro
     expect(cli).toMatchObject({ divida: 1000, credito: 400, liquido: 600, sobra: 0 });
   });
+  it('escolher várias OM à mão: o mapa e os totais mostram só elas (vazio = todas)', () => {
+    const fs = [f('1', 'a', 'Diretoria Industrial da Marinha', 1000, '2026-10-01'), f('2', 'b', 'Arsenal de Marinha do Rio de Janeiro', 500, '2026-10-01'), f('3', 'c', 'Comando Alfa', 200, '2026-12-01')];
+    const todas = montarMapa(fs, [], oms, { hoje });
+    expect(todas.total.divida).toBe(1700);
+    const duas = montarMapa(fs, [], oms, { hoje, oms: ['Diretoria Industrial da Marinha', 'Comando Alfa'] });
+    expect(duas.total.divida).toBe(1200);
+    expect(clientesDoMapa(duas).map(c => c.nome).sort()).toEqual(['Comando Alfa', 'Diretoria Industrial da Marinha']);
+    expect(montarMapa(fs, [], oms, { hoje, oms: [] }).total.divida).toBe(1700);
+  });
   it('crédito de uma OM não abate a dívida de outra; o que sobra é informado', () => {
     const m = montarMapa([f('1', 'a', 'Diretoria Industrial da Marinha', 1000, '2026-10-01')], [cr('1', 'Arsenal de Marinha do Rio de Janeiro', 5000)], oms, { hoje });
     expect(m.total).toMatchObject({ divida: 1000, credito: 5000, liquido: 1000, sobra: 5000 });

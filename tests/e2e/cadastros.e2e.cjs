@@ -731,6 +731,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/R\$ 900,00/.test(await cartao('A pagar (líquido)')), 'a pagar R$ 900,00: crédito de R$ 400 abate só a dívida da própria OM');
     ok(await page.getByTestId('como-ler-mapa').isVisible() && /ainda não foi lançado em nenhuma fatura/.test(await page.getByTestId('como-ler-mapa').innerText()) && /R\$ 400,00/.test(await cartao('Crédito que abate a dívida')), 'mapa explica o que é dívida e crédito (saldo ainda não lançado em fatura) e o cartão chama "Crédito que abate a dívida"');
     ok(/R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'crédito do Arsenal (R$ 5.000,00) sobra e não paga fatura da Diretoria Industrial');
+    // escolher as OM à mão (várias)
+    await page.getByRole('button', { name: /^Escolher OM/ }).click();
+    ok(await page.getByLabel('OM Arsenal de Marinha do Rio de Janeiro').isVisible() && await page.getByLabel('OM Diretoria Industrial da Marinha').isVisible(), 'painel lista as OM do mapa com caixa de marcar');
+    await page.getByLabel('OM Arsenal de Marinha do Rio de Janeiro').check();
+    ok(/R\$ 0,00/.test(await cartao('Dívida em aberto')) && /R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'só o Arsenal escolhido: dívida R$ 0,00 e crédito R$ 5.000,00 (os cartões acompanham)');
+    ok(await page.getByText('1 OM escolhida(s)').isVisible(), 'etiqueta "1 OM escolhida(s)"');
+    await page.getByLabel('OM Diretoria Industrial da Marinha').check();
+    ok(/R\$ 1\.300,00/.test(await cartao('Dívida em aberto')) && /R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'duas OM escolhidas: dívida da DIM + crédito do Arsenal');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'mapa-escolher-om.png'), fullPage: false });
+    await page.getByLabel('OM Arsenal de Marinha do Rio de Janeiro').uncheck();
+    ok(/R\$ 1\.300,00/.test(await cartao('Dívida em aberto')) && /R\$ 0,00/.test(await cartao('Crédito que sobra')), 'desmarcando o Arsenal, sobra só a DIM');
+    await page.getByRole('button', { name: 'limpar escolha (mostrar todas)' }).click();
+    ok(/R\$ 5\.000,00/.test(await cartao('Crédito que sobra')), 'limpar a escolha volta a mostrar todas as OM');
+    await page.getByRole('button', { name: 'fechar', exact: true }).click();
     // estrutura: o comando é o do cadastro e o crédito está junto da dívida da mesma OM
     await page.getByRole('button', { name: 'expandir tudo' }).click();
     ok(await page.getByText('40030 - Diretoria Industrial da Marinha').first().isVisible(), 'comando mostrado é o do cadastro (código - nome), não o texto digitado');

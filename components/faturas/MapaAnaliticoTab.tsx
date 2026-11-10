@@ -40,6 +40,9 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const [abertos, setAbertos] = useState<Set<string> | null>(null); // null = só os setores abertos (padrão)
   const [detalhe, setDetalhe] = useState<Detalhe | null>(null);
   const [buscaLista, setBuscaLista] = useState('');
+  const [escolhidas, setEscolhidas] = useState<Set<string>>(new Set());   // OM escolhidas à mão (vazio = todas)
+  const [painelOM, setPainelOM] = useState(false);
+  const [buscaOM, setBuscaOM] = useState('');
   const hoje = hojeISO();
 
   const faturas = useMemo<FaturaMapa[]>(() => invoices
@@ -50,8 +53,13 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
-  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, filtroFat, semContestadas, foco]);
+  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, oms: [...escolhidas], ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, escolhidas, filtroFat, semContestadas, foco]);
   const contestadas = useMemo(() => faturas.filter(f => f.contestada), [faturas]);
+  // lista para escolher: todas as OM que têm algo no mapa (com os outros filtros, menos a escolha de OM)
+  const todasOM = useMemo(() => clientesDoMapa(montarMapa(faturas, creditos, oms, { hoje, ordem: 'nome', semContestadas })), [faturas, creditos, oms, hoje, semContestadas]);
+  const qOM = buscaOM.trim().toLowerCase();
+  const visiveisOM = todasOM.filter(c => !qOM || `${c.nome} ${c.comando} ${c.setor}`.toLowerCase().includes(qOM));
+  const alternarOM = (nome: string) => setEscolhidas(prev => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; });
   const limparCartoes = () => { setFiltroFat(undefined); setSoComValor(false); setSoComCredito(false); setSoSobra(false); };
   const alternarFat = (v: string) => setFiltroFat(x => (x === v ? undefined : v));
   const ROTULO_FAT: Record<string, string> = { vencidas: 'Só faturas vencidas', aVencer: 'Só faturas a vencer', 'A vencer': 'Só faturas a vencer' };
@@ -62,7 +70,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const t = mapa.total;
   const clientes = useMemo(() => clientesDoMapa(mapa), [mapa]);
   const semCadastro = clientes.filter(x => x.semCadastro).length;
-  const filtrado = !!(busca.trim() || soComValor || soComCredito || soSobra || filtroFat || foco.setor || foco.om);
+  const filtrado = !!(escolhidas.size || busca.trim() || soComValor || soComCredito || soSobra || filtroFat || foco.setor || foco.om);
 
   // ---------------------------------------------------------------- janelas de detalhe
   const abrir = (d: Detalhe) => { setBuscaLista(''); setDetalhe(d); };
@@ -206,6 +214,8 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'comando')))}>até as OM</button>
           <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set())}>recolher tudo</button>
         </div>
+        <button type="button" onClick={() => setPainelOM(v => !v)} aria-expanded={painelOM} className={`px-3 py-1.5 text-sm rounded-md border pb-1.5 ${escolhidas.size ? 'bg-primary-50 border-primary-400 text-primary-800 font-semibold' : 'bg-white border-slate-300 text-slate-700'}`}>
+          Escolher OM{escolhidas.size ? ` (${escolhidas.size})` : ''}</button>
         <div className="flex-1" />
         <div className="flex gap-2 pb-0.5">
           <Button variant="secondary" size="sm" onClick={exportarExcel}><FileSpreadsheet size={14} className="mr-1" />Excel</Button>
@@ -213,16 +223,41 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         </div>
       </div>
 
-      {(foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && (
+      {painelOM && (
+        <section className="p-3 border border-primary-200 rounded-lg bg-primary-50/30 space-y-2" aria-label="Escolher as OM do mapa">
+          <div className="flex flex-wrap items-center gap-3">
+            <h4 className="font-semibold text-sm text-slate-800">Escolha as OM que devem aparecer no mapa</h4>
+            <label className="relative"><Search size={13} className="absolute left-2 top-2 text-slate-400" />
+              <input value={buscaOM} onChange={e => setBuscaOM(e.target.value)} placeholder="Filtrar a lista por nome, comando ou setor" aria-label="Filtrar a lista de OM" className="pl-7 pr-2 py-1 text-xs border border-slate-300 rounded-md w-72 bg-white" /></label>
+            <button type="button" className="text-xs text-primary-700 underline" onClick={() => setEscolhidas(prev => new Set([...prev, ...visiveisOM.map(c => c.nome)]))}>marcar as {visiveisOM.length} da lista</button>
+            <button type="button" className="text-xs text-primary-700 underline" onClick={() => setEscolhidas(new Set())}>limpar escolha (mostrar todas)</button>
+            <div className="flex-1" />
+            <button type="button" className="text-xs font-semibold text-slate-600" onClick={() => setPainelOM(false)}>fechar</button>
+          </div>
+          <p className="text-xs text-slate-500">Marque uma ou mais OM: o mapa, os cartões, o Excel e o PDF passam a mostrar só elas. Sem nenhuma marcada, aparecem todas.</p>
+          <div className="max-h-60 overflow-y-auto border border-slate-200 rounded bg-white divide-y divide-slate-100">
+            {visiveisOM.map(c => (
+              <label key={c.nome} className="flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer hover:bg-slate-50">
+                <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={escolhidas.has(c.nome)} onChange={() => alternarOM(c.nome)} aria-label={`OM ${c.nome}`} />
+                <span className="flex-1 min-w-0"><span className="font-medium">{c.nome}</span><span className="block text-[11px] text-slate-500 truncate">{c.setor} · {c.comando}</span></span>
+                <span className="tabular-nums text-slate-600">{brl(c.divida)}{c.credito > 0.005 ? <span className="text-green-700"> · crédito {brl(c.credito)}</span> : ''}</span>
+              </label>
+            ))}
+            {!visiveisOM.length && <p className="px-2 py-4 text-center text-xs text-slate-400">Nenhuma OM com esse filtro.</p>}
+          </div>
+        </section>
+      )}
+      {(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && (
         <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Filtros do mapa">
           <span className="text-slate-500">Mostrando só:</span>
+          {escolhidas.size > 0 && <button type="button" onClick={() => setEscolhidas(new Set())} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Mostrar todas as OM de novo">{escolhidas.size} OM escolhida(s) <X size={11} /></button>}
           {filtroFat && <button type="button" onClick={() => setFiltroFat(undefined)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">{ROTULO_FAT[filtroFat] || `Faturas com ${filtroFat} de atraso`}{semContestadas ? ' (sem contestadas)' : ''} <X size={12} /></button>}
           {soComValor && <button type="button" onClick={() => setSoComValor(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com valor a pagar <X size={12} /></button>}
           {soComCredito && <button type="button" onClick={() => setSoComCredito(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito <X size={12} /></button>}
           {soSobra && <button type="button" onClick={() => setSoSobra(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito que sobra <X size={12} /></button>}
           {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">Setor {foco.setor} <X size={12} /></button>}
           {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM {foco.om} <X size={12} /></button>}
-          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); }}>ver todos</button>
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); }}>ver todos</button>
         </div>
       )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}

@@ -33,6 +33,8 @@ export interface OpcoesMapa {
   soVencido?: boolean;
   /** foco: um setor ou uma OM (nome exato) escolhidos num gráfico ou cartão */
   setor?: string; om?: string;
+  /** várias OM escolhidas à mão (nomes exatos); vazio = todas */
+  oms?: string[];
   /** filtro das FATURAS na árvore: só vencidas, só a vencer, ou uma faixa de atraso ("31–90 dias"...) */
   faturas?: 'vencidas' | 'aVencer' | string;
   /** tira as faturas em contestação (não entram na dívida nem aparecem na árvore) */
@@ -86,6 +88,7 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   if (o.faturas) lista = lista.filter(a => a.faturas.length > 0);
   if (o.setor) lista = lista.filter(a => a.setor === o.setor);
   if (o.om) lista = lista.filter(a => a.nome === o.om);
+  if (o.oms?.length) { const set = new Set(o.oms); lista = lista.filter(a => set.has(a.nome)); }
   if (q) lista = lista.filter(a => norm(`${a.nome} ${a.setor} ${a.comando}`).includes(q) || a.faturas.some(f => norm(f.numero).includes(q)) || a.creditos.some(c => norm(c.numero).includes(q)));
 
   const clienteNo = (a: Acc): NoMapa => {
