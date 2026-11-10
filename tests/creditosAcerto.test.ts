@@ -68,3 +68,14 @@ describe('créditos de acerto', () => {
     expect(creditoCompensadoNaFatura({ baseCalculo: { regra: 'x' } as any })).toBe(0);
   });
 });
+
+describe('créditos no resumo do mês', () => {
+  it('aparece como informação quando há saldo e some quando não há', async () => {
+    const { resumoDoMes } = await import('../utils/resumoFaturamento');
+    const base = { comp: '2027-02', servicos: [{ sigla: 'AE', nome: 'Água' }], omsTC: [], medicoes: [], atracacoesRealizadas: [], precos: [], nomeOM: () => 'OM', lotes: [], faturasDaCompetencia: 0 };
+    const item = resumoDoMes({ ...base, creditos: { saldo: 20000, abertos: 2 } }).find(i => i.id === 'creditos')!;
+    expect(item).toMatchObject({ status: 'info', aba: 'creditos' }); expect(item.detalhe).toMatch(/20\.000,00 em 2 crédito\(s\)/);
+    expect(resumoDoMes({ ...base, creditos: { saldo: 0, abertos: 0 } }).some(i => i.id === 'creditos')).toBe(false);
+    expect(resumoDoMes(base).some(i => i.id === 'creditos')).toBe(false);
+  });
+});

@@ -165,6 +165,17 @@ describe('FR-172', () => {
     expect(pdf.getNumberOfPages()).toBe(1);
     expect(pdf.output('arraybuffer').byteLength).toBeGreaterThan(2000);
   });
+  it('detalhamento da viatura: tabela Mês | Valor (cobrada com atraso junta vários meses)', () => {
+    const vt = { ...d, sigla: 'VT', valorServico: 4499.06, consumo: '', unidade: 'H/KM', base: { meses: [{ mes: 'OUT25', valor: 363.64 }, { mes: 'NOV25', valor: 1669.37 }, { mes: 'DEZ25', valor: 434.82 }, { mes: 'JAN26', valor: 2031.23 }] } };
+    expect(detalhamento(vt)).toEqual([['OUT25', 'R$ 363,64'], ['NOV25', 'R$ 1.669,37'], ['DEZ25', 'R$ 434,82'], ['JAN26', 'R$ 2.031,23'], ['TOTAL (R$)', 'R$ 4.499,06']]);
+    expect(detalhamento({ ...vt, base: {} })).toEqual([['ALUGUEL DE VIATURAS', 'R$ 4.499,06']]);     // sem meses (digitado à mão)
+  });
+  it('a medição de viatura importada leva os meses para a base da fatura', () => {
+    const om1 = { id: 'v', codigo: '11101', nome: 'CCEM', tipo: 'TERRA' as const, setor: 'X', comando: 'c', ativo: true };
+    const it = calcularMes({ competencia: '2026-09', tipo: 'MENSAL', oms: [om1], servicos: [{ sigla: 'VT', nome: 'Viatura', unidade: 'H/KM' }], precos: [], atracacoes: [], historico: [],
+      medicoes: [{ competencia: '2026-09', sigla: 'VT', omId: 'v', valor: 4499.06, detalhe: [{ sigla: 'CCEM · OUT25', valor: 363.64 }, { sigla: 'CCEM · NOV25', valor: 4135.42 }] }] }, '2026-09')[0];
+    expect(it.valor).toBe(4499.06); expect(it.base.meses).toEqual([{ mes: 'OUT25', valor: 363.64 }, { mes: 'NOV25', valor: 4135.42 }]);
+  });
   it('detalhamento da energia: consumo e demanda', () => {
     expect(detalhamento({ ...d, sigla: 'EL', consumo: '20.646 / 73 kW', base: {} })).toEqual([['CONSUMO DE ENERGIA ELET. (Kwh)', '20.646'], ['DEMANDA ENERGIA ELET. (Kw)', '73'], ['TOTAL (R$)', 'R$ 2.960,81']]);
   });

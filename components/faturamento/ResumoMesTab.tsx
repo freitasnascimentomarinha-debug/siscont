@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from 'lucide-react';
 import { omsNaMatriz } from '../../services/taxaCondominialService';
-import { ContextoFaturamento, listarAtracacoes, listarLotes, listarMedicoes, listarPrecos } from '../../services/faturamentoService';
+import { ContextoFaturamento, listarAtracacoes, listarLotes, listarMedicoes, listarPrecos, listarUsosCredito } from '../../services/faturamentoService';
 import { partes, referencia } from '../../utils/faturamento';
+import { calcularCreditos, resumoCreditos } from '../../utils/creditosAcerto';
 import { AbaFaturamento, ItemResumo, pendencias, resumoDoMes } from '../../utils/resumoFaturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -27,6 +28,8 @@ export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; se
     try {
       const [med, atr, precos, lotes] = await Promise.all([listarMedicoes([comp]), listarAtracacoes([comp]), listarPrecos([partes(comp).ano]), listarLotes().catch(() => [])]);
       const { ano, mes } = partes(comp);
+      // créditos que as OM têm do acerto do OND (sem o script 028 ainda não há registro de uso: vale o crédito inteiro)
+      const creditos = resumoCreditos(calcularCreditos(ctx.invoices, await listarUsosCredito().catch(() => [])));
       // a taxa condominial só é emitida para OM cadastrada na matriz do ano (menos a emissora, que não recebe fatura)
       const daMatriz = (await omsNaMatriz(ano).catch(() => [] as string[])).filter(id => id !== ctx.emissora?.omId);
       setItens(resumoDoMes({
@@ -39,6 +42,7 @@ export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; se
         responsavel: sigla => ctx.servicos.find(x => x.sigla === sigla)?.responsavel ?? null,
         lotes: lotes.map(l => ({ competencia: l.competencia, tipo: l.tipo, qtd: l.qtd })),
         faturasDaCompetencia: ctx.invoices.filter(i => !i.isCanceled && i.yearCompetence === ano && i.monthCompetence === mes).length,
+        creditos: { saldo: creditos.saldo, abertos: creditos.abertos },
       }));
     } catch (e) { notify.fail('Erro ao montar o resumo do mês', e); } finally { setCarregando(false); }
   };

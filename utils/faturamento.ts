@@ -20,7 +20,7 @@ export interface OMFat {
 }
 export interface ServicoFat { sigla: string; nome: string; unidade: string; ordem?: number; /** divisão responsável pelos dados (editável em Cadastros › Serviços) */ responsavel?: string | null; telefone?: string | null }
 export interface PrecoFat { ano: number; sigla: string; omId: string | null; valor: number; unidade?: string | null }
-export interface MedicaoFat { competencia: string; sigla: string; omId: string; quantidade?: number | null; quantidade2?: number | null; valor?: number | null; estimada?: boolean }
+export interface MedicaoFat { competencia: string; sigla: string; omId: string; quantidade?: number | null; quantidade2?: number | null; valor?: number | null; estimada?: boolean; /** linhas do detalhe (ex.: meses cobrados da viatura: "ABA · OUT25" e valor) */ detalhe?: { sigla?: string; valor?: number | null }[] | null }
 export interface AtracacaoFat { competencia: string; omId: string; previsao: boolean; diasAtracado: number; diasDocado: number }
 export interface FaturaHist { id: string; numero: string; omId?: string | null; sigla: string; ano: number; mes: number; valor: number; cancelada?: boolean; estimado?: boolean; acertoDe?: string | null; /** saldo ainda em aberto da fatura (para avisar se o estimado não foi pago) */ saldo?: number | null }
 export interface DocAdiantDisp { id: string; numero: string; saldo: number; data: string; comandoId?: string | null; ug?: string | null }
@@ -140,7 +140,11 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
     const p = precoDe(d.precos, ano, m.sigla, om.id);
     let valor: number, base: Base;
     const avisos: string[] = [];
-    if (m.valor != null) { valor = m.valor; base = { regra: 'Valor do rateio enviado pela divisão', quantidade: m.quantidade, quantidade2: m.quantidade2 }; }
+    if (m.valor != null) {
+      valor = m.valor; base = { regra: 'Valor do rateio enviado pela divisão', quantidade: m.quantidade, quantidade2: m.quantidade2 };
+      // viatura cobrada com atraso: os meses cobrados saem na fatura (tabela Mês | Valor)
+      if (m.sigla === 'VT' && m.detalhe?.length) base.meses = m.detalhe.filter(x => x.valor != null).map(x => ({ mes: String(x.sigla || '').split(' · ').pop() || '', valor: x.valor }));
+    }
     else if (p && m.quantidade != null) { valor = p.valor * m.quantidade; base = { regra: 'Quantidade × valor unitário ' + ano, valorUnitario: p.valor, quantidade: m.quantidade }; }
     else { valor = 0; base = { regra: 'Sem valor' }; avisos.push(`Medição de ${m.sigla} sem valor em R$ e sem valor unitário ${ano} cadastrado.`); }
     if (m.estimada) avisos.push('Consumo não mensurável: estimado pela média das 3 últimas medições (' + obterNormas().anexoEstimativa + ').');

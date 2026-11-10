@@ -50,6 +50,11 @@ export function detalhamento(d: DadosFr172): [string, string][] {
     case 'AE': return [['CONSUMO DE ÁGUA E ESGOTO (m³)', q1 || '-'], total];
     case 'DA': return [['DIÁRIA DE ATRACAÇÃO (R$)', b.diaria != null ? brl(Number(b.diaria)) : '-'], ['DIAS ATRACADO', q1 || num(b.diasAtracado)], total];
     case 'TC': return [['TAXA CONDOMINIAL MENSAL', brl(d.valorServico)]];
+    case 'VT': {
+      // viatura (cobrada com atraso): tabela Mês | Valor, como na fatura oficial
+      const meses = ((b.meses || []) as { mes: string; valor: number }[]).filter(x => x.mes);
+      return meses.length ? [...meses.map(x => [x.mes, brl(Number(x.valor))] as [string, string]), total] : [['ALUGUEL DE VIATURAS', brl(d.valorServico)]];
+    }
     default: return [[`QUANTIDADE${d.unidade ? ` (${d.unidade})` : ''}`, q1 || '-'], ...(b.valorUnitario ? [['VALOR UNITÁRIO', brl(Number(b.valorUnitario))] as [string, string]] : []), total];
   }
 }

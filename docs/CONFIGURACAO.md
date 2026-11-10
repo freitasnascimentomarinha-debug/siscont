@@ -277,6 +277,8 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
 - **Baixa assistida com número citado errado**: quando a ALTCRED cita uma fatura que não existe em aberto (ex.: *71000-TC-08-2026-008-0*
   e a de taxa condominial é a *-010-0*, porque o 008 é a sequência da água), a proposta reconhece a fatura do **mesmo cliente, serviço e
   mês** se for uma só, marca como "citada como ..." e sugere o valor. Havendo mais de uma, não adivinha.
+- **Fatura de viatura (VT) no PDF**: sai com a tabela *Mês | Valor* dos meses cobrados (como a oficial), a partir da planilha importada.
+  O *Resumo do mês* mostra o total de créditos de acerto a compensar.
 - **Planilha de faturas de viatura (VT)** — *Medições do mês › Importar rateio da divisão*: reconhece o arquivo da divisão de
   transportes (uma aba por OM, aba MODELO ignorada) e abre a conferência. O valor de cada OM é o *TOTAL SERVIÇO PRESTADO* da aba;
   a viatura é cobrada com atraso, então o valor pode juntar vários meses (a tabela Mês | Valor aparece como detalhe). A OM é ligada
