@@ -133,13 +133,13 @@ const dataHoraBR = () => new Date().toLocaleString('pt-BR', { dateStyle: 'short'
  * Fecha o relatório: bloco de assinatura ("ASSINADO DIGITALMENTE") no fim e, em todas as páginas, rodapé com a data
  * de geração e "Página x de y". `yFim`: onde terminou o conteúdo da última página (padrão: fim da última tabela).
  */
-export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolean } = {}): jsPDF {
+export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolean; /** mm entre o fim do conteúdo e a linha da assinatura (padrão 9) */ espaco?: number } = {}): jsPDF {
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
   if (opts.assinar !== false) {
     const ultima = doc.getNumberOfPages();
     const t = (doc as any).lastAutoTable;
     const rastro: number | undefined = (doc as any).__rastro?.[ultima];
-    let y = (rastro ?? opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + 9;
+    let y = (rastro ?? opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + (opts.espaco ?? 9);
     if (y > H - 23) { doc.addPage(); y = 40; (doc as any).__assinaturaSozinha = true; }
     doc.setPage(doc.getNumberOfPages());
     const cx = W / 2;

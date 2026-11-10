@@ -116,6 +116,6 @@ export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPD
       else if (tp === 'apagar') { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = TEMA.destaque; d.cell.styles.textColor = TEMA.texto; }
     },
   });
-  finalizarPdf(doc, { yFim: notaFinal(doc, o.nota, 182) });
+  finalizarPdf(doc, { yFim: notaFinal(doc, o.nota, 182), espaco: 28 });   // cobrança: assinatura com bastante espaço abaixo da tabela
   return doc;
 }
