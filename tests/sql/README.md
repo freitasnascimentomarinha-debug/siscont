@@ -123,3 +123,9 @@ guardado como alternativo; OM com fatura continua sem poder ser excluída.
 Com 001–015 aplicados: `psql -d sb -f tests/sql/unificar_016_tests.sql`. Esperado: nomes vindos de unificações saem dos
 "outros nomes" (o apelido manual fica), a fatura passa a ter o nome da OM que ficou, o unificado antigo é excluído e uma
 unificação nova não guarda o nome.
+
+## Script 027 (unificações em cadeia)
+
+Com 001–016 aplicados: `psql -d sb -f tests/sql/unificadas_027_tests.sql`. Esperado: a OM unificada numa outra que depois
+foi unificada (cadeia) é concluída na OM ativa do fim da cadeia, com a fatura passada e renomeada; a unificada sem destino e
+sem dados é excluída; a sem destino com fatura fica, com o motivo "Unificação incompleta" (aparece em Duplicidades).
