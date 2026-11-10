@@ -274,6 +274,11 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   fora e mostra o valor dela só como controle e contabilidade de custos — e pode **participar ou não dos rateios**:
   participando, entra na taxa condominial como as demais (a TC dela não é publicada nos Preços); não participando, a
   parte dela é dividida entre as outras OM. Parâmetros `om_emissora_id` e `om_emissora_rateio` (SIM/NAO).
+- **Painel inicial › Excel completo / PDF completo (com gráficos)**: o Excel traz Resumo, aba Gráficos (7 gráficos nativos
+  e editáveis, com a tabela de dados ao lado: faturado por mês, idade da dívida, composição do em aberto, maiores
+  devedores, em aberto por serviço, por setor e taxa condominial por OM), tabelas completas (devedores, serviço, setor,
+  idade, taxa condominial) e a lista de todas as faturas em aberto e em contestação, com filtro. O PDF tem indicadores,
+  os gráficos e as tabelas. Os dois respeitam o ano de referência e os filtros ativos (o recorte aparece no cabeçalho).
 - **Painel inicial**: filtros de múltipla escolha (setor, comando, cliente, serviço — ex.: todos os setores exceto
   EXTRA-MB), lembrados no navegador; lista das faturas ordenada por vencimento e ordenável por coluna.
 - **Cobrança**: setores em múltipla escolha e o grupo destacado (antes fixo "Setor do Material = DGMM") com nome e

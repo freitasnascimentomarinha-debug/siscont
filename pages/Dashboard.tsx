@@ -18,6 +18,8 @@ import { ComandoCad, OMCad, Rotulo, SetorCad, criarResolvedor } from '../utils/d
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { OMTipo, ROTULO_PUBLICO, passaPublico } from '../utils/publico';
 import { cabecalhoCompacto } from '../utils/pdfCabecalho';
+import { excelPainelInicial, pdfPainelInicial } from '../utils/exportPainelInicial';
+import { baixarBytes } from '../utils/baixarArquivo';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
 const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
@@ -199,30 +201,18 @@ export const Dashboard: React.FC = () => {
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Faturas');
     XLSX.writeFile(wb, `${lista.titulo.replace(/[^\wÀ-ú]+/g, '_')}.xlsx`);
   };
-  const exportarResumoPDF = () => {
-    const doc = new jsPDF('l');
-    const dy = cabecalhoCompacto(doc) - 8;
-    doc.setFontSize(13); doc.text(`SISCONT — Painel de faturamento ${ano}`, 14, 15 + dy);
-    doc.setFontSize(9); doc.text(`Posição em ${br(hoje)}${filtrosAtivos.length ? ` · Filtros: ${filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(', ')}` : ''}`, 14, 21 + dy);
-    autoTable(doc, {
-      startY: 26 + dy, head: [['Indicador', 'Valor', 'Faturas']],
-      body: [
-        [`Faturado em ${ano}`, brl(r.faturadoAno.valor), String(r.faturadoAno.qtd)],
-        [`Vencidas até ${ano - 1}`, brl(r.vencidasAnteriores.valor), String(r.vencidasAnteriores.qtd)],
-        [`Vencidas de ${ano}`, brl(r.vencidasAno.valor), String(r.vencidasAno.qtd)],
-        ['Total vencidas', brl(r.vencidas.valor), String(r.vencidas.qtd)],
-        ['A vencer', brl(r.aVencer.valor), String(r.aVencer.qtd)],
-        ['Total em aberto (sem contestadas)', brl(r.emAberto.valor), String(r.emAberto.qtd)],
-        ['Em contestação (fora do em aberto)', brl(r.contestadas.valor), String(r.contestadas.qtd)],
-        ...(tc.ano ? [[`Taxa condominial ${tc.ano} (mensal / anual)`, `${brl(tc.mensal)} / ${brl(tc.anual)}`, `${tc.oms.length} OM`]] : []),
-      ],
-      styles: { fontSize: 9 },
-    });
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 6, head: [['Em aberto por setor', 'Vencido', 'A vencer', 'Total']],
-      body: r.porSetor.map(s => [s.nome, brl(s.vencido), brl(s.aVencer), brl(s.total)]), styles: { fontSize: 8 },
-    });
-    doc.save(`painel_siscont_${ano}.pdf`);
+  const dadosExport = () => ({
+    ano, hoje, geradoEm: new Date().toLocaleString('pt-BR'), r, tc, filtros: filtrosAtivos.map(f => `${f[0]} ${f[1]}`),
+    abertas: doGrupo(filtradas, 'EM_ABERTO', ano, hoje), contestadas: doGrupo(filtradas, 'CONTESTADAS', ano, hoje),
+  });
+  const gerarPdfCompleto = () => {
+    try { pdfPainelInicial(dadosExport()); notify.success('PDF gerado.'); } catch (e) { notify.fail('Não foi possível gerar o PDF', e); }
+  };
+  const gerarExcelCompleto = async () => {
+    try {
+      baixarBytes(await excelPainelInicial(dadosExport()), `painel_inicial_${ano}_${hoje}.xlsx`);
+      notify.success('Excel gerado.');
+    } catch (e) { notify.fail('Não foi possível gerar o Excel', e); }
   };
   const exportarSaldosPDF = () => {
     const doc = new jsPDF('l');
@@ -249,7 +239,8 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />}Atualizar</Button>
-          <Button size="sm" variant="secondary" onClick={exportarResumoPDF}><FileText size={14} className="mr-1" />Resumo (PDF)</Button>
+          <Button size="sm" variant="secondary" onClick={gerarExcelCompleto}><Download size={14} className="mr-1" />Excel completo (com gráficos)</Button>
+          <Button size="sm" variant="secondary" onClick={gerarPdfCompleto}><FileText size={14} className="mr-1" />PDF completo (com gráficos)</Button>
           <Button size="sm" variant="secondary" onClick={exportarSaldosPDF}><Wallet size={14} className="mr-1" />Extrato de saldos (PDF)</Button>
         </div>
       </div>

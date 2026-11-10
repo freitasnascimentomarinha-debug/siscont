@@ -1564,6 +1564,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('Total mensal (todas as OM)').isVisible() && (await page.getByText('R$ 111.731,06').count()) > 0, 'taxa condominial geral mensal R$ 111.731,06');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-inicial.png'), fullPage: true });
     if (SHOTS) { for (const [k, y] of [[2, 700], [3, 1400]]) { await page.locator('main .overflow-y-auto').first().evaluate((el, yy) => el.scrollTo(0, yy), y); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `painel-inicial-${k}.png`) }); } await page.locator('main .overflow-y-auto').first().evaluate(el => el.scrollTo(0, 0)); }
+    // exportações do painel: Excel completo e PDF, com gráficos
+    const [dx] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Excel completo/ }).click()]);
+    const arqX = path.join(os.tmpdir(), `pi-${Date.now()}.xlsx`); await dx.saveAs(arqX);
+    const JSZip = require(path.join(__dirname, '../../node_modules/jszip'));
+    const zipX = await JSZip.loadAsync(fs.readFileSync(arqX));
+    const graficos = Object.keys(zipX.files).filter(n => /^xl\/charts\/chart\d+\.xml$/.test(n));
+    const wbX = XLSX.readFile(arqX);
+    ok(/painel_inicial_2026_.*\.xlsx$/.test(dx.suggestedFilename()) && graficos.length >= 6, `Excel do painel baixado com ${graficos.length} gráficos nativos`);
+    ok(['Resumo', 'Gráficos', 'Devedores', 'Faturas em aberto'].every(n => wbX.SheetNames.includes(n)) && XLSX.utils.sheet_to_json(wbX.Sheets['Faturas em aberto']).length === 4, 'Excel com resumo, gráficos, devedores e as 4 faturas em aberto (R$ 950,00)');
+    const [dp] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF completo/ }).click()]);
+    const arqP = path.join(os.tmpdir(), `pi-${Date.now()}.pdf`); await dp.saveAs(arqP);
+    ok(/painel_inicial_2026_.*\.pdf$/.test(dp.suggestedFilename()) && fs.readFileSync(arqP).subarray(0, 4).toString() === '%PDF' && fs.statSync(arqP).size > 20000, 'PDF do painel baixado (com gráficos)');
     await page.getByRole('button', { name: /^Em contestação:/ }).click();
     await page.getByRole('heading', { name: 'Faturas em contestação' }).waitFor();
     ok((await page.locator('table').last().innerText()).includes('81100-TC-10-2026-001-0'), 'clicar em "Em contestação" lista a contestada');

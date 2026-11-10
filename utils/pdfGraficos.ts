@@ -16,11 +16,39 @@ export function escala(min: number, max: number, divisoes = 4): { min: number; m
   return { min: Math.floor(lo / passo) * passo, max: Math.ceil(hi / passo) * passo, passo };
 }
 
+/** Ranking em barras horizontais (opcionalmente empilhadas): nome à esquerda, valor no fim da barra, 1º item no alto. */
+function desenharBarrasH(doc: jsPDF, g: GraficoPainel, x: number, y: number, w: number, h: number) {
+  const n = g.categorias.length, ss = g.series.filter(s => s.tipo === 'bar');
+  const totais = g.categorias.map((_, i) => (g.empilhado ? ss.reduce((a, s) => a + (s.valores[i] || 0), 0) : Math.max(...ss.map(s => s.valores[i] || 0))));
+  const maxV = Math.max(...totais, 1);
+  const rotW = Math.min(36, w * 0.4), px = x + 2 + rotW, pw = w - rotW - 24, py = y + 8, ph = h - 8 - 8;
+  const faixa = ph / n, alt = Math.min(6, faixa * 0.7) / (g.empilhado ? 1 : ss.length);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6);
+  g.categorias.forEach((c, i) => {
+    const cy = py + faixa * i, nome = c.length > 30 ? `${c.slice(0, 29)}…` : c;
+    doc.setTextColor(51, 65, 85); doc.text(nome, px - 1.5, cy + faixa / 2 + 1, { align: 'right' });
+    let acum = 0;
+    ss.forEach((s, k) => {
+      const v = s.valores[i] || 0, larg = (v / maxV) * pw;
+      doc.setFillColor(...rgb(s.cor));
+      if (g.empilhado) { if (larg > 0) doc.rect(px + (acum / maxV) * pw, cy + (faixa - alt) / 2, larg, alt, 'F'); acum += v; }
+      else if (larg > 0) doc.rect(px, cy + (faixa - alt * ss.length) / 2 + alt * k, larg, alt, 'F');
+    });
+    doc.setTextColor(15, 23, 42);
+    doc.text(compactoPdf(totais[i]), px + (totais[i] / maxV) * pw + 1.5, cy + faixa / 2 + 1);
+  });
+  doc.setDrawColor(148, 163, 184); doc.line(px, py, px, py + ph);
+  let lx = x + 3; const ly = y + h - 2.5; doc.setFontSize(6.5);
+  ss.forEach(s => { doc.setFillColor(...rgb(s.cor)); doc.rect(lx, ly - 2, 2.5, 2.5, 'F'); doc.setTextColor(51, 65, 85); doc.text(s.nome, lx + 3.5, ly); lx += 3.5 + doc.getTextWidth(s.nome) + 4; });
+  doc.setTextColor(0); doc.setDrawColor(0);
+}
+
 export function desenharGrafico(doc: jsPDF, g: GraficoPainel, x: number, y: number, w: number, h: number) {
   doc.setDrawColor(203, 213, 225); doc.setLineWidth(0.2); doc.rect(x, y, w, h);
   doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(g.titulo, x + 2, y + 4.5, { maxWidth: w - 4 });
   const n = g.categorias.length;
   if (!n) { doc.setFont('helvetica', 'normal'); doc.setTextColor(100); doc.text('Sem dados no período.', x + w / 2, y + h / 2, { align: 'center' }); return; }
+  if (g.horizontal) { desenharBarrasH(doc, g, x, y, w, h); return; }
   const prim = g.series.filter(s => !s.secundario), sec = g.series.filter(s => s.secundario);
   const todos = (ss: typeof prim) => ss.flatMap(s => s.valores);
   const eP = escala(Math.min(...todos(prim)), Math.max(...todos(prim)));

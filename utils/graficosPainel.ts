@@ -4,7 +4,7 @@ import {
 } from './painelGerencial';
 
 export interface SerieG { nome: string; valores: number[]; cor: string; tipo: 'bar' | 'line'; secundario?: boolean }
-export interface GraficoPainel { id: string; titulo: string; categorias: string[]; series: SerieG[]; coresPontos?: string[]; sufixoSec?: string }
+export interface GraficoPainel { id: string; titulo: string; categorias: string[]; series: SerieG[]; coresPontos?: string[]; sufixoSec?: string; horizontal?: boolean; empilhado?: boolean }
 
 export const COR_G = { faturado: '#2a78d6', recebido: '#eb6834', vencido: '#d03b3b', aberto: '#94a3b8', diferenca: '#475569', pct: '#0f766e' };
 const COR_FAIXA: Record<string, string> = { 'A vencer': '#16a34a', '1–30 dias': '#93c5fd', '31–90 dias': '#3b82f6', '91–180 dias': '#f59e0b', '181–365 dias': '#dc2626', 'Mais de 365 dias': '#7f1d1d' };
