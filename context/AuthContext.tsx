@@ -3,6 +3,7 @@ import type { Session, User as AuthUser } from '@supabase/supabase-js';
 import { User, UserRole } from '../types';
 import { supabase } from '../services/supabase';
 import { db } from '../services/db';
+import { ativarTreino } from '../services/treino';
 
 export type RegisterResult = 'PENDING_CONFIRMATION' | 'PENDING_APPROVAL';
 
@@ -63,7 +64,7 @@ export const translateAuthError = (err: any): Error => {
 };
 
 const normalizeRole = (role: unknown): UserRole =>
-  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY || role === UserRole.ENCARREGADO
+  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY || role === UserRole.ENCARREGADO || role === UserRole.TREINAMENTO
     ? (role as UserRole)
     : UserRole.READ_ONLY;
 
@@ -130,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
       if (event === 'SIGNED_OUT') {
+        ativarTreino(null);
         setIsPasswordRecovery(false);
         db.invalidateCache();
       }
@@ -167,6 +169,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           supabase.auth.signOut().catch(() => undefined);
           return;
         }
+        // perfil Treinamento: daqui em diante as escritas vão para a cópia de teste, nunca para o banco
+        ativarTreino(profile.role === UserRole.TREINAMENTO ? profile.id : null);
+        db.invalidateCache();
         setUser(profile);
       })
       .catch(err => {

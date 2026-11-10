@@ -1,5 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
+import { criarFetchTreino } from './treino';
 
 const env = import.meta.env as Record<string, string | undefined>;
 
@@ -25,5 +26,7 @@ export const supabase = createClient(supabaseUrl || 'https://supabase-nao-config
     auth: {
         persistSession: true,
         autoRefreshToken: true,
-    }
+    },
+    // perfil Treinamento: as escritas vão para uma cópia de teste no navegador (services/treino.ts); para os demais perfis não muda nada
+    global: { fetch: criarFetchTreino((entrada, init) => globalThis.fetch(entrada, init)) },
 });

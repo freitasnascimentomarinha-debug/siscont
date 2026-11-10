@@ -10,7 +10,7 @@ import { EditarGrupos, JuntarFornecedor } from '../components/gastos/EdicaoGasto
 import { PARAM_GRUPOS, PARAM_UNIAO, useGastosBNIC } from '../components/gastos/useGastos';
 import { Kpi, Secao, Vazio, br, brl, compacto, mesBR, qtdBR } from '../components/painel/comum';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { veComoAdmin } from '../types';
 import { CATEGORIAS_SEM_RUBRICA, Fornecedor, GrupoGasto, LinhaGasto, SUBGRUPOS, SubgrupoId, Utilidade, chaveFornecedor, grupoDaRubrica, mesDe } from '../utils/gastosBNIC';
 import { notify } from '../utils/notify';
 import { baixarRelatorio } from '../utils/pdfRelatorio';
@@ -27,7 +27,7 @@ const ROTULO_METRICA: Record<MetricaRubrica, string> = { previsto: 'Previsto', e
 /** Gastos da BNIC reunidos num lugar só: o que está previsto, o que já foi empenhado e recebido, o consumo da própria base e os fornecedores. */
 export const GastosBNIC: React.FC = () => {
   const { user } = useAuth();
-  const admin = user?.role === UserRole.ADMIN;
+  const admin = veComoAdmin(user?.role);
   const hoje = hojeISO();
   const anoAtual = Number(hoje.slice(0, 4));
   const [ano, setAno] = useState(anoAtual);

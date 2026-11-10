@@ -138,3 +138,7 @@ valor zero e tipo inválido recusados; Consulta lê mas não grava; a auditoria 
 ## Script 029 (histórico da OM com vigência)
 
 Com 001–003 aplicados: `psql -d sb -f tests/sql/om_historico_029_tests.sql` (aplica o 029 duas vezes). Esperado: documentos ligados à OM pelo nome (inclusive com caixa/espaço diferentes); o operador muda nome, UG e comando (3 campos) e o nome/UG antigos ficam em `nomes_alternativos`/`codigos_anteriores`; histórico com rótulos legíveis; recusados: vigência futura, sem data, sem mudança, UG inválida e comando inexistente; leitor não altera; o administrador também altera.
+
+## Script 030 (perfil Treinamento)
+
+Com 001 (e 018) aplicados: `psql -d sb -f tests/sql/treinamento_030_tests.sql` (aplica o 030 duas vezes). Esperado: o perfil TREINAMENTO é aceito e um valor inválido é recusado; `can_write()` e `is_admin()` falsos e `is_active_user()` verdadeiro; o usuário lê as faturas mas não consegue alterá-las (0 linhas).

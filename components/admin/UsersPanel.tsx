@@ -16,6 +16,7 @@ const ROLE_OPTIONS = [
   { label: 'Operador — todas as páginas, exceto Administração; inclui, edita e exclui lançamentos', value: UserRole.USER },
   { label: 'Consulta — só o Painel inicial (visualiza e exporta)', value: UserRole.READ_ONLY },
   { label: 'Encarregado — Painel inicial e Painel do Encarregado (visualiza e exporta)', value: UserRole.ENCARREGADO },
+  { label: 'Treinamento — vê todas as páginas (menos Administração) e pode lançar, mas só em dados de TESTE: nada chega ao banco', value: UserRole.TREINAMENTO },
 ];
 
 const ROLE_BADGE: Record<UserRole, string> = {
@@ -23,6 +24,7 @@ const ROLE_BADGE: Record<UserRole, string> = {
   [UserRole.USER]: 'bg-emerald-100 text-emerald-700',
   [UserRole.READ_ONLY]: 'bg-slate-100 text-slate-600',
   [UserRole.ENCARREGADO]: 'bg-amber-100 text-amber-800',
+  [UserRole.TREINAMENTO]: 'bg-fuchsia-100 text-fuchsia-800',
 };
 
 const fmtDateTime = (iso: string | null) =>
@@ -174,6 +176,7 @@ export const UsersPanel: React.FC = () => {
     user: users.filter(u => u.role === UserRole.USER).length,
     readOnly: users.filter(u => u.role === UserRole.READ_ONLY).length,
     encarregado: users.filter(u => u.role === UserRole.ENCARREGADO).length,
+    treinamento: users.filter(u => u.role === UserRole.TREINAMENTO).length,
     blocked: users.filter(u => !u.active).length,
   }), [users]);
 
@@ -322,6 +325,7 @@ export const UsersPanel: React.FC = () => {
             { key: UserRole.USER, label: `Operadores (${counts.user})` },
             { key: UserRole.READ_ONLY, label: `Consulta (${counts.readOnly})` },
             { key: UserRole.ENCARREGADO, label: `Encarregado (${counts.encarregado})` },
+            { key: UserRole.TREINAMENTO, label: `Treinamento (${counts.treinamento})` },
             { key: 'BLOCKED' as const, label: `Bloqueados/Pendentes (${counts.blocked})` },
           ].map(f => (
             <button

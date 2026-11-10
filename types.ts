@@ -6,6 +6,7 @@ export enum UserRole {
   USER = 'USER',
   READ_ONLY = 'READ_ONLY', // Added: Perfil de Consulta
   ENCARREGADO = 'ENCARREGADO', // vê o Painel inicial e o Painel do Encarregado
+  TREINAMENTO = 'TREINAMENTO', // vê tudo e pode lançar, mas só em dados de teste (nada chega ao banco)
 }
 
 export enum InvoiceStatus {
@@ -47,6 +48,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.USER]: 'Operador',
   [UserRole.READ_ONLY]: 'Consulta',
   [UserRole.ENCARREGADO]: 'Encarregado',
+  [UserRole.TREINAMENTO]: 'Treinamento',
 };
 
 /**
@@ -60,9 +62,12 @@ export const PAGINAS_DO_PERFIL: Record<UserRole, { somente?: string[]; exceto?: 
   [UserRole.USER]: { exceto: ['admin'] },
   [UserRole.READ_ONLY]: { somente: ['dashboard'] },
   [UserRole.ENCARREGADO]: { somente: ['dashboard', 'painel', 'gastos'] },
+  [UserRole.TREINAMENTO]: { exceto: ['admin'] },   // vê todas as páginas (menos a Administração de usuários); o que lança é só de teste
 };
 /** Só administrador e operador incluem, alteram e excluem (Consulta e Encarregado só visualizam e exportam). */
-export const podeEditarDados = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.USER;
+export const podeEditarDados = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.TREINAMENTO;
+/** Na tela, o Treinamento enxerga o que o administrador enxerga (botões e abas); o que ele grava vai só para a cópia de teste. */
+export const veComoAdmin = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.TREINAMENTO;
 export const podeVerPagina = (role: UserRole | undefined | null, pagina: string): boolean => {
   const r = PAGINAS_DO_PERFIL[role as UserRole] ?? PAGINAS_DO_PERFIL[UserRole.READ_ONLY];
   if (r.somente) return r.somente.includes(pagina);

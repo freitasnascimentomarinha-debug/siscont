@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
+import { UserRole, veComoAdmin } from '../types';
 import { Button } from '../components/ui/Button';
 import { useCadastros } from '../components/cadastros/useCadastros';
 import { OmsTab } from '../components/cadastros/OmsTab';
@@ -31,7 +31,7 @@ const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
 
 export const Cadastros: React.FC = () => {
   const { user } = useAuth();
-  const admin = user?.role === UserRole.ADMIN;
+  const admin = veComoAdmin(user?.role);
   const gravador = admin || user?.role === UserRole.USER;   // operador também cadastra clientes e registra mudança de OM
   const [aba, setAba] = useState<Aba>('servicos');
   const { dados, carregando, erro, naoInstalado, recarregar } = useCadastros();

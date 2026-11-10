@@ -27,6 +27,8 @@ import { ultimoBackup } from '../services/auditoriaService';
 import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole, podeVerPagina } from '../types';
+import { totalLancamentosDeTeste, zerarTreino } from '../services/treino';
+import { db } from '../services/db';
 import { AccountModal } from './AccountModal';
 
 interface LayoutProps {
@@ -83,6 +85,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
     ultimoBackup().then(u => setDiasBackup(diasSemBackup(u))).catch(() => undefined);
   }, [user?.role, currentPage === 'admin']);
   const lembrarBackup = user?.role === UserRole.ADMIN && diasBackup !== undefined && backupAtrasado(diasBackup) && currentPage !== 'admin';
+
+  // Perfil Treinamento: aviso fixo e botão para apagar os lançamentos de teste
+  const treinando = user?.role === UserRole.TREINAMENTO;
+  const [, atualizarTeste] = useState(0);
+  useEffect(() => { if (!treinando) return; const t = setInterval(() => atualizarTeste(n => n + 1), 1500); return () => clearInterval(t); }, [treinando]);
+  const zerarTestes = () => {
+    if (!window.confirm('Apagar todos os lançamentos de teste feitos por você? Os dados reais não são afetados.')) return;
+    zerarTreino(); db.invalidateCache(); window.location.reload();
+  };
 
   const navigateTo = (id: PageID) => {
     onPageChange(id);
@@ -182,6 +193,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden relative">
+        {treinando && (
+          <div className="shrink-0 bg-fuchsia-700 text-white text-sm px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-1" role="status" data-testid="faixa-treinamento">
+            <b className="uppercase tracking-wide">Modo treinamento</b>
+            <span className="flex-1 min-w-[260px]">Você vê os dados reais, mas tudo o que lançar é <b>só de teste</b>: fica neste navegador e <b>nada é gravado no sistema</b>.</span>
+            <span className="tabular-nums">{totalLancamentosDeTeste()} lançamento(s) de teste</span>
+            <button onClick={zerarTestes} className="px-3 py-1 rounded bg-white/20 hover:bg-white/30 font-semibold">Zerar meus testes</button>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto h-full">
             {lembrarBackup && (

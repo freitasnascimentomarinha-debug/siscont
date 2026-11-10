@@ -290,6 +290,14 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
+- **Perfil Treinamento** (script 030): para quem está aprendendo o sistema. Vê **todas as páginas** (menos Administração) e usa todos
+  os botões, mas **tudo o que lança é de teste**: fica guardado só no navegador da pessoa e **nada é gravado no banco**. Os dados
+  reais aparecem normalmente, misturados com o que a pessoa lançou de teste; uma faixa roxa fixa avisa "Modo treinamento" e mostra
+  quantos lançamentos de teste existem, com o botão **Zerar meus testes**. Ações que mexeriam em muitos dados de uma vez
+  (unificar OM, assistente de vigência da OM, anexos, administração de usuários) não são simuladas: avisam e não gravam. No banco o
+  perfil só tem leitura (como a Consulta), então mesmo que alguma coisa tentasse gravar, o banco recusaria. Para criar: rode o script
+  `030_perfil_treinamento.sql` e, em Administração › Usuários, escolha o perfil **Treinamento**. Os testes ficam por usuário e por
+  navegador (outro computador começa limpo).
 - **OM que muda de nome, UG ou comando** (script 029): em Cadastros › OM / Clientes, o botão do relógio ("Mudou de nome, UG ou
   comando?") abre o assistente. Informe o novo nome, UG, comando, setor ou sigla, a **data de vigência** (hoje ou no passado), o ato
   (portaria/BONO) e o motivo; o sistema mostra o que muda e o impacto antes de gravar. **Operador e administrador** podem usar o

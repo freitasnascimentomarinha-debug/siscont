@@ -21,7 +21,7 @@ import { ResumoAdiantamentos } from '../components/recebimentos/ResumoAdiantamen
 import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
 import { carregarCadastro, Cadastro } from '../services/recebimentosService';
 import { notify, friendlyError } from '../utils/notify';
-import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole, OM, CAMPOS_DOC_FASE2, podeEditarDados } from '../types';
+import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole, OM, CAMPOS_DOC_FASE2, podeEditarDados, veComoAdmin } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
@@ -38,7 +38,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export const ReceivedBalances: React.FC = () => {
   const { user } = useAuth();
   const isReadOnly = !podeEditarDados(user?.role);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = veComoAdmin(user?.role);
 
   const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);

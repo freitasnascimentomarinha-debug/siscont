@@ -239,7 +239,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
             {visiveisOM.map(c => (
               <label key={c.nome} className="flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer hover:bg-slate-50">
                 <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={escolhidas.has(c.nome)} onChange={() => alternarOM(c.nome)} aria-label={`OM ${c.nome}`} />
-                <span className="flex-1 min-w-0"><span className="font-medium">{c.nome}</span><span className="block text-[11px] text-slate-500 truncate">{c.setor} · {c.comando}</span></span>
+                <span className="flex-1 min-w-0"><span className="font-medium">{c.nome}</span><span className="block text-[11px] text-slate-500 break-words">{c.setor} · {c.comando}</span></span>
                 <span className="tabular-nums text-slate-600">{brl(c.divida)}{c.credito > 0.005 ? <span className="text-green-700"> · crédito {brl(c.credito)}</span> : ''}</span>
               </label>
             ))}
@@ -319,7 +319,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
                     {fFat.slice(0, 500).map(f => (
                       <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50">
                         <td className="px-2 py-1.5 font-mono whitespace-nowrap">{f.numero}{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1 font-sans">contestada</span>}</td>
-                        <td className="px-2 max-w-[260px] truncate" title={f.om}>{f.om}</td><td className="px-2">{f.tipo}</td>
+                        <td className="px-2 py-1 min-w-[220px] max-w-[360px] whitespace-normal break-words leading-tight" title={f.om}>{f.om}</td><td className="px-2">{f.tipo}</td>
                         <td className="px-2 text-center">{dataBR(f.vencimento)}</td>
                         <td className={`px-2 text-right ${f.atraso ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{f.atraso ? `${f.atraso} dias` : '—'}</td>
                         <td className="px-2 text-right tabular-nums font-semibold">{brl(f.saldo)}</td>

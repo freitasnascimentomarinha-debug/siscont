@@ -2293,6 +2293,65 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'ALTCRED com o nome antigo passa a aparecer no comando novo (ligada pelo nome alternativo)');
   });
 
+  await cenario('Perfil Treinamento: vê tudo, lança de teste e NADA chega ao banco', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '90001', nome: 'Comando Real', sigla: 'CR', setor_id: setor.id, ativo: true };
+    const real = { id: uid(), codigo: '90010', nome: 'OM Real', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [], codigos_anteriores: [] };
+    db.comandos.push(cmd); db.oms.push(real);
+    db.profiles[0].role = 'TREINAMENTO';
+    const escritas = [];
+    page.on('request', r => { if (/supabase\.mock/.test(r.url()) && !['GET', 'HEAD', 'OPTIONS'].includes(r.method()) && !/\/auth\//.test(r.url())) escritas.push(`${r.method()} ${r.url().split('supabase.mock')[1]}`); });
+    await page.reload();
+    await page.getByTestId('faixa-treinamento').waitFor();
+    ok(/Modo treinamento/i.test(await page.getByTestId('faixa-treinamento').innerText()) && /nada é gravado no sistema/.test(await page.getByTestId('faixa-treinamento').innerText()), 'faixa fixa "Modo treinamento — nada é gravado no sistema"');
+    // vê todas as páginas, menos a Administração
+    const menu = (await page.locator('aside').innerText());
+    ok(/Cadastros/.test(menu) && /Recebimentos/.test(menu) && /Emitir faturas do mês/.test(menu) && /Gastos da BNIC/.test(menu) && !/Administração/.test(menu), 'menu mostra todas as páginas, menos Administração');
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'Duplicidades' }).waitFor();
+    ok(true, 'abas só de administrador (Duplicidades, Importar...) aparecem para visualizar');
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('button', { name: /Nova OM \/ cliente/ }).click();
+    await page.getByLabel('Código (5 dígitos)').fill('99001');
+    await page.getByLabel('Nome', { exact: true }).fill('Cliente de Teste');
+    await page.getByLabel('Comando (ComImSup)').selectOption(cmd.id);
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'Cliente de Teste' }).first().waitFor();
+    ok(!db.oms.some(o => o.nome === 'Cliente de Teste'), 'a OM de teste NÃO foi para o banco');
+    ok(await page.getByRole('cell', { name: 'OM Real' }).first().isVisible(), 'os dados reais continuam visíveis junto com o de teste');
+    ok(escritas.length === 0, `nenhuma escrita enviada ao servidor (${escritas.join(', ') || 'zero'})`);
+    // altera uma OM REAL: só na cópia de teste
+    await page.getByRole('row', { name: /OM Real/ }).getByTitle('Editar', { exact: true }).click();
+    await page.getByLabel('Nome', { exact: true }).fill('OM Real ALTERADA NO TESTE');
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'OM Real ALTERADA NO TESTE' }).first().waitFor();
+    ok(db.oms.find(o => o.id === real.id).nome === 'OM Real' && escritas.length === 0, 'a OM real continua com o nome verdadeiro no banco');
+    // função que mexeria em muitos dados: não é simulada
+    await page.getByRole('row', { name: /Cliente de Teste/ }).getByRole('button', { name: 'Alterar dados com vigência' }).click();
+    await page.getByLabel('Novo nome').fill('Outro Nome');
+    await page.getByLabel('Data de vigência (a partir de quando vale)').fill('2026-09-15');
+    await page.getByRole('button', { name: 'Registrar mudança' }).click();
+    await page.getByText(/Modo treinamento: esta ação não é simulada/).waitFor();
+    ok(escritas.length === 0, 'ação não simulada (assistente de vigência) avisa e não grava');
+    await page.getByRole('button', { name: 'Cancelar' }).click();
+    // o teste continua depois de recarregar a página (fica no navegador)
+    await page.reload();
+    await page.getByTestId('faixa-treinamento').waitFor();
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('cell', { name: 'Cliente de Teste' }).first().waitFor();
+    ok(/2 lançamento\(s\) de teste/.test(await page.getByTestId('faixa-treinamento').innerText()), 'depois de recarregar, os lançamentos de teste continuam (2 lançamentos)');
+    // zerar
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Zerar meus testes' }).click();
+    await page.getByTestId('faixa-treinamento').waitFor();
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('cell', { name: 'OM Real', exact: true }).first().waitFor();
+    ok(await page.getByRole('cell', { name: 'Cliente de Teste' }).count() === 0 && await page.getByRole('cell', { name: 'OM Real', exact: true }).first().isVisible(), '"Zerar meus testes" apaga o que era de teste e volta ao real');
+    ok(escritas.length === 0 && db.oms.length === 1, 'do início ao fim, nenhuma escrita chegou ao banco');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();
