@@ -13,9 +13,9 @@ export interface ClienteEscolhido { omId: string; ug: string; client: string; se
  * Texto que não está no cadastro continua aceito (registros antigos), com aviso.
  */
 export const SeletorCliente: React.FC<{
-  valor: string; omId?: string | null; disabled?: boolean;
+  valor: string; omId?: string | null; /** UG do registro: ajuda a achar a OM quando há nomes parecidos */ ug?: string; disabled?: boolean;
   onEscolher: (c: ClienteEscolhido) => void; onTexto: (texto: string) => void;
-}> = ({ valor, omId, disabled, onEscolher, onTexto }) => {
+}> = ({ valor, omId, ug, disabled, onEscolher, onTexto }) => {
   const [oms, setOms] = useState<OM[]>([]);
   const [cmds, setCmds] = useState<Comando[]>([]);
   const [setores, setSetores] = useState<Setor[]>([]);
@@ -40,7 +40,14 @@ export const SeletorCliente: React.FC<{
     return { omId: o.id, ug: o.codigo, client: o.nome, sector: (setorId && set.get(setorId)?.sigla) || (o.tipo === 'EXTRA_MB' ? 'EXTRA-MB' : ''), command: c ? (c.codigo ? `${c.codigo} - ${c.nome}` : c.nome) : '', comandoId: o.comandoId ?? null };
   };
   const idLigado = omId ?? escolhidoId;
-  const ligado = idLigado ? oms.find(o => o.id === idLigado) : undefined;
+  // registro sem a OM gravada (ex.: documento vindo do SIPLAD): se o texto é exatamente o nome (ou nome alternativo) de uma OM do cadastro, já está ligado
+  const porNome = useMemo(() => {
+    const t = normalizar(valor || '');
+    if (!t || idLigado) return undefined;
+    const iguais = oms.filter(o => normalizar(o.nome) === t || (o.nomesAlternativos || []).some(a => normalizar(a) === t));
+    return iguais.find(o => o.ativo && ug && o.codigo === ug) || iguais.find(o => o.ativo) || iguais[0];
+  }, [oms, valor, ug, idLigado]);
+  const ligado = idLigado ? oms.find(o => o.id === idLigado) : porNome;
   const lista = useMemo(() => {
     const t = normalizar(valor || '').split(' ').filter(p => p.length > 1);
     return oms.filter(o => verDesativadas || o.ativo)

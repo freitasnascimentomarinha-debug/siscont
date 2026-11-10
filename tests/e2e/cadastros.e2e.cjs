@@ -2167,6 +2167,24 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(!t3.includes('REGISTRADO') && !t3.includes('SITUA'), 'fatura em aberto: nada de pagamento na impressão');
   });
 
+  await cenario('Editar documento do SIPLAD: o cliente já vem ligado ao cadastro (mesmo sem a OM gravada no documento)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40005', nome: 'Diretoria de Gestão de Programas da Marinha', sigla: 'DGePM', setor_id: setor.id, ativo: true };
+    const dgepm = { id: uid(), codigo: '40005', nome: 'Diretoria de Gestão de Programas da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    const cpn = { id: uid(), codigo: '40005', nome: 'Centro de Projetos Navais', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: false, nomes_alternativos: [] };
+    db.comandos.push(cmd); db.oms.push(dgepm, cpn);
+    db.received_documents.push({ id: uid(), document_number: 'G424.2026.AC.00511', document_type: 'ALTCRED', total_value: 10.13, date: '2026-11-09', operation: 'PAGAMENTO', client: dgepm.nome, sector: 'DGMM', command: '40005 - ' + dgepm.nome, ug: '40005', observation: '' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'G424.2026.AC.00511' }).waitFor();
+    await page.getByTitle('Editar', { exact: true }).first().click();
+    await page.getByRole('heading', { name: 'Editar Documento' }).waitFor();
+    await page.getByText(/Ligado ao cadastro: 40005 · Diretoria de Gestão de Programas da Marinha/).waitFor();
+    ok(await page.getByText('Não está ligado ao cadastro').count() === 0, 'documento com o cliente igual ao nome da OM aparece "Ligado ao cadastro" (sem o aviso de não ligado)');
+    await page.getByLabel('Cliente', { exact: true }).fill('Cliente que não existe');
+    ok(await page.getByText('Não está ligado ao cadastro').isVisible(), 'texto que não é de nenhuma OM continua avisando');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

@@ -877,7 +877,7 @@ export const ReceivedBalances: React.FC = () => {
 
           <Input label="UG (Unidade Gestora)" value={docFormData.ug || ''} onChange={handleUgChange} placeholder="Ex: 789000 (Auto-preenchimento)" />
 
-          <SeletorCliente valor={docFormData.client || ''}
+          <SeletorCliente valor={docFormData.client || ''} ug={docFormData.ug}
             onTexto={t => setDocFormData({ ...docFormData, client: t })}
             onEscolher={c => setDocFormData({ ...docFormData, client: c.client, ug: c.ug, sector: c.sector, command: c.command, ...(c.comandoId ? { comandoId: c.comandoId } : {}) })} />
           <Input label="Setor" required value={docFormData.sector || ''} onChange={e => setDocFormData({ ...docFormData, sector: e.target.value })} />
