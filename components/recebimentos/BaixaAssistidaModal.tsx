@@ -112,6 +112,7 @@ export const BaixaAssistidaModal: React.FC<{
                     <td className="px-3 py-2">
                       <div className="font-mono text-xs">{i.numero}</div>
                       <div className="text-[11px] text-slate-500">{GRUPO[i.grupo]}{i.contestada ? ' · contestada' : ''}</div>
+                      {i.citadaComo && <div className="text-[11px] text-amber-700" title="O cliente citou outro número; esta é a fatura do mesmo serviço e mês">citada como {i.citadaComo}</div>}
                     </td>
                     <td className="px-3 py-2 text-xs max-w-[200px] truncate" title={i.cliente}>{i.cliente}</td>
                     <td className={`px-3 py-2 text-xs ${i.vencimento < data ? 'text-red-600' : ''}`}>{br(i.vencimento)}</td>

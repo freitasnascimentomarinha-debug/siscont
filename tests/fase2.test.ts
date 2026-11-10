@@ -308,3 +308,25 @@ describe('relatório do SIPLAD com várias solicitações (prefixos novos, receb
     expect(lerSolicitacoesDetalhado([paginaFicticia(), [item('Solicitações de Alteração de', 180, 794)]]).continuacoes).toEqual([]);   // página em branco não é continuação
   });
 });
+
+describe('baixa assistida: fatura citada com a sequência errada', () => {
+  const f = (numero: string, saldo: number, venc = '2026-10-15'): FaturaCandidata => ({ id: numero, numero, ug: '71000', cliente: 'DAbM', vencimento: venc, saldo });
+  const faturas = [f('71000-AE-08-2026-008-0', 31759.95), f('71000-TC-08-2026-010-0', 55882.83), f('71000-TC-09-2026-010-0', 55882.83, '2026-10-31')];
+  it('citou TC-08-…-008-0 mas a de taxa condominial é a -010-0: reconhece pelo mesmo cliente, serviço e mês e sugere o valor', () => {
+    const p = proporBaixa({ saldo: 19081.55, ug: '71000', faturasCitadas: ['71000-TC-08-2026-008-0'] }, faturas);
+    const tc = p.itens.find(i => i.numero === '71000-TC-08-2026-010-0')!;
+    expect(tc).toMatchObject({ grupo: 'CITADA', valor: 19081.55, citadaComo: '71000-TC-08-2026-008-0', foraDestinacao: false });
+    expect(p.itens.find(i => i.numero === '71000-TC-09-2026-010-0')!.valor).toBe(0);     // outro mês: não é a citada
+    expect(p.itens.find(i => i.numero === '71000-AE-08-2026-008-0')!.valor).toBe(0);     // outro serviço: não é a citada
+  });
+  it('número citado exato continua valendo e não é tratado como aproximado', () => {
+    const p = proporBaixa({ saldo: 1000, ug: '71000', faturasCitadas: ['71000-AE-08-2026-008-0'] }, faturas);
+    expect(p.itens.find(i => i.numero === '71000-AE-08-2026-008-0')).toMatchObject({ grupo: 'CITADA', valor: 1000 });
+    expect(p.itens.find(i => i.numero === '71000-AE-08-2026-008-0')!.citadaComo).toBeUndefined();
+  });
+  it('se houver mais de uma fatura do mesmo serviço e mês, não adivinha', () => {
+    const duas = [f('71000-TC-08-2026-010-0', 100), f('71000-TC-08-2026-011-0', 100)];
+    const p = proporBaixa({ saldo: 100, ug: '71000', faturasCitadas: ['71000-TC-08-2026-008-0'] }, duas);
+    expect(p.itens.every(i => i.grupo === 'COMANDO' && i.valor === 0 && !i.citadaComo)).toBe(true);
+  });
+});

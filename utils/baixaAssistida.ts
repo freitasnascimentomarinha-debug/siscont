@@ -19,6 +19,8 @@ export interface DocParaBaixa {
 export interface ItemProposta {
   faturaId: string; numero: string; cliente: string; vencimento: string; saldoFatura: number;
   valor: number; grupo: 'CITADA' | 'OM_DESTINADA' | 'COMANDO'; foraDestinacao: boolean; contestada: boolean;
+  /** número que o cliente citou na ALTCRED quando só a sequência da fatura diverge (ex.: citou -008-0 e a fatura é -010-0) */
+  citadaComo?: string;
 }
 export interface Proposta { itens: ItemProposta[]; usado: number; sobra: number; temDestinacao: boolean }
 
@@ -33,8 +35,17 @@ export function proporBaixa(doc: DocParaBaixa, faturas: FaturaCandidata[], opcoe
   const ugs = new Set([doc.ug, doc.ugClienteCodigo].filter(Boolean) as string[]);
 
   const abertas = faturas.filter(f => f.saldo > 0.005 && (opcoes.incluirContestadas || !f.contestada));
+  // OM costuma citar a fatura com a sequência errada (ex.: TC com a sequência da fatura de água): sem o número exato entre as
+  // faturas em aberto, vale a do mesmo cliente, serviço e mês (UG-SERVIÇO-MM-AAAA), se for uma só
+  const semVersao = (n: string) => norm(n).replace(/-\d{3}-\d$/, '');
+  const exatas = new Set(faturas.map(f => norm(f.numero)));
+  const aproximadas = new Map<string, string>();   // prefixo → número citado
+  citadas.forEach(c => { if (!exatas.has(c) && /-\d{3}-\d$/.test(c)) aproximadas.set(semVersao(c), c); });
+  const unicaPorPrefixo = new Map<string, number>();
+  abertas.forEach(f => { const k = semVersao(f.numero); if (aproximadas.has(k)) unicaPorPrefixo.set(k, (unicaPorPrefixo.get(k) || 0) + 1); });
+  const citadaComo = (f: FaturaCandidata) => { const k = semVersao(f.numero); return !citadas.has(norm(f.numero)) && unicaPorPrefixo.get(k) === 1 ? aproximadas.get(k) : undefined; };
   const grupo = (f: FaturaCandidata): ItemProposta['grupo'] | null => {
-    if (citadas.has(norm(f.numero))) return 'CITADA';
+    if (citadas.has(norm(f.numero)) || citadaComo(f)) return 'CITADA';
     if (f.omId && omsDest.has(f.omId)) return 'OM_DESTINADA';
     if ((doc.comandoId && f.comandoId === doc.comandoId) || ugs.has(f.ug)) return 'COMANDO';
     return null;
@@ -51,7 +62,7 @@ export function proporBaixa(doc: DocParaBaixa, faturas: FaturaCandidata[], opcoe
     // com destinação, só sugere valor nas faturas destinadas; as demais aparecem zeradas para o usuário decidir
     const valor = foraDestinacao ? 0 : r2(Math.max(0, Math.min(resta, f.saldo)));
     resta = r2(resta - valor);
-    return { faturaId: f.id, numero: f.numero, cliente: f.cliente, vencimento: f.vencimento, saldoFatura: r2(f.saldo), valor, grupo: g, foraDestinacao, contestada: !!f.contestada };
+    return { faturaId: f.id, numero: f.numero, cliente: f.cliente, vencimento: f.vencimento, saldoFatura: r2(f.saldo), valor, grupo: g, foraDestinacao, contestada: !!f.contestada, ...(citadaComo(f) ? { citadaComo: citadaComo(f) } : {}) };
   });
   const usado = r2(itens.reduce((s, i) => s + i.valor, 0));
   return { itens, usado, sobra: r2(doc.saldo - usado), temDestinacao };
