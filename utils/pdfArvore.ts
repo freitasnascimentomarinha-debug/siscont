@@ -5,7 +5,7 @@
 import jsPDF from 'jspdf';
 import { CAB_PDF_ARVORE, MapaAnalitico, NivelPdf, linhasArvorePdf } from './mapaAnalitico';
 import { dataBR } from './datas';
-import { TEMA, cabecalhoCompacto, fimDaTabela, finalizarPdf, tabelaPdf, tituloRelatorio } from './pdfCabecalho';
+import { TEMA, cabecalhoCompacto, fimDaTabela, finalizarPdf, tabelaPdf, tituloCentralizado, tituloRelatorio } from './pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const vazio = (n: number) => (n > 0.005 ? brl(n) : '—');
@@ -17,6 +17,8 @@ export interface OpcoesPdfArvore {
   rotuloTotal?: string;
   /** observação pequena depois da tabela (regras do crédito etc.) */
   nota?: string;
+  /** nome do comando/OM/setor, centralizado logo abaixo do título (só na cobrança) */
+  subtitulo?: string;
 }
 
 function notaFinal(doc: jsPDF, nota: string | undefined, larg: number): number {
@@ -65,7 +67,7 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
 export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const doc = new jsPDF('p');
   cabecalhoCompacto(doc);
-  let y = tituloRelatorio(doc, o.titulo, undefined, 26);
+  let y = tituloCentralizado(doc, o.titulo, o.subtitulo, 26);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
   o.linhas.forEach(l => { const partes = doc.splitTextToSize(l, 182); doc.text(partes, 14, y); y += 4.2 * partes.length; });
   y += 1;

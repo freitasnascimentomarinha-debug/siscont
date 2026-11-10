@@ -204,7 +204,8 @@ export const Cobranca: React.FC = () => {
     const contest = m.faturas.filter(f => f.contestada).length;
     const lista = (k: 'cliente' | 'comando') => [...new Set(m.faturas.map(f => f[k]))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     return pdfCobrancaEnxuto(mapaDasFaturas(m.faturas), {
-      titulo: m.setor ? `Cobrança de faturas em atraso — SETOR ${m.setor}` : m.cliente ? `Cobrança de faturas em atraso — OM ${m.cliente}` : `Cobrança de faturas em atraso — COMANDO ${m.comando}`,
+      titulo: 'Faturas em aberto',
+      subtitulo: m.setor ? `SETOR ${m.setor}` : m.cliente ? `OM ${m.cliente}` : `COMANDO ${m.comando}`,
       linhas: [
         ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
           : m.cliente ? [`Comando: ${m.comando}`] : [`OM devedoras do comando (${lista('cliente').length}): ${lista('cliente').join('; ')}`]),
