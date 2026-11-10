@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
-import { FILTRO_SITUACAO, classificarSituacao, passaFiltroSituacao } from '../utils/situacaoSiplad';
+import { FILTRO_SITUACAO, classificarSituacao, motivoBloqueio, passaFiltroSituacao } from '../utils/situacaoSiplad';
 import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
 import { ResumoAdiantamentos } from '../components/recebimentos/ResumoAdiantamentos';
 import { DadosSiplad, CamposFase2 } from '../components/recebimentos/DadosSiplad';
@@ -315,6 +315,7 @@ export const ReceivedBalances: React.FC = () => {
     const escolhidas = !editingId && payload.operation !== OperationType.OUTROS
       ? pagarNaInclusao.ids.map(id => invoices.find(i => i.id === id)).filter(Boolean) as Invoice[] : [];
     const itens = distribuirPagamento(payload.totalValue, escolhidas.map(f => ({ id: f.id, saldo: saldoDaFatura(f) })), pagarNaInclusao.manuais).filter(i => i.valor > 0.005);
+    if (itens.length && motivoBloqueio(payload.situacaoSiplad)) { setSaveError(motivoBloqueio(payload.situacaoSiplad)); return; }
     if (resumoPagamento(payload.totalValue, itens).excedeu) {
       setSaveError('O valor a pagar nas faturas escolhidas passa do valor do documento. Ajuste os valores.');
       return;
@@ -351,6 +352,7 @@ export const ReceivedBalances: React.FC = () => {
   const handleAllocate = async () => {
     if (isReadOnly) return;
     if (!activeDoc || selectedInvoiceIds.length === 0) return;
+    if (motivoBloqueio(activeDoc.situacaoSiplad)) { notify.error(motivoBloqueio(activeDoc.situacaoSiplad)); return; }
 
     let currentBalance = activeDoc.availableValue;
     let created = 0;
@@ -593,12 +595,12 @@ export const ReceivedBalances: React.FC = () => {
                                         </Button>
                                       )}
                                       {doc.availableValue > 0.005 && (
-                                        <Button size="sm" variant="secondary" onClick={() => setBaixaDoc(doc)}>
+                                        <Button size="sm" variant="secondary" onClick={() => setBaixaDoc(doc)} disabled={!!motivoBloqueio(doc.situacaoSiplad)} title={motivoBloqueio(doc.situacaoSiplad) || undefined}>
                                           <Wand2 className="w-3 h-3 mr-1" /> Baixa assistida
                                         </Button>
                                       )}
                                       {activeTab === OperationType.PAGAMENTO && doc.availableValue > 0 && (
-                                        <Button size="sm" onClick={() => { setActiveDoc(doc); setPaymentMeta({ data: doc.gruDataPagamento || doc.date || hojeISO(), observation: '', lancadoSiplad: false }); setIsPayModalOpen(true); setSelectedInvoiceIds([]); setInvoiceSearch(''); }}>
+                                        <Button size="sm" disabled={!!motivoBloqueio(doc.situacaoSiplad)} title={motivoBloqueio(doc.situacaoSiplad) || undefined} onClick={() => { setActiveDoc(doc); setPaymentMeta({ data: doc.gruDataPagamento || doc.date || hojeISO(), observation: '', lancadoSiplad: false }); setIsPayModalOpen(true); setSelectedInvoiceIds([]); setInvoiceSearch(''); }}>
                                           <DollarSign className="w-3 h-3 mr-1" /> Pagar Faturas
                                         </Button>
                                       )}

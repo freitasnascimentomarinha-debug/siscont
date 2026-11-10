@@ -13,6 +13,7 @@ import { textoConsumo,
 } from '../utils/faturamento';
 import { lerFatura } from '../utils/cadastroImport';
 import { Normas, citarCorrecao, definirNormas, normasDe } from '../utils/normas';
+import { podeBaixar } from '../utils/situacaoSiplad';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 export class Fase3NaoInstaladaError extends Error {
@@ -168,7 +169,7 @@ export async function montarDados(ctx: ContextoFaturamento, tipo: TipoLote, comp
 export async function adiantamentosDisponiveis(): Promise<DocAdiantDisp[]> {
   const [docs, baixas, faturas] = await Promise.all([db.getDocuments(), db.getAllocations(), db.getInvoices()]);
   const porId = new Map(docs.map(d => [d.id, d]));
-  return listaAdiantamentos(docs, baixas, faturas)
+  return listaAdiantamentos(docs.filter(d => podeBaixar(d.situacaoSiplad)), baixas, faturas)   // adiantamento ainda não processado no SIPLAD não abate fatura
     .filter(l => l.saldo > 0.005)
     .map(l => { const d = porId.get(l.docId)!; return { id: l.docId, numero: l.numero, saldo: l.saldo, data: l.data, comandoId: d.comandoId ?? null, ug: d.ug ?? null }; });
 }

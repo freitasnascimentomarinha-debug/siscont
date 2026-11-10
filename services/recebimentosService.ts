@@ -5,7 +5,7 @@ import { cadastroService } from './cadastroService';
 import { SolicitacaoAltcred } from '../utils/altcredSiplad';
 import { FaturaCandidata, ItemProposta } from '../utils/baixaAssistida';
 import { ehAdiantamento } from '../utils/baixas';
-import { classificarSituacao } from '../utils/situacaoSiplad';
+import { classificarSituacao, motivoBloqueio } from '../utils/situacaoSiplad';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -134,6 +134,7 @@ export function faturasCandidatas(invoices: Invoice[], docs: ReceivedDocument[],
 }
 
 export async function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string }) {
+  if (motivoBloqueio(doc.situacaoSiplad)) throw new Error(motivoBloqueio(doc.situacaoSiplad));
   const tipo = doc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO';
   const tipoFatura = new Map(invoices.map(i => [i.id, i.type]));
   const usados = itens.filter(i => i.valor > 0.005);

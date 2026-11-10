@@ -5,7 +5,7 @@ import { ItemProposta, proporBaixa, validarBaixa } from '../../utils/baixaAssist
 import { RE_FATURA_TEXTO } from '../../utils/altcredSiplad';
 import { faturasCandidatas, gravarBaixaAssistida } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
-import { classificarSituacao } from '../../utils/situacaoSiplad';
+import { classificarSituacao, motivoBloqueio } from '../../utils/situacaoSiplad';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 
@@ -44,6 +44,7 @@ export const BaixaAssistidaModal: React.FC<{
   const temDestinacao = itens.some(i => i.grupo !== 'COMANDO');
   const foraUsadas = itens.filter(i => i.foraDestinacao && i.valor > 0);
   const ehPagamento = doc.operation !== 'ADIANTAMENTO';
+  const bloqueio = motivoBloqueio(doc.situacaoSiplad);
 
   const alterar = (k: number, valor: number) => setItens(itens.map((x, n) => (n === k ? { ...x, valor: Math.max(0, Math.round(valor * 100) / 100) } : x)));
   // outras faturas em aberto (de qualquer cliente) que podem receber esta baixa, escolhidas à mão
@@ -81,7 +82,7 @@ export const BaixaAssistidaModal: React.FC<{
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose} disabled={gravando}>Cancelar</Button>
-            <Button onClick={gravar} isLoading={gravando} disabled={erros.length > 0 || usado <= 0}>Gravar baixas</Button>
+            <Button onClick={gravar} isLoading={gravando} disabled={!!bloqueio || erros.length > 0 || usado <= 0} title={bloqueio || undefined}>Gravar baixas</Button>
           </div>
         </div>
       }>
@@ -89,7 +90,7 @@ export const BaixaAssistidaModal: React.FC<{
         {doc.situacaoSiplad && !classificarSituacao(doc.situacaoSiplad).recebido && (
           <p className="p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 flex gap-2" role="alert">
             <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-            <span>Situação no SIPLAD: <b>{classificarSituacao(doc.situacaoSiplad).rotulo}</b>. {classificarSituacao(doc.situacaoSiplad).explicacao} Confira antes de dar baixa nas faturas.</span>
+            <span>Situação no SIPLAD: <b>{classificarSituacao(doc.situacaoSiplad).rotulo}</b>. {classificarSituacao(doc.situacaoSiplad).explicacao} <b>Baixa bloqueada até o SIPLAD processar.</b></span>
           </p>
         )}
         <div className="grid md:grid-cols-3 gap-3">

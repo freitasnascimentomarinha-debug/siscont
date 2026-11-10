@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classificarSituacao, passaFiltroSituacao } from '../utils/situacaoSiplad';
+import { classificarSituacao, motivoBloqueio, passaFiltroSituacao, podeBaixar } from '../utils/situacaoSiplad';
 
 describe('situação da ALTCRED no SIPLAD', () => {
   it('reconhece cada situação', () => {
@@ -46,5 +46,12 @@ describe('nova importação atualiza a situação', () => {
   it('já processada: a data do documento não muda', () => {
     const [p] = planejarImportacaoSiplad([sol('Processada', '2026-11-12')], [{ ...existente, situacaoSiplad: 'Processada' }], cad);
     expect(p.doc.date).toBe('2026-11-09');
+  });
+});
+
+describe('baixa só depois de processada', () => {
+  it('trava aguardando, em análise, devolvida, cancelada e não processada; libera processada e as sem situação (planilha)', () => {
+    ['Aguardando processamento', 'Em análise', 'Devolvido à origem', 'Cancelada', 'Não processada'].forEach(t => { expect(podeBaixar(t)).toBe(false); expect(motivoBloqueio(t)).toMatch(/só dá para dar baixa/); });
+    ['Processada', '', null, undefined].forEach(t => { expect(podeBaixar(t)).toBe(true); expect(motivoBloqueio(t)).toBe(''); });
   });
 });

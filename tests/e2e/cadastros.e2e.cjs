@@ -2207,6 +2207,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Z999.2026.AC.00004' }).waitFor();
     ok(await page.getByRole('heading', { name: 'Z999.2026.AC.00002' }).count() === 0, 'filtro "Processada" esconde a que está aguardando');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-situacoes-lista.png'), fullPage: false });
+    // baixa bloqueada até o SIPLAD processar
+    await page.getByLabel('Situação no SIPLAD').selectOption('todas');
+    const abrir = async n => {
+      await page.getByRole('heading', { name: n }).waitFor();
+      const card = page.locator('div.border').filter({ has: page.getByRole('heading', { name: n }) }).last();
+      await card.getByTitle('Ver Detalhes').click();
+      return card;
+    };
+    const cardAg = await abrir('Z999.2026.AC.00002');
+    ok(await cardAg.getByRole('button', { name: 'Baixa assistida' }).isDisabled() && await cardAg.getByRole('button', { name: 'Pagar Faturas' }).isDisabled(), 'ALTCRED aguardando processamento: "Baixa assistida" e "Pagar Faturas" bloqueados');
+    const cardPr = await abrir('Z999.2026.AC.00004');
+    ok(await cardPr.getByRole('button', { name: 'Baixa assistida' }).isEnabled() && await cardPr.getByRole('button', { name: 'Pagar Faturas' }).isEnabled(), 'ALTCRED processada: baixa liberada');
   });
 
   if (extras.length) {

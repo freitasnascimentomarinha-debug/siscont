@@ -31,6 +31,16 @@ export function classificarSituacao(texto?: string | null): SituacaoSiplad {
   return { ...base, codigo: 'OUTRA', rotulo: base.texto, recebido: false, importarPadrao: true, classe: 'bg-slate-200 text-slate-700', explicacao: 'Situação que o sistema não reconhece: confira no SIPLAD.' };
 }
 
+/**
+ * Pode dar baixa nas faturas com este documento? Só se o crédito já entrou: ALTCRED processada ou sem situação (as migradas
+ * da planilha, que já estavam processadas). Aguardando, em análise, devolvida, cancelada ou não processada ficam travadas.
+ */
+export const podeBaixar = (situacaoSiplad?: string | null) => classificarSituacao(situacaoSiplad).recebido;
+export const motivoBloqueio = (situacaoSiplad?: string | null) => {
+  const s = classificarSituacao(situacaoSiplad);
+  return s.recebido ? '' : `ALTCRED ${s.rotulo.toLowerCase()} no SIPLAD: só dá para dar baixa nas faturas depois que for processada. Importe o PDF de novo quando o SIPLAD processar.`;
+};
+
 /** Texto dos filtros da tela de Recebimentos. */
 export const FILTRO_SITUACAO: { value: string; label: string }[] = [
   { value: 'todas', label: 'Todas' }, { value: 'PROCESSADA', label: 'Processada' }, { value: 'AGUARDANDO', label: 'Aguardando processamento' },
