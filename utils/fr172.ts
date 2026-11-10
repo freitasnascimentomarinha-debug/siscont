@@ -15,6 +15,8 @@ export interface DadosFr172 {
   servicoOficial: string; emitidaDeAcordoCom?: string | null; setorResponsavel?: string | null; telefoneSetor?: string | null;
   valorServico: number; adiantamento: number; acrescimo: number; debito: number;
   consumo?: string | null; unidade?: string | null; base?: Record<string, any> | null;
+  /** Pagamentos já registrados (reimpressão de fatura paga): data da baixa, documento (ALTCRED/GRU) e valor. */
+  pagamentos?: { data: string; documento: string; tipo: string; valor: number }[]; quitadaEm?: string | null; quitacaoExterna?: string | null;
   altcreds: string[]; substitui?: string | null; acertoDe?: string | null; estimado?: boolean; observacao?: string | null;
   params: Record<string, string>;
 }
@@ -121,6 +123,15 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
     y = par(`Dúvidas com relação aos valores apurados deverão ser sanadas com ${d.setorResponsavel || 'a divisão responsável'}${d.telefoneSetor ? ` pelo(s) telefone(s) ${d.telefoneSetor}` : ''}.`, tx + 1, y, larg, 9.5, true) + 1;
   }
   d.altcreds.forEach(a => { y = par(`Baixa na ALTCRED ${a}.`, tx + 1, y + 1.5, larg, 8.5, true); });
+  // reimpressão depois do pagamento: data, documento e valor de cada baixa, e a situação da fatura
+  const pagos = d.pagamentos || [];
+  if (pagos.length || d.quitadaEm) {
+    const totalPago = Math.round(pagos.reduce((s, p) => s + p.valor, 0) * 100) / 100, saldo = Math.round((final - totalPago) * 100) / 100;
+    y = par('PAGAMENTO(S) REGISTRADO(S):', tx + 1, y + 3, larg, 9, true);
+    pagos.forEach(p => { y = par(`${br(p.data, true)} — ${p.tipo} ${p.documento}: ${brl(p.valor)}`, tx + 3, y + 1.2, larg, 8.5); });
+    if (d.quitadaEm) y = par(`${br(d.quitadaEm, true)} — quitada${d.quitacaoExterna ? ` (${d.quitacaoExterna})` : ' fora do sistema'}.`, tx + 3, y + 1.2, larg, 8.5);
+    y = par(d.quitadaEm || saldo <= 0.005 ? 'SITUAÇÃO: FATURA PAGA.' : `SITUAÇÃO: PAGAMENTO PARCIAL — saldo em aberto ${brl(saldo)}.`, tx + 1, y + 1.6, larg, 9, true);
+  }
   (((d.base as any)?.creditos || []) as { numero: string; valor: number }[]).forEach(c => { y = par(`Compensação do crédito do acerto nº ${c.numero}: ${brl(Number(c.valor))} (linha 04).`, tx + 1, y + 1.5, larg, 8.5, true); });
   if (d.acertoDe) y = par((d.base as any)?.tipo === 'CORRECAO'
     ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`

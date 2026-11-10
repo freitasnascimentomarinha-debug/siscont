@@ -290,6 +290,9 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
+- **Reimpressão da FR-172 depois do pagamento**: a fatura que já recebeu baixa sai com o quadro "PAGAMENTO(S) REGISTRADO(S)" —
+  data da baixa, documento (ALTCRED ou GRU) e valor — e a situação (**fatura paga** ou **pagamento parcial, com o saldo em aberto**).
+  Baixas de adiantamento seguem como "Baixa na ALTCRED ...". Fatura em aberto sai sem esse quadro.
 - **Acerto do OND e créditos da OM** (script 028): a fatura de acerto traz o **consumo real** de OUT–DEZ como valor do
   serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. O débito vai só **até o valor do consumo real**: estimado
   100.000 e real 80.000 → serviço 80.000, débito 80.000, **total a pagar 0,00**, e a diferença de 20.000 é o **crédito da OM**

@@ -2127,6 +2127,36 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await page.getByRole('region', { name: 'Resumo da conciliação' }).count()) > 0 || (await page.getByText(/Resumo da conciliação/).count()) > 0, 'resumo da conciliação presente');
   });
 
+  await cenario('Reimpressão da FR-172 depois do pagamento: data, ALTCRED/GRU e situação', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    db.comandos.push(cmd); db.oms.push(dim);
+    const fat = (n, valor, mes, extra = {}) => ({ id: uid(), invoice_number: n, ug: '40030', sector: 'DGMM', command: '40030 - Diretoria Industrial da Marinha', client: dim.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `2026-${String(mes).padStart(2, '0')}-15`, due_date: `2026-${String(mes + 1).padStart(2, '0')}-15`, month_competence: mes, year_competence: 2026, competence: `${String(mes).padStart(2, '0')}/2026`,
+      type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: dim.id, lote_id: null, base_calculo: null, acerto_de: null, ...extra });
+    const paga = fat('40030-EL-05-2026-010-0', 7000, 5), parcial = fat('40030-EL-06-2026-010-0', 9000, 6), aberta = fat('40030-EL-07-2026-010-0', 5000, 7);
+    db.invoices = [paga, parcial, aberta];
+    const doc = (n, valor, tipo, data) => ({ id: uid(), document_number: n, document_type: tipo, total_value: valor, date: data, operation: 'PAGAMENTO', client: dim.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030' });
+    const alt = doc('G424.2026.AC.00300', 7000, 'ALTCRED', '2026-06-20'), gru = doc('GRU.2026.0001', 3000, 'GRU', '2026-07-10');
+    db.received_documents.push(alt, gru);
+    const bx = (d, f, v, data) => ({ id: uid(), document_id: d.id, invoice_id: f.id, amount: v, date: data, tipo_baixa: 'PAGAMENTO', observation: '', service_type: 'Energia Elétrica' });
+    db.payment_allocations.push(bx(alt, paga, 7000, '2026-06-20'), bx(gru, parcial, 3000, '2026-07-10'));
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
+    const pdfDe = async (n, arq) => {
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: `PDF da fatura ${n}` }).click()]);
+      const f = await dl.path(); if (SHOTS) fs.copyFileSync(f, path.join(SHOTS, arq)); return fs.readFileSync(f, 'latin1');
+    };
+    const t1 = await pdfDe('40030-EL-05-2026-010-0', 'reimpressao-paga.pdf');
+    ok(t1.includes('REGISTRADO') && t1.includes('20/06/26') && t1.includes('ALTCRED G424.2026.AC.00300') && t1.includes('SITUAÇÃO: FATURA PAGA'), 'fatura paga com ALTCRED: reimpressão traz data, documento, valor e "FATURA PAGA"');
+    const t2 = await pdfDe('40030-EL-06-2026-010-0', 'reimpressao-parcial.pdf');
+    ok(t2.includes('GRU GRU.2026.0001') && t2.includes('PARCIAL') && t2.includes('6.000,00'), 'pagamento parcial por GRU: mostra a GRU e o saldo em aberto de R$ 6.000,00');
+    const t3 = await pdfDe('40030-EL-07-2026-010-0', 'reimpressao-aberta.pdf');
+    ok(!t3.includes('REGISTRADO') && !t3.includes('SITUA'), 'fatura em aberto: nada de pagamento na impressão');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();
