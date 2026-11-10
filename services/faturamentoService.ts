@@ -8,7 +8,7 @@ import { supabaseService } from './supabaseService';
 import { Comando, Invoice, OM, Setor } from '../types';
 import { listaAdiantamentos } from '../utils/adiantamentos';
 import { datasDaFatura, somarDiasUteis } from '../utils/diasUteis';
-import {
+import { textoConsumo,
   AtracacaoFat, DadosLote, DocAdiantDisp, FaturaHist, ItemLote, MedicaoFat, OMFat, PrecoFat, ServicoFat, TipoLote, partes, pad,
 } from '../utils/faturamento';
 import { lerFatura } from '../utils/cadastroImport';
@@ -64,8 +64,8 @@ export async function excluirPreco(id: string) { const { error } = await supabas
 export async function listarMedicoes(competencias: string[]): Promise<(MedicaoFat & { id: string; detalhe?: any[]; origem?: string | null })[]> {
   const rows = await tudo('medicoes', q => q.in('competencia', competencias));
   return rows.map(r => ({
-    id: r.id, competencia: r.competencia, sigla: r.sigla, omId: r.om_id, quantidade: r.quantidade === null ? null : Number(r.quantidade),
-    quantidade2: r.quantidade2 === null ? null : Number(r.quantidade2), valor: r.valor === null ? null : Number(r.valor),
+    id: r.id, competencia: r.competencia, sigla: r.sigla, omId: r.om_id, quantidade: r.quantidade == null ? null : Number(r.quantidade),
+    quantidade2: r.quantidade2 == null ? null : Number(r.quantidade2), valor: r.valor == null ? null : Number(r.valor),
     estimada: r.estimada, detalhe: r.detalhe, origem: r.origem,
   }));
 }
@@ -212,7 +212,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
     ].filter(Boolean).join(' ');
     return {
       id: uuidv4(), ug: i.om.codigo, sector: i.om.setor, command: i.om.comando, client: i.om.nome, invoice_number: i.numero,
-      consumption: [fmtQtd(i.quantidade), i.quantidade2 != null ? `${fmtQtd(i.quantidade2)} kW` : ''].filter(Boolean).join(' / '),
+      consumption: textoConsumo({ ...i, unidade: '' }).replace(/^-$/, ''),
       unit_measure: i.unidade, service_acronym: i.sigla, value: r2(i.valor), adjustment_addition: r2(i.acrescimo), adjustment_deduction: r2(i.debito),
       issue_date: opcoes.emissao, due_date: i.estimado || opcoes.tipo === 'OND' ? opcoes.limite : (opcoes.vencimento || opcoes.limite), data_limite_certificacao: opcoes.limite, month_competence: mes, year_competence: ano, competence: `${pad(mes)}/${ano}`,
       type: i.servico, is_canceled: false, observation: obs, siplad_settled: false, om_id: i.omId, origem: `Lote ${opcoes.tipo} ${opcoes.competencia}`,

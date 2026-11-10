@@ -5,7 +5,7 @@ import { linhasPrevia } from '../../utils/resumoFaturamento';
 import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes, listarUsosCredito,
 } from '../../services/faturamentoService';
-import {
+import { textoConsumo, descreverBase,
   DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, numerar, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
@@ -168,7 +168,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                         </td>
                         <td className="px-2 py-1.5 font-mono text-xs whitespace-nowrap">{i.numero}{i.avisos.length > 0 && <AlertTriangle size={12} className="inline ml-1 text-amber-600" />}</td>
                         <td className="px-2 py-1.5 max-w-[240px]"><div className="truncate" title={i.om.nome}>{i.om.nome}</div><div className="text-[11px] text-slate-500 truncate">{i.servico}</div></td>
-                        <td className="px-2 py-1.5 text-xs whitespace-nowrap">{i.quantidade != null ? `${i.quantidade.toLocaleString('pt-BR')} ${i.unidade}` : '-'}{i.quantidade2 != null ? ` / ${i.quantidade2.toLocaleString('pt-BR')} kW` : ''}</td>
+                        <td className="px-2 py-1.5 text-xs whitespace-nowrap">{textoConsumo(i)}</td>
                         <td className="px-2 py-1.5 text-right">
                           {tipo === 'ACERTO' ? <span className="tabular-nums">{brl(i.valor)}</span> : (
                             <input type="number" step="0.01" aria-label={`Valor de ${i.numero}`} disabled={!podeEditar}
@@ -183,7 +183,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                       {aberto && (
                         <tr className="bg-slate-50 text-xs text-slate-600"><td></td><td colSpan={7} className="px-2 py-2">
                           <div><b>Base de cálculo:</b> {String(i.base.regra)}</div>
-                          <div className="font-mono text-[11px] break-all">{JSON.stringify(Object.fromEntries(Object.entries(i.base).filter(([k]) => k !== 'regra')))}</div>
+                          {descreverBase(i.base, i.sigla).map(l => <div key={l}>{l}</div>)}
                           {(i.adiantamentos || []).map(a => <div key={a.docId}>Baixa na ALTCRED {a.numero}: {brl(a.valor)}</div>)}
                           {(i.creditos || []).map(c => <div key={c.chave} className="text-orange-700">Compensação do crédito do acerto nº {c.numero}: {brl(c.valor)} (linha 04)</div>)}
                           {i.acertoDe && (i.base as any).tipo !== 'CORRECAO' && (

@@ -298,3 +298,47 @@ export function totaisLote(itens: ItemLote[]) {
   (Object.keys(t) as (keyof typeof t)[]).forEach(k => { if (k !== 'qtd') t[k] = r2(t[k]); });
   return t;
 }
+
+/** Unidade da segunda quantidade da medição (energia: demanda em kW; viatura: km; telefonia: minutos móveis). */
+const UNIDADE2: Record<string, string> = { EL: 'kW', VT: 'km', TL: 'min' };
+export const unidade2 = (sigla: string) => UNIDADE2[(sigla || '').toUpperCase()] || '';
+const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+/** Consumo para tela e fatura: "8.000 M³" ou "52.000 KWH / 120 kW". Sem número válido não mostra nada (nunca "NaN"). */
+export function textoConsumo(i: { sigla: string; unidade?: string; quantidade: number | null; quantidade2: number | null }): string {
+  const ok = (n: number | null | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
+  const a = ok(i.quantidade) ? `${qtd(i.quantidade)}${i.unidade && i.unidade !== '-' ? ` ${i.unidade}` : ''}` : '';
+  const u2 = unidade2(i.sigla);
+  const b = ok(i.quantidade2) ? `${qtd(i.quantidade2)}${u2 ? ` ${u2}` : ''}` : '';
+  return [a, b].filter(Boolean).join(' / ') || '-';
+}
+
+const ROTULOS_BASE: Record<string, string> = {
+  estimado: 'Estimado já faturado', real: 'Consumo real', diferenca: 'Diferença (real − estimado)', credito: 'Crédito da OM', aPagar: 'A pagar',
+  faturaEstimada: 'Fatura estimada', quantidade: 'Quantidade', quantidade2: 'Segunda quantidade', media: 'Média', dias: 'Dias', mensal: 'Valor mensal',
+  creditoCompensado: 'Crédito compensado', tipo: 'Tipo',
+};
+const brlTxt = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const DINHEIRO = new Set(['estimado', 'real', 'diferenca', 'credito', 'aPagar', 'media', 'mensal', 'creditoCompensado']);
+
+/** A base de cálculo em frases curtas ("Estimado já faturado: R$ 100.000,00"), no lugar do texto técnico (JSON). */
+export function descreverBase(base: Base | Record<string, unknown>, sigla = ''): string[] {
+  const out: string[] = [];
+  Object.entries(base || {}).forEach(([k, v]) => {
+    if (k === 'regra' || v === null || v === undefined || v === '') return;
+    if (k === 'creditos') return;                       // já aparece como "Compensação do crédito do acerto nº ..."
+    if (k === 'porMes' && typeof v === 'object') {
+      const meses = Object.entries(v as Record<string, number>).map(([m, x]) => `${m.slice(5)}/${m.slice(0, 4)} ${brlTxt(Number(x))}`);
+      if (meses.length) out.push(`Consumo real por mês: ${meses.join(' · ')}`);
+      return;
+    }
+    if (typeof v === 'object') return;
+    const rotulo = ROTULOS_BASE[k] || k;
+    if (typeof v === 'number') {
+      if (!Number.isFinite(v)) return;
+      const u2 = k === 'quantidade2' ? unidade2(sigla) : '';
+      out.push(`${k === 'quantidade2' && u2 ? 'Demanda / segunda quantidade' : rotulo}: ${DINHEIRO.has(k) ? brlTxt(v) : qtd(v) + (u2 ? ' ' + u2 : '')}`);
+    } else out.push(`${rotulo}: ${String(v)}`);
+  });
+  return out;
+}
