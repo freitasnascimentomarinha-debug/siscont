@@ -3,13 +3,14 @@ import { AlertTriangle, Calculator, ChevronDown, ChevronRight, FileSpreadsheet, 
 import * as XLSX from 'xlsx';
 import { linhasPrevia } from '../../utils/resumoFaturamento';
 import {
-  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
+  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes, listarUsosCredito,
 } from '../../services/faturamentoService';
 import {
   DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, numerar, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
+import { CreditoAcerto, aplicarCreditos, calcularCreditos } from '../../utils/creditosAcerto';
 import { Aviso, Campo, br, brl, entrada } from './comum';
 
 const MEDIDOS = ['AE', 'EL', 'TL', 'VT', 'RB', 'CR'];
@@ -23,6 +24,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [siglas, setSiglas] = useState<Set<string>>(new Set(ctx.servicos.map(s => s.sigla)));
   const [divisor, setDivisor] = useState<'PERIODO' | 'MESES_FATURADOS'>('PERIODO');
   const [abater, setAbater] = useState(true);
+  const [compensar, setCompensar] = useState(true);
+  const [creditos, setCreditos] = useState<CreditoAcerto[]>([]);
   const [itens, setItens] = useState<ItemLote[] | null>(null);
   const [fora, setFora] = useState<Set<string>>(new Set());
   const [ajustes, setAjustes] = useState<Record<string, number>>({});
@@ -50,8 +53,13 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       // OM emissora (BNIC): o valor dela no rateio é só controle e contabilidade de custos — não gera fatura
       const emi = ctx.emissora.omId;
       const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
-      setItens(emi ? lista.filter(i => i.omId !== emi) : lista);
+      const aFaturar = emi ? lista.filter(i => i.omId !== emi) : lista;
       setAdiant(abater ? await adiantamentosDisponiveis() : []);
+      // créditos de acerto do OND (só no lote mensal): a OM tem crédito a compensar nas faturas do mesmo serviço
+      let cred: CreditoAcerto[] = [];
+      if (tipo === 'MENSAL') { try { cred = calcularCreditos(ctx.invoices, await listarUsosCredito()); } catch { cred = calcularCreditos(ctx.invoices, []); } }
+      setCreditos(cred.filter(c => c.saldo > 0.005));
+      setItens(aFaturar);   // a prévia só aparece com adiantamentos e créditos já carregados (sem o valor mudar depois)
       // pendências do mês
       const p: string[] = [];
       if (daEmissora.length) p.push(`${ctx.emissora.nome} é a OM emissora: ${brl(daEmissora.reduce((s, i) => s + i.valor, 0))} de rateio (${[...new Set(daEmissora.map(i => i.sigla))].join(', ')}) ficam só para controle e contabilidade de custos — não geram fatura.`);
@@ -73,9 +81,10 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const final = useMemo(() => {
     if (!itens) return [];
     const inc = itens.filter(i => !fora.has(i.chave)).map(i => (ajustes[i.chave] !== undefined ? { ...i, valor: ajustes[i.chave], base: { ...i.base, ajusteManual: true, valorCalculado: i.valor } } : i));
-    const num = numerar(inc, ctx.invoices.map(i => i.invoiceNumber), compLote);
+    const comCredito = compensar && tipo === 'MENSAL' ? aplicarCreditos(inc, creditos) : inc;
+    const num = numerar(comCredito, ctx.invoices.map(i => i.invoiceNumber), compLote);
     return abater && tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant) : num;
-  }, [itens, fora, ajustes, adiant, abater, compLote, ctx.invoices, tipo]);
+  }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo]);
   const tot = totaisLote(final);
 
   const emitir = async () => {
@@ -121,6 +130,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           </Campo>
         )}
         {tipo !== 'ACERTO' && <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abater} onChange={e => setAbater(e.target.checked)} /> Abater adiantamento disponível</label>}
+        {tipo === 'MENSAL' && creditos.length > 0 && <label className="text-sm flex items-center gap-1.5 pb-2" title="Crédito que a OM ficou no acerto do OND: abate as faturas do mesmo serviço, da mais antiga para a mais nova."><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={compensar} onChange={e => setCompensar(e.target.checked)} /> Compensar créditos de acerto ({brl(creditos.reduce((s, c) => s + c.saldo, 0))})</label>}
         <Button onClick={calcular} isLoading={calculando}>{!calculando && <Calculator size={16} className="mr-2" />}Calcular prévia</Button>
       </div>
       <div className="flex flex-wrap gap-2 text-xs">
@@ -167,14 +177,20 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                           )}
                         </td>
                         <td className="px-2 py-1.5 text-right tabular-nums text-orange-700" title={(i.adiantamentos || []).map(a => `${a.numero}: ${brl(a.valor)}`).join('\n')}>{ad ? brl(ad) : '-'}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums text-xs">{i.acrescimo ? `+${brl(i.acrescimo)}` : i.debito ? `−${brl(i.debito)}` : '-'}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums font-semibold">{brl(i.valor - ad + i.acrescimo - i.debito)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-xs" title={i.acertoDe ? 'Linha 04: estimado já faturado' : (i.creditos || []).length ? 'Linha 04: crédito de acerto compensado' : undefined}>{i.acrescimo ? `+${brl(i.acrescimo)}` : i.debito ? `−${brl(i.debito)}` : '-'}</td>
+                        <td className={`px-2 py-1.5 text-right tabular-nums font-semibold ${i.valor - ad + i.acrescimo - i.debito < 0 ? 'text-emerald-700' : ''}`} title={i.valor - ad + i.acrescimo - i.debito < 0 ? 'Valor negativo = crédito da OM' : undefined}>{brl(i.valor - ad + i.acrescimo - i.debito)}</td>
                       </tr>
                       {aberto && (
                         <tr className="bg-slate-50 text-xs text-slate-600"><td></td><td colSpan={7} className="px-2 py-2">
                           <div><b>Base de cálculo:</b> {String(i.base.regra)}</div>
                           <div className="font-mono text-[11px] break-all">{JSON.stringify(Object.fromEntries(Object.entries(i.base).filter(([k]) => k !== 'regra')))}</div>
                           {(i.adiantamentos || []).map(a => <div key={a.docId}>Baixa na ALTCRED {a.numero}: {brl(a.valor)}</div>)}
+                          {(i.creditos || []).map(c => <div key={c.chave} className="text-orange-700">Compensação do crédito do acerto nº {c.numero}: {brl(c.valor)} (linha 04)</div>)}
+                          {i.acertoDe && (i.base as any).tipo !== 'CORRECAO' && (
+                            <div className={i.valor - i.debito < 0 ? 'text-emerald-700 font-semibold' : ''}>
+                              Consumo real {brl(i.valor)} − estimado já faturado {brl(i.debito)} = {i.valor - i.debito < 0 ? `crédito da OM de ${brl(i.debito - i.valor)}` : `${brl(i.valor - i.debito)} a pagar`}
+                            </div>
+                          )}
                           {i.avisos.map(a => <div key={a} className="text-amber-700">{a}</div>)}
                         </td></tr>
                       )}

@@ -14,7 +14,7 @@ const ICONE = {
   aviso: <AlertTriangle size={18} className="text-amber-600" aria-label="atenção" />,
   info: <Circle size={18} className="text-slate-400" aria-label="informação" />,
 };
-const ROTULO_ABA: Record<AbaFaturamento, string> = { resumo: 'Resumo', precos: 'Preços do ano', medicoes: 'Medições do mês', atracacao: 'Atracação', lote: 'Lote de faturas', correcao: 'Correção' };
+const ROTULO_ABA: Record<AbaFaturamento, string> = { resumo: 'Resumo', precos: 'Preços do ano', medicoes: 'Medições do mês', atracacao: 'Atracação', lote: 'Lote de faturas', creditos: 'Créditos de acerto', correcao: 'Correção' };
 
 /** Antes de calcular o lote: o que já foi lançado para a competência e o que falta, com atalho para cada aba. */
 export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; setComp: (c: string) => void; ativa: boolean; irPara: (a: AbaFaturamento) => void }> = ({ ctx, comp, setComp, ativa, irPara }) => {

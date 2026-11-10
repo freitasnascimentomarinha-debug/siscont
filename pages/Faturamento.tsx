@@ -9,19 +9,21 @@ import { AtracacaoTab } from '../components/faturamento/AtracacaoTab';
 import { PrecosTab } from '../components/faturamento/PrecosTab';
 import { LotesEmitidos } from '../components/faturamento/LotesEmitidos';
 import { CorrecaoTab } from '../components/faturamento/CorrecaoTab';
+import { CreditosTab } from '../components/faturamento/CreditosTab';
 import { ResumoMesTab } from '../components/faturamento/ResumoMesTab';
 import { compAtual } from '../components/faturamento/comum';
 import { AbaFaturamento } from '../utils/resumoFaturamento';
 import { Button } from '../components/ui/Button';
 
 type Aba = AbaFaturamento;
-// na ordem do trabalho: ver o que falta → preços → medições → atracação → lote → correção
+// na ordem do trabalho: ver o que falta → preços → medições → atracação → lote → créditos do acerto → correção
 const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; label: string }[] => [
   { id: 'resumo', label: 'Resumo do mês' },
   { id: 'precos', label: 'Preços do ano' },
   { id: 'medicoes', label: 'Medições do mês' },
   { id: 'atracacao', label: 'Atracação' },
   { id: 'lote', label: 'Lote de faturas' },
+  { id: 'creditos', label: 'Créditos de acerto' },
   // a norma (OI) e o item ficam no texto dentro da aba, não no nome
   { id: 'correcao', label: 'Correção por atraso' },
 ];
@@ -85,6 +87,7 @@ export const Faturamento: React.FC = () => {
               <LoteTab ctx={ctx} usuario={user?.name || user?.email || ''} podeEditar={podeEditar} onEmitido={carregar} comp={comp} setComp={setComp} />
               <LotesEmitidos ctx={ctx} podeEditar={podeEditar} versao={versao} recarregar={carregar} />
             </div>}
+            {abertas.has('creditos') && <div role="tabpanel" hidden={aba !== 'creditos'}><CreditosTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} versao={versao} recarregar={carregar} /></div>}
             {abertas.has('correcao') && <div role="tabpanel" hidden={aba !== 'correcao'}><CorrecaoTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} onEmitido={carregar} /></div>}
           </div>
         </>

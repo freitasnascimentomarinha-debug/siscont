@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Emissora, resolverEmissora } from '../utils/emissora';
+import { UsoCredito, creditoCompensadoNaFatura } from '../utils/creditosAcerto';
 import { supabase } from './supabase';
 import { db } from './db';
 import { cadastroService } from './cadastroService';
@@ -17,8 +18,12 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export class Fase3NaoInstaladaError extends Error {
   constructor() { super('Falta executar o script supabase/migrations/007_faturamento_fase3.sql no Supabase.'); }
 }
+export class Fase28NaoInstaladaError extends Error {
+  constructor() { super('Falta executar o script supabase/migrations/028_creditos_acerto.sql no Supabase (controle dos créditos de acerto).'); }
+}
 const checar = (error: any) => {
   if (!error) return;
+  if (/creditos_acerto_uso/.test(error.message || '')) throw new Fase28NaoInstaladaError();
   if (/lotes_faturamento_tipo_check/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/008_contestacao_fase4.sql no Supabase.');
   if (/relation .*(precos|medicoes|atracacoes|lotes_faturamento)|lote_id|base_calculo|estimado|acerto_de/.test(error.message || '')) throw new Fase3NaoInstaladaError();
   throw new Error(error.message);
@@ -135,8 +140,10 @@ export async function carregarContexto(): Promise<ContextoFaturamento> {
 
 export const historicoDe = (invoices: Invoice[]): FaturaHist[] => invoices.map(i => ({
   id: i.id, numero: i.invoiceNumber, omId: i.omId ?? null, sigla: (i.serviceAcronym || lerFatura(i.invoiceNumber)?.sigla || '').toUpperCase(),
-  ano: i.yearCompetence, mes: i.monthCompetence, valor: r2(i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0)),
-  cancelada: i.isCanceled, estimado: !!i.estimado, acertoDe: i.acertoDe ?? null,
+  ano: i.yearCompetence, mes: i.monthCompetence,
+  // valor do serviço, sem a compensação de crédito de acerto (ela não é "faturar a menos": a média e o acerto do OND usam o bruto)
+  valor: r2(i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0) + creditoCompensadoNaFatura(i)),
+  cancelada: i.isCanceled, estimado: !!i.estimado, acertoDe: i.acertoDe ?? null, saldo: i.saldoAPagar ?? null,
 }));
 
 /** Competências cujos dados o lote precisa. */
@@ -195,9 +202,12 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
   const linhas = itens.map(i => {
     const lido = lerFatura(i.numero!)!;
     const mes = lido.competencia % 100, ano = Math.floor(lido.competencia / 100);
+    const liquido = r2(i.valor + i.acrescimo - i.debito);
     const obs = [
       ...(i.adiantamentos || []).map(a => `Baixa na ALTCRED ${a.numero}.`),
-      i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (${citarCorrecao()}).` : `Acerto da fatura ${i.acertoDe} (estimado OND).`) : '',
+      ...(i.creditos || []).map(c => `Compensação do crédito do acerto nº ${c.numero}: R$ ${c.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`),
+      i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (${citarCorrecao()}).`
+        : `Acerto da fatura estimada ${i.acertoDe} (OND): consumo real faturado e valor estimado abatido (linha 04).${liquido < -0.005 ? ` Crédito da OM: R$ ${(-liquido).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.` : ''}`) : '',
       i.estimado ? 'Faturamento estimado de fim de exercício (OND): será acertado com o consumo real.' : '',
     ].filter(Boolean).join(' ');
     return {
@@ -210,6 +220,15 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       _adiant: i.adiantamentos || [],
     };
   });
+  // compensação de crédito de acerto: grava o uso antes das faturas (sem vínculo por chave estrangeira); se algo falhar, volta tudo
+  const usosCredito = itens.flatMap((i, k) => (i.creditos || []).map(c => ({
+    id: uuidv4(), chave: c.chave, tipo: 'COMPENSACAO', valor: r2(c.valor), data: opcoes.emissao, fatura_id: linhas[k].id, fatura_numero: i.numero!,
+    observacao: 'Compensação automática no lote', lote_id: loteId, criado_por: opcoes.usuario,
+  })));
+  if (usosCredito.length) {
+    const { error } = await supabase.from('creditos_acerto_uso').insert(usosCredito);
+    if (error) { await supabase.from('lotes_faturamento').delete().eq('id', loteId); checar(error); }
+  }
   for (let k = 0; k < linhas.length; k += 300) {
     let { error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, ...l }) => l));
     if (error && /data_limite_certificacao/.test(error.message || '')) {
@@ -217,6 +236,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       ({ error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, data_limite_certificacao, ...l }) => l)));
     }
     if (error) {
+      await supabase.from('creditos_acerto_uso').delete().eq('lote_id', loteId);
       await supabase.from('lotes_faturamento').delete().eq('id', loteId);
       if (/duplicate key/.test(error.message)) throw new Error('Algum número de fatura já existe (outra emissão ao mesmo tempo?). Recalcule a prévia e tente de novo.');
       checar(error);
@@ -267,3 +287,26 @@ export async function faturasDoLote(loteId: string) {
 }
 
 export { supabaseService };
+
+
+// ------------------------------------------------------------------ créditos de acerto (script 028)
+const usoDe = (r: any): UsoCredito => ({
+  id: r.id, chave: r.chave, tipo: r.tipo, valor: Number(r.valor), data: r.data, faturaId: r.fatura_id, faturaNumero: r.fatura_numero,
+  documento: r.documento, observacao: r.observacao, loteId: r.lote_id, criadoPor: r.criado_por,
+});
+export async function listarUsosCredito(): Promise<UsoCredito[]> {
+  const rows = await tudo('creditos_acerto_uso');
+  return rows.map(usoDe);
+}
+/** Registra uma devolução (ALTCRED/GRU) ou uma compensação feita fora do lote. */
+export async function registrarUsoCredito(u: Omit<UsoCredito, 'id'>) {
+  const { error } = await supabase.from('creditos_acerto_uso').insert({
+    id: uuidv4(), chave: u.chave, tipo: u.tipo, valor: r2(u.valor), data: u.data, fatura_id: u.faturaId ?? null, fatura_numero: u.faturaNumero ?? null,
+    documento: u.documento?.trim() || null, observacao: u.observacao?.trim() || null, criado_por: u.criadoPor ?? null,
+  });
+  checar(error);
+}
+export async function excluirUsoCredito(id: string) {
+  const { error } = await supabase.from('creditos_acerto_uso').delete().eq('id', id);
+  checar(error);
+}

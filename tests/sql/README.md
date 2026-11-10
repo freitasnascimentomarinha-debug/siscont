@@ -129,3 +129,8 @@ unificação nova não guarda o nome.
 Com 001–016 aplicados: `psql -d sb -f tests/sql/unificadas_027_tests.sql`. Esperado: a OM unificada numa outra que depois
 foi unificada (cadeia) é concluída na OM ativa do fim da cadeia, com a fatura passada e renomeada; a unificada sem destino e
 sem dados é excluída; a sem destino com fatura fica, com o motivo "Unificação incompleta" (aparece em Duplicidades).
+
+## Script 028 (créditos de acerto)
+
+Com 001–016 aplicados: `psql -d sb -f tests/sql/creditos_028_tests.sql` (aplica o 028 duas vezes). Esperado: Operador registra uso;
+valor zero e tipo inválido recusados; Consulta lê mas não grava; a auditoria registra a inclusão.

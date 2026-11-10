@@ -4,7 +4,7 @@
  */
 import { ItemLote, partes, referencia } from './faturamento';
 
-export type AbaFaturamento = 'resumo' | 'precos' | 'medicoes' | 'atracacao' | 'lote' | 'correcao';
+export type AbaFaturamento = 'resumo' | 'precos' | 'medicoes' | 'atracacao' | 'lote' | 'creditos' | 'correcao';
 export interface ItemResumo { id: string; rotulo: string; status: 'ok' | 'pendente' | 'aviso' | 'info'; detalhe: string; aba?: AbaFaturamento }
 
 /** Serviços cujo consumo é medido todo mês (os demais têm preço fixo ou vêm de outra rotina). */

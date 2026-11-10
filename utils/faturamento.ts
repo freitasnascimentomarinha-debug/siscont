@@ -9,7 +9,8 @@
  *  - AE/EL e demais: valor do rateio enviado pela divisão (R$) ou quantidade × valor unitário do ano.
  *  - OND (competência OUT): OM da Marinha = 3 × média mensal JAN–AGO de cada serviço; DA = diária × dias
  *    previstos de OUT–DEZ; extra-MB segue o mensal.
- *  - Acerto do OND (ano seguinte): real (OUT+NOV+DEZ) − estimado → acréscimo (linha 03) ou débito (linha 04).
+ *  - Acerto do OND (ano seguinte): a fatura traz o CONSUMO REAL (OUT+NOV+DEZ) como valor do serviço e abate, na linha 04
+ *    (débito), o estimado já faturado. Real menor → crédito da OM (ver creditosAcerto.ts); real maior → a pagar.
 
  */
 import { obterNormas } from './normas';
@@ -21,7 +22,7 @@ export interface ServicoFat { sigla: string; nome: string; unidade: string; orde
 export interface PrecoFat { ano: number; sigla: string; omId: string | null; valor: number; unidade?: string | null }
 export interface MedicaoFat { competencia: string; sigla: string; omId: string; quantidade?: number | null; quantidade2?: number | null; valor?: number | null; estimada?: boolean }
 export interface AtracacaoFat { competencia: string; omId: string; previsao: boolean; diasAtracado: number; diasDocado: number }
-export interface FaturaHist { id: string; numero: string; omId?: string | null; sigla: string; ano: number; mes: number; valor: number; cancelada?: boolean; estimado?: boolean; acertoDe?: string | null }
+export interface FaturaHist { id: string; numero: string; omId?: string | null; sigla: string; ano: number; mes: number; valor: number; cancelada?: boolean; estimado?: boolean; acertoDe?: string | null; /** saldo ainda em aberto da fatura (para avisar se o estimado não foi pago) */ saldo?: number | null }
 export interface DocAdiantDisp { id: string; numero: string; saldo: number; data: string; comandoId?: string | null; ug?: string | null }
 
 export type TipoLote = 'MENSAL' | 'OND' | 'ACERTO' | 'CORRECAO';
@@ -32,6 +33,8 @@ export interface ItemLote {
   quantidade: number | null; quantidade2: number | null; valor: number; acrescimo: number; debito: number;
   base: Base; avisos: string[]; acertoDe?: string; estimado?: boolean;
   numero?: string; adiantamentos?: { docId: string; numero: string; valor: number }[];
+  /** crédito de acerto compensado nesta fatura (já somado ao débito, linha 04) */
+  creditos?: { chave: string; numero: string; valor: number }[];
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -211,14 +214,19 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
   return itens;
 }
 
-/** Acerto do OND: compara o estimado (faturas OND do ano) com o real de OUT, NOV e DEZ. */
+/**
+ * Acerto do OND: a fatura de acerto traz o consumo REAL de OUT, NOV e DEZ (valor do serviço, quantidade) e abate o ESTIMADO
+ * já faturado na linha 04 (débito). Estimado 100.000 e real 80.000 → serviço 80.000 − débito 100.000 = −20.000 (crédito da
+ * OM); real 120.000 → +20.000 a pagar. A diferença zero não gera fatura.
+ */
 export function calcularAcerto(d: DadosLote & { anoOnd: number }): ItemLote[] {
-  const reais = new Map<string, { valor: number; porMes: Record<string, number> }>();
+  const reais = new Map<string, { valor: number; quantidade: number | null; porMes: Record<string, number> }>();
   [10, 11, 12].forEach(mes => {
     const comp = competenciaDe(d.anoOnd, mes);
     calcularMes({ ...d, siglas: undefined }, comp, o => o.tipo !== 'EXTRA_MB').forEach(i => {
-      const r = reais.get(i.chave) || { valor: 0, porMes: {} };
+      const r = reais.get(i.chave) || { valor: 0, quantidade: null, porMes: {} };
       r.valor = r2(r.valor + i.valor); r.porMes[comp] = i.valor;
+      if (i.quantidade != null) r.quantidade = r2((r.quantidade ?? 0) + i.quantidade);
       reais.set(i.chave, r);
     });
   });
@@ -230,14 +238,21 @@ export function calcularAcerto(d: DadosLote & { anoOnd: number }): ItemLote[] {
     const om = omPorId.get(h.omId!);
     if (!om || (d.siglas && !d.siglas.includes(h.sigla))) return;
     const chave = `${om.id}|${h.sigla}`;
-    const real = reais.get(chave)?.valor ?? 0;
+    const rr = reais.get(chave);
+    const real = rr?.valor ?? 0;
     const dif = r2(real - h.valor);
     if (Math.abs(dif) < 0.01) return;
+    const avisos: string[] = [];
+    if (real === 0) avisos.push('Sem medição real de OUT–DEZ: confira antes de emitir (o débito devolve todo o estimado).');
+    if ((h.saldo ?? 0) > 0.01) avisos.push(`A fatura estimada ${h.numero} ainda tem R$ ${(h.saldo as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em aberto: o crédito só existe de fato depois que ela for paga.`);
     itens.push({
-      chave, omId: om.id, om, sigla: h.sigla, servico: sv.get(h.sigla)?.nome ?? h.sigla, unidade: '-',
-      quantidade: null, quantidade2: null, valor: 0, acrescimo: dif > 0 ? dif : 0, debito: dif < 0 ? -dif : 0,
-      acertoDe: h.numero, avisos: real === 0 ? ['Sem medição real de OUT–DEZ: confira antes de emitir (o débito devolve todo o estimado).'] : [],
-      base: { regra: `Acerto do OND ${d.anoOnd}: real OUT–DEZ − estimado`, estimado: h.valor, real, porMes: reais.get(chave)?.porMes ?? {}, faturaEstimada: h.numero },
+      chave, omId: om.id, om, sigla: h.sigla, servico: sv.get(h.sigla)?.nome ?? h.sigla, unidade: sv.get(h.sigla)?.unidade ?? '-',
+      quantidade: rr?.quantidade ?? null, quantidade2: null, valor: real, acrescimo: 0, debito: h.valor,
+      acertoDe: h.numero, avisos,
+      base: {
+        regra: `Acerto do OND ${d.anoOnd}: consumo real OUT–DEZ, abatido o estimado já faturado (linha 04)`,
+        estimado: h.valor, real, diferenca: dif, credito: dif < 0 ? -dif : 0, aPagar: dif > 0 ? dif : 0, porMes: rr?.porMes ?? {}, faturaEstimada: h.numero,
+      },
     });
   });
   return itens;

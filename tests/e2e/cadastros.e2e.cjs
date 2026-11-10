@@ -27,7 +27,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -110,7 +110,7 @@ function handler(db, log) {
         if (!conflito.length && !l.id && PK[t]) conflito.push(...PK[t]);
         const ja = (l.id && db[t].find(r => r.id === l.id)) || (conflito.length && db[t].find(r => conflito.every(c => String(r[c]) === String(l[c]))));
         if (ja && (req.headers()['prefer'] || '').includes('merge-duplicates')) { Object.assign(ja, l); continue; } // upsert
-        db[t].push({ id: l.id || uid(), ativo: true, ...l });
+        db[t].push({ id: l.id || uid(), ativo: true, created_at: new Date().toISOString(), ...l });
       }
       return json(201);
     }
@@ -1957,6 +1957,80 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Ver detalhes dos gastos da BNIC' }).click();
     await page.getByRole('heading', { name: 'Gastos da BNIC' }).waitFor();
     ok(true, 'o resumo do painel abre a página Gastos da BNIC');
+  });
+
+  await cenario('Acerto do OND: fatura com o consumo real, crédito da OM e compensação no lote seguinte', [], async (page, db) => {
+    const hcm = { id: uid(), codigo: '65701', nome: 'Hospital Central da Marinha', tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    db.oms.push(hcm);
+    const fat = (n, valor, extra = {}) => ({
+      id: uid(), ug: '65701', sector: 'DGMM', command: '65701', client: hcm.nome, invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-10-15', due_date: '2026-11-03', month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Água e Esgoto', service_acronym: 'AE',
+      is_canceled: false, siplad_settled: false, om_id: hcm.id, origem: 'Lote OND 2026-10', quitacao_externa: null, contestada: false, pontos_atencao: [], estimado: true, lote_id: null, base_calculo: null, acerto_de: null, ...extra,
+    });
+    const estimada = fat('65701-AE-10-2026-001-0', 100000);
+    db.invoices = [estimada];
+    // a estimada já foi paga (crédito só existe de fato depois de paga)
+    const alt = { id: uid(), document_number: 'G424.2026.AC.00100', document_type: 'ALTCRED', total_value: 100000, date: '2026-10-20', operation: 'PAGAMENTO', client: 'HCM', sector: 'DGMM', command: '65701' };
+    db.received_documents.push(alt);
+    db.payment_allocations.push({ id: uid(), document_id: alt.id, invoice_id: estimada.id, amount: 100000, date: '2026-10-20', service_type: 'AE', tipo_baixa: 'PAGAMENTO' });
+    // consumo real OUT–DEZ = 30.000 + 25.000 + 25.000 = 80.000
+    [[10, 30000], [11, 25000], [12, 25000]].forEach(([m, v]) => db.medicoes.push({ id: uid(), competencia: `2026-${m}`, sigla: 'AE', om_id: hcm.id, quantidade: v / 10, valor: v, estimada: false }));
+    db.medicoes.push({ id: uid(), competencia: '2027-02', sigla: 'AE', om_id: hcm.id, quantidade: 1500, valor: 15000, estimada: false });
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    await page.getByLabel('Tipo de lote').selectOption('ACERTO');
+    await page.getByLabel('OND a acertar (ano)').fill('2026');
+    await page.getByLabel('Competência', { exact: true }).fill('2027-01');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('65701-AE-01-2027-001-0').waitFor();
+    await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
+    ok(await page.getByText(/Consumo real R\$ 80\.000,00 − estimado já faturado R\$ 100\.000,00 = crédito da OM de R\$ 20\.000,00/).isVisible(), 'prévia do acerto: consumo real 80.000, estimado 100.000, crédito da OM de 20.000');
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    await page.getByText(/Lote emitido: 1 faturas/).waitFor({ timeout: 15000 });
+    const ac = db.invoices.find(i => i.invoice_number === '65701-AE-01-2027-001-0');
+    ok(ac && ac.value === 80000 && ac.adjustment_deduction === 100000 && ac.acerto_de === '65701-AE-10-2026-001-0' && /Crédito da OM: R\$ 20\.000,00/.test(ac.observation), 'fatura de acerto gravada: serviço 80.000, débito 100.000 (estimado), observação com o crédito');
+
+    // aba de controle
+    await page.getByRole('button', { name: 'Créditos de acerto', exact: true }).click();
+    await page.getByText('Saldo a favor das OM').waitFor();
+    ok((await page.getByText('R$ 20.000,00').count()) >= 2 && await page.getByText('65701-AE-01-2027-001-0').first().isVisible(), 'aba Créditos de acerto mostra o crédito de R$ 20.000,00 da OM');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-acerto.png'), fullPage: true });
+
+    // lote mensal seguinte: o crédito abate a fatura de água da mesma OM
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    await page.getByLabel('Tipo de lote').selectOption('MENSAL');
+    await page.getByLabel('Competência', { exact: true }).fill('2027-02');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('65701-AE-02-2027-001-0').waitFor();
+    ok(await page.getByText(/Compensar créditos de acerto \(R\$ 20\.000,00\)/).isVisible(), 'lote mensal oferece compensar os créditos de acerto');
+    const compensacao = page.getByText(/Compensação do crédito do acerto nº 65701-AE-01-2027-001-0: R\$ 15\.000,00 \(linha 04\)/);
+    if (!(await compensacao.isVisible())) await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
+    ok(await compensacao.isVisible(), 'a fatura de água de 15.000 é compensada pelo crédito (linha 04)');
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    for (let t = 0; t < 50 && !db.invoices.some(x => x.invoice_number === '65701-AE-02-2027-001-0'); t++) await page.waitForTimeout(200);   // o aviso do lote anterior ainda está na tela
+    await page.getByText(/Lote emitido: 1 faturas/).first().waitFor({ timeout: 15000 });
+    const mensal = db.invoices.find(i => i.invoice_number === '65701-AE-02-2027-001-0');
+    ok(mensal.value === 15000 && mensal.adjustment_deduction === 15000 && /Compensação do crédito do acerto nº 65701-AE-01-2027-001-0/.test(mensal.observation), 'fatura mensal: 15.000 com débito de 15.000 (crédito compensado)');
+    ok(db.creditos_acerto_uso.length === 1 && db.creditos_acerto_uso[0].valor === 15000 && db.creditos_acerto_uso[0].tipo === 'COMPENSACAO' && db.creditos_acerto_uso[0].chave === '65701-AE-01-2027-001', 'uso do crédito registrado (compensação de 15.000)');
+
+    // saldo restante e devolução
+    await page.getByRole('button', { name: 'Créditos de acerto', exact: true }).click();
+    await page.getByText('R$ 5.000,00').first().waitFor();
+    await page.getByRole('button', { name: 'Registrar uso' }).click();
+    ok(await page.getByLabel('Valor do uso').inputValue() === '5000', 'registrar uso sugere o saldo de R$ 5.000,00');
+    await page.getByLabel('Valor do uso').fill('7000');
+    ok(await page.getByText(/passa do saldo do crédito/).isVisible(), 'valor acima do saldo é barrado');
+    await page.getByLabel('Valor do uso').fill('5000');
+    await page.getByLabel('Documento do uso').fill('G424.2026.AC.00999');
+    await page.getByRole('dialog').getByRole('button', { name: 'Registrar', exact: true }).click();
+    await page.getByText('Devolução registrada.').waitFor();
+    ok(db.creditos_acerto_uso.length === 2 && db.creditos_acerto_uso.some(u => u.tipo === 'DEVOLUCAO' && u.valor === 5000 && u.documento === 'G424.2026.AC.00999'), 'devolução de R$ 5.000,00 registrada com a ALTCRED/GRU');
+    ok((await page.getByText('Nenhum crédito com esse filtro.').count()) === 1, 'crédito zerado sai da lista (só com saldo)');
   });
 
   if (extras.length) {

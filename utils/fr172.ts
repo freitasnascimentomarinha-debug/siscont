@@ -32,7 +32,14 @@ export function detalhamento(d: DadosFr172): [string, string][] {
     ...((b.pagamentos || []) as any[]).map(p => [`PAGO EM ${String(p.data).split('-').reverse().join('/')} (${p.dias} dias): ${brl(p.valor)}`, `+ ${brl(p.correcao)}`] as [string, string]),
     [`CORREÇÃO (POUPANÇA, ${obterNormas().nome}, ${obterNormas().itemCorrecao})`, brl(d.acrescimo)],
   ];
-  if (d.acertoDe) return [['FATURA ESTIMADA (OND)', d.acertoDe], ['VALOR ESTIMADO', brl(Number(b.estimado) || 0)], ['VALOR REAL (OUT–DEZ)', brl(Number(b.real) || 0)]];
+  if (d.acertoDe) {
+    const est = Number(b.estimado) || 0, real = Number(b.real) || 0, cred = Number(b.credito) || 0, pagar = Number(b.aPagar) || 0;
+    return [
+      ['FATURA ESTIMADA (OND) JÁ EMITIDA', d.acertoDe], ['CONSUMO REAL (OUT–DEZ) — VALOR DO SERVIÇO', brl(real)],
+      ['VALOR ESTIMADO JÁ FATURADO (04 - DÉBITO)', brl(est)],
+      ...(cred > 0 ? [['CRÉDITO DA OM (A COMPENSAR OU DEVOLVER)', brl(cred)] as [string, string]] : pagar > 0 ? [['DIFERENÇA A PAGAR', brl(pagar)] as [string, string]] : []),
+    ];
+  }
   if (d.estimado) {
     if (d.sigla === 'DA') return [['DIÁRIA DE ATRACAÇÃO (R$)', brl(Number(b.diaria) || 0)], ['DIAS PREVISTOS (OUT–DEZ)', num(b.diasPrevistos)], total];
     return [['ESTIMATIVA OUT–DEZ', String(b.regra || 'média do exercício')], ...(b.mediaMensal ? [['MÉDIA MENSAL', brl(Number(b.mediaMensal))] as [string, string]] : []), total];
@@ -109,9 +116,10 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
     y = par(`Dúvidas com relação aos valores apurados deverão ser sanadas com ${d.setorResponsavel || 'a divisão responsável'}${d.telefoneSetor ? ` pelo(s) telefone(s) ${d.telefoneSetor}` : ''}.`, tx + 1, y, larg, 9.5, true) + 1;
   }
   d.altcreds.forEach(a => { y = par(`Baixa na ALTCRED ${a}.`, tx + 1, y + 1.5, larg, 8.5, true); });
+  (((d.base as any)?.creditos || []) as { numero: string; valor: number }[]).forEach(c => { y = par(`Compensação do crédito do acerto nº ${c.numero}: ${brl(Number(c.valor))} (linha 04).`, tx + 1, y + 1.5, larg, 8.5, true); });
   if (d.acertoDe) y = par((d.base as any)?.tipo === 'CORRECAO'
     ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`
-    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}.`, tx + 1, y + 1.5, larg, 8.5, true);
+    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}: traz o consumo real, com o valor estimado já faturado abatido na linha 04.${Number((d.base as any)?.credito) > 0 ? ' A diferença é crédito da OM, a ser compensado em faturas seguintes ou devolvido.' : ''}`, tx + 1, y + 1.5, larg, 8.5, true);
   if (d.substitui) y = par(`Esta fatura cancela e substitui a de nº ${d.substitui}.`, tx + 1, y + 1.5, larg, 8.5, true);
   y += 9;
   txt('INSTRUÇÕES PARA O PAGAMENTO DA FATURA:', tx + 1, y, 10, true);

@@ -274,6 +274,16 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   fora e mostra o valor dela só como controle e contabilidade de custos — e pode **participar ou não dos rateios**:
   participando, entra na taxa condominial como as demais (a TC dela não é publicada nos Preços); não participando, a
   parte dela é dividida entre as outras OM. Parâmetros `om_emissora_id` e `om_emissora_rateio` (SIM/NAO).
+- **Acerto do OND e créditos da OM** (script 028): a fatura de acerto traz o **consumo real** de OUT–DEZ como valor do
+  serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. Estimado 100.000 e real 80.000 →
+  fatura de 80.000 com débito de 100.000 = **crédito da OM de 20.000** (real 120.000 → 20.000 a pagar). A fatura estimada
+  continua como foi emitida. A aba **Créditos de acerto** (Emitir faturas do mês) lista o crédito de cada OM (os acertos
+  antigos, de valor 0 e débito, entram sozinhos), o que já foi compensado ou devolvido e o saldo. **Compensação**: na prévia
+  do **lote mensal** o crédito abate as faturas da **mesma OM e do mesmo serviço** (a água estimada compensa água), do crédito
+  mais antigo para o mais novo, na linha 04, com a observação "Compensação do crédito do acerto nº ..." (caixa *Compensar
+  créditos de acerto*; não vale para o lote OND). **Devolução** (ALTCRED/GRU) ou compensação fora do lote: botão *Registrar
+  uso*, que pode ser desfeito. Aviso no acerto quando a fatura estimada ainda não foi paga. A compensação não reduz a média
+  do OND nem o estimado do acerto (usa-se o valor bruto da fatura).
 - **Painel inicial › Excel completo / PDF completo (com gráficos)**: o Excel traz Resumo, aba Gráficos (7 gráficos nativos
   e editáveis, com a tabela de dados ao lado: faturado por mês, idade da dívida, composição do em aberto, maiores
   devedores, em aberto por serviço, por setor e taxa condominial por OM), tabelas completas (devedores, serviço, setor,

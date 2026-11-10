@@ -70,7 +70,7 @@ describe('OND e acerto', () => {
     expect(v['x|EL']).toBe(925.1);        // extra-MB: mensal
     expect(it.filter(i => i.omId !== 'x').every(i => i.estimado)).toBe(true);
   });
-  it('acerto: real OUT–DEZ − estimado → acréscimo ou débito', () => {
+  it('acerto: a fatura traz o consumo REAL e abate o estimado (linha 04); real menor = crédito da OM, maior = a pagar', () => {
     const estimadas = [
       { id: 'o1', numero: '4000A-EL-10-2026-001-0', omId: 'a', sigla: 'EL', ano: 2026, mes: 10, valor: 30000, estimado: true },
       { id: 'o2', numero: '4000A-TC-10-2026-001-0', omId: 'a', sigla: 'TC', ano: 2026, mes: 10, valor: 10017.21, estimado: true },
@@ -78,8 +78,27 @@ describe('OND e acerto', () => {
     const med = [10, 11, 12].map(m => ({ competencia: `2026-${m}`, sigla: 'EL', omId: 'a', quantidade: 1, valor: 11000 }));
     const it = calcularAcerto({ ...dados, tipo: 'ACERTO', anoOnd: 2026, historico: estimadas, medicoes: med, precos: [{ ano: 2026, sigla: 'TC', omId: 'a', valor: 3000 }] });
     const el = it.find(i => i.sigla === 'EL')!, tc = it.find(i => i.sigla === 'TC')!;
-    expect([el.acrescimo, el.debito, el.acertoDe]).toEqual([3000, 0, '4000A-EL-10-2026-001-0']);
-    expect([tc.acrescimo, tc.debito]).toEqual([0, 1017.21]);
+    // EL: real 33.000 > estimado 30.000 → serviço 33.000, débito 30.000 (estimado já faturado), 3.000 a pagar
+    expect([el.valor, el.debito, el.acrescimo, el.quantidade, el.acertoDe]).toEqual([33000, 30000, 0, 3, '4000A-EL-10-2026-001-0']);
+    expect(el.valor - el.debito).toBe(3000); expect(el.base).toMatchObject({ aPagar: 3000, credito: 0, estimado: 30000, real: 33000 });
+    // TC: real 9.000 < estimado 10.017,21 → serviço 9.000, débito 10.017,21 → crédito de 1.017,21
+    expect([tc.valor, tc.debito]).toEqual([9000, 10017.21]);
+    expect(tc.base).toMatchObject({ credito: 1017.21, aPagar: 0 });
+  });
+  it('acerto: estimado 100.000 e real 80.000 → fatura de 80.000 e crédito da OM de 20.000 (não uma fatura de 20.000)', () => {
+    const est = [{ id: 'e', numero: '4000A-AE-10-2026-001-0', omId: 'a', sigla: 'AE', ano: 2026, mes: 10, valor: 100000, estimado: true, saldo: 0 }];
+    const med = [10, 11, 12].map(m => ({ competencia: `2026-${m}`, sigla: 'AE', omId: 'a', quantidade: 1000, valor: m === 10 ? 30000 : 25000 }));
+    const [ac] = calcularAcerto({ ...dados, tipo: 'ACERTO', anoOnd: 2026, historico: est, medicoes: med });
+    expect([ac.valor, ac.debito, ac.quantidade]).toEqual([80000, 100000, 3000]);
+    expect(ac.base).toMatchObject({ credito: 20000, aPagar: 0 });
+    expect(totaisLote([ac])).toMatchObject({ servico: 80000, debito: 100000, final: -20000 });
+    expect(ac.avisos).toEqual([]);
+  });
+  it('acerto: avisa quando a fatura estimada ainda não foi paga e não gera fatura se real = estimado', () => {
+    const med = [10, 11, 12].map(m => ({ competencia: `2026-${m}`, sigla: 'AE', omId: 'a', quantidade: 1, valor: 100 }));
+    const [ac] = calcularAcerto({ ...dados, tipo: 'ACERTO', anoOnd: 2026, medicoes: med, historico: [{ id: 'e', numero: 'N-AE-10-2026-001-0', omId: 'a', sigla: 'AE', ano: 2026, mes: 10, valor: 500, estimado: true, saldo: 500 }] });
+    expect(ac.avisos.some(a => /ainda tem R\$ 500,00 em aberto/.test(a))).toBe(true);
+    expect(calcularAcerto({ ...dados, tipo: 'ACERTO', anoOnd: 2026, medicoes: med, historico: [{ id: 'e', numero: 'N-AE-10-2026-001-0', omId: 'a', sigla: 'AE', ano: 2026, mes: 10, valor: 300, estimado: true }] })).toEqual([]);
   });
 });
 
