@@ -428,3 +428,6 @@ npx vercel dev                # interface + /api/admin-users
 npm test                      # testes automatizados (API de usuários)
 npm run typecheck             # checagem de tipos
 ```
+
+## Script 031 — vencimentos anteriores a 2025
+Recalcula o vencimento (emissão + 30 dias corridos → próximo dia útil) e a data-limite (emissão + 10 dias úteis) das faturas com ponto de atenção de data cuja emissão ou competência é anterior a 2025, e marca esses pontos como resolvidos. O vencimento antigo fica em `vencimentos_anteriores_011` (para desfazer: `update invoices set due_date = due_date_anterior from vencimentos_anteriores_011 ...`).
