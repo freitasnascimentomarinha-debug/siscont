@@ -28,7 +28,8 @@ export interface SolicitacaoAltcred {
   avisos: string[];
 }
 
-const RE_ALTCRED = /\b[A-Z]{1,2}\d{0,3}\.\d{4}\.AC\.\d{5}\b/;
+/** Nº da solicitação: sigla do setor (G424, R, B4D0, P3MA, P3X3...), ano, AC e sequência. */
+export const RE_ALTCRED = /\b[A-Z][A-Z0-9]{0,4}\.\d{4}\.AC\.\d{5}\b/;
 export const RE_FATURA_TEXTO = /\b\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d\b/g;
 
 const limpo = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -90,7 +91,8 @@ function celulasDoBloco(itens: ItemPdf[], tipo: CelulaCredito['tipo'], yIni: num
   }).filter(Boolean) as { k: string; c: number }[];
   const corpo = bloco.filter(i => i.y < cab.y - 4 && !/^valor total/i.test(limpo(i.s)));
   const totalRot = bloco.find(i => /^valor total/i.test(limpo(i.s)));
-  const reais = corpo.filter(i => limpo(i.s) === 'R$' && (!totalRot || i.y > totalRot.y + 3)).sort((a, b) => b.y - a.y);
+  // a linha começa pela moeda: R$ ou US$ (compras no exterior vêm em dólar)
+  const reais = corpo.filter(i => /^(R|US)\$$/.test(limpo(i.s)) && (!totalRot || i.y > totalRot.y + 3)).sort((a, b) => b.y - a.y);
   return reais.map((rs, n) => {
     const acima = n === 0 ? cab.y - 4 : (reais[n - 1].y + rs.y) / 2;
     const abaixo = n === reais.length - 1 ? (totalRot ? totalRot.y + 3 : rs.y - 12) : (rs.y + reais[n + 1].y) / 2;
@@ -180,6 +182,42 @@ export async function itensDoPdf(buffer: ArrayBuffer): Promise<ItemPdf[][]> {
   return paginas;
 }
 
+/**
+ * A BNIC é a favorecida? Recebimento = crédito na UGR da BNIC (40015) ou, na "Indenização de Serviços Prestados", crédito na UGE
+ * da BNIC (o estorno de uma OM credita a UGE da BNIC com a UGR do cliente). Fora disso é movimento interno ou pagamento da BNIC a
+ * outra UG (compras no exterior, ALT de ND, repatriação, pagamento ao AMRJ...). Sem células de crédito lidas não dá para afirmar: mantém.
+ */
+export const creditaBNIC = (s: Pick<SolicitacaoAltcred, 'celulas' | 'tipoAlteracao'>) => {
+  const cred = s.celulas.filter(c => c.tipo === 'CREDITO');
+  if (!cred.length) return true;
+  const indeniza = /indeniza/i.test(s.tipoAlteracao || '');
+  return cred.some(c => /\b40015\b/.test(String(c.ugr || '')) || (indeniza && /\b40015\b/.test(String(c.uge || ''))));
+};
+/** Separa o que a BNIC recebeu do que não é recebimento dela (compras no exterior, pagamentos da própria BNIC a outras UG...). */
+export function separarCreditoBNIC<T extends Pick<SolicitacaoAltcred, 'celulas' | 'tipoAlteracao'>>(sols: T[]) {
+  return { lidas: sols.filter(creditaBNIC), descartadas: sols.filter(s => !creditaBNIC(s)) };
+}
+
+export interface LeituraSiplad { lidas: SolicitacaoAltcred[]; descartadas: SolicitacaoAltcred[]; continuacoes: number[] }
+/**
+ * Lê todas as páginas: o que credita a BNIC fica em `lidas`; o resto em `descartadas` (informado na tela). Página que continua a
+ * solicitação anterior (sem cabeçalho, só com mais células) vira aviso na solicitação: o total lido pode estar incompleto.
+ */
+export function lerSolicitacoesDetalhado(paginas: ItemPdf[][]): LeituraSiplad {
+  const todas: SolicitacaoAltcred[] = [];
+  const continuacoes: number[] = [];
+  paginas.forEach((it, n) => {
+    const s = lerSolicitacao(it, n + 1);
+    if (s) { todas.push(s); return; }
+    if (todas.length && it.some(i => /^moeda$/i.test(limpo(i.s)))) {
+      continuacoes.push(n + 1);
+      const ant = todas[todas.length - 1];
+      ant.avisos.push(`A solicitação continua na página ${n + 1} do PDF (mais células): o valor lido pode estar incompleto — confira o total no SIPLAD.`);
+    }
+  });
+  return { ...separarCreditoBNIC(todas), continuacoes };
+}
+
 export function lerSolicitacoes(paginas: ItemPdf[][]): SolicitacaoAltcred[] {
-  return paginas.map((it, n) => lerSolicitacao(it, n + 1)).filter(Boolean) as SolicitacaoAltcred[];
+  return lerSolicitacoesDetalhado(paginas).lidas;
 }

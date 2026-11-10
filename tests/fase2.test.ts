@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lerSolicitacao, ItemPdf, valorBR, dataIso } from '../utils/altcredSiplad';
+import { lerSolicitacao, lerSolicitacoesDetalhado, creditaBNIC, separarCreditoBNIC, RE_ALTCRED, ItemPdf, valorBR, dataIso } from '../utils/altcredSiplad';
 import { proporBaixa, validarBaixa, FaturaCandidata } from '../utils/baixaAssistida';
 import { montarExtrato, comSubtotais } from '../utils/extrato';
 import { avaliarPontos } from '../utils/pontosAtencao';
@@ -276,5 +276,35 @@ describe('extrato: usos das ALTCRED da OM em faturas de outras OM, resumo e fatu
   it('faturas em aberto com vencimento, atraso e contestada; totais de vencido, a vencer e contestado', () => {
     expect(e.abertas.map(a => [a.fatura, a.vencimento, a.atraso, a.contestada])).toEqual([['41000-AE-10-2026-001-0', '2026-10-15', 26, true], ['41000-TC-10-2026-002-0', '2026-12-15', 0, false]]);
     expect([e.totais.vencido, e.totais.aVencer, e.totais.contestado]).toEqual([800, 200, 800]);
+  });
+});
+
+describe('relatório do SIPLAD com várias solicitações (prefixos novos, recebimento da BNIC e continuação)', () => {
+  it('reconhece os números com letras e dígitos misturados no prefixo (B4D0, P3MA, P3X3, G424, R)', () => {
+    ['B4D0.2026.AC.01205', 'P3MA.2026.AC.00146', 'P3X3.2026.AC.00006', 'G424.2026.AC.00511', 'R.2026.AC.03335', 'P3DR.2026.AC.00320'].forEach(n => expect(n.match(RE_ALTCRED)?.[0]).toBe(n));
+    expect('Fatura 71000-TC-08-2026-008-0 e 40030.2026.AC'.match(RE_ALTCRED)).toBeNull();
+  });
+  it('o número vem do cabeçalho, não de outra ALTCRED citada na observação', () => {
+    const p = paginaFicticia('PAGAMENTO PARCIAL DA FATURA 12346-TC-08-2026-008-0 (COMPLEMENTO DA G483.2026.AC.00752 E 753)').map(i => (i.s === 'Z999.2026.AC.00001' ? { ...i, s: 'B4D0.2026.AC.01205' } : i));
+    expect(lerSolicitacao(p)!.numero).toBe('B4D0.2026.AC.01205');
+  });
+  const cel = (tipo: 'DEBITO' | 'CREDITO', ugr: string, uge: string) => ({ tipo, ugr, uge, valor: 1 });
+  it('recebimento da BNIC: crédito na UGR da BNIC, ou na UGE da BNIC em indenização de serviços (estorno); o resto é descartado', () => {
+    expect(creditaBNIC({ tipoAlteracao: 'Indenização Serviços Prestados', celulas: [cel('DEBITO', '71000 - DAbM', '71000 - DAbM'), cel('CREDITO', '40015 - BNIC', '40015 - BNIC')] })).toBe(true);
+    expect(creditaBNIC({ tipoAlteracao: 'Indenização Serviços Prestados', celulas: [cel('CREDITO', '91620 - ComEsqdE-2', '40015 - BNIC')] })).toBe(true);          // estorno
+    expect(creditaBNIC({ tipoAlteracao: 'Alteração de Dados', celulas: [cel('DEBITO', '64003 - DPM-BSB', '64003 - DPM-BSB'), cel('CREDITO', '40015 - BNIC', '40015 - BNIC')] })).toBe(true);
+    expect(creditaBNIC({ tipoAlteracao: 'Indenização Serviços Prestados', celulas: [cel('DEBITO', '91609 - NAMAtlântico', '40015 - BNIC'), cel('CREDITO', '41000 - AMRJ', '41000 - AMRJ')] })).toBe(false);   // a BNIC paga o AMRJ
+    expect(creditaBNIC({ tipoAlteracao: 'Alteração de Dados', celulas: [cel('DEBITO', '91535 - SRiachuelo', '40015 - BNIC'), cel('CREDITO', '91535 - SRiachuelo', '70100 - CNBE')] })).toBe(false);   // compra no exterior (US$)
+    expect(creditaBNIC({ tipoAlteracao: 'Alteração de Dados', celulas: [cel('DEBITO', '91536 - SHUMAITA', '40015 - BNIC'), cel('CREDITO', '91536 - SHUMAITA', '40015 - BNIC')] })).toBe(false);   // ALT de ND interna
+    expect(creditaBNIC({ tipoAlteracao: 'Alteração de Dados', celulas: [] })).toBe(true);                                                                                                    // sem células lidas: mantém
+    const r = separarCreditoBNIC([{ tipoAlteracao: 'x', celulas: [cel('CREDITO', '40015', '40015')] }, { tipoAlteracao: 'x', celulas: [cel('CREDITO', '41000', '41000')] }]);
+    expect([r.lidas.length, r.descartadas.length]).toEqual([1, 1]);
+  });
+  it('página de continuação (só mais células, sem cabeçalho) avisa que o total pode estar incompleto', () => {
+    const cont: ItemPdf[] = [item('Solicitações de Alteração de', 180, 794), item('Moeda', 24, 700), item('R$', 32, 680), item('1.000,00', 500, 680)];
+    const r = lerSolicitacoesDetalhado([paginaFicticia(), cont]);
+    expect(r.lidas).toHaveLength(1); expect(r.continuacoes).toEqual([2]);
+    expect(r.lidas[0].avisos.some(a => /continua na página 2/.test(a))).toBe(true);
+    expect(lerSolicitacoesDetalhado([paginaFicticia(), [item('Solicitações de Alteração de', 180, 794)]]).continuacoes).toEqual([]);   // página em branco não é continuação
   });
 });

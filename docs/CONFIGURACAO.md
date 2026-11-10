@@ -274,6 +274,11 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   fora e mostra o valor dela só como controle e contabilidade de custos — e pode **participar ou não dos rateios**:
   participando, entra na taxa condominial como as demais (a TC dela não é publicada nos Preços); não participando, a
   parte dela é dividida entre as outras OM. Parâmetros `om_emissora_id` e `om_emissora_rateio` (SIM/NAO).
+- **Importar ALTCRED do SIPLAD (PDF)**: lê todas as páginas do relatório "Solicitações de Alteração de Crédito" e traz só o que a
+  BNIC **recebeu** (crédito na UGR da BNIC, ou na UGE da BNIC em indenização de serviços/estorno). O resto (compras no exterior,
+  ALT de ND, repatriação, pagamentos da BNIC a outras UG) aparece numa nota "não creditam a BNIC" e é ignorado. Reconhece os números
+  com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
+  incompleto (conferir no SIPLAD).
 - **Acerto do OND e créditos da OM** (script 028): a fatura de acerto traz o **consumo real** de OUT–DEZ como valor do
   serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. Estimado 100.000 e real 80.000 →
   fatura de 80.000 com débito de 100.000 = **crédito da OM de 20.000** (real 120.000 → 20.000 a pagar). A fatura estimada

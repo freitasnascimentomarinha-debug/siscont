@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { ReceivedDocument } from '../../types';
-import { itensDoPdf, lerSolicitacoes } from '../../utils/altcredSiplad';
+import { itensDoPdf, lerSolicitacoesDetalhado, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { Modal } from '../ui/Modal';
@@ -28,20 +28,22 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   const [lendo, setLendo] = useState(false);
   const [gravando, setGravando] = useState(false);
   const [semSolicitacao, setSemSolicitacao] = useState<string[]>([]);
+  const [descartadas, setDescartadas] = useState<SolicitacaoAltcred[]>([]);
   const [ignorados, setIgnorados] = useState<Set<number>>(new Set());
 
   const ler = async (files: FileList | null) => {
     if (!files?.length) return;
     setLendo(true); setSemSolicitacao([]);
     try {
-      const sols = [];
+      const sols: SolicitacaoAltcred[] = [];
+      const fora: SolicitacaoAltcred[] = [];
       const vazios: string[] = [];
       for (const f of Array.from(files)) {
-        const lidas = lerSolicitacoes(await itensDoPdf(await lerArquivo(f)));
-        if (!lidas.length) vazios.push(f.name);
-        sols.push(...lidas);
+        const lido = lerSolicitacoesDetalhado(await itensDoPdf(await lerArquivo(f)));
+        if (!lido.lidas.length && !lido.descartadas.length) vazios.push(f.name);
+        sols.push(...lido.lidas); fora.push(...lido.descartadas);
       }
-      setSemSolicitacao(vazios);
+      setSemSolicitacao(vazios); setDescartadas(fora);
       setItens(planejarImportacaoSiplad(sols, documentos, await carregarCadastro()));
       setIgnorados(new Set());
     } catch (e) {
@@ -57,7 +59,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
     try {
       const n = await gravarImportacaoSiplad(itens.map((i, k) => (ignorados.has(k) ? { ...i, acao: 'IGNORAR' as const } : i)));
       notify.success(`${n} ALTCRED gravada(s) a partir do SIPLAD.`);
-      setItens([]);
+      setItens([]); setDescartadas([]);
       await onGravado();
       onClose();
     } catch (e) {
@@ -65,7 +67,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
     } finally { setGravando(false); }
   };
 
-  const fechar = () => { setItens([]); setSemSolicitacao([]); setIgnorados(new Set()); onClose(); };
+  const fechar = () => { setItens([]); setSemSolicitacao([]); setDescartadas([]); setIgnorados(new Set()); onClose(); };
 
   return (
     <Modal isOpen={aberto} onClose={fechar} title="Importar ALTCRED do SIPLAD (PDF)" maxWidth="max-w-5xl"
@@ -91,6 +93,12 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         </div>
         {semSolicitacao.length > 0 && (
           <p className="text-sm text-amber-700">Nenhuma solicitação encontrada em: {semSolicitacao.join(', ')}.</p>
+        )}
+        {descartadas.length > 0 && (
+          <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600" role="note">
+            <b>{descartadas.length} solicitação(ões) do relatório não creditam a BNIC</b> (ex.: compras no exterior, pagamentos da BNIC a outras UG) e não são recebimentos: ignoradas.
+            <div className="font-mono mt-1 break-words">{descartadas.map(d => `${d.numero} (${d.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`).join(' · ')}</div>
+          </div>
         )}
         {itens.length > 0 && (
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
