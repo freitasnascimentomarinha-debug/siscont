@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { FaturaPainel, resumoPainel, taxaCondominial } from '../utils/painel';
-import { excelPainelInicial, graficosPainelInicial, linhasIndicadoresPI, pdfPainelInicial, EntradaPainelInicial } from '../utils/exportPainelInicial';
+import { excelPainelInicial, graficosPainelInicial, linhasIndicadoresPI, montarPdfPainelInicial, EntradaPainelInicial } from '../utils/exportPainelInicial';
 
 const f = (n: number, extra: Partial<FaturaPainel>): FaturaPainel => ({
   id: `f${n}`, numero: `40030-TC-0${(n % 9) + 1}-2026-00${n}-0`, cliente: `OM ${n % 4} com um nome bem comprido para testar o corte do rótulo no gráfico`, setor: n % 2 ? 'DGMM' : 'COMOPNAV', comando: 'Cmd',
@@ -44,7 +44,7 @@ describe('exportação do Painel inicial', () => {
     expect(JSON.stringify(resumo)).toContain('Total em aberto');
   });
   it('o PDF é gerado com várias páginas (indicadores, gráficos e tabelas)', () => {
-    const doc = pdfPainelInicial(entrada());
+    const doc = montarPdfPainelInicial(entrada());   // monta sem salvar: não grava arquivo na pasta do projeto
     expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(3);
   });
   it('sem taxa condominial publicada, não gera o gráfico nem a aba da TC', async () => {

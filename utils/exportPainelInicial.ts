@@ -149,7 +149,8 @@ export async function excelPainelInicial(e: EntradaPainelInicial): Promise<Uint8
 }
 
 // ------------------------------------------------------------------ PDF
-export function pdfPainelInicial(e: EntradaPainelInicial): jsPDF {
+/** Monta o PDF sem salvar (o teste usa esta; a tela usa pdfPainelInicial, que também baixa o arquivo). */
+export function montarPdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   const { r, tc } = e;
   const doc = new jsPDF('p');
   const y0 = cabecalhoCompacto(doc);
@@ -187,6 +188,11 @@ export function pdfPainelInicial(e: EntradaPainelInicial): jsPDF {
   if (tc.oms.length) tabela(`Taxa condominial ${tc.ano} — total mensal ${brl(tc.mensal)} · anual ${brl(tc.anual)}`, ['OM', 'Mensal', '% do total'], tc.oms.slice(0, 25).map(o => [o.nome, brl(o.mensal), `${o.percentual.toLocaleString('pt-BR')}%`]), [110, 40, 32]);
   doc.setFontSize(7); doc.setTextColor(100);
   doc.text('O Excel traz todas as OM, todas as faturas em aberto e os gráficos editáveis.', 14, Math.min(y + 2, 288), { maxWidth: 182 });
+  return doc;
+}
+
+export function pdfPainelInicial(e: EntradaPainelInicial): jsPDF {
+  const doc = montarPdfPainelInicial(e);
   doc.save(`painel_inicial_${e.ano}_${e.hoje}.pdf`);
   return doc;
 }
