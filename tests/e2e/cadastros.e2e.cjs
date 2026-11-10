@@ -2352,6 +2352,57 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(escritas.length === 0 && db.oms.length === 1, 'do início ao fim, nenhuma escrita chegou ao banco');
   });
 
+  await cenario('Operador liga e desliga o modo treinamento mantendo o perfil (administrador não vê o botão)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '90001', nome: 'Comando Real', sigla: 'CR', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd); db.oms.push({ id: uid(), codigo: '90010', nome: 'OM Real', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [], codigos_anteriores: [] });
+    const escritas = [];
+    page.on('request', r => { if (/supabase\.mock/.test(r.url()) && !['GET', 'HEAD', 'OPTIONS'].includes(r.method()) && !/\/auth\//.test(r.url())) escritas.push(`${r.method()} ${r.url().split('supabase.mock')[1]}`); });
+    // administrador: sem o botão
+    await page.reload();
+    await page.getByRole('button', { name: 'Cadastros' }).waitFor();
+    ok(await page.getByRole('button', { name: 'Entrar no modo treinamento' }).count() === 0, 'administrador não vê "Entrar no modo treinamento"');
+    // operador: com o botão
+    db.profiles[0].role = 'USER';
+    await page.reload();
+    await page.getByRole('button', { name: 'Entrar no modo treinamento' }).waitFor();
+    ok(await page.getByTestId('faixa-treinamento').count() === 0, 'operador começa no modo normal (sem a faixa)');
+    await page.getByRole('button', { name: 'Entrar no modo treinamento' }).click();
+    await page.getByTestId('faixa-treinamento').waitFor();
+    const menu = await page.locator('aside').innerText();
+    ok(/Operador/i.test(menu) && !/Administração/.test(menu) && /Cadastros/.test(menu), 'continua com o perfil de operador (vê Cadastros, não vê Administração)');
+    ok(await page.getByRole('button', { name: 'Sair do treinamento' }).isVisible(), 'faixa traz "Sair do treinamento"');
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    ok(await page.getByRole('button', { name: 'Duplicidades' }).count() === 0, 'em treinamento o operador não ganha abas de administrador');
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('button', { name: /Nova OM \/ cliente/ }).click();
+    await page.getByLabel('Código (5 dígitos)').fill('99002');
+    await page.getByLabel('Nome', { exact: true }).fill('OM Lançada em Treino');
+    await page.getByLabel('Comando (ComImSup)').selectOption(cmd.id);
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'OM Lançada em Treino' }).first().waitFor();
+    ok(!db.oms.some(o => o.nome === 'OM Lançada em Treino') && escritas.length === 0, 'o que o operador lança em treinamento não vai para o banco');
+    // continua ligado depois de recarregar
+    await page.reload();
+    await page.getByTestId('faixa-treinamento').waitFor();
+    ok(true, 'o modo treinamento continua ligado depois de recarregar a página');
+    // sair: volta ao normal e ao real
+    await page.getByRole('button', { name: 'Sair do treinamento' }).click();
+    await page.getByRole('button', { name: 'Entrar no modo treinamento' }).waitFor();
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'OM / Clientes' }).click();
+    await page.getByRole('cell', { name: 'OM Real', exact: true }).first().waitFor();
+    ok(await page.getByRole('cell', { name: 'OM Lançada em Treino' }).count() === 0 && await page.getByTestId('faixa-treinamento').count() === 0, 'ao sair, a faixa some e só aparecem os dados reais');
+    // fora do treinamento o operador grava de verdade
+    await page.getByRole('button', { name: /Nova OM \/ cliente/ }).click();
+    await page.getByLabel('Código (5 dígitos)').fill('99003');
+    await page.getByLabel('Nome', { exact: true }).fill('OM Real Nova');
+    await page.getByLabel('Comando (ComImSup)').selectOption(cmd.id);
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click();
+    await page.getByRole('cell', { name: 'OM Real Nova' }).first().waitFor();
+    ok(db.oms.some(o => o.nome === 'OM Real Nova'), 'fora do treinamento o operador grava normalmente no banco');
+  });
+
   if (extras.length) {
     await cenario('Planilhas reais (só análise, sem gravar)', extras, async (page, db, arquivos) => {
       await page.getByRole('button', { name: 'Importar planilhas' }).click();

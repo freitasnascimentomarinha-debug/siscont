@@ -22,12 +22,13 @@ import {
   DatabaseBackup,
   Briefcase,
   Coins,
+  GraduationCap,
 } from 'lucide-react';
 import { ultimoBackup } from '../services/auditoriaService';
 import { backupAtrasado, diasSemBackup } from '../utils/auditoria';
 import { PageID } from '../App';
 import { ROLE_LABELS, UserRole, podeVerPagina } from '../types';
-import { totalLancamentosDeTeste, zerarTreino } from '../services/treino';
+import { definirTreinoDoUsuario, modoTreino, podeAlternarTreino, totalLancamentosDeTeste, zerarTreino } from '../services/treino';
 import { db } from '../services/db';
 import { AccountModal } from './AccountModal';
 
@@ -87,7 +88,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
   const lembrarBackup = user?.role === UserRole.ADMIN && diasBackup !== undefined && backupAtrasado(diasBackup) && currentPage !== 'admin';
 
   // Perfil Treinamento: aviso fixo e botão para apagar os lançamentos de teste
-  const treinando = user?.role === UserRole.TREINAMENTO;
+  const treinando = modoTreino();                                  // perfil Treinamento, ou operador que ligou o modo
+  const operadorPodeAlternar = podeAlternarTreino(user?.role);
+  const alternarTreino = (ligar: boolean) => {
+    if (!user) return;
+    definirTreinoDoUsuario(user.id, ligar); db.invalidateCache(); window.location.reload();
+  };
   const [, atualizarTeste] = useState(0);
   useEffect(() => { if (!treinando) return; const t = setInterval(() => atualizarTeste(n => n + 1), 1500); return () => clearInterval(t); }, [treinando]);
   const zerarTestes = () => {
@@ -180,6 +186,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
 
           {/* Footer Actions */}
           <div className="px-4 py-2 border-t border-slate-800/50 shrink-0">
+            {operadorPodeAlternar && !treinando && (
+              <button onClick={() => alternarTreino(true)} title="Pratique o sistema com lançamentos de teste: nada é gravado de verdade e você continua com o seu perfil"
+                className="w-full flex items-center gap-3 px-4 py-2 mb-1 rounded-xl text-fuchsia-300 hover:bg-fuchsia-500/10 hover:text-fuchsia-200 transition-all duration-200 text-sm font-medium">
+                <GraduationCap size={18} />
+                <span>Entrar no modo treinamento</span>
+              </button>
+            )}
             <button
               onClick={logout}
               className="w-full flex items-center gap-3 px-4 py-2 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200 text-sm font-medium"
@@ -199,6 +212,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
             <span className="flex-1 min-w-[260px]">Você vê os dados reais, mas tudo o que lançar é <b>só de teste</b>: fica neste navegador e <b>nada é gravado no sistema</b>.</span>
             <span className="tabular-nums">{totalLancamentosDeTeste()} lançamento(s) de teste</span>
             <button onClick={zerarTestes} className="px-3 py-1 rounded bg-white/20 hover:bg-white/30 font-semibold">Zerar meus testes</button>
+            {operadorPodeAlternar && <button onClick={() => alternarTreino(false)} className="px-3 py-1 rounded bg-white text-fuchsia-800 hover:bg-fuchsia-50 font-bold">Sair do treinamento</button>}
           </div>
         )}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">

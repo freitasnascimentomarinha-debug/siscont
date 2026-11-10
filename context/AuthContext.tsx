@@ -3,7 +3,7 @@ import type { Session, User as AuthUser } from '@supabase/supabase-js';
 import { User, UserRole } from '../types';
 import { supabase } from '../services/supabase';
 import { db } from '../services/db';
-import { ativarTreino } from '../services/treino';
+import { ativarTreino, treinoAtivoPara } from '../services/treino';
 
 export type RegisterResult = 'PENDING_CONFIRMATION' | 'PENDING_APPROVAL';
 
@@ -170,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         // perfil Treinamento: daqui em diante as escritas vão para a cópia de teste, nunca para o banco
-        ativarTreino(profile.role === UserRole.TREINAMENTO ? profile.id : null);
+        ativarTreino(treinoAtivoPara(profile.role, profile.id) ? profile.id : null);
         db.invalidateCache();
         setUser(profile);
       })

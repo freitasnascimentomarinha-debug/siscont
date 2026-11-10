@@ -13,6 +13,18 @@ let usuarioAtivo: string | null = null;
 let estado: EstadoTreino = estadoVazio();
 
 export const modoTreino = () => !!usuarioAtivo;
+
+/** Operador pode ligar o treinamento por conta própria (continua com o perfil dele); o perfil "Treinamento" fica sempre ligado. */
+const CHAVE_LIGADO = (usuario: string) => `siscont-treino-ligado-v1:${usuario}`;
+export function treinoLigadoPeloUsuario(usuario: string): boolean {
+  try { return localStorage.getItem(CHAVE_LIGADO(usuario)) === '1'; } catch { return false; }
+}
+export function definirTreinoDoUsuario(usuario: string, ligado: boolean) {
+  try { if (ligado) localStorage.setItem(CHAVE_LIGADO(usuario), '1'); else localStorage.removeItem(CHAVE_LIGADO(usuario)); } catch { /* ignore */ }
+}
+/** Só o operador (perfil USER) pode ligar e desligar; o perfil Treinamento é sempre treinamento. */
+export const podeAlternarTreino = (role: string | undefined | null) => role === 'USER';
+export const treinoAtivoPara = (role: string | undefined | null, usuario: string) => role === 'TREINAMENTO' || (podeAlternarTreino(role) && treinoLigadoPeloUsuario(usuario));
 export const totalLancamentosDeTeste = () => totalDeTeste(estado);
 
 function carregar(usuario: string): EstadoTreino {

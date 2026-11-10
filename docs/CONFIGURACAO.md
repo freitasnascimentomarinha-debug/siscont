@@ -298,6 +298,9 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   perfil só tem leitura (como a Consulta), então mesmo que alguma coisa tentasse gravar, o banco recusaria. Para criar: rode o script
   `030_perfil_treinamento.sql` e, em Administração › Usuários, escolha o perfil **Treinamento**. Os testes ficam por usuário e por
   navegador (outro computador começa limpo).
+  **O operador também pode ligar e desligar o modo treinamento sozinho**, sem trocar de perfil: botão "Entrar no modo treinamento"
+  no menu (rodapé) e "Sair do treinamento" na faixa roxa. Ele continua com as páginas e permissões de operador; só o administrador
+  e os demais perfis não têm esse botão. O estado fica guardado por usuário neste navegador.
 - **OM que muda de nome, UG ou comando** (script 029): em Cadastros › OM / Clientes, o botão do relógio ("Mudou de nome, UG ou
   comando?") abre o assistente. Informe o novo nome, UG, comando, setor ou sigla, a **data de vigência** (hoje ou no passado), o ato
   (portaria/BONO) e o motivo; o sistema mostra o que muda e o impacto antes de gravar. **Operador e administrador** podem usar o
