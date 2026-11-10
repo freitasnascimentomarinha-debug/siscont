@@ -1987,14 +1987,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Calcular prévia' }).click();
     await page.getByText('65701-AE-01-2027-001-0').waitFor();
     await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
-    ok(await page.getByText(/Consumo real R\$ 80\.000,00 − estimado já faturado R\$ 100\.000,00 = crédito da OM de R\$ 20\.000,00/).isVisible(), 'prévia do acerto: consumo real 80.000, estimado 100.000, crédito da OM de 20.000');
+    ok(await page.getByText(/Consumo real R\$ 80\.000,00; estimado já faturado R\$ 100\.000,00; débito na linha 04: R\$ 80\.000,00\. Total a pagar R\$ 0,00 — a diferença de R\$ 20\.000,00 é crédito da OM/).isVisible(), 'prévia do acerto: serviço 80.000, débito 80.000, total a pagar 0,00 e crédito da OM de 20.000');
     ok(!(await page.locator('body').innerText()).includes('"estimado":') && await page.getByText('Estimado já faturado: R$ 100.000,00').isVisible(), 'base de cálculo em frases (sem texto técnico JSON)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-1-previa.png'), fullPage: true });
     await page.getByRole('button', { name: 'Emitir lote' }).click();
     await page.getByRole('button', { name: 'Sim, emitir' }).click();
     await page.getByText(/Lote emitido: 1 faturas/).waitFor({ timeout: 15000 });
     const ac = db.invoices.find(i => i.invoice_number === '65701-AE-01-2027-001-0');
-    ok(ac && ac.value === 80000 && ac.adjustment_deduction === 100000 && ac.acerto_de === '65701-AE-10-2026-001-0' && /Crédito da OM: R\$ 20\.000,00/.test(ac.observation), 'fatura de acerto gravada: serviço 80.000, débito 100.000 (estimado), observação com o crédito');
+    ok(ac && ac.value === 80000 && ac.adjustment_deduction === 80000 && ac.base_calculo.credito === 20000 && ac.acerto_de === '65701-AE-10-2026-001-0' && /Crédito da OM: R\$ 20\.000,00/.test(ac.observation), 'fatura de acerto gravada: serviço 80.000, débito 80.000 (total 0,00), crédito de 20.000 na base e na observação');
 
     // PDF FR-172 da fatura de acerto (como sai impressa)
     await page.getByRole('button', { name: /JAN27/ }).click();

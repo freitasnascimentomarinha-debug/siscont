@@ -1,10 +1,11 @@
 /**
  * Crédito da OM gerado pelo acerto do OND (funções puras).
  *
- * Modelo: a fatura de acerto traz o CONSUMO REAL (valor do serviço) e abate, na linha 04, o valor ESTIMADO já faturado.
- *   estimado 100.000 · real 80.000 → fatura de acerto: serviço 80.000 − débito 100.000 = −20.000 → CRÉDITO da OM de 20.000.
+ * Modelo: a fatura de acerto traz o CONSUMO REAL (valor do serviço) e abate, na linha 04, o estimado já faturado — até o valor do real.
+ *   estimado 100.000 · real 80.000 → serviço 80.000 − débito 80.000 = 0 a pagar, e a diferença de 20.000 fica como CRÉDITO da OM
+ *   (gravado na base de cálculo da fatura: "credito").
  *   estimado 100.000 · real 120.000 → serviço 120.000 − débito 100.000 = +20.000 → a pagar.
- * O crédito é derivado das próprias faturas (acerto não cancelado com total negativo): retificar ou cancelar a fatura de
+ * O crédito é derivado das próprias faturas (acerto não cancelado, campo credito da base): retificar ou cancelar a fatura de
  * acerto acompanha o crédito sozinho. Só o que foi USADO (compensado ou devolvido) fica gravado, na tabela
  * creditos_acerto_uso (script 028).
  *
@@ -51,7 +52,8 @@ export function calcularCreditos(invoices: Invoice[], usos: UsoCredito[]): Credi
   usos.filter(usoValido).forEach(u => porCredito.set(u.chave, [...(porCredito.get(u.chave) || []), u]));
 
   return [...vigentes.values()].map(i => {
-    const total = totalDe(i), valor = total < -0.005 ? r2(-total) : 0;
+    // o crédito vem da base do acerto (consumo real menor que o estimado); faturas antigas, sem isso, usam o total negativo
+    const cr = (i.baseCalculo as any)?.credito, total = totalDe(i), valor = typeof cr === 'number' ? r2(cr) : total < -0.005 ? r2(-total) : 0;
     const us = (porCredito.get(chaveCredito(i.invoiceNumber)) || []).sort((a, b) => a.data.localeCompare(b.data));
     const compensado = r2(us.filter(u => u.tipo === 'COMPENSACAO').reduce((s, u) => s + u.valor, 0));
     const devolvido = r2(us.filter(u => u.tipo === 'DEVOLUCAO').reduce((s, u) => s + u.valor, 0));

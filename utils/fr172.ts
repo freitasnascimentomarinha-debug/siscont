@@ -36,7 +36,7 @@ export function detalhamento(d: DadosFr172): [string, string][] {
     const est = Number(b.estimado) || 0, real = Number(b.real) || 0, cred = Number(b.credito) || 0, pagar = Number(b.aPagar) || 0;
     return [
       ['FATURA ESTIMADA (OND) JÁ EMITIDA', d.acertoDe], ['CONSUMO REAL (OUT–DEZ) — VALOR DO SERVIÇO', brl(real)],
-      ['VALOR ESTIMADO JÁ FATURADO (04 - DÉBITO)', brl(est)],
+      ['VALOR ESTIMADO JÁ FATURADO', brl(est)], ['ABATIDO NA LINHA 04 (DÉBITO, ATÉ O CONSUMO REAL)', brl(Math.min(est, real))],
       ...(cred > 0 ? [['CRÉDITO DA OM (A COMPENSAR OU DEVOLVER)', brl(cred)] as [string, string]] : pagar > 0 ? [['DIFERENÇA A PAGAR', brl(pagar)] as [string, string]] : []),
     ];
   }
@@ -124,7 +124,7 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   (((d.base as any)?.creditos || []) as { numero: string; valor: number }[]).forEach(c => { y = par(`Compensação do crédito do acerto nº ${c.numero}: ${brl(Number(c.valor))} (linha 04).`, tx + 1, y + 1.5, larg, 8.5, true); });
   if (d.acertoDe) y = par((d.base as any)?.tipo === 'CORRECAO'
     ? `Fatura de correção do valor pago com atraso da fatura nº ${d.acertoDe}, pela taxa diária equivalente à da caderneta de poupança (${citarCorrecao()}).`
-    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}: traz o consumo real, com o valor estimado já faturado abatido na linha 04.${Number((d.base as any)?.credito) > 0 ? ' A diferença é crédito da OM, a ser compensado em faturas seguintes ou devolvido.' : ''}`, tx + 1, y + 1.5, larg, 8.5, true);
+    : `Fatura de acerto do faturamento estimado de fim de exercício (OND) nº ${d.acertoDe}: traz o consumo real, com o valor estimado já faturado abatido na linha 04 (até o valor do consumo real).${Number((d.base as any)?.credito) > 0 ? ' A diferença é crédito da OM, a ser compensado em faturas seguintes ou devolvido.' : ''}`, tx + 1, y + 1.5, larg, 8.5, true);
   if (d.substitui) y = par(`Esta fatura cancela e substitui a de nº ${d.substitui}.`, tx + 1, y + 1.5, larg, 8.5, true);
   y += 9;
   txt('INSTRUÇÕES PARA O PAGAMENTO DA FATURA:', tx + 1, y, 10, true);

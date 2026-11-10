@@ -187,8 +187,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                           {(i.adiantamentos || []).map(a => <div key={a.docId}>Baixa na ALTCRED {a.numero}: {brl(a.valor)}</div>)}
                           {(i.creditos || []).map(c => <div key={c.chave} className="text-orange-700">Compensação do crédito do acerto nº {c.numero}: {brl(c.valor)} (linha 04)</div>)}
                           {i.acertoDe && (i.base as any).tipo !== 'CORRECAO' && (
-                            <div className={i.valor - i.debito < 0 ? 'text-emerald-700 font-semibold' : ''}>
-                              Consumo real {brl(i.valor)} − estimado já faturado {brl(i.debito)} = {i.valor - i.debito < 0 ? `crédito da OM de ${brl(i.debito - i.valor)}` : `${brl(i.valor - i.debito)} a pagar`}
+                            <div className={Number((i.base as any).credito) > 0 ? 'text-emerald-700 font-semibold' : ''}>
+                              Consumo real {brl(i.valor)}; estimado já faturado {brl(Number((i.base as any).estimado) || i.debito)}; débito na linha 04: {brl(i.debito)}. {Number((i.base as any).credito) > 0 ? `Total a pagar R$ 0,00 — a diferença de ${brl(Number((i.base as any).credito))} é crédito da OM.` : `Diferença a pagar: ${brl(i.valor - i.debito)}.`}
                             </div>
                           )}
                           {i.avisos.map(a => <div key={a} className="text-amber-700">{a}</div>)}

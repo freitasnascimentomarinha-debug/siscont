@@ -202,12 +202,11 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
   const linhas = itens.map(i => {
     const lido = lerFatura(i.numero!)!;
     const mes = lido.competencia % 100, ano = Math.floor(lido.competencia / 100);
-    const liquido = r2(i.valor + i.acrescimo - i.debito);
     const obs = [
       ...(i.adiantamentos || []).map(a => `Baixa na ALTCRED ${a.numero}.`),
       ...(i.creditos || []).map(c => `Compensação do crédito do acerto nº ${c.numero}: R$ ${c.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`),
       i.acertoDe ? ((i.base as any).tipo === 'CORRECAO' ? `Correção da fatura ${i.acertoDe} paga com atraso (${citarCorrecao()}).`
-        : `Acerto da fatura estimada ${i.acertoDe} (OND): consumo real faturado e valor estimado abatido (linha 04).${liquido < -0.005 ? ` Crédito da OM: R$ ${(-liquido).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.` : ''}`) : '',
+        : `Acerto da fatura estimada ${i.acertoDe} (OND): consumo real faturado e valor estimado abatido (linha 04).${Number((i.base as any).credito) > 0 ? ` Crédito da OM: R$ ${Number((i.base as any).credito).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.` : ''}`) : '',
       i.estimado ? 'Faturamento estimado de fim de exercício (OND): será acertado com o consumo real.' : '',
     ].filter(Boolean).join(' ');
     return {

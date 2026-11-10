@@ -291,8 +291,9 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
 - **Acerto do OND e créditos da OM** (script 028): a fatura de acerto traz o **consumo real** de OUT–DEZ como valor do
-  serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. Estimado 100.000 e real 80.000 →
-  fatura de 80.000 com débito de 100.000 = **crédito da OM de 20.000** (real 120.000 → 20.000 a pagar). A fatura estimada
+  serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. O débito vai só **até o valor do consumo real**: estimado
+  100.000 e real 80.000 → serviço 80.000, débito 80.000, **total a pagar 0,00**, e a diferença de 20.000 é o **crédito da OM**
+  (gravado na base da fatura e escrito no quadro e na observação; real 120.000 → débito 100.000 e 20.000 a pagar). A fatura estimada
   continua como foi emitida. A aba **Créditos de acerto** (Emitir faturas do mês) lista o crédito de cada OM (os acertos
   antigos, de valor 0 e débito, entram sozinhos), o que já foi compensado ou devolvido e o saldo. **Compensação**: na prévia
   do **lote mensal** o crédito abate as faturas da **mesma OM e do mesmo serviço** (a água estimada compensa água), do crédito

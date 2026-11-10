@@ -247,15 +247,15 @@ export function calcularAcerto(d: DadosLote & { anoOnd: number }): ItemLote[] {
     const dif = r2(real - h.valor);
     if (Math.abs(dif) < 0.01) return;
     const avisos: string[] = [];
-    if (real === 0) avisos.push('Sem medição real de OUT–DEZ: confira antes de emitir (o débito devolve todo o estimado).');
+    if (real === 0) avisos.push('Sem medição real de OUT–DEZ: confira antes de emitir (todo o estimado vira crédito da OM).');
     if ((h.saldo ?? 0) > 0.01) avisos.push(`A fatura estimada ${h.numero} ainda tem R$ ${(h.saldo as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em aberto: o crédito só existe de fato depois que ela for paga.`);
     itens.push({
       chave, omId: om.id, om, sigla: h.sigla, servico: sv.get(h.sigla)?.nome ?? h.sigla, unidade: sv.get(h.sigla)?.unidade ?? '-',
-      quantidade: rr?.quantidade ?? null, quantidade2: null, valor: real, acrescimo: 0, debito: h.valor,
+      quantidade: rr?.quantidade ?? null, quantidade2: null, valor: real, acrescimo: 0, debito: r2(Math.min(h.valor, real)),
       acertoDe: h.numero, avisos,
       base: {
-        regra: `Acerto do OND ${d.anoOnd}: consumo real OUT–DEZ, abatido o estimado já faturado (linha 04)`,
-        estimado: h.valor, real, diferenca: dif, credito: dif < 0 ? -dif : 0, aPagar: dif > 0 ? dif : 0, porMes: rr?.porMes ?? {}, faturaEstimada: h.numero,
+        regra: `Acerto do OND ${d.anoOnd}: consumo real OUT–DEZ, abatido o estimado já faturado (linha 04), até o valor do consumo real`,
+        estimado: h.valor, real, debitado: r2(Math.min(h.valor, real)), diferenca: dif, credito: dif < 0 ? -dif : 0, aPagar: dif > 0 ? dif : 0, porMes: rr?.porMes ?? {}, faturaEstimada: h.numero,
       },
     });
   });
@@ -316,10 +316,10 @@ export function textoConsumo(i: { sigla: string; unidade?: string; quantidade: n
 const ROTULOS_BASE: Record<string, string> = {
   estimado: 'Estimado já faturado', real: 'Consumo real', diferenca: 'Diferença (real − estimado)', credito: 'Crédito da OM', aPagar: 'A pagar',
   faturaEstimada: 'Fatura estimada', quantidade: 'Quantidade', quantidade2: 'Segunda quantidade', media: 'Média', dias: 'Dias', mensal: 'Valor mensal',
-  creditoCompensado: 'Crédito compensado', tipo: 'Tipo',
+  creditoCompensado: 'Crédito compensado', debitado: 'Abatido na linha 04 (débito)', tipo: 'Tipo',
 };
 const brlTxt = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const DINHEIRO = new Set(['estimado', 'real', 'diferenca', 'credito', 'aPagar', 'media', 'mensal', 'creditoCompensado']);
+const DINHEIRO = new Set(['estimado', 'real', 'diferenca', 'credito', 'aPagar', 'media', 'mensal', 'creditoCompensado', 'debitado']);
 
 /** A base de cálculo em frases curtas ("Estimado já faturado: R$ 100.000,00"), no lugar do texto técnico (JSON). */
 export function descreverBase(base: Base | Record<string, unknown>, sigla = ''): string[] {

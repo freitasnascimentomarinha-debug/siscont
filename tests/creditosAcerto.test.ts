@@ -11,8 +11,8 @@ const item = (omId: string, sigla: string, valor: number, extra: Partial<ItemLot
   ({ chave: `${omId}|${sigla}`, omId, om: om(omId), sigla, servico: sigla, unidade: '', quantidade: null, quantidade2: null, valor, acrescimo: 0, debito: 0, base: { regra: '' }, avisos: [], ...extra });
 
 describe('créditos de acerto', () => {
-  it('estimado 100.000 e real 80.000: crédito de 20.000, no formato novo (serviço 80.000 − débito 100.000) e no antigo (0 − débito 20.000)', () => {
-    const novo = calcularCreditos([inv('65701-AE-01-2027-001-0', { value: 80000, adjustmentDeduction: 100000 })], []);
+  it('estimado 100.000 e real 80.000: crédito de 20.000, no formato novo (serviço 80.000, débito 80.000, crédito na base) e no antigo (0 − débito 20.000)', () => {
+    const novo = calcularCreditos([inv('65701-AE-01-2027-001-0', { value: 80000, adjustmentDeduction: 80000, baseCalculo: { regra: 'a', credito: 20000 } })], []);
     const antigo = calcularCreditos([inv('65701-AE-01-2027-002-0', { value: 0, adjustmentDeduction: 20000 })], []);
     expect(novo[0]).toMatchObject({ valor: 20000, saldo: 20000, servico: 'AE', cliente: 'HCM', original: '65701-AE-10-2026-001-0' });
     expect(antigo[0]).toMatchObject({ valor: 20000, saldo: 20000 });
