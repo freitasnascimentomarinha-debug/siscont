@@ -2265,8 +2265,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'OM / Clientes' }).click();
     await page.getByText('Centro Antigo').first().waitFor();
     ok(await page.getByRole('button', { name: /Nova OM \/ cliente/ }).isVisible(), 'operador vê "Nova OM / cliente" (pode cadastrar clientes)');
-    ok(await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Antigo' }).isVisible() && await page.getByTitle('Excluir (só sem faturas)').count() === 0 && await page.getByTitle('Editar', { exact: true }).count() === 0, 'operador vê o assistente de vigência, mas não Editar/Excluir (continuam do administrador)');
-    await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Antigo' }).click();
+    ok(await page.getByRole('row', { name: /Centro Antigo/ }).getByRole('button', { name: 'Alterar dados com vigência' }).isVisible() && await page.getByTitle('Excluir (só sem faturas)').count() === 0 && await page.getByTitle('Editar', { exact: true }).count() === 0, 'operador vê o assistente de vigência, mas não Editar/Excluir (continuam do administrador)');
+    await page.getByRole('row', { name: /Centro Antigo/ }).getByRole('button', { name: 'Alterar dados com vigência' }).click();
     await page.getByLabel('Novo nome').fill('Centro Moderno');
     await page.getByLabel('Nova UG (4 a 6 dígitos)').fill('90020');
     await page.getByLabel('Novo comando (subordinação)').selectOption(cmdB.id);
@@ -2282,7 +2282,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(o.nome === 'Centro Moderno' && o.codigo === '90020' && o.comando_id === cmdB.id, 'nome, UG e comando novos gravados');
     ok((o.nomes_alternativos || []).includes('Centro Antigo') && (o.codigos_anteriores || []).includes('90010'), 'nome antigo vai para os nomes alternativos e a UG antiga para os códigos anteriores');
     ok(db.om_historico.length === 3 && db.om_historico.every(h => h.vigente_desde === '2026-09-15' && h.ato === 'Portaria nº 29/2026'), 'histórico: 3 linhas com a data de vigência e o ato');
-    await page.getByRole('button', { name: 'Alterar dados com vigência de Centro Moderno' }).click();
+    await page.getByRole('row', { name: /Centro Moderno/ }).getByRole('button', { name: 'Alterar dados com vigência' }).click();
     const tempo = (await page.getByTestId('linha-do-tempo').innerText()).replace(/\s+/g, ' ');
     ok(/Desde 15\/09\/2026 · Portaria nº 29\/2026 · Reestruturação/.test(tempo) && /Nome: Centro Antigo → Centro Moderno/.test(tempo) && /UG: 90010 → 90020/.test(tempo), 'linha do tempo da OM mostra a mudança');
     await page.getByRole('button', { name: 'Cancelar' }).click();

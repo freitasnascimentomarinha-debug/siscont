@@ -160,7 +160,7 @@ export const OmsTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean; podeC
                   <Td><Situacao ativo={o.ativo} desde={o.desativadoEm} motivo={o.motivoDesativacao} /></Td>
                   {gravador && (
                     <Td className="text-right whitespace-nowrap">
-                      <button onClick={() => setAlterar(o)} className="p-1.5 text-slate-400 hover:text-primary-600" title="Mudou de nome, UG ou comando? Registrar com data de vigência" aria-label={`Alterar dados com vigência de ${o.nome}`}><History size={15} /></button>
+                      <button onClick={() => setAlterar(o)} className="p-1.5 text-slate-400 hover:text-primary-600" title="Mudou de nome, UG ou comando? Registrar com data de vigência" aria-label="Alterar dados com vigência"><History size={15} /></button>
                       {podeEditar && <>
                       <button onClick={() => { setErro(null); setForm({ ...o }); }} className="p-1.5 text-slate-400 hover:text-primary-600" title="Editar"><Edit size={15} /></button>
                       {o.ativo
