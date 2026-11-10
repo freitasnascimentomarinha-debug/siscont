@@ -2141,7 +2141,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const alt = doc('G424.2026.AC.00300', 7000, 'ALTCRED', '2026-06-20'), gru = doc('GRU.2026.0001', 3000, 'GRU', '2026-07-10');
     db.received_documents.push(alt, gru);
     const bx = (d, f, v, data) => ({ id: uid(), document_id: d.id, invoice_id: f.id, amount: v, date: data, tipo_baixa: 'PAGAMENTO', observation: '', service_type: 'Energia Elétrica' });
-    db.payment_allocations.push(bx(alt, paga, 7000, '2026-06-20'), bx(gru, parcial, 3000, '2026-07-10'));
+    db.payment_allocations.push(bx(alt, paga, 7000, '2026-06-25'), bx(gru, parcial, 3000, '2026-07-14'));   // baixa lançada depois da data do documento
     await page.reload();
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
@@ -2150,7 +2150,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       const f = await dl.path(); if (SHOTS) fs.copyFileSync(f, path.join(SHOTS, arq)); return fs.readFileSync(f, 'latin1');
     };
     const t1 = await pdfDe('40030-EL-05-2026-010-0', 'reimpressao-paga.pdf');
-    ok(t1.includes('REGISTRADO') && t1.includes('20/06/26') && t1.includes('ALTCRED G424.2026.AC.00300') && t1.includes('SITUAÇÃO: FATURA PAGA'), 'fatura paga com ALTCRED: reimpressão traz data, documento, valor e "FATURA PAGA"');
+    ok(t1.includes('REGISTRADO') && t1.includes('20/06/26') && !t1.includes('25/06/26') && t1.includes('ALTCRED G424.2026.AC.00300') && t1.includes('SITUAÇÃO: FATURA PAGA'), 'fatura paga com ALTCRED: reimpressão traz a data do documento (não a da baixa), o documento, o valor e "FATURA PAGA"');
     const t2 = await pdfDe('40030-EL-06-2026-010-0', 'reimpressao-parcial.pdf');
     ok(t2.includes('GRU GRU.2026.0001') && t2.includes('PARCIAL') && t2.includes('6.000,00'), 'pagamento parcial por GRU: mostra a GRU e o saldo em aberto de R$ 6.000,00');
     const t3 = await pdfDe('40030-EL-07-2026-010-0', 'reimpressao-aberta.pdf');

@@ -291,7 +291,7 @@ Execute [`supabase/migrations/012_clientes_taxas.sql`](../supabase/migrations/01
   com letras e dígitos no prefixo (B4D0, P3MA, P3X3...). Solicitação que continua na página seguinte avisa que o total pode estar
   incompleto (conferir no SIPLAD).
 - **Reimpressão da FR-172 depois do pagamento**: a fatura que já recebeu baixa sai com o quadro "PAGAMENTO(S) REGISTRADO(S)" —
-  data da baixa, documento (ALTCRED ou GRU) e valor — e a situação (**fatura paga** ou **pagamento parcial, com o saldo em aberto**).
+  **data do documento de pagamento** (ALTCRED ou GRU), número do documento e valor — e a situação (**fatura paga** ou **pagamento parcial, com o saldo em aberto**).
   Baixas de adiantamento seguem como "Baixa na ALTCRED ...". Fatura em aberto sai sem esse quadro.
 - **Acerto do OND e créditos da OM** (script 028): a fatura de acerto traz o **consumo real** de OUT–DEZ como valor do
   serviço (com a quantidade) e abate, na linha 04 (débito), o **estimado já faturado**. O débito vai só **até o valor do consumo real**: estimado

@@ -30,8 +30,8 @@ export function dadosFr172(inv: Invoice, ctx: ContextoFr172): DadosFr172 {
     valorServico: inv.value, adiantamento: Math.round(adiant.reduce((s, b) => s + b.amount, 0) * 100) / 100,
     acrescimo: inv.adjustmentAddition || 0, debito: inv.adjustmentDeduction || 0, consumo: inv.consumption, unidade: inv.unitMeasure,
     base: (inv.baseCalculo as any) ?? null, altcreds: [...new Set(adiant.map(b => ctx.docs.get(b.documentId)?.documentNumber).filter(Boolean) as string[])],
-    pagamentos: bx.filter(b => !ehAdiantamento(b, ctx.docs.get(b.documentId))).sort((a, b) => a.date.localeCompare(b.date))
-      .map(b => { const doc = ctx.docs.get(b.documentId); return { data: b.date, documento: doc?.documentNumber || '(documento)', tipo: String(doc?.documentType || 'ALTCRED'), valor: Math.round(b.amount * 100) / 100 }; }),
+    pagamentos: bx.filter(b => !ehAdiantamento(b, ctx.docs.get(b.documentId)))
+      .map(b => { const doc = ctx.docs.get(b.documentId); return { data: doc?.date || b.date, documento: doc?.documentNumber || '(documento)', tipo: String(doc?.documentType || 'ALTCRED'), valor: Math.round(b.amount * 100) / 100 }; }).sort((a, b) => a.data.localeCompare(b.data)),
     quitadaEm: inv.quitadaEm, quitacaoExterna: inv.quitacaoExterna,
     substitui: inv.substitui, acertoDe: inv.acertoDe, estimado: inv.estimado, observacao: inv.observation, params: ctx.params,
   };

@@ -16,7 +16,7 @@ export interface DadosFr172 {
   valorServico: number; adiantamento: number; acrescimo: number; debito: number;
   consumo?: string | null; unidade?: string | null; base?: Record<string, any> | null;
   /** Pagamentos já registrados (reimpressão de fatura paga): data da baixa, documento (ALTCRED/GRU) e valor. */
-  pagamentos?: { data: string; documento: string; tipo: string; valor: number }[]; quitadaEm?: string | null; quitacaoExterna?: string | null;
+  pagamentos?: { /** data do documento de pagamento (ALTCRED/GRU) */ data: string; documento: string; tipo: string; valor: number }[]; quitadaEm?: string | null; quitacaoExterna?: string | null;
   altcreds: string[]; substitui?: string | null; acertoDe?: string | null; estimado?: boolean; observacao?: string | null;
   params: Record<string, string>;
 }
