@@ -22,6 +22,6 @@ describe('assinatura no fim do relatório', () => {
   it.each([5, 30, 45, 52, 70, 100, 140])('com %i linhas a assinatura fica abaixo do último texto (nunca em cima dos dados)', n => {
     const { saldo, sig } = montar(n);
     expect(sig.pagina).toBeGreaterThanOrEqual(saldo.pagina);
-    if (sig.pagina === saldo.pagina) expect(sig.y).toBeGreaterThan(saldo.y + 4);
+    if (sig.pagina === saldo.pagina) expect(sig.y).toBeGreaterThan(saldo.y + 8);   // linha da assinatura (4,5 mm acima do texto) fica abaixo do último texto
   });
 });
