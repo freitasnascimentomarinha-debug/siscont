@@ -17,7 +17,7 @@ export interface OpcoesPdfArvore {
   rotuloTotal?: string;
   /** observação pequena depois da tabela (regras do crédito etc.) */
   nota?: string;
-  /** nome do comando/OM/setor, centralizado logo abaixo do título (só na cobrança) */
+  /** nome do comando/OM/setor: vai em destaque, centralizado, ACIMA do título (só na cobrança) */
   subtitulo?: string;
 }
 
@@ -67,7 +67,8 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
 export function pdfCobrancaEnxuto(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const doc = new jsPDF('p');
   cabecalhoCompacto(doc);
-  let y = tituloCentralizado(doc, o.titulo, o.subtitulo, 26);
+  // nome da OM/comando/setor em destaque e, abaixo, o tipo do relatório (ex.: "Faturas em aberto")
+  let y = tituloCentralizado(doc, o.subtitulo || o.titulo, o.subtitulo ? o.titulo : undefined, 26);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
   o.linhas.forEach(l => { const partes = doc.splitTextToSize(l, 182); doc.text(partes, 14, y); y += 4.2 * partes.length; });
   y += 1;

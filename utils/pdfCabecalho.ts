@@ -92,18 +92,18 @@ export function tituloRelatorio(doc: jsPDF, titulo: string, posicao?: string, y 
   return y + 5;
 }
 
-/** Título centralizado (ex.: "Faturas em aberto") e, abaixo, o nome do comando/OM/setor também centralizado. Devolve o `y` abaixo. */
-export function tituloCentralizado(doc: jsPDF, titulo: string, subtitulo?: string, y = 26, margem = 14): number {
+/** Título centralizado em negrito (ex.: o nome da OM, quebrando em linhas se for comprido) e, abaixo, uma linha menor (ex.: "Faturas em aberto"). Devolve o `y` abaixo. */
+export function tituloCentralizado(doc: jsPDF, principal: string, secundario?: string, y = 26, margem = 14): number {
   const W = doc.internal.pageSize.getWidth();
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...TEMA.faixa);
-  doc.text(titulo, W / 2, y + 5, { align: 'center' }); y += 6;
-  if (subtitulo) {
-    doc.setFontSize(11.5);
-    const ls = doc.splitTextToSize(subtitulo, W - 2 * margem - 10);
-    doc.text(ls, W / 2, y + 5.5, { align: 'center' }); y += 5.5 + 5 * (ls.length - 1) + 1;
+  const ls = doc.splitTextToSize(principal, W - 2 * margem - 10);
+  doc.text(ls, W / 2, y + 5, { align: 'center' }); y += 5 + 6 * (ls.length - 1);
+  if (secundario) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
+    doc.text(secundario, W / 2, y + 6.5, { align: 'center' }); y += 6.5;
   }
   doc.setTextColor(0);
-  return y + 6;
+  return y + 7;
 }
 
 /** Tabela no padrão dos relatórios (cores, grade fina, listras, fonte 8): as opções do chamador prevalecem. */
