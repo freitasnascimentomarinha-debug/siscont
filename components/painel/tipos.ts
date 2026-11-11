@@ -1,6 +1,6 @@
 import { Alerta, BaixaGer, ContestacaoGer, Criterios, FaturaGer, LinhaOM, Periodo, Recebimento } from '../../utils/painelGerencial';
 
-export type AbaPainel = 'geral' | 'oms' | 'contestacoes' | 'equipe';
+export type AbaPainel = 'geral' | 'oms' | 'contestacoes' | 'equipe' | 'encerramento';
 export interface ParadoPainel { id: string; numero: string; cliente: string; valor: number; dias: number; ultimo: string }
 export interface AdiantamentoPainel { cliente: string; saldo: number }
 export interface CobrancaPainel { comando: string; enviadaEm: string; faturas: string[]; valor: number; enviadaPor?: string | null }

@@ -470,3 +470,34 @@ Testes: `tests/regimeOnd.test.ts` (regra, vigência, impacto, lote OND e fórmul
 **Onde:** Faturamento › **Créditos da OM** (saldo por OM, créditos em aberto, extrato, registrar devolução; o administrador lança saldo de abertura e estorna lançamentos manuais). O livro **começa zerado** (hoje não há acerto emitido nem crédito usado). Retificar (-1) uma fatura de acerto não altera o crédito já registrado; para mudar o valor do crédito, cancele o acerto (se o crédito não foi usado) e emita de novo.
 
 Testes: `tests/creditosOm.test.ts`, `tests/sql/creditos_om_033_tests.sql` (incluindo a emissão simultânea, descrita no README dos testes SQL) e os cenários "Acerto do OND" e "Créditos da OM (Fase B)" do e2e.
+
+## Script 034 — Meses sem movimento e apuração anual do OND (Fase D) · Painel e relatórios (Fase E)
+
+**Regra da média:** a estimativa de outubro é **3 × a média de janeiro a agosto, dividida sempre por 8**. Um mês sem fatura só vale **zero** se estiver marcado como **sem movimento**; sem a marca é **pendência**: a fatura estimada sai **bloqueada** na prévia do lote ("Faltam as faturas de JUL, AGO"), com o botão **Marcar meses sem movimento** (pede confirmação) ou a opção de tirá-la do lote. Nunca se presume consumo zero.
+
+**Estimativa sem duplicidade:** quem já tem fatura de outubro do exercício (para a OM e o serviço) **não entra de novo** no lote OND; a prévia avisa quantos ficaram de fora.
+
+**Apuração em janeiro (acerto):** compara o estimado emitido com o real de **OUT, NOV e DEZ**, e exige os três meses (subsídio lançado ou "sem movimento"). Real maior → fatura de acerto a pagar (débito complementar); real menor → fatura de acerto e **crédito da OM** (entra no livro da Fase B); real igual → **sem fatura e sem crédito**, e a apuração é registrada como "sem diferença" (botão "Registrar apuração sem diferença"). A estimativa importada de uma OM no regime 1 e sem fatura mensal em nov/dez também é reconhecida como estimativa.
+
+**Uma apuração por OM, serviço e exercício** (`apuracoes_ond`, índice único): guarda o estimado, o real, a diferença, o resultado, a **memória de cálculo**, quem apurou e quando. Não se apaga nem se altera: o administrador **cancela** com motivo (só se o acerto estiver cancelado ou sem fatura), e então o acerto pode ser apurado de novo. Repetir a rotina não apura de novo.
+
+**Correção de subsídio depois de lançado:** os subsídios continuam editáveis (com trilha de auditoria); a apuração sempre usa o valor vigente no momento em que é feita.
+
+**Painel — Faturamento › Encerramento do exercício** (e no **Painel do Encarregado**, só consulta): indicadores (OMs participantes, serviços estimados, estimativas emitidas, valor estimado, subsídios pendentes, apurações concluídas, créditos gerados, débitos complementares, saldo de créditos), filtros (exercício, OM, serviço, regime, situação, subsídios, acerto), a situação de cada OM e serviço (não configurado, pendente de estimativa, aguardando subsídios, parcialmente lançados, pronto para apuração, fatura complementar gerada, crédito registrado, sem diferença, apuração cancelada) e o **detalhe** (jan–ago, memória de cálculo, fatura estimativa, reais de out–dez, total real, diferença e resultado).
+
+**Relatórios (Excel e PDF):** 1 participantes da estimativa · 2 estimativas emitidas · 3 subsídios reais pendentes · 4 estimativa × real · 5 créditos por OM · 6 extrato de utilização de créditos · 7 débitos complementares · 8 consolidado.
+
+## Fase F — mapa dos 18 cenários de teste da especificação
+
+| # | Cenário | Onde está testado |
+|---|---|---|
+| 1–4 | OM só no regime 1, só no 2, mista, sem participação | `tests/encerramento.test.ts`, `tests/regimeOnd.test.ts` |
+| 5 | Sem histórico suficiente | `tests/encerramento.test.ts` (bloqueio, não presume zero) |
+| 6–8 | Real maior, menor e igual ao estimado | `tests/encerramento.test.ts` |
+| 9–12 | Crédito suficiente, parcial, maior que a fatura, vários créditos | `tests/creditosOm.test.ts` |
+| 13 | Crédito de outra OM | `tests/creditosOm.test.ts`, `tests/sql/creditos_om_033_tests.sql` |
+| 14 | Estimativa duplicada | `tests/encerramento.test.ts` |
+| 15 | Mesmo acerto de novo | `tests/encerramento.test.ts`, `tests/sql/apuracao_ond_034_tests.sql`, e2e |
+| 16 | Correção de subsídio | `tests/encerramento.test.ts` |
+| 17 | Cancelar fatura com crédito aplicado | e2e "Créditos da OM", `tests/sql/creditos_om_033_tests.sql` |
+| 18 | Duas faturas ao mesmo tempo | emissão simultânea descrita em `tests/sql/README.md` (script 033) |

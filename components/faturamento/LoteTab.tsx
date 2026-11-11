@@ -6,12 +6,13 @@ import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
 import { textoConsumo, descreverBase,
-  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, foraDoOnd, numerar, partes, pad, referencia, totaisLote,
+  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, apurarOnd, calcularMes, calcularOnd, estimativasJaEmitidas, foraDoOnd, ApuracaoLinha, mesesDoAno, numerar, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
 import { CreditoAberto, aplicarCreditosOm, creditosDaOm } from '../../utils/creditosOm';
 import { listarLivroCreditos } from '../../services/creditosOmService';
+import { marcarSemMovimento, registrarApuracoes } from '../../services/encerramentoService';
 import { Aviso, Campo, br, brl, entrada } from './comum';
 
 const MEDIDOS = ['AE', 'EL', 'TL', 'VT', 'RB', 'CR'];
@@ -36,6 +37,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [emitindo, setEmitindo] = useState<string | null>(null);
   const [confirmar, setConfirmar] = useState(false);
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
+  const [apuracoes, setApuracoes] = useState<Omit<ApuracaoLinha, 'id'>[]>([]);
+  const [marcando, setMarcando] = useState(false);
 
   // competência do lote: OND = outubro; acerto = a escolhida (normalmente JAN do ano seguinte)
   const compLote = tipo === 'OND' ? `${comp.slice(0, 4)}-10` : comp;
@@ -50,7 +53,9 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
     try {
       const base = tipo === 'ACERTO' ? `${anoOnd}-10` : compLote;
       const d = { ...(await montarDados(ctx, tipo, base)), siglas: [...siglas], divisorOnd: divisor };
-      const lista = tipo === 'MENSAL' ? calcularMes(d, compLote) : tipo === 'OND' ? calcularOnd(d) : calcularAcerto({ ...d, anoOnd: Number(anoOnd) });
+      const apur = tipo === 'ACERTO' ? apurarOnd({ ...d, anoOnd: Number(anoOnd) }) : null;
+      setApuracoes(apur ? apur.apuracoes : []);
+      const lista = tipo === 'MENSAL' ? calcularMes(d, compLote) : tipo === 'OND' ? calcularOnd(d) : apur!.itens;
       // OM emissora (BNIC): o valor dela no rateio é só controle e contabilidade de custos — não gera fatura
       const emi = ctx.emissora.omId;
       const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
@@ -65,8 +70,14 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       const p: string[] = [];
       if (daEmissora.length) p.push(`${ctx.emissora.nome} é a OM emissora: ${brl(daEmissora.reduce((s, i) => s + i.valor, 0))} de rateio (${[...new Set(daEmissora.map(i => i.sigla))].join(', ')}) ficam só para controle e contabilidade de custos — não geram fatura.`);
       if (tipo === 'OND') {
+        const ja = estimativasJaEmitidas(d);
+        if (ja.length) p.push(`A estimativa de outubro de ${partes(compLote).ano} já foi emitida para ${ja.length} OM/serviço(s) (${[...new Set(ja.map(x => x.sigla))].join(', ')}): eles não entram de novo, para não duplicar.`);
         const f = foraDoOnd(d);
         if (f.length) p.push(`Fora da estimativa pelo regime de fim de exercício (Cadastros › Regimes OND): ${f.map(x => `${x.sigla} — ${x.qtd} OM (${x.regime === 2 ? 'fatura mensal normal' : 'não participa'})`).join('; ')}.`);
+      }
+      if (apur) {
+        if (apur.jaApuradas.length) p.push(`${apur.jaApuradas.length} acerto(s) de ${anoOnd} já foram apurados e não entram de novo.`);
+        if (apur.semDiferenca.length) p.push(`${apur.semDiferenca.length} OM/serviço(s) sem diferença entre estimado e real: não geram fatura; a apuração é registrada como "sem diferença" (botão abaixo).`);
       }
       if (tipo !== 'ACERTO') {
         const [med, atr] = await Promise.all([listarMedicoes([compLote]), listarAtracacoes([compLote])]);
@@ -91,11 +102,29 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
     return abater && tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant) : num;
   }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo]);
   const tot = totaisLote(final);
+  const bloqueados = final.filter(i => i.bloqueio);
+  const soSemDiferenca = apuracoes.filter(a => a.resultado === 'SEM_DIFERENCA');
+
+  /** Marca como "sem movimento" os meses que faltam nesta linha (a estimativa ou o acerto passa a contá-los como zero). */
+  const marcarFaltantes = async (lista: ItemLote[]) => {
+    const ano = tipo === 'ACERTO' ? Number(anoOnd) : partes(compLote).ano;
+    const marcas = lista.flatMap(i => (((i.base as any).mesesFaltantes || []) as number[]).map(mes => ({ omId: i.omId, sigla: i.sigla, ano, mes })));
+    if (!marcas.length) return;
+    if (!window.confirm(`Confirma que ${lista.length === 1 ? 'esta OM não teve' : `estas ${lista.length} OM/serviços não tiveram`} consumo nos meses que faltam (${[...new Set(marcas.map(m => mesesDoAno[m.mes - 1]))].join(', ')})? Eles passam a valer ZERO no cálculo.`)) return;
+    setMarcando(true);
+    try { await marcarSemMovimento(marcas, 'Marcado na prévia do lote'); notify.success('Meses marcados como sem movimento.'); await calcular(); }
+    catch (e) { notify.fail('Erro ao marcar os meses', e); } finally { setMarcando(false); }
+  };
+  const registrarSemDiferenca = async () => {
+    setMarcando(true);
+    try { await registrarApuracoes(soSemDiferenca, null); notify.success(`${soSemDiferenca.length} apuração(ões) sem diferença registrada(s).`); await calcular(); }
+    catch (e) { notify.fail('Erro ao registrar a apuração', e); } finally { setMarcando(false); }
+  };
 
   const emitir = async () => {
     setEmitindo('Iniciando...');
     try {
-      const r = await emitirLote(final, { tipo, competencia: compLote, emissao, limite, vencimento, usuario }, setEmitindo);
+      const r = await emitirLote(final, { tipo, competencia: compLote, emissao, limite, vencimento, usuario, apuracoes: tipo === 'ACERTO' ? apuracoes : undefined }, setEmitindo);
       notify.success(`Lote emitido: ${r.faturas} faturas (${brl(r.total)} a pagar); ${r.adiantamentos} abatimento(s) de adiantamento.`);
       setItens(null); setConfirmar(false);
       await onEmitido();
@@ -166,12 +195,12 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                   const aberto = abertos.has(i.chave);
                   return (
                     <React.Fragment key={i.chave}>
-                      <tr className={i.avisos.length ? 'bg-amber-50/50' : ''}>
+                      <tr className={i.bloqueio ? 'bg-red-50' : i.avisos.length ? 'bg-amber-50/50' : ''}>
                         <td className="px-2 py-1.5 whitespace-nowrap">
                           <input type="checkbox" checked aria-label={`Incluir ${i.numero}`} onChange={() => setFora(p => new Set(p).add(i.chave))} className="h-4 w-4 accent-primary-600 mr-1" />
                           <button onClick={() => alternar(i.chave)} className="text-slate-400 align-middle" aria-label="Ver base de cálculo">{aberto ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
                         </td>
-                        <td className="px-2 py-1.5 font-mono text-xs whitespace-nowrap">{i.numero}{i.avisos.length > 0 && <AlertTriangle size={12} className="inline ml-1 text-amber-600" />}</td>
+                        <td className="px-2 py-1.5 font-mono text-xs whitespace-nowrap">{i.numero}{i.avisos.length > 0 && <AlertTriangle size={12} className={`inline ml-1 ${i.bloqueio ? 'text-red-600' : 'text-amber-600'}`} />}{i.bloqueio && <span className="ml-1 text-[10px] font-sans font-bold text-red-700">BLOQUEADA</span>}</td>
                         <td className="px-2 py-1.5 max-w-[240px]"><div className="truncate" title={i.om.nome}>{i.om.nome}</div><div className="text-[11px] text-slate-500 truncate">{i.servico}</div></td>
                         <td className="px-2 py-1.5 text-xs whitespace-nowrap">{textoConsumo(i)}</td>
                         <td className="px-2 py-1.5 text-right">
@@ -197,6 +226,12 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                             </div>
                           )}
                           {i.avisos.map(a => <div key={a} className="text-amber-700">{a}</div>)}
+                          {i.bloqueio && (
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-red-700 font-semibold" role="alert">Bloqueado: {i.bloqueio}.
+                              {podeEditar && ((i.base as any).mesesFaltantes || []).length > 0 && <Button size="sm" variant="secondary" isLoading={marcando} onClick={() => marcarFaltantes([i])}>Marcar meses sem movimento</Button>}
+                              <button className="underline font-normal" onClick={() => setFora(p => new Set(p).add(i.chave))}>ou tirar do lote</button>
+                            </div>
+                          )}
                         </td></tr>
                       )}
                     </React.Fragment>
@@ -208,7 +243,19 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           </div>
           <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={exportarPrevia} disabled={!final.length}><FileSpreadsheet size={14} className="mr-1" />Prévia em Excel ({final.length})</Button></div>
           {fora.size > 0 && <p className="text-xs text-slate-500">{fora.size} fatura(s) retirada(s) da prévia. <button className="text-primary-700 underline" onClick={() => setFora(new Set())}>Recolocar</button></p>}
-          {podeEditar && final.length > 0 && (
+          {podeEditar && bloqueados.length > 0 && (
+            <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800 flex flex-wrap items-center gap-3" role="alert">
+              <span className="flex-1"><b>{bloqueados.length}</b> fatura(s) bloqueada(s): faltam dados. Marque os meses sem movimento, lance o que falta ou tire-as do lote para poder emitir.</span>
+              {bloqueados.some(i => ((i.base as any).mesesFaltantes || []).length) && <Button size="sm" variant="secondary" isLoading={marcando} onClick={() => marcarFaltantes(bloqueados)}>Marcar todos como sem movimento</Button>}
+            </div>
+          )}
+          {podeEditar && tipo === 'ACERTO' && soSemDiferenca.length > 0 && (
+            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 text-sm flex flex-wrap items-center gap-3">
+              <span className="flex-1"><b>{soSemDiferenca.length}</b> OM/serviço(s) sem diferença: não geram fatura. Registre a apuração para constar como concluída.</span>
+              <Button size="sm" variant="secondary" isLoading={marcando} onClick={registrarSemDiferenca}>Registrar apuração sem diferença</Button>
+            </div>
+          )}
+          {podeEditar && final.length > 0 && bloqueados.length === 0 && (
             <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 flex flex-wrap items-center gap-3">
               <span className="text-sm text-slate-700 flex-1">Emitir <b>{final.length}</b> faturas de {referencia(compLote)} com emissão em <b>{br(emissao)}</b>, certificação no SIPLAD até <b>{br(limite)}</b> e vencimento em <b>{br(tipo === 'OND' ? limite : vencimento)}</b>. A numeração segue a ordem acima, sem lacunas.</span>
               {!confirmar ? <Button onClick={() => setConfirmar(true)}><Send size={16} className="mr-2" />Emitir lote</Button> : (

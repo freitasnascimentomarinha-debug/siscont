@@ -27,7 +27,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], creditos_om: [], om_historico: [], regime_ond: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], creditos_om: [], meses_sem_movimento: [], apuracoes_ond: [], om_historico: [], regime_ond: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -2877,6 +2877,84 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
     await page.getByTestId('saldos-om').getByText('R$ 5.000,00').first().waitFor();
     ok(true, 'o saldo da OM volta a R$ 5.000,00 na tela');
+  });
+
+  await cenario('Encerramento do exercício (Fases D e E): subsídios exigidos, sem movimento, apuração única, painel e relatórios', [], async (page, db) => {
+    const mk = (cod, nome) => { const o = { id: uid(), codigo: cod, nome, tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [] }; db.oms.push(o); return o; };
+    const x = mk('65701', 'Hospital Central da Marinha'), y = mk('65702', 'Centro de Instrução Almirante Wandenkolk');
+    const ano = 2026;
+    const fat = (om, mes, valor, extra = {}) => ({ id: uid(), ug: om.codigo, sector: 'DGMM', command: om.codigo, client: om.nome, invoice_number: `${om.codigo}-AE-${String(mes).padStart(2, '0')}-${ano}-001-0`, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${ano}-${String(mes).padStart(2, '0')}-15`, due_date: `${ano}-${String(mes).padStart(2, '0')}-28`, month_competence: mes, year_competence: ano, competence: `${String(mes).padStart(2, '0')}/${ano}`, type: 'Água e Esgoto', service_acronym: 'AE',
+      is_canceled: false, siplad_settled: false, om_id: om.id, origem: 'Lote', quitacao_externa: null, contestada: false, pontos_atencao: [], estimado: false, lote_id: null, base_calculo: null, acerto_de: null, ...extra });
+    db.invoices = [];
+    [x, y].forEach(om => { [1, 2, 3, 4, 5, 6, 7, 8].forEach(m => db.invoices.push(fat(om, m, 1000))); db.invoices.push(fat(om, 10, 3000, { estimado: true })); });
+    db.regime_ond.push({ id: uid(), escopo: 'SERVICO', sigla: 'AE', om_id: null, ano_inicio: ano, regime: 1, motivo: 'inicial', origem: 'MIGRACAO', criado_em: `${ano}-01-02T10:00:00Z` });
+    // X: OUT e NOV lançados, falta DEZ. Y: OUT, NOV e DEZ = 1.000 cada (igual ao estimado)
+    db.medicoes.push({ id: uid(), competencia: `${ano}-10`, sigla: 'AE', om_id: x.id, quantidade: 120, valor: 1200, estimada: false }, { id: uid(), competencia: `${ano}-11`, sigla: 'AE', om_id: x.id, quantidade: 110, valor: 1100, estimada: false });
+    [10, 11, 12].forEach(m => db.medicoes.push({ id: uid(), competencia: `${ano}-${m}`, sigla: 'AE', om_id: y.id, quantidade: 100, valor: 1000, estimada: false }));
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Encerramento do exercício', exact: true }).click();
+    await page.getByTestId('tabela-encerramento').getByText('Subsídios parcialmente lançados').waitFor();
+    const ind = (await page.getByTestId('indicadores-encerramento').innerText()).replace(/\s+/g, ' ');
+    ok(/OMs participantes 2/.test(ind) && /Valor total estimado R\$ 6\.000,00/.test(ind) && /Subsídios reais pendentes \(meses\) 1/.test(ind), `indicadores do encerramento (${ind.slice(0, 120)})`);
+    const linhaX = (await page.getByTestId('tabela-encerramento').getByRole('row').filter({ hasText: 'Hospital Central da Marinha' }).innerText()).replace(/\s+/g, ' ');
+    const linhaY = (await page.getByTestId('tabela-encerramento').getByRole('row').filter({ hasText: 'Wandenkolk' }).innerText()).replace(/\s+/g, ' ');
+    ok(/2 de 3/.test(linhaX) && /Subsídios parcialmente lançados/.test(linhaX) && /3 de 3/.test(linhaY) && /Pronto para apuração/.test(linhaY), 'situação por OM e serviço: parcial (2 de 3) e pronto para apuração (3 de 3)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'encerramento-1-painel.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Detalhe de Hospital Central da Marinha AE' }).click();
+    const det = (await page.getByTestId('detalhe-encerramento').innerText()).replace(/\s+/g, ' ');
+    ok(/Total R\$ 8\.000,00 ÷ 8 = média R\$ 1\.000,00 × 3 = R\$ 3\.000,00 estimado/.test(det) && /DEZ falta lançar/.test(det), 'detalhe: memória de cálculo (÷ 8, × 3), estimativa e o mês que falta');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'encerramento-2-detalhe.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+
+    // apuração em janeiro: a fatura de X fica BLOQUEADA até DEZ ser lançado ou marcado "sem movimento"
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    await page.getByLabel('Tipo de lote').selectOption('ACERTO');
+    await page.getByLabel('OND a acertar (ano)').fill(String(ano));
+    await page.getByLabel('Competência', { exact: true }).fill(`${ano + 1}-01`);
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('BLOQUEADA', { exact: true }).waitFor();
+    ok(await page.getByText(/1 fatura\(s\) bloqueada\(s\): faltam dados/).isVisible() && (await page.getByRole('button', { name: 'Emitir lote' }).count()) === 0, 'faltando um mês, a fatura sai bloqueada e não dá para emitir');
+    ok(await page.getByText(/1 OM\/serviço\(s\) sem diferença/).first().isVisible(), 'a OM sem diferença aparece como pendência de registro (não gera fatura)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'encerramento-3-bloqueio.png'), fullPage: true });
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Marcar todos como sem movimento' }).click();
+    await page.getByText('Meses marcados como sem movimento.').waitFor();
+    ok(db.meses_sem_movimento.length === 1 && db.meses_sem_movimento[0].mes === 12 && db.meses_sem_movimento[0].om_id === x.id, 'DEZ marcado como sem movimento para a OM (valor zero)');
+    await page.getByRole('button', { name: 'Emitir lote' }).waitFor();
+    // registrar a apuração sem diferença da OM Y
+    await page.getByRole('button', { name: 'Registrar apuração sem diferença' }).click();
+    await page.getByText(/1 apuração\(ões\) sem diferença registrada/).waitFor();
+    const sd = db.apuracoes_ond.find(a => a.om_id === y.id);
+    ok(sd && sd.resultado === 'SEM_DIFERENCA' && sd.diferenca === 0 && sd.exercicio === ano, 'apuração sem diferença registrada (sem fatura)');
+    // emitir o acerto de X: real 2.300 < estimado 3.000 → crédito de 700
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    await page.getByText(/Lote emitido: 1 faturas/).first().waitFor({ timeout: 15000 });
+    const ax = db.apuracoes_ond.find(a => a.om_id === x.id);
+    ok(ax && ax.resultado === 'CREDITO' && ax.diferenca === -700 && ax.estimado === 3000 && ax.real === 2300 && /AE-01-2027/.test(ax.acerto_numero) && ax.memoria.mesesSemMovimento.length === 1, 'apuração gravada: crédito de 700 (estimado 3.000, real 2.300), com a memória e o nº do acerto');
+    ok(db.creditos_om.some(m => m.tipo === 'ENTRADA_ACERTO' && m.om_id === x.id && m.valor === 700), 'o crédito de R$ 700,00 entrou no livro da OM');
+    // calcular de novo: nada a apurar (cada acerto é apurado uma vez só)
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText(/2 acerto\(s\) de 2026 já foram apurados e não entram de novo/).waitFor();
+    ok(true, 'repetir a rotina não apura de novo (apuração única por OM, serviço e exercício)');
+    // painel depois da apuração
+    await page.getByRole('button', { name: 'Encerramento do exercício', exact: true }).click();
+    await page.getByRole('button', { name: 'Atualizar' }).last().click();
+    await page.getByTestId('tabela-encerramento').getByText('Crédito registrado').waitFor();
+    const t2 = (await page.getByTestId('tabela-encerramento').innerText()).replace(/\s+/g, ' ');
+    ok(/Crédito registrado/.test(t2) && /Sem diferença/.test(t2), 'painel: crédito registrado (X) e sem diferença (Y)');
+    const ind2 = (await page.getByTestId('indicadores-encerramento').innerText()).replace(/\s+/g, ' ');
+    ok(/Apurações concluídas 2/.test(ind2) && /Créditos gerados R\$ 700,00/.test(ind2) && /Saldo de créditos disponíveis R\$ 700,00/.test(ind2), `indicadores depois da apuração (${ind2.slice(0, 160)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'encerramento-4-apurado.png'), fullPage: true });
+    // relatórios em Excel
+    await page.getByLabel('Relatório').selectOption('estimativa_real');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    ok(/encerramento_2026_estimativa_real\.xlsx$/.test(dl.suggestedFilename()), `relatório "Estimativa × real" exportado em Excel (${dl.suggestedFilename()})`);
+    const [dl2] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
+    ok(/\.pdf$/.test(dl2.suggestedFilename()), 'o mesmo relatório em PDF');
   });
 
   await browser.close();

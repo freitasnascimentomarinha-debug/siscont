@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Emissora, resolverEmissora } from '../utils/emissora';
 import { UsoCredito, creditoCompensadoNaFatura } from '../utils/creditosAcerto';
 import { regimeOndService } from './regimeOndService';
+import { desfazerApuracoesDoLote, listarApuracoes, listarSemMovimento, registrarApuracoes } from './encerramentoService';
 import { estornarLote, registrarEntradasDeAcerto, registrarUsosDoLote } from './creditosOmService';
 import { supabase } from './supabase';
 import { db } from './db';
@@ -186,10 +187,12 @@ export function omsNaData(ctx: ContextoFaturamento, historico: OMHistorico[], da
 export async function montarDados(ctx: ContextoFaturamento, tipo: TipoLote, comp: string): Promise<DadosLote> {
   const { ano } = partes(comp);
   const comps = competenciasDoLote(tipo, comp);
-  const [precos, medicoes, atracacoes, historicoOM, regimesOnd] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps), cadastroService.listarHistoricoOM(), tipo === 'OND' ? regimeOndService.listar() : Promise.resolve([])]);
+  const fim = tipo === 'OND' || tipo === 'ACERTO';
+  const [precos, medicoes, atracacoes, historicoOM, regimesOnd, semMov, apuracoes] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps), cadastroService.listarHistoricoOM(),
+    fim ? regimeOndService.listar() : Promise.resolve([]), fim ? listarSemMovimento(ano) : Promise.resolve([]), tipo === 'ACERTO' ? listarApuracoes() : Promise.resolve([])]);
   return {
     competencia: comp, tipo, oms: omsNaData(ctx, historicoOM, dataEmissaoPadrao(comp, ctx.diaEmissao)), servicos: ctx.servicos, precos, medicoes, atracacoes,
-    historico: historicoDe(ctx.invoices), regimesOnd,
+    historico: historicoDe(ctx.invoices), regimesOnd, semMovimento: semMov, apuracoes,
   };
 }
 
@@ -217,6 +220,8 @@ const fmtQtd = (n: number | null) => (n === null || n === undefined ? '' : n.toL
 
 export async function emitirLote(itens: ItemLote[], opcoes: {
   tipo: TipoLote; competencia: string; emissao: string; limite: string; vencimento?: string; usuario: string; observacao?: string;
+  /** apurações do acerto (uma por OM, serviço e exercício), gravadas junto com as faturas */
+  apuracoes?: Omit<import('../utils/faturamento').ApuracaoLinha, 'id'>[];
 }, onProgresso?: (m: string) => void) {
   if (!itens.length) throw new Error('Nenhuma fatura para emitir.');
   if (itens.some(i => !i.numero)) throw new Error('Há faturas sem número.');
@@ -253,7 +258,15 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
   const usosCredito = itens.map((i, k) => ({ omId: i.omId, numero: i.numero!, faturaId: linhas[k].id, creditos: i.creditos || [] })).filter(u => u.creditos.length);
   const entradasAcerto = opcoes.tipo === 'ACERTO' ? itens.filter(i => i.acertoDe && Number((i.base as any)?.credito) > 0 && (i.base as any)?.tipo !== 'CORRECAO')
     .map(i => ({ omId: i.omId, numero: i.numero!, sigla: i.sigla, credito: Number((i.base as any).credito), exercicio: Math.floor((lerFatura(i.acertoDe!)?.competencia ?? 0) / 100) })) : [];
-  let livroGravado = false;
+  let livroGravado = false, apuracaoGravada = false;
+  if (opcoes.tipo === 'ACERTO' && opcoes.apuracoes?.length) {
+    // só as apurações das faturas que estão no lote (mais as sem diferença, que não geram fatura); o banco recusa a repetição
+    const numeroPorChave = new Map(itens.map(i => [i.chave, i.numero!]));
+    const chaveItens = new Set(itens.map(i => i.chave));
+    const doLote = opcoes.apuracoes.filter(a => a.resultado === 'SEM_DIFERENCA' || chaveItens.has(`${a.omId}|${a.sigla}`)).map(a => ({ ...a, acertoNumero: numeroPorChave.get(`${a.omId}|${a.sigla}`) ?? null }));
+    try { await registrarApuracoes(doLote, loteId); apuracaoGravada = true; }
+    catch (e) { await supabase.from('lotes_faturamento').delete().eq('id', loteId); throw e; }
+  }
   if (usosCredito.length || entradasAcerto.length) {
     try {
       await registrarEntradasDeAcerto(entradasAcerto, loteId, opcoes.emissao);
@@ -261,6 +274,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       livroGravado = true;
     } catch (e) {
       await estornarLote(loteId, opcoes.emissao).catch(() => undefined);
+      if (apuracaoGravada) await desfazerApuracoesDoLote(loteId).catch(() => undefined);
       await supabase.from('lotes_faturamento').delete().eq('id', loteId);
       throw e;
     }
@@ -273,6 +287,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
     }
     if (error) {
       if (livroGravado) await estornarLote(loteId, opcoes.emissao).catch(() => undefined);
+      if (apuracaoGravada) await desfazerApuracoesDoLote(loteId).catch(() => undefined);
       await supabase.from('lotes_faturamento').delete().eq('id', loteId);
       if (/duplicate key/.test(error.message)) throw new Error('Algum número de fatura já existe (outra emissão ao mesmo tempo?). Recalcule a prévia e tente de novo.');
       checar(error);

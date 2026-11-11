@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { podeEditarDados } from '../types';
+import { podeEditarDados, veComoAdmin } from '../types';
 import { ContextoFaturamento, Fase3NaoInstaladaError, carregarContexto, listarLotes } from '../services/faturamentoService';
 import { LoteTab } from '../components/faturamento/LoteTab';
 import { MedicoesTab } from '../components/faturamento/MedicoesTab';
@@ -10,6 +10,7 @@ import { PrecosTab } from '../components/faturamento/PrecosTab';
 import { LotesEmitidos } from '../components/faturamento/LotesEmitidos';
 import { CorrecaoTab } from '../components/faturamento/CorrecaoTab';
 import { CreditosTab } from '../components/faturamento/CreditosTab';
+import { EncerramentoTab } from '../components/faturamento/EncerramentoTab';
 import { ResumoMesTab } from '../components/faturamento/ResumoMesTab';
 import { compAtual } from '../components/faturamento/comum';
 import { AbaFaturamento } from '../utils/resumoFaturamento';
@@ -24,6 +25,7 @@ const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; labe
   { id: 'atracacao', label: 'Atracação' },
   { id: 'lote', label: 'Lote de faturas' },
   { id: 'creditos', label: 'Créditos da OM' },
+  { id: 'encerramento', label: 'Encerramento do exercício' },
   // a norma (OI) e o item ficam no texto dentro da aba, não no nome
   { id: 'correcao', label: 'Correção por atraso' },
 ];
@@ -87,6 +89,7 @@ export const Faturamento: React.FC = () => {
               <LoteTab ctx={ctx} usuario={user?.name || user?.email || ''} podeEditar={podeEditar} onEmitido={carregar} comp={comp} setComp={setComp} />
               <LotesEmitidos ctx={ctx} podeEditar={podeEditar} versao={versao} recarregar={carregar} />
             </div>}
+            {abertas.has('encerramento') && <div role="tabpanel" hidden={aba !== 'encerramento'}><EncerramentoTab admin={veComoAdmin(user?.role)} /></div>}
             {abertas.has('creditos') && <div role="tabpanel" hidden={aba !== 'creditos'}><CreditosTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} versao={versao} recarregar={carregar} /></div>}
             {abertas.has('correcao') && <div role="tabpanel" hidden={aba !== 'correcao'}><CorrecaoTab ctx={ctx} podeEditar={podeEditar} usuario={user?.name || user?.email || ''} onEmitido={carregar} /></div>}
           </div>

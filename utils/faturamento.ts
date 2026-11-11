@@ -33,6 +33,8 @@ export interface ItemLote {
   chave: string; omId: string; om: OMFat; sigla: string; servico: string; unidade: string;
   quantidade: number | null; quantidade2: number | null; valor: number; acrescimo: number; debito: number;
   base: Base; avisos: string[]; acertoDe?: string; estimado?: boolean;
+  /** impede a emissão enquanto houver: ex. faltam faturas/subsídios sem a marca "sem movimento" (confira ou tire do lote) */
+  bloqueio?: string;
   numero?: string; adiantamentos?: { docId: string; numero: string; valor: number }[];
   /** crédito de acerto compensado nesta fatura (já somado ao débito, linha 04) */
   creditos?: { chave: string; numero: string; valor: number }[];
@@ -92,6 +94,17 @@ export interface DadosLote {
   divisorOnd?: 'PERIODO' | 'MESES_FATURADOS';
   /** Regimes de fim de exercício por serviço e exceções por OM (script 032). Sem linhas = comportamento de antes (nada é excluído). */
   regimesOnd?: LinhaRegime[];
+  /** Meses marcados como "sem movimento" (valem zero na média da estimativa e no acerto) e apurações já feitas (script 034). */
+  semMovimento?: SemMovimento[];
+  apuracoes?: ApuracaoLinha[];
+}
+
+export interface SemMovimento { omId: string; sigla: string; ano: number; mes: number }
+export type ResultadoApuracao = 'DEBITO' | 'CREDITO' | 'SEM_DIFERENCA';
+export interface ApuracaoLinha {
+  id?: string; omId: string; sigla: string; exercicio: number; estimadaNumero?: string | null; estimado: number; real: number; diferenca: number;
+  resultado: ResultadoApuracao; acertoNumero?: string | null; loteId?: string | null; memoria?: Record<string, unknown> | null;
+  criadoPorNome?: string | null; criadoEm?: string | null; canceladaEm?: string | null; canceladaMotivo?: string | null;
 }
 
 /** A OM e o serviço entram na estimativa do OND? (regime 1 ou sem regra; regimes 2 e 3 ficam de fora) */
@@ -161,6 +174,24 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
   return itens.filter(i => i.valor > 0 || i.avisos.length);
 }
 
+/** Já existe fatura de outubro (não cancelada, que não é acerto) deste serviço para a OM no exercício: a estimativa já foi emitida. */
+export const jaTemOutubro = (d: Pick<DadosLote, 'historico'>, omId: string, sigla: string, ano: number) =>
+  d.historico.some(h => h.ano === ano && h.mes === 10 && !h.cancelada && !h.acertoDe && h.omId === omId && h.sigla === sigla);
+const semMov = (d: Pick<DadosLote, 'semMovimento'>, omId: string, sigla: string, ano: number, mes: number) =>
+  (d.semMovimento || []).some(x => x.omId === omId && x.sigla === sigla && x.ano === ano && x.mes === mes);
+
+/** Pares (OM, serviço) cuja estimativa de outubro já foi emitida no exercício — a prévia avisa e não os repete. */
+export function estimativasJaEmitidas(d: DadosLote): { omId: string; sigla: string }[] {
+  const { ano, mes } = partes(d.competencia);
+  if (mes !== 10) return [];
+  const vistos = new Set<string>(), out: { omId: string; sigla: string }[] = [];
+  d.historico.filter(h => h.ano === ano && h.mes >= 1 && h.mes <= 8 && !h.cancelada && !h.acertoDe && h.omId).forEach(h => {
+    const k = `${h.omId}|${h.sigla}`; if (vistos.has(k)) return; vistos.add(k);
+    if (participaDoOnd(d, h.omId!, h.sigla, ano) && jaTemOutubro(d, h.omId!, h.sigla, ano)) out.push({ omId: h.omId!, sigla: h.sigla });
+  });
+  return out;
+}
+
 /** Quantas OMs ficam fora da estimativa do OND por regra (regime 2 ou 3), por serviço — só para informar na prévia do lote. */
 export function foraDoOnd(d: DadosLote): { sigla: string; regime: Regime; qtd: number }[] {
   const { ano, mes } = partes(d.competencia);
@@ -199,19 +230,25 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
       const [omId, sigla] = k.split('|');
       if (omId !== om.id || !quer(sigla)) return;
       if (!participaDoOnd(d, om.id, sigla, ano)) return;      // regime 2 ou 3 (script 032)
+      if (jaTemOutubro(d, om.id, sigla, ano)) return;          // a estimativa deste exercício já foi emitida: nunca em duplicidade
       if (sigla === 'TC') return; // TC: 3 × valor mensal da tabela (abaixo)
       const divisor = d.divisorOnd === 'MESES_FATURADOS' ? s.meses.size : nMeses;
       const media = r2(s.total / divisor);
       if (media <= 0) return;
+      // mês sem fatura só vale zero se estiver marcado como "sem movimento"; senão é pendência (não se presume consumo zero)
+      const marcados = [], faltam: number[] = [];
+      for (let m = m1; m <= m2; m++) if (!s.meses.has(m)) (semMov(d, om.id, sigla, ano, m) ? marcados : faltam).push(m);
       itens.push({
         chave: k, omId: om.id, om, sigla, servico: sv.get(sigla)?.nome ?? sigla, unidade: sv.get(sigla)?.unidade ?? '',
         quantidade: null, quantidade2: null, valor: r2(media * 3), acrescimo: 0, debito: 0, estimado: true,
-        avisos: s.meses.size < nMeses ? [`Só ${s.meses.size} de ${nMeses} meses com fatura no período: confira a média.`] : [],
-        base: { regra: `Estimado OND: 3 × média mensal ${mesesDoAno[m1 - 1]}–${mesesDoAno[m2 - 1]}/${ano} (÷ ${divisor})`, totalPeriodo: r2(s.total), divisor, mesesComFatura: s.meses.size, mediaMensal: media },
+        avisos: [...(faltam.length ? [`Sem fatura em ${faltam.map(m => mesesDoAno[m - 1]).join(', ')} e sem a marca "sem movimento": confira antes de emitir.`] : []),
+          ...(marcados.length ? [`Meses sem movimento (valem zero): ${marcados.map(m => mesesDoAno[m - 1]).join(', ')}.`] : [])],
+        bloqueio: faltam.length ? `Faltam as faturas de ${faltam.map(m => mesesDoAno[m - 1]).join(', ')}/${ano}: lance ou marque "sem movimento"` : undefined,
+        base: { regra: `Estimado OND: 3 × média mensal ${mesesDoAno[m1 - 1]}–${mesesDoAno[m2 - 1]}/${ano} (÷ ${divisor})`, totalPeriodo: r2(s.total), divisor, mesesComFatura: s.meses.size, mesesSemMovimento: marcados, mesesFaltantes: faltam, mediaMensal: media },
       });
     });
     // TC: 3 × valor mensal da tabela do ano (sem tabela, usa a média como os demais)
-    if (quer('TC') && participaDoOnd(d, om.id, 'TC', ano)) {
+    if (quer('TC') && participaDoOnd(d, om.id, 'TC', ano) && !jaTemOutubro(d, om.id, 'TC', ano)) {
       const p = d.precos.find(x => x.ano === ano && x.sigla === 'TC' && x.omId === om.id);
       const s = soma.get(`${om.id}|TC`);
       const mensal = p?.valor ?? (s ? r2(s.total / (d.divisorOnd === 'MESES_FATURADOS' ? s.meses.size : nMeses)) : 0);
@@ -222,7 +259,7 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
       });
     }
     // DA: diária × dias previstos OUT–DEZ
-    if (!quer('DA') || !participaDoOnd(d, om.id, 'DA', ano)) return;
+    if (!quer('DA') || !participaDoOnd(d, om.id, 'DA', ano) || jaTemOutubro(d, om.id, 'DA', ano)) return;
     const prev = d.atracacoes.filter(a => a.omId === om.id && a.previsao && partes(a.competencia).ano === ano && partes(a.competencia).mes >= 10);
     const dias = prev.reduce((s, a) => s + a.diasAtracado, 0);
     if (!dias) return;
@@ -239,15 +276,33 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
   return itens;
 }
 
+/** A fatura de outubro é a estimativa do exercício? Marcada como estimativa, ou (importada) a OM está no regime 1 e não tem fatura mensal em nov/dez. */
+export function ehEstimativa(d: Pick<DadosLote, 'historico' | 'regimesOnd'>, h: FaturaHist): boolean {
+  if (h.cancelada || h.acertoDe || h.mes !== 10 || !h.omId) return false;
+  if (h.estimado) return true;
+  if (resolverRegime(d.regimesOnd || [], h.omId, h.sigla, h.ano).regime !== 1) return false;
+  return !d.historico.some(x => x.ano === h.ano && (x.mes === 11 || x.mes === 12) && !x.cancelada && !x.acertoDe && x.omId === h.omId && x.sigla === h.sigla);
+}
+
+export interface LinhaApuracaoOnd {
+  chave: string; omId: string; sigla: string; estimativa: FaturaHist; real: number; porMes: Record<string, number>;
+  /** OUT, NOV e DEZ: tem subsídio real lançado ou está marcado "sem movimento" */
+  lancados: Record<string, boolean>; faltam: number[]; diferenca: number; resultado: ResultadoApuracao | null; jaApurada: boolean;
+}
+export interface ApuracaoOnd {
+  itens: ItemLote[]; semDiferenca: Omit<ApuracaoLinha, 'id'>[]; apuracoes: Omit<ApuracaoLinha, 'id'>[]; jaApuradas: { omId: string; sigla: string; numero: string }[]; linhas: LinhaApuracaoOnd[];
+}
+
 /**
- * Acerto do OND: a fatura de acerto traz o consumo REAL de OUT, NOV e DEZ (valor do serviço, quantidade) e abate o ESTIMADO
- * já faturado na linha 04 (débito). Estimado 100.000 e real 80.000 → serviço 80.000 − débito 100.000 = −20.000 (crédito da
- * OM); real 120.000 → +20.000 a pagar. A diferença zero não gera fatura.
+ * Apuração do OND: compara a estimativa emitida com o consumo REAL de OUT, NOV e DEZ.
+ * Precisa dos três meses (subsídio lançado ou marcado "sem movimento"); sem eles a fatura fica BLOQUEADA, nunca se presume zero.
+ * Real maior → fatura de acerto a pagar (débito complementar); real menor → fatura de acerto com crédito da OM; igual → sem fatura
+ * (a apuração é registrada como "sem diferença"). Uma apuração por OM, serviço e exercício: o que já foi apurado não se repete.
  */
-export function calcularAcerto(d: DadosLote & { anoOnd: number }): ItemLote[] {
+export function apurarOnd(d: DadosLote & { anoOnd: number }): ApuracaoOnd {
   const reais = new Map<string, { valor: number; quantidade: number | null; porMes: Record<string, number> }>();
-  [10, 11, 12].forEach(mes => {
-    const comp = competenciaDe(d.anoOnd, mes);
+  const comps = [10, 11, 12].map(m => competenciaDe(d.anoOnd, m));
+  comps.forEach(comp => {
     calcularMes({ ...d, siglas: undefined }, comp, o => o.tipo !== 'EXTRA_MB').forEach(i => {
       const r = reais.get(i.chave) || { valor: 0, quantidade: null, porMes: {} };
       r.valor = r2(r.valor + i.valor); r.porMes[comp] = i.valor;
@@ -257,31 +312,45 @@ export function calcularAcerto(d: DadosLote & { anoOnd: number }): ItemLote[] {
   });
   const sv = new Map(d.servicos.map(s => [s.sigla, s]));
   const omPorId = new Map(d.oms.map(o => [o.id, o]));
-  const estimadas = d.historico.filter(h => h.ano === d.anoOnd && h.mes === 10 && h.estimado && !h.cancelada && h.omId);
-  const itens: ItemLote[] = [];
-  estimadas.forEach(h => {
+  const ativas = (d.apuracoes || []).filter(a => !a.canceladaEm);
+  const out: ApuracaoOnd = { itens: [], semDiferenca: [], apuracoes: [], jaApuradas: [], linhas: [] };
+  d.historico.filter(h => h.ano === d.anoOnd && ehEstimativa(d, h)).forEach(h => {
     const om = omPorId.get(h.omId!);
     if (!om || (d.siglas && !d.siglas.includes(h.sigla))) return;
     const chave = `${om.id}|${h.sigla}`;
     const rr = reais.get(chave);
     const real = rr?.valor ?? 0;
     const dif = r2(real - h.valor);
-    if (Math.abs(dif) < 0.01) return;
+    const lancados: Record<string, boolean> = {}, faltam: number[] = [];
+    [10, 11, 12].forEach((m, k) => { const ok = rr?.porMes[comps[k]] !== undefined || semMov(d, om.id, h.sigla, d.anoOnd, m); lancados[comps[k]] = ok; if (!ok) faltam.push(m); });
+    const resultado: ResultadoApuracao = Math.abs(dif) < 0.01 ? 'SEM_DIFERENCA' : dif > 0 ? 'DEBITO' : 'CREDITO';
+    // já apurada: apuração registrada, ou fatura de acerto (não cancelada) da estimada
+    const chaveEst = h.numero.replace(/-\d$/, '');
+    const jaApurada = ativas.some(a => a.omId === om.id && a.sigla === h.sigla && a.exercicio === d.anoOnd)
+      || d.historico.some(x => !x.cancelada && x.acertoDe && x.acertoDe.replace(/-\d$/, '') === chaveEst);
+    out.linhas.push({ chave, omId: om.id, sigla: h.sigla, estimativa: h, real, porMes: rr?.porMes ?? {}, lancados, faltam, diferenca: dif, resultado: faltam.length ? null : resultado, jaApurada });
+    if (jaApurada) { out.jaApuradas.push({ omId: om.id, sigla: h.sigla, numero: h.numero }); return; }
     const avisos: string[] = [];
-    if (real === 0) avisos.push('Sem medição real de OUT–DEZ: confira antes de emitir (todo o estimado vira crédito da OM).');
+    if (faltam.length) avisos.push(`Faltam os subsídios reais de ${faltam.map(m => mesesDoAno[m - 1]).join(', ')}/${d.anoOnd} (lance ou marque "sem movimento").`);
     if ((h.saldo ?? 0) > 0.01) avisos.push(`A fatura estimada ${h.numero} ainda tem R$ ${(h.saldo as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em aberto: o crédito só existe de fato depois que ela for paga.`);
-    itens.push({
+    const base = {
+      regra: `Acerto do OND ${d.anoOnd}: consumo real OUT–DEZ, abatido o estimado já faturado (linha 04), até o valor do consumo real`,
+      estimado: h.valor, real, debitado: r2(Math.min(h.valor, real)), diferenca: dif, credito: dif < 0 ? -dif : 0, aPagar: dif > 0 ? dif : 0, porMes: rr?.porMes ?? {}, faturaEstimada: h.numero,
+    };
+    const memoria = { ...base, mesesSemMovimento: [10, 11, 12].filter(m => semMov(d, om.id, h.sigla, d.anoOnd, m)) };
+    if (!faltam.length) out.apuracoes.push({ omId: om.id, sigla: h.sigla, exercicio: d.anoOnd, estimadaNumero: h.numero, estimado: h.valor, real, diferenca: dif, resultado, memoria });
+    if (resultado === 'SEM_DIFERENCA' && !faltam.length) { out.semDiferenca.push({ omId: om.id, sigla: h.sigla, exercicio: d.anoOnd, estimadaNumero: h.numero, estimado: h.valor, real, diferenca: 0, resultado, memoria }); return; }
+    out.itens.push({
       chave, omId: om.id, om, sigla: h.sigla, servico: sv.get(h.sigla)?.nome ?? h.sigla, unidade: sv.get(h.sigla)?.unidade ?? '-',
       quantidade: rr?.quantidade ?? null, quantidade2: null, valor: real, acrescimo: 0, debito: r2(Math.min(h.valor, real)),
-      acertoDe: h.numero, avisos,
-      base: {
-        regra: `Acerto do OND ${d.anoOnd}: consumo real OUT–DEZ, abatido o estimado já faturado (linha 04), até o valor do consumo real`,
-        estimado: h.valor, real, debitado: r2(Math.min(h.valor, real)), diferenca: dif, credito: dif < 0 ? -dif : 0, aPagar: dif > 0 ? dif : 0, porMes: rr?.porMes ?? {}, faturaEstimada: h.numero,
-      },
+      acertoDe: h.numero, avisos, bloqueio: faltam.length ? `Faltam os subsídios reais de ${faltam.map(m => mesesDoAno[m - 1]).join(', ')}/${d.anoOnd}` : undefined, base: { ...base, mesesFaltantes: faltam },
     });
   });
-  return itens;
+  return out;
 }
+
+/** Itens da fatura de acerto (compatível com o uso anterior). */
+export const calcularAcerto = (d: DadosLote & { anoOnd: number }): ItemLote[] => apurarOnd(d).itens;
 
 // ------------------------------------------------------------------ adiantamento
 /**

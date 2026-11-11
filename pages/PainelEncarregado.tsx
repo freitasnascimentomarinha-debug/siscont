@@ -8,6 +8,7 @@ import { VisaoGeral } from '../components/painel/VisaoGeral';
 import { OMsTab } from '../components/painel/OMsTab';
 import { ContestacoesTab } from '../components/painel/ContestacoesTab';
 import { EquipeTab } from '../components/painel/EquipeTab';
+import { EncerramentoTab } from '../components/faturamento/EncerramentoTab';
 import { PlanilhaCongestionamento } from '../components/painel/PlanilhaCongestionamento';
 import { AbaPainel, CtxPainel } from '../components/painel/tipos';
 import { adiantamentosComSaldo, carregarBase, listarCobrancas, saldosParados } from '../services/relatoriosService';
@@ -28,7 +29,7 @@ import { baixarBytes } from '../utils/baixarArquivo';
 
 type Base = Awaited<ReturnType<typeof carregarBase>>;
 const ABAS: { id: AbaPainel; rotulo: string }[] = [
-  { id: 'geral', rotulo: 'Visão geral' }, { id: 'oms', rotulo: 'OM' }, { id: 'contestacoes', rotulo: 'Contestações e pendências' }, { id: 'equipe', rotulo: 'Equipe' },
+  { id: 'geral', rotulo: 'Visão geral' }, { id: 'oms', rotulo: 'OM' }, { id: 'contestacoes', rotulo: 'Contestações e pendências' }, { id: 'equipe', rotulo: 'Equipe' }, { id: 'encerramento', rotulo: 'Encerramento do exercício' },
 ];
 const totalDe = (i: { value: number; adjustmentAddition?: number; adjustmentDeduction?: number }) => i.value + (i.adjustmentAddition || 0) - (i.adjustmentDeduction || 0);
 
@@ -232,6 +233,7 @@ export const PainelEncarregado: React.FC = () => {
             {aba === 'oms' && <OMsTab ctx={ctx} />}
             {aba === 'contestacoes' && <ContestacoesTab ctx={ctx} />}
             {aba === 'equipe' && <EquipeTab ctx={ctx} />}
+            {aba === 'encerramento' && <EncerramentoTab />}
           </div>
         </>
       )}
