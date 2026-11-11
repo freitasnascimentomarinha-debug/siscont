@@ -3013,6 +3013,28 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(nomes.join(' | ') === 'AE-001_65701-AE-10-2026-001-0.pdf | AE-002_65702-AE-10-2026-002-0.pdf | EL-001_65701-EL-10-2026-001-0.pdf | EL-002_65702-EL-10-2026-002-0.pdf', `arquivos por tipo e numeração (${nomes.join(' ')})`);
   });
 
+  await cenario('PDF do Mapa Analítico: assinatura com nome e posto, e vencimento em coluna separada do número da fatura', [], async (page, db) => {
+    const { execFileSync } = require('child_process');
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    const dim = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(dim);
+    db.parametros.push({ chave: 'encarregado_nome', valor: 'Jéssica CAROLINE da S. SAMPAIO Queiroz' }, { chave: 'encarregado_posto', valor: 'Capitão de Corveta (IM)' });
+    db.invoices = [{ id: uid(), invoice_number: '40030-TC-08-2026-001-0', ug: '40030', sector: 'DGMM', command: 'x', client: dim.nome, value: 1000, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-10-15',
+      month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false, om_id: dim.id }];
+    await page.reload();
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('button', { name: /Mapa Analítico de Contas/ }).click();
+    await page.getByText('Dívida em aberto').waitFor();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
+    const arq = path.join(os.tmpdir(), `siscont-e2e-mapa-${Date.now()}.pdf`); fs.copyFileSync(await dl.path(), arq);
+    const txt = execFileSync('pdftotext', ['-layout', arq, '-']).toString();
+    ok(/JÉSSICA CAROLINE DA S\. SAMPAIO QUEIROZ/.test(txt) && /Capitão de Corveta \\?\(IM\\?\)/.test(txt) && /Encarregado da Divisão de Contabilidade/.test(txt) && /ASSINADO DIGITALMENTE/.test(txt), 'assinatura do PDF com o nome, o posto/graduação e o cargo do Encarregado');
+    ok(/Vencimento/.test(txt) && /Atraso/.test(txt), 'o PDF tem as colunas Vencimento e Atraso');
+    const linha = txt.split('\n').find(l => l.includes('40030-TC-08-2026-001-0')) || '';
+    ok(/40030-TC-08-2026-001-0 \(Taxa Condominial\)\s+15\/10\/2026\s+\d+ dias/.test(linha) && !/venc\./.test(txt), `a data de vencimento fica numa coluna, separada do número da fatura (${linha.trim().slice(0, 100)})`);
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));

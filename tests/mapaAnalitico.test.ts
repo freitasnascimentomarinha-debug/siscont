@@ -164,10 +164,12 @@ describe('PDF no formato da árvore, só com o que está filtrado', () => {
   it('setor › comando › OM › faturas e créditos, na ordem da árvore', () => {
     const l = linhasArvorePdf(montarMapa(fs, crs, oms, { hoje, semContestadas: true }), moeda, data);
     expect(l.map(x => x.nivel)).toEqual(['setor', 'comando', 'cliente', 'fatura', 'fatura', 'credito']);
-    expect(l[2].celulas).toEqual(['Diretoria Industrial da Marinha', '2', 'R$ 1000.00', 'R$ 300.00', 'R$ 1300.00', 'R$ 400.00', 'R$ 900.00']);
-    expect(l[3].celulas[0]).toBe('N-1 (TC) · venc. 01/10/2026 · 40 dias');
-    expect(l[3].celulas.slice(2, 5)).toEqual(['R$ 1000.00', '', 'R$ 1000.00']); // vencida: vai na coluna Vencido
-    expect(l[4].celulas.slice(2, 5)).toEqual(['', 'R$ 300.00', 'R$ 300.00']);  // a vencer
+    expect(l[2].celulas).toEqual(['Diretoria Industrial da Marinha', '', '', '2', 'R$ 1000.00', 'R$ 300.00', 'R$ 1300.00', 'R$ 400.00', 'R$ 900.00']);
+    expect(l[3].celulas[0]).toBe('N-1 (TC)');                                      // nome/número da fatura, sem a data
+    expect(l[3].celulas.slice(1, 3)).toEqual(['01/10/2026', '40 dias']);            // vencimento e atraso em colunas próprias
+    expect(l[3].celulas.slice(4, 7)).toEqual(['R$ 1000.00', '', 'R$ 1000.00']);     // vencida: vai na coluna Vencido
+    expect(l[4].celulas.slice(0, 3)).toEqual(['N-2 (TC)', '01/12/2026', '—']);
+    expect(l[4].celulas.slice(4, 7)).toEqual(['', 'R$ 300.00', 'R$ 300.00']);       // a vencer
     expect(l[5].celulas[0]).toBe('ALTCRED/GRU AC-1');
   });
   it('só o filtro: com "vencidas" e sem contestadas, não imprime a fatura a vencer nem a contestada', () => {
@@ -178,6 +180,6 @@ describe('PDF no formato da árvore, só com o que está filtrado', () => {
   });
   it('OM só com crédito mostra a sobra na coluna A pagar', () => {
     const l = linhasArvorePdf(montarMapa([], [cr('2', 'Arsenal de Marinha do Rio de Janeiro', 5000)], oms, { hoje }), moeda, data);
-    expect(l.find(x => x.nivel === 'cliente')!.celulas[6]).toBe('— (sobra R$ 5000.00)');
+    expect(l.find(x => x.nivel === 'cliente')!.celulas[8]).toBe('— (sobra R$ 5000.00)');
   });
 });

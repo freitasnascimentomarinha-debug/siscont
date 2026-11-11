@@ -508,3 +508,6 @@ A assinatura é a mesma nas faturas e em todos os relatórios em PDF: **NOME** (
 ## Lote de faturas: ordem por tipo e numeração; ZIP único no OND
 - **Ordem:** a prévia e a emissão do lote saem organizadas por **tipo** (sigla do serviço: AE, DA, EL, ...) e, dentro de cada tipo, em ordem de **numeração** (extra-MB primeiro, depois setor, comando e cliente, como no livro de emissão). A numeração continua sequencial por serviço e **não mudou**: só a ordem da lista. Nos Lotes emitidos, as faturas também aparecem por tipo e número.
 - **ZIP do lote OND:** um **ZIP único**, sem pastas por comando, com os PDF nomeados `AE-001_40030-AE-10-2026-001-0.pdf` (tipo e sequência na frente, para ficarem em ordem em qualquer lista). Os lotes mensal e de acerto continuam com o ZIP em pastas por comando; o botão "PDF" de cada comando segue disponível.
+
+## PDF do Mapa Analítico: vencimento e atraso em colunas próprias
+Na árvore do mapa (e no PDF), cada fatura mostra o **nome e número** na primeira coluna e, em colunas separadas, o **Vencimento** e o **Atraso** (dias). A cobrança por OM já tinha o vencimento em coluna própria.
