@@ -60,8 +60,8 @@ export function resumoDoMes(d: DadosResumo): ItemResumo[] {
   });
   // o aviso das faturas da competência (lote já emitido ou faturas já existentes) vem sempre em primeiro lugar
   if (d.creditos && d.creditos.saldo > 0.005)
-    out.push({ id: 'creditos', rotulo: 'Créditos de acerto a compensar', aba: 'creditos', status: 'info',
-      detalhe: `R$ ${d.creditos.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${d.creditos.abertos} crédito(s) das OM. Na prévia do lote mensal eles abatem as faturas da mesma OM e do mesmo serviço; o que sobrar pode ser devolvido (ALTCRED/GRU).` });
+    out.push({ id: 'creditos', rotulo: 'Créditos da OM a compensar', aba: 'creditos', status: 'info',
+      detalhe: `R$ ${d.creditos.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${d.creditos.abertos} crédito(s) das OM. Na prévia do lote mensal eles abatem as faturas de qualquer serviço da mesma OM, do crédito mais antigo para o mais novo; o que sobrar pode ser devolvido (ALTCRED/GRU).` });
   const mensal = d.lotes.filter(l => l.competencia === d.comp && l.tipo === 'MENSAL');
   if (mensal.length) out.unshift({ id: 'lote', rotulo: `Lote mensal de ${ref}`, aba: 'lote', status: 'info', detalhe: `Já emitido pelo sistema: ${mensal.reduce((s, l) => s + l.qtd, 0)} fatura(s).` });
   else if (d.faturasDaCompetencia) out.unshift({ id: 'lote', rotulo: `Faturas de ${ref}`, aba: 'lote', status: 'aviso', detalhe: `Já existem ${d.faturasDaCompetencia} fatura(s) desta competência (migradas ou emitidas fora do sistema). Confira para não emitir em duplicidade.` });

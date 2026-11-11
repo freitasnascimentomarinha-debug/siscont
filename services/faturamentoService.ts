@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Emissora, resolverEmissora } from '../utils/emissora';
 import { UsoCredito, creditoCompensadoNaFatura } from '../utils/creditosAcerto';
 import { regimeOndService } from './regimeOndService';
+import { estornarLote, registrarEntradasDeAcerto, registrarUsosDoLote } from './creditosOmService';
 import { supabase } from './supabase';
 import { db } from './db';
 import { cadastroService } from './cadastroService';
@@ -247,14 +248,22 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       _adiant: i.adiantamentos || [],
     };
   });
-  // compensação de crédito de acerto: grava o uso antes das faturas (sem vínculo por chave estrangeira); se algo falhar, volta tudo
-  const usosCredito = itens.flatMap((i, k) => (i.creditos || []).map(c => ({
-    id: uuidv4(), chave: c.chave, tipo: 'COMPENSACAO', valor: r2(c.valor), data: opcoes.emissao, fatura_id: linhas[k].id, fatura_numero: i.numero!,
-    observacao: 'Compensação automática no lote', lote_id: loteId, criado_por: opcoes.usuario,
-  })));
-  if (usosCredito.length) {
-    const { error } = await supabase.from('creditos_acerto_uso').insert(usosCredito);
-    if (error) { await supabase.from('lotes_faturamento').delete().eq('id', loteId); checar(error); }
+  // livro de créditos da OM (script 033): grava o crédito usado e o crédito gerado pelos acertos ANTES das faturas.
+  // Se o saldo mudou (outra emissão ao mesmo tempo), o banco recusa e nada é emitido; se algo falhar depois, o livro é estornado.
+  const usosCredito = itens.map((i, k) => ({ omId: i.omId, numero: i.numero!, faturaId: linhas[k].id, creditos: i.creditos || [] })).filter(u => u.creditos.length);
+  const entradasAcerto = opcoes.tipo === 'ACERTO' ? itens.filter(i => i.acertoDe && Number((i.base as any)?.credito) > 0 && (i.base as any)?.tipo !== 'CORRECAO')
+    .map(i => ({ omId: i.omId, numero: i.numero!, sigla: i.sigla, credito: Number((i.base as any).credito), exercicio: Math.floor((lerFatura(i.acertoDe!)?.competencia ?? 0) / 100) })) : [];
+  let livroGravado = false;
+  if (usosCredito.length || entradasAcerto.length) {
+    try {
+      await registrarEntradasDeAcerto(entradasAcerto, loteId, opcoes.emissao);
+      await registrarUsosDoLote(usosCredito, loteId, opcoes.emissao);
+      livroGravado = true;
+    } catch (e) {
+      await estornarLote(loteId, opcoes.emissao).catch(() => undefined);
+      await supabase.from('lotes_faturamento').delete().eq('id', loteId);
+      throw e;
+    }
   }
   for (let k = 0; k < linhas.length; k += 300) {
     let { error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, ...l }) => l));
@@ -263,7 +272,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       ({ error } = await supabase.from('invoices').insert(linhas.slice(k, k + 300).map(({ _adiant, data_limite_certificacao, ...l }) => l)));
     }
     if (error) {
-      await supabase.from('creditos_acerto_uso').delete().eq('lote_id', loteId);
+      if (livroGravado) await estornarLote(loteId, opcoes.emissao).catch(() => undefined);
       await supabase.from('lotes_faturamento').delete().eq('id', loteId);
       if (/duplicate key/.test(error.message)) throw new Error('Algum número de fatura já existe (outra emissão ao mesmo tempo?). Recalcule a prévia e tente de novo.');
       checar(error);

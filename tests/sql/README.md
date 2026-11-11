@@ -146,3 +146,9 @@ Com 001 (e 018) aplicados: `psql -d sb -f tests/sql/treinamento_030_tests.sql` (
 ## Script 032 (regime de fim de exercício por serviço, com exceções por OM)
 
 Com 001–003 aplicados: `psql -d sb -f tests/sql/regime_ond_032_tests.sql` (aplica o 032 duas vezes). Esperado: regra por serviço (AE, EL, CR, TC, DA = 1; AL = 2; VT, RB = 3); exceções só para as OMs com padrão de 2025 diferente da regra (RB com fatura só em outubro não vira exceção); nenhuma linha duplicada na segunda execução; faturas intactas; o operador registra e o nome dele fica gravado; UPDATE e DELETE são recusados (até pelo administrador do banco); regime inválido ou escopo errado recusados; leitor lê mas não grava.
+
+## Script 033 (livro de créditos por OM)
+
+Com 001–003 aplicados: `psql -d sb -f tests/sql/creditos_om_033_tests.sql` (aplica o 033 duas vezes). Esperado: livro zerado; dois créditos da OM A (serviços e exercícios diferentes); acerto repetido recusado; crédito de um serviço usado por fatura de outro; mesma fatura usando o mesmo crédito duas vezes recusada; uso acima do que resta do crédito recusado; crédito de outra OM e saldo negativo recusados; devolução; estorno devolvendo o crédito (e estorno repetido ou de valor errado recusados); saldo de abertura recusado para o operador e aceito para o administrador; leitor só lê; nem o dono do banco altera ou apaga.
+
+**Duas emissões ao mesmo tempo (cenário 18):** com a OM B com saldo 1.000 e o id do crédito de abertura em `$ENT`, abra duas sessões `psql`. Sessão 1: `begin; insert ... UTILIZACAO -800 ... 'FATURA-1'; select pg_sleep(4); commit;`. Um segundo depois, sessão 2: `insert ... UTILIZACAO -800 ... 'FATURA-2';`. Esperado: a sessão 2 espera a sessão 1 terminar e então falha com "Saldo de crédito insuficiente (saldo R$ 200.00...)"; o saldo final é 200.

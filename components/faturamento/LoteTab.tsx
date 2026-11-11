@@ -3,14 +3,15 @@ import { AlertTriangle, Calculator, ChevronDown, ChevronRight, FileSpreadsheet, 
 import * as XLSX from 'xlsx';
 import { linhasPrevia } from '../../utils/resumoFaturamento';
 import {
-  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes, listarUsosCredito,
+  ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
 import { textoConsumo, descreverBase,
   DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, foraDoOnd, numerar, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
-import { CreditoAcerto, aplicarCreditos, calcularCreditos } from '../../utils/creditosAcerto';
+import { CreditoAberto, aplicarCreditosOm, creditosDaOm } from '../../utils/creditosOm';
+import { listarLivroCreditos } from '../../services/creditosOmService';
 import { Aviso, Campo, br, brl, entrada } from './comum';
 
 const MEDIDOS = ['AE', 'EL', 'TL', 'VT', 'RB', 'CR'];
@@ -25,7 +26,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [divisor, setDivisor] = useState<'PERIODO' | 'MESES_FATURADOS'>('PERIODO');
   const [abater, setAbater] = useState(true);
   const [compensar, setCompensar] = useState(true);
-  const [creditos, setCreditos] = useState<CreditoAcerto[]>([]);
+  const [creditos, setCreditos] = useState<CreditoAberto[]>([]);
   const [itens, setItens] = useState<ItemLote[] | null>(null);
   const [fora, setFora] = useState<Set<string>>(new Set());
   const [ajustes, setAjustes] = useState<Record<string, number>>({});
@@ -55,10 +56,10 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
       const aFaturar = emi ? lista.filter(i => i.omId !== emi) : lista;
       setAdiant(abater ? await adiantamentosDisponiveis() : []);
-      // créditos de acerto do OND (só no lote mensal): a OM tem crédito a compensar nas faturas do mesmo serviço
-      let cred: CreditoAcerto[] = [];
-      if (tipo === 'MENSAL') { try { cred = calcularCreditos(ctx.invoices, await listarUsosCredito()); } catch { cred = calcularCreditos(ctx.invoices, []); } }
-      setCreditos(cred.filter(c => c.saldo > 0.005));
+      // crédito da OM (livro, só no lote mensal): abate as faturas de qualquer serviço da mesma OM
+      let cred: CreditoAberto[] = [];
+      if (tipo === 'MENSAL') { try { cred = creditosDaOm((await listarLivroCreditos()).movs); } catch { cred = []; } }
+      setCreditos(cred);
       setItens(aFaturar);   // a prévia só aparece com adiantamentos e créditos já carregados (sem o valor mudar depois)
       // pendências do mês
       const p: string[] = [];
@@ -85,7 +86,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const final = useMemo(() => {
     if (!itens) return [];
     const inc = itens.filter(i => !fora.has(i.chave)).map(i => (ajustes[i.chave] !== undefined ? { ...i, valor: ajustes[i.chave], base: { ...i.base, ajusteManual: true, valorCalculado: i.valor } } : i));
-    const comCredito = compensar && tipo === 'MENSAL' ? aplicarCreditos(inc, creditos) : inc;
+    const comCredito = compensar && tipo === 'MENSAL' ? aplicarCreditosOm(inc, creditos) : inc;
     const num = numerar(comCredito, ctx.invoices.map(i => i.invoiceNumber), compLote);
     return abater && tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant) : num;
   }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo]);
@@ -134,7 +135,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           </Campo>
         )}
         {tipo !== 'ACERTO' && <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abater} onChange={e => setAbater(e.target.checked)} /> Abater adiantamento disponível</label>}
-        {tipo === 'MENSAL' && creditos.length > 0 && <label className="text-sm flex items-center gap-1.5 pb-2" title="Crédito que a OM ficou no acerto do OND: abate as faturas do mesmo serviço, da mais antiga para a mais nova."><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={compensar} onChange={e => setCompensar(e.target.checked)} /> Compensar créditos de acerto ({brl(creditos.reduce((s, c) => s + c.saldo, 0))})</label>}
+        {tipo === 'MENSAL' && creditos.length > 0 && <label className="text-sm flex items-center gap-1.5 pb-2" title="Crédito que a OM tem (acerto do OND ou saldo de abertura): abate as faturas de qualquer serviço dela, do crédito mais antigo para o mais novo."><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={compensar} onChange={e => setCompensar(e.target.checked)} /> Compensar créditos da OM ({brl(creditos.reduce((s, c) => s + c.saldo, 0))})</label>}
         <Button onClick={calcular} isLoading={calculando}>{!calculando && <Calculator size={16} className="mr-2" />}Calcular prévia</Button>
       </div>
       <div className="flex flex-wrap gap-2 text-xs">

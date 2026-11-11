@@ -27,7 +27,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], om_historico: [], regime_ond: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], creditos_om: [], om_historico: [], regime_ond: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -2051,9 +2051,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/\.zip$/.test(dlAc.suggestedFilename()), `PDF FR-172 do acerto gerado (${dlAc.suggestedFilename()})`);
 
     // aba de controle
-    await page.getByRole('button', { name: 'Créditos de acerto', exact: true }).click();
+    const entrada = db.creditos_om.find(x => x.tipo === 'ENTRADA_ACERTO');
+    ok(db.creditos_om.length === 1 && entrada.valor === 20000 && entrada.origem_chave === '65701-AE-01-2027-001' && entrada.servico_origem === 'AE' && entrada.om_id === hcm.id, 'acerto emitido grava a entrada de R$ 20.000,00 no livro de créditos da OM');
+    await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
     await page.getByText('Saldo a favor das OM').waitFor();
-    ok((await page.getByText('R$ 20.000,00').count()) >= 2 && await page.getByText('65701-AE-01-2027-001-0').first().isVisible(), 'aba Créditos de acerto mostra o crédito de R$ 20.000,00 da OM');
+    ok((await page.getByText('R$ 20.000,00').count()) >= 2 && await page.getByText('65701-AE-01-2027-001-0').first().isVisible(), 'aba Créditos da OM mostra o crédito de R$ 20.000,00 da OM');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-2-creditos.png'), fullPage: true });
 
     // lote mensal seguinte: o crédito abate a fatura de água da mesma OM
@@ -2062,7 +2064,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Competência', { exact: true }).fill('2027-02');
     await page.getByRole('button', { name: 'Calcular prévia' }).click();
     await page.getByText('65701-AE-02-2027-001-0').waitFor();
-    ok(await page.getByText(/Compensar créditos de acerto \(R\$ 20\.000,00\)/).isVisible(), 'lote mensal oferece compensar os créditos de acerto');
+    ok(await page.getByText(/Compensar créditos da OM \(R\$ 20\.000,00\)/).isVisible(), 'lote mensal oferece compensar os créditos da OM');
     const compensacao = page.getByText(/Compensação do crédito do acerto nº 65701-AE-01-2027-001-0: R\$ 15\.000,00 \(linha 04\)/);
     if (!(await compensacao.isVisible())) await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
     ok(await compensacao.isVisible(), 'a fatura de água de 15.000 é compensada pelo crédito (linha 04)');
@@ -2074,22 +2076,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Lote emitido: 1 faturas/).first().waitFor({ timeout: 15000 });
     const mensal = db.invoices.find(i => i.invoice_number === '65701-AE-02-2027-001-0');
     ok(mensal.value === 15000 && mensal.adjustment_deduction === 15000 && /Compensação do crédito do acerto nº 65701-AE-01-2027-001-0/.test(mensal.observation), 'fatura mensal: 15.000 com débito de 15.000 (crédito compensado)');
-    ok(db.creditos_acerto_uso.length === 1 && db.creditos_acerto_uso[0].valor === 15000 && db.creditos_acerto_uso[0].tipo === 'COMPENSACAO' && db.creditos_acerto_uso[0].chave === '65701-AE-01-2027-001', 'uso do crédito registrado (compensação de 15.000)');
+    const uso = db.creditos_om.find(x => x.tipo === 'UTILIZACAO');
+    ok(db.creditos_om.length === 2 && uso.valor === -15000 && uso.credito_ref === entrada.id && uso.destino_numero === '65701-AE-02-2027-001-0' && uso.om_id === hcm.id, 'uso do crédito registrado no livro (−15.000, apontando para o crédito de origem e para a fatura)');
 
     // saldo restante e devolução
-    await page.getByRole('button', { name: 'Créditos de acerto', exact: true }).click();
+    await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
     await page.getByText('R$ 5.000,00').first().waitFor();
-    await page.getByRole('button', { name: 'Registrar uso' }).click();
+    await page.getByRole('button', { name: /Devolver crédito de/ }).click();
     ok(await page.getByLabel('Valor do uso').inputValue() === '5000', 'registrar uso sugere o saldo de R$ 5.000,00');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-4-devolucao.png'), fullPage: false });
     await page.getByLabel('Valor do uso').fill('7000');
-    ok(await page.getByText(/passa do saldo do crédito/).isVisible(), 'valor acima do saldo é barrado');
+    ok(await page.getByText(/passa do saldo da OM/).isVisible(), 'valor acima do saldo é barrado');
     await page.getByLabel('Valor do uso').fill('5000');
     await page.getByLabel('Documento do uso').fill('G424.2026.AC.00999');
     await page.getByRole('dialog').getByRole('button', { name: 'Registrar', exact: true }).click();
     await page.getByText('Devolução registrada.').waitFor();
-    ok(db.creditos_acerto_uso.length === 2 && db.creditos_acerto_uso.some(u => u.tipo === 'DEVOLUCAO' && u.valor === 5000 && u.documento === 'G424.2026.AC.00999'), 'devolução de R$ 5.000,00 registrada com a ALTCRED/GRU');
-    ok((await page.getByText('Nenhum crédito com esse filtro.').count()) === 1, 'crédito zerado sai da lista (só com saldo)');
+    ok(db.creditos_om.length === 3 && db.creditos_om.some(u => u.tipo === 'DEVOLUCAO' && u.valor === -5000 && u.documento === 'G424.2026.AC.00999' && u.credito_ref === entrada.id), 'devolução de R$ 5.000,00 registrada com a ALTCRED/GRU, ligada ao crédito de origem');
+    ok((await page.getByText('Nenhuma OM com esse filtro.').count()) === 1, 'OM sem crédito sai da lista (só com saldo)');
   });
 
   await cenario('Planilha de viatura: uma aba por OM, meses atrasados somados, conferência e lançamento no serviço VT', [], async (page, db) => {
@@ -2808,6 +2811,72 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const hist = (await page.getByTestId('historico-regimes').innerText()).replace(/\s+/g, ' ');
     ok(/Configuração inicial/.test(hist) && /A OM deixou de receber estimativa/.test(hist), 'histórico lista a configuração inicial e as mudanças com o motivo');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-5-historico.png'), fullPage: true });
+  });
+
+  await cenario('Créditos da OM (Fase B): saldo de abertura, crédito vale para qualquer serviço, extrato e cancelamento da fatura estorna o crédito', [], async (page, db) => {
+    const om = { id: uid(), codigo: '65701', nome: 'Hospital Central da Marinha', tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [] };
+    db.oms.push(om);
+    db.service_definitions.push({ id: uid(), name: 'Eletricidade', unit_measure: 'KWH', acronym: 'EL', ordem: 25, ativo: true });
+    db.invoices = [];
+    db.medicoes.push({ id: uid(), competencia: '2027-02', sigla: 'AE', om_id: om.id, quantidade: 1500, valor: 15000, estimada: false });
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
+    ok(await page.getByText(/Nenhum crédito ainda/).isVisible(), 'o livro começa zerado');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-1-zerado.png'), fullPage: true });
+    // saldo de abertura (administrador): crédito de EL de um acerto anterior ao SISCONT
+    await page.getByRole('button', { name: 'Lançar saldo de abertura' }).click();
+    ok(await page.getByRole('dialog').getByRole('button', { name: 'Lançar', exact: true }).isDisabled(), 'saldo de abertura exige OM, valor, documento e a origem');
+    await page.getByLabel('OM do saldo de abertura').selectOption(om.id);
+    await page.getByLabel('Valor do saldo de abertura').fill('5000');
+    await page.getByLabel('Exercício de origem').fill('2025');
+    await page.getByLabel('Serviço de origem').fill('EL');
+    await page.getByLabel('Documento de origem').fill('Acerto EL/2025 (planilha)');
+    await page.getByLabel('Origem do saldo de abertura').fill('Crédito do acerto de janeiro/2026 feito na planilha');
+    await page.getByRole('dialog').getByRole('button', { name: 'Lançar', exact: true }).click();
+    await page.getByText('Saldo de abertura lançado.').waitFor();
+    const ab = db.creditos_om.find(x => x.tipo === 'ABERTURA');
+    ok(ab && ab.valor === 5000 && ab.om_id === om.id && ab.servico_origem === 'EL' && ab.exercicio_origem === 2025 && ab.documento === 'Acerto EL/2025 (planilha)', 'saldo de abertura gravado no livro (R$ 5.000,00, serviço EL, exercício 2025)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-2-saldo.png'), fullPage: true });
+    // lote mensal: a fatura de ÁGUA (AE) usa o crédito que veio de ENERGIA (EL)
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    await page.getByLabel('Tipo de lote').selectOption('MENSAL');
+    await page.getByLabel('Competência', { exact: true }).fill('2027-02');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('65701-AE-02-2027-001-0').waitFor();
+    const comp = page.getByText(/Compensação do crédito do acerto nº ABERTURA Acerto EL\/2025 \(planilha\): R\$ 5\.000,00 \(linha 04\)/);
+    if (!(await comp.isVisible())) await page.getByRole('button', { name: 'Ver base de cálculo' }).first().click();
+    ok(await comp.isVisible(), 'a fatura de água é compensada com crédito que veio de energia: o crédito é da OM, não do serviço');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-3-lote.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    for (let t = 0; t < 50 && !db.invoices.some(x => x.invoice_number === '65701-AE-02-2027-001-0'); t++) await page.waitForTimeout(200);
+    await page.getByText(/Lote emitido: 1 faturas/).first().waitFor({ timeout: 15000 });
+    const f = db.invoices.find(x => x.invoice_number === '65701-AE-02-2027-001-0');
+    ok(f.value === 15000 && f.adjustment_deduction === 5000, 'fatura: serviço 15.000 preservado (linha 01) e crédito de 5.000 na linha 04 (a pagar 10.000)');
+    const uso = db.creditos_om.find(x => x.tipo === 'UTILIZACAO');
+    ok(uso && uso.valor === -5000 && uso.credito_ref === ab.id && uso.destino_numero === f.invoice_number && uso.destino_id === f.id, 'livro: utilização de 5.000 aponta para o saldo de abertura e para a fatura');
+    // extrato da OM
+    await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
+    await page.getByLabel('Só com saldo').uncheck();
+    await page.getByRole('button', { name: 'Extrato de Hospital Central da Marinha' }).click();
+    const ext = (await page.getByTestId('extrato-creditos').innerText()).replace(/\s+/g, ' ');
+    ok(/Saldo de abertura/.test(ext) && /Utilizado em fatura/.test(ext) && /65701-AE-02-2027-001-0/.test(ext) && /R\$ 5\.000,00 R\$ 5\.000,00/.test(ext) && /−?R\$ 5\.000,00/.test(ext), 'extrato mostra a entrada, a utilização na fatura e o saldo depois de cada movimento');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-4-extrato.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    // cancelar a fatura: o crédito volta para a OM por estorno (o livro não apaga nada)
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('row').filter({ hasText: '65701-AE-02-2027-001-0' }).getByTitle(/Cancelar fatura/).click();
+    await page.getByLabel('Motivo').fill('Emitida com valor errado');
+    await page.getByRole('button', { name: 'Cancelar fatura', exact: true }).last().click();
+    await page.getByText('Fatura 65701-AE-02-2027-001-0 cancelada.').waitFor();
+    const est = db.creditos_om.find(x => x.tipo === 'ESTORNO');
+    ok(db.creditos_om.length === 3 && est && est.valor === 5000 && est.estorno_de === uso.id && est.credito_ref === ab.id, 'fatura cancelada: o crédito de 5.000 volta ao livro por estorno (nada foi apagado)');
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
+    await page.getByTestId('saldos-om').getByText('R$ 5.000,00').first().waitFor();
+    ok(true, 'o saldo da OM volta a R$ 5.000,00 na tela');
   });
 
   await browser.close();

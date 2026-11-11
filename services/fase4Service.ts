@@ -8,6 +8,7 @@ import { ehAdiantamento } from '../utils/baixas';
 import { ContextoFaturamento, emitirLote } from './faturamentoService';
 import { ItemLote, OMFat, numerar } from '../utils/faturamento';
 import { lerFatura } from '../utils/cadastroImport';
+import { estornarPorCancelamentoDeFatura } from './creditosOmService';
 
 export class Fase4NaoInstaladaError extends Error {
   constructor() { super('Falta executar o script supabase/migrations/008_contestacao_fase4.sql no Supabase.'); }
@@ -89,6 +90,8 @@ export async function decidir(c: Contestacao, decisao: Decisao, usuario: string,
 // ------------------------------------------------------------------ cancelamento e substituição
 export async function cancelarFatura(inv: Invoice, motivo: string, devolverBaixas: boolean, usuario: string) {
   if (!motivo.trim()) throw new Error('O motivo do cancelamento é obrigatório.');
+  // livro de créditos (script 033): o crédito usado volta à OM e o crédito gerado por um acerto é estornado; se já foi usado, a fatura NÃO é cancelada
+  await estornarPorCancelamentoDeFatura(inv.invoiceNumber, inv.omId, hoje());
   if (devolverBaixas) {
     const { error } = await supabase.from('payment_allocations').delete().eq('invoice_id', inv.id);
     checar(error);

@@ -451,3 +451,22 @@ Recalcula o vencimento (emissão + 30 dias corridos → próximo dia útil) e a 
 **Efeito no faturamento:** só o lote **OND** (estimativa de outubro) consulta a regra: OMs em regime 2 ou 3 não entram, e a prévia avisa "Fora da estimativa pelo regime…". A média continua **3 × média JAN–AGO com divisor 8**. O **acerto** continua partindo das faturas estimadas já emitidas (uma estimativa emitida sempre tem acerto). O PDF e a estrutura da fatura **não mudam**: 01 serviço, 02 adiantamento, 03 acerto acréscimo, 04 acerto débito, 05 total a pagar (= máx(0, 01 − 02 + 03 − 04)) e 06 total da fatura.
 
 Testes: `tests/regimeOnd.test.ts` (regra, vigência, impacto, lote OND e fórmula do total a pagar), `tests/sql/regime_ond_032_tests.sql` (idempotência, imutabilidade, permissões) e o cenário "Regimes OND" do e2e.
+
+## Script 033 — Livro de créditos por OM (Fase B)
+
+**Regra central:** o crédito pertence à **OM**, não ao serviço. O crédito que sobra do acerto de um serviço (real menor que o estimado) abate a fatura de **qualquer serviço da mesma OM**. Não há transferência entre OMs.
+
+**O livro (`creditos_om`)** só recebe linhas novas; alterar ou apagar é recusado pelo banco. Cada linha tem OM, data, valor, saldo anterior e posterior, serviço e exercício de origem, fatura de origem, fatura em que foi usado, documento (ALTCRED/GRU) e quem lançou:
+- **Crédito de acerto** (+): gerado pela fatura de acerto; um acerto gera um crédito só.
+- **Saldo de abertura** (+): lançado só pelo **administrador**, para o crédito de acertos anteriores ao SISCONT (exige documento e a origem).
+- **Utilizado em fatura** (−): abatido na prévia do Lote mensal, na **linha 04** da fatura, do crédito **mais antigo** para o mais novo (FIFO); cada pedaço aponta para o crédito de origem.
+- **Devolvido (ALTCRED/GRU)** (−): sai do crédito mais antigo.
+- **Estorno**: linha de sinal contrário que desfaz um movimento (uma vez só). Fatura cancelada → o crédito que ela usou volta à OM; acerto cancelado → o crédito que ele gerou é estornado (**recusado se já foi usado ou devolvido**; nesse caso a fatura não é cancelada).
+
+**Garantias no banco:** saldo nunca negativo; crédito de uma OM não é usado por outra; um crédito não tem mais saída do que o valor dele; a mesma fatura não usa o mesmo crédito duas vezes; **duas emissões ao mesmo tempo para a mesma OM não usam o mesmo saldo** (a linha da OM é travada: a segunda espera e, se o saldo acabou, é recusada, e o lote não é emitido).
+
+**O que NÃO muda:** o PDF e as 5 linhas da fatura. O crédito aplicado entra na linha 04 (acerto débito), o valor do serviço (linha 01) fica preservado e o acerto continua comparando o estimado bruto com o real. O crédito aplicado não é "faturar a menos" para a média do OND.
+
+**Onde:** Faturamento › **Créditos da OM** (saldo por OM, créditos em aberto, extrato, registrar devolução; o administrador lança saldo de abertura e estorna lançamentos manuais). O livro **começa zerado** (hoje não há acerto emitido nem crédito usado). Retificar (-1) uma fatura de acerto não altera o crédito já registrado; para mudar o valor do crédito, cancele o acerto (se o crédito não foi usado) e emita de novo.
+
+Testes: `tests/creditosOm.test.ts`, `tests/sql/creditos_om_033_tests.sql` (incluindo a emissão simultânea, descrita no README dos testes SQL) e os cenários "Acerto do OND" e "Créditos da OM (Fase B)" do e2e.

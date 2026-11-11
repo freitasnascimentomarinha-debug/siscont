@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from 'lucide-react';
 import { omsNaMatriz } from '../../services/taxaCondominialService';
-import { ContextoFaturamento, listarAtracacoes, listarLotes, listarMedicoes, listarPrecos, listarUsosCredito } from '../../services/faturamentoService';
+import { ContextoFaturamento, listarAtracacoes, listarLotes, listarMedicoes, listarPrecos } from '../../services/faturamentoService';
 import { partes, referencia } from '../../utils/faturamento';
-import { calcularCreditos, resumoCreditos } from '../../utils/creditosAcerto';
+import { listarLivroCreditos } from '../../services/creditosOmService';
+import { resumoCreditosOm } from '../../utils/creditosOm';
 import { AbaFaturamento, ItemResumo, pendencias, resumoDoMes } from '../../utils/resumoFaturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -15,7 +16,7 @@ const ICONE = {
   aviso: <AlertTriangle size={18} className="text-amber-600" aria-label="atenção" />,
   info: <Circle size={18} className="text-slate-400" aria-label="informação" />,
 };
-const ROTULO_ABA: Record<AbaFaturamento, string> = { resumo: 'Resumo', precos: 'Preços do ano', medicoes: 'Medições do mês', atracacao: 'Atracação', lote: 'Lote de faturas', creditos: 'Créditos de acerto', correcao: 'Correção' };
+const ROTULO_ABA: Record<AbaFaturamento, string> = { resumo: 'Resumo', precos: 'Preços do ano', medicoes: 'Medições do mês', atracacao: 'Atracação', lote: 'Lote de faturas', creditos: 'Créditos da OM', correcao: 'Correção' };
 
 /** Antes de calcular o lote: o que já foi lançado para a competência e o que falta, com atalho para cada aba. */
 export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; setComp: (c: string) => void; ativa: boolean; irPara: (a: AbaFaturamento) => void }> = ({ ctx, comp, setComp, ativa, irPara }) => {
@@ -28,8 +29,8 @@ export const ResumoMesTab: React.FC<{ ctx: ContextoFaturamento; comp: string; se
     try {
       const [med, atr, precos, lotes] = await Promise.all([listarMedicoes([comp]), listarAtracacoes([comp]), listarPrecos([partes(comp).ano]), listarLotes().catch(() => [])]);
       const { ano, mes } = partes(comp);
-      // créditos que as OM têm do acerto do OND (sem o script 028 ainda não há registro de uso: vale o crédito inteiro)
-      const creditos = resumoCreditos(calcularCreditos(ctx.invoices, await listarUsosCredito().catch(() => [])));
+      // créditos que as OM têm no livro de créditos (script 033; sem ele o saldo é zero)
+      const creditos = resumoCreditosOm((await listarLivroCreditos().catch(() => ({ movs: [] }))).movs);
       // a taxa condominial só é emitida para OM cadastrada na matriz do ano (menos a emissora, que não recebe fatura)
       const daMatriz = (await omsNaMatriz(ano).catch(() => [] as string[])).filter(id => id !== ctx.emissora?.omId);
       setItens(resumoDoMes({
