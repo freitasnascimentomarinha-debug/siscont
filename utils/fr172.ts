@@ -6,7 +6,7 @@
  */
 import { citarCorrecao, obterNormas } from './normas';
 import jsPDF from 'jspdf';
-import { mesesDoAno } from './faturamento';
+import { compararPorTipoENumero, mesesDoAno, prefixoTipoNumero } from './faturamento';
 import { cabecalhoInstitucional } from './pdfCabecalho';
 
 export interface DadosFr172 {
@@ -163,10 +163,17 @@ export function pdfFr172(d: DadosFr172): jsPDF {
   return doc;
 }
 
-/** ZIP com um PDF por fatura, em pastas por comando. */
-export async function zipFr172(dados: (DadosFr172 & { pasta: string })[]): Promise<Blob> {
+/**
+ * ZIP com um PDF por fatura, na ordem de tipo e numeração. Padrão: pastas por comando. `unico`: um ZIP só, sem pastas, com os
+ * arquivos nomeados "AE-001_40030-AE-10-2026-001-0.pdf" (tipo e sequência na frente, para ficarem em ordem em qualquer lista).
+ */
+export async function zipFr172(dados: (DadosFr172 & { pasta: string })[], opcoes: { unico?: boolean } = {}): Promise<Blob> {
   const JSZip = (await import('jszip')).default;
   const zip = new JSZip();
-  dados.forEach(d => zip.folder(d.pasta.replace(/[\\/:*?"<>|]/g, '-'))!.file(`${d.numero}.pdf`, pdfFr172(d).output('arraybuffer')));
+  [...dados].sort((a, b) => compararPorTipoENumero(a.numero, b.numero)).forEach(d => {
+    const pdf = pdfFr172(d).output('arraybuffer');
+    if (opcoes.unico) { const p = prefixoTipoNumero(d.numero); zip.file(`${p ? `${p}_` : ''}${d.numero}.pdf`, pdf); }
+    else zip.folder(d.pasta.replace(/[\\/:*?"<>|]/g, '-'))!.file(`${d.numero}.pdf`, pdf);
+  });
   return zip.generateAsync({ type: 'blob' });
 }

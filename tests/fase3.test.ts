@@ -14,10 +14,10 @@ describe('numeração', () => {
     const m = maioresSequenciais(['40030-EL-09-2026-040-0', '41000-EL-09-2026-012-0', '40030-EL-08-2026-099-0', '40030-AE-09-2026-003-1'], '2026-09');
     expect(m.get('EL')).toBe(40); expect(m.get('AE')).toBe(3);
   });
-  it('numera sem lacunas na ordem do lote (extra-MB primeiro)', () => {
+  it('numera sem lacunas e organiza o lote por tipo (sigla) e numeração; dentro do tipo, extra-MB primeiro', () => {
     const it = (o: OMFat, sigla: string): ItemLote => ({ chave: o.id + sigla, omId: o.id, om: o, sigla, servico: sigla, unidade: '', quantidade: null, quantidade2: null, valor: 1, acrescimo: 0, debito: 0, base: { regra: '' }, avisos: [] });
     const x = numerar([it(om('b'), 'EL'), it(om('x', { tipo: 'EXTRA_MB', codigo: '00994', setor: 'EXTRA-MB', nome: 'Banco' }), 'EL'), it(om('a'), 'EL'), it(om('a'), 'AE')], ['40001-EL-09-2026-005-0'], '2026-09');
-    expect(x.map(i => i.numero)).toEqual(['00994-EL-09-2026-006-0', '4444A-AE-09-2026-001-0', '4444A-EL-09-2026-007-0', '4444B-EL-09-2026-008-0']);
+    expect(x.map(i => i.numero)).toEqual(['4444A-AE-09-2026-001-0', '00994-EL-09-2026-006-0', '4444A-EL-09-2026-007-0', '4444B-EL-09-2026-008-0']);    // os números não mudam; só a ordem da lista
   });
   it('referência e dias do mês', () => {
     expect(referencia('2026-08')).toBe('AGO26');

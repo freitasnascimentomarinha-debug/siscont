@@ -67,10 +67,26 @@ export function maioresSequenciais(numeros: string[], comp: string): Map<string,
   return m;
 }
 
-/** Ordem do lote (como no livro de emissão): extra-MB primeiro, depois setor, comando e cliente. */
+/**
+ * Ordem do lote: por TIPO de serviço (sigla) e, dentro de cada tipo, como no livro de emissão — extra-MB primeiro, depois setor,
+ * comando e cliente. A numeração é sequencial por serviço, então a ordem por tipo já sai também em ordem de número.
+ */
 export const ordemLote = (a: ItemLote, b: ItemLote) =>
-  Number(a.om.tipo !== 'EXTRA_MB') - Number(b.om.tipo !== 'EXTRA_MB')
+  a.sigla.localeCompare(b.sigla)
+  || Number(a.om.tipo !== 'EXTRA_MB') - Number(b.om.tipo !== 'EXTRA_MB')
   || a.om.setor.localeCompare(b.om.setor) || a.om.comando.localeCompare(b.om.comando) || a.om.nome.localeCompare(b.om.nome) || a.sigla.localeCompare(b.sigla);
+
+/** Compara dois números de fatura por tipo (sigla do serviço) e depois pela numeração (sequência e versão). */
+export function compararPorTipoENumero(a: string, b: string): number {
+  const x = (a || '').trim().toUpperCase().match(RE_NUM), y = (b || '').trim().toUpperCase().match(RE_NUM);
+  if (!x || !y) return String(a).localeCompare(String(b));
+  return x[2].localeCompare(y[2]) || Number(x[4]) - Number(y[4]) || Number(x[3]) - Number(y[3]) || Number(x[5]) - Number(y[5]) || x[1].localeCompare(y[1]) || Number(x[6]) - Number(y[6]);
+}
+/** "AE-001": tipo e sequência do número da fatura (para nomear arquivos em ordem). */
+export function prefixoTipoNumero(numero: string): string {
+  const x = (numero || '').trim().toUpperCase().match(RE_NUM);
+  return x ? `${x[2]}-${x[5]}` : '';
+}
 
 /** Dá número a cada item, em sequência por serviço, sem lacunas, continuando do maior SEQ existente. */
 export function numerar(itens: ItemLote[], existentes: string[], comp: string): ItemLote[] {

@@ -504,3 +504,7 @@ Testes: `tests/creditosOm.test.ts`, `tests/sql/creditos_om_033_tests.sql` (inclu
 
 ## Assinatura dos PDFs (faturas e relatórios)
 A assinatura é a mesma nas faturas e em todos os relatórios em PDF: **NOME** (maiúsculas), **posto/graduação**, **cargo** (padrão "Encarregado da Divisão de Contabilidade") e "ASSINADO DIGITALMENTE". Os três textos são editáveis em **Cadastros › Parâmetros e feriados › Assinatura dos PDFs** (parâmetros `encarregado_nome`, `encarregado_posto` e `encarregado_cargo`; o cargo vazio volta ao padrão). Sem nome cadastrado, a linha fica em branco, como nas faturas. O layout da fatura não mudou: só o texto do cargo passou a vir do parâmetro (o padrão é idêntico ao de antes).
+
+## Lote de faturas: ordem por tipo e numeração; ZIP único no OND
+- **Ordem:** a prévia e a emissão do lote saem organizadas por **tipo** (sigla do serviço: AE, DA, EL, ...) e, dentro de cada tipo, em ordem de **numeração** (extra-MB primeiro, depois setor, comando e cliente, como no livro de emissão). A numeração continua sequencial por serviço e **não mudou**: só a ordem da lista. Nos Lotes emitidos, as faturas também aparecem por tipo e número.
+- **ZIP do lote OND:** um **ZIP único**, sem pastas por comando, com os PDF nomeados `AE-001_40030-AE-10-2026-001-0.pdf` (tipo e sequência na frente, para ficarem em ordem em qualquer lista). Os lotes mensal e de acerto continuam com o ZIP em pastas por comando; o botão "PDF" de cada comando segue disponível.

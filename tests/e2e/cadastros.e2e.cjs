@@ -2976,6 +2976,43 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('encarregado_nome').count() === 0, 'os três campos saem da lista genérica (ficam só no cartão da assinatura)');
   });
 
+  await cenario('Lote OND: organizado por tipo e numeração, e um ZIP único (sem pastas) com os PDF em ordem', [], async (page, db) => {
+    const JSZip = require(path.join(__dirname, '../../node_modules/jszip'));
+    const mk = (cod, nome) => { const o = { id: uid(), codigo: cod, nome, tipo: 'TERRA', comando_id: null, ativo: true, codigo_proprio: true, nomes_alternativos: [] }; db.oms.push(o); return o; };
+    const b = mk('65702', 'Centro B'), a = mk('65701', 'Centro A');
+    db.service_definitions.push({ id: uid(), name: 'Eletricidade', unit_measure: 'KWH', acronym: 'EL', ordem: 25, ativo: true });
+    const ano = 2026; db.invoices = [];
+    const fat = (om, sg, mes, valor) => ({ id: uid(), ug: om.codigo, sector: 'DGMM', command: om.codigo, client: om.nome, invoice_number: `${om.codigo}-${sg}-${String(mes).padStart(2, '0')}-${ano}-001-0`, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${ano}-${String(mes).padStart(2, '0')}-15`, due_date: `${ano}-${String(mes).padStart(2, '0')}-28`, month_competence: mes, year_competence: ano, competence: `${String(mes).padStart(2, '0')}/${ano}`, type: sg === 'AE' ? 'Água e Esgoto' : 'Eletricidade', service_acronym: sg,
+      is_canceled: false, siplad_settled: false, om_id: om.id, origem: 'Lote', quitacao_externa: null, contestada: false, pontos_atencao: [], estimado: false, lote_id: null, base_calculo: null, acerto_de: null });
+    [a, b].forEach(om => ['AE', 'EL'].forEach(sg => [1, 2, 3, 4, 5, 6, 7, 8].forEach(m => db.invoices.push(fat(om, sg, m, 1000)))));
+    await page.reload();
+    await page.getByRole('button', { name: 'Emitir faturas do mês' }).first().click();
+    await page.getByRole('heading', { name: 'Emitir faturas do mês' }).waitFor();
+    await page.getByRole('button', { name: 'Lote de faturas', exact: true }).click();
+    await page.getByLabel('Tipo de lote').selectOption('OND');
+    await page.getByRole('button', { name: 'Calcular prévia' }).click();
+    await page.getByText('65701-AE-10-2026-001-0').waitFor();
+    const nums = (await page.locator('td.font-mono').allInnerTexts()).map(t => t.trim().split(/\s+/)[0]).filter(t => /^\d{5}-[A-Z]{2}-/.test(t));
+    ok(nums.length === 4 && nums.map(n => n.split('-')[1]).join(',') === 'AE,AE,EL,EL', `prévia organizada por tipo: AE antes de EL (${nums.join(' ')})`);
+    ok(nums[0] === '65701-AE-10-2026-001-0' && nums[1] === '65702-AE-10-2026-002-0' && nums[2] === '65701-EL-10-2026-001-0' && nums[3] === '65702-EL-10-2026-002-0', 'e dentro de cada tipo, em ordem de numeração (001, 002)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'lote-ond-ordem.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Emitir lote' }).click();
+    await page.getByRole('button', { name: 'Sim, emitir' }).click();
+    await page.getByText(/Lote emitido: 4 faturas/).first().waitFor({ timeout: 15000 });
+    // lote emitido: ZIP único
+    await page.getByRole('button', { name: /OUT26/ }).first().click();
+    const unico = page.getByRole('button', { name: /PDF FR-172 \(ZIP único, por tipo e número\)/ });
+    await unico.waitFor();
+    ok(await page.getByRole('button', { name: /ZIP por comando/ }).count() === 0, 'no lote OND o botão geral é "ZIP único" (não "por comando")');
+    const [dl] = await Promise.all([page.waitForEvent('download'), unico.click()]);
+    ok(/^faturas_OUT26_OND\.zip$/.test(dl.suggestedFilename()), `um ZIP só para o lote (${dl.suggestedFilename()})`);
+    const z = await JSZip.loadAsync(fs.readFileSync(await dl.path()));
+    const nomes = Object.keys(z.files);
+    ok(nomes.length === 4 && nomes.every(n => !n.includes('/')), 'o ZIP não tem pastas');
+    ok(nomes.join(' | ') === 'AE-001_65701-AE-10-2026-001-0.pdf | AE-002_65702-AE-10-2026-002-0.pdf | EL-001_65701-EL-10-2026-001-0.pdf | EL-002_65702-EL-10-2026-002-0.pdf', `arquivos por tipo e numeração (${nomes.join(' ')})`);
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));

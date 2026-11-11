@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CheckSquare, Copy, FileArchive, Mail } from 'lucide-react';
 import { ContextoFaturamento, Lote, listarLotes, marcarFaturas } from '../../services/faturamentoService';
 import { baixarZipFr172 } from '../../services/fr172Service';
-import { referencia } from '../../utils/faturamento';
+import { compararPorTipoENumero, referencia } from '../../utils/faturamento';
 import { anosDosLotes, filtrarLotes } from '../../utils/resumoFaturamento';
 import { notify } from '../../utils/notify';
 import { Invoice } from '../../types';
@@ -44,7 +44,7 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
   const filtrados = useMemo(() => filtrarLotes(lotes, { ano: fAno, tipo: fTipo, busca: fBusca }), [lotes, fAno, fTipo, fBusca]);
   const visiveis = verTodos ? filtrados : filtrados.slice(0, 12);
   const lote = lotes.find(l => l.id === aberto);
-  const faturas = useMemo(() => (aberto ? ctx.invoices.filter(i => i.loteId === aberto) : []), [aberto, ctx.invoices]);
+  const faturas = useMemo(() => (aberto ? ctx.invoices.filter(i => i.loteId === aberto).sort((a, b) => compararPorTipoENumero(a.invoiceNumber, b.invoiceNumber)) : []), [aberto, ctx.invoices]);
   const saldo = (i: Invoice) => i.saldoAPagar ?? Math.max(0, totalFatura(i) - i.paidAmount);
   const porComando = useMemo(() => {
     const m = new Map<string, Invoice[]>();
@@ -64,9 +64,9 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
     catch (e) { notify.fail('Erro ao marcar', e); } finally { setOcupado(null); }
   };
 
-  const zip = async (invs: Invoice[], nome: string) => {
+  const zip = async (invs: Invoice[], nome: string, unico = false) => {
     setOcupado('PDF');
-    try { await baixarZipFr172(invs, nome); } catch (e) { notify.fail('Erro ao gerar os PDF', e); } finally { setOcupado(null); }
+    try { await baixarZipFr172(invs, nome, undefined, { unico }); } catch (e) { notify.fail('Erro ao gerar os PDF', e); } finally { setOcupado(null); }
   };
 
   if (!lotes.length) return null;
@@ -98,7 +98,7 @@ export const LotesEmitidos: React.FC<{ ctx: ContextoFaturamento; podeEditar: boo
             {aberto === l.id && lote && (
               <div className="p-3 bg-slate-50 space-y-3">
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => zip(faturas, `faturas_${referencia(l.competencia)}_${l.tipo}`)} isLoading={ocupado === 'PDF'}><FileArchive size={14} className="mr-1" />PDF FR-172 (ZIP por comando)</Button>
+                  <Button size="sm" variant="secondary" onClick={() => zip(faturas, `faturas_${referencia(l.competencia)}_${l.tipo}`, l.tipo === 'OND')} isLoading={ocupado === 'PDF'}><FileArchive size={14} className="mr-1" />{l.tipo === 'OND' ? 'PDF FR-172 (ZIP único, por tipo e número)' : 'PDF FR-172 (ZIP por comando)'}</Button>
                   {podeEditar && <>
                     <Button size="sm" variant="secondary" onClick={() => marcar(faturas.map(f => f.id), 'enviada_em', 'enviadas')} isLoading={ocupado === 'enviadas'}><CheckSquare size={14} className="mr-1" />Marcar todas enviadas</Button>
                     <Button size="sm" variant="secondary" onClick={() => marcar(faturas.map(f => f.id), 'siafi_em', 'registradas no SIAFI')} isLoading={ocupado === 'registradas no SIAFI'}>Registradas no SIAFI</Button>

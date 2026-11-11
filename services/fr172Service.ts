@@ -42,9 +42,10 @@ export async function baixarPdfFr172(inv: Invoice, ctx?: ContextoFr172) {
   pdfFr172(dadosFr172(inv, c)).save(`${inv.invoiceNumber}.pdf`);
 }
 
-export async function baixarZipFr172(invs: Invoice[], nome: string, ctx?: ContextoFr172) {
+/** `unico`: um ZIP só, sem pastas (usado no OND). Sem isso: pastas por comando. Sempre em ordem de tipo e numeração. */
+export async function baixarZipFr172(invs: Invoice[], nome: string, ctx?: ContextoFr172, opcoes: { unico?: boolean } = {}) {
   const c = ctx ?? await carregarContextoFr172();
-  const blob = await zipFr172(invs.map(i => ({ ...dadosFr172(i, c), pasta: i.command || 'Sem comando' })));
+  const blob = await zipFr172(invs.map(i => ({ ...dadosFr172(i, c), pasta: i.command || 'Sem comando' })), opcoes);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `${nome}.zip`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
