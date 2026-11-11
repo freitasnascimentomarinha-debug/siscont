@@ -501,3 +501,6 @@ Testes: `tests/creditosOm.test.ts`, `tests/sql/creditos_om_033_tests.sql` (inclu
 | 16 | Correção de subsídio | `tests/encerramento.test.ts` |
 | 17 | Cancelar fatura com crédito aplicado | e2e "Créditos da OM", `tests/sql/creditos_om_033_tests.sql` |
 | 18 | Duas faturas ao mesmo tempo | emissão simultânea descrita em `tests/sql/README.md` (script 033) |
+
+## Assinatura dos PDFs (faturas e relatórios)
+A assinatura é a mesma nas faturas e em todos os relatórios em PDF: **NOME** (maiúsculas), **posto/graduação**, **cargo** (padrão "Encarregado da Divisão de Contabilidade") e "ASSINADO DIGITALMENTE". Os três textos são editáveis em **Cadastros › Parâmetros e feriados › Assinatura dos PDFs** (parâmetros `encarregado_nome`, `encarregado_posto` e `encarregado_cargo`; o cargo vazio volta ao padrão). Sem nome cadastrado, a linha fica em branco, como nas faturas. O layout da fatura não mudou: só o texto do cargo passou a vir do parâmetro (o padrão é idêntico ao de antes).

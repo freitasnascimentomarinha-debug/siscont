@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { PARAM_NORMAS, definirNormas, normasDe } from '../../utils/normas';
+import { CARGO_PADRAO, PARAM_ASSINATURA, assinaturaDe, definirAssinatura } from '../../utils/assinatura';
 import { Edit, Plus, Save, Trash2 } from 'lucide-react';
 import { Feriado, OM, Parametro, ServicoCatalogo, TipoFeriado } from '../../types';
 import { PARAM_EMISSORA, PARAM_EMISSORA_RATEIO, resolverEmissora } from '../../utils/emissora';
@@ -132,6 +133,46 @@ const NormaCard: React.FC<{ params: Parametro[]; podeEditar: boolean; gravado: (
   );
 };
 
+// --------------------------------------------------- Assinatura dos PDFs (faturas e relatórios)
+const AssinaturaCard: React.FC<{ params: Parametro[]; podeEditar: boolean; gravado: () => void }> = ({ params, podeEditar, gravado }) => {
+  const atual = assinaturaDe(params);
+  const [a, setA] = useState(atual);
+  const [salvando, setSalvando] = useState(false);
+  const [digitou, setDigitou] = useState(false);
+  useEffect(() => { if (!digitou) setA(assinaturaDe(params)); }, [params, digitou]);
+  const edita = (p: Partial<typeof a>) => { setDigitou(true); setA(x => ({ ...x, ...p })); };
+  const mudou = a.nome !== atual.nome || a.posto !== atual.posto || a.cargo !== atual.cargo;
+  const gravar = async () => {
+    setSalvando(true);
+    try {
+      const n = { nome: a.nome.trim(), posto: a.posto.trim(), cargo: a.cargo.trim() || CARGO_PADRAO };
+      await cadastroService.saveParametro({ chave: PARAM_ASSINATURA.nome, valor: n.nome, descricao: 'Nome do Encarregado (assinatura das faturas e dos relatórios)' });
+      await cadastroService.saveParametro({ chave: PARAM_ASSINATURA.posto, valor: n.posto, descricao: 'Posto/graduação do Encarregado' });
+      await cadastroService.saveParametro({ chave: PARAM_ASSINATURA.cargo, valor: n.cargo, descricao: 'Cargo/função do Encarregado (texto abaixo do nome na assinatura)' });
+      definirAssinatura(n);
+      notify.success('Assinatura gravada.'); setDigitou(false); gravado();
+    } catch (e) { notify.fail('Erro ao gravar a assinatura', e); } finally { setSalvando(false); }
+  };
+  return (
+    <div className="p-4 rounded-lg border border-slate-200 bg-white">
+      <h4 className="text-sm font-semibold text-slate-800 mb-1">Assinatura dos PDFs (faturas e relatórios)</h4>
+      <p className="text-xs text-slate-500 mb-3">A mesma assinatura sai nas faturas e em todos os relatórios em PDF: nome em maiúsculas, posto/graduação, cargo e "Assinado digitalmente".</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <Input label="Nome do Encarregado" value={a.nome} onChange={e => edita({ nome: e.target.value })} disabled={!podeEditar} placeholder="Nome completo" />
+        <Input label="Posto/graduação" value={a.posto} onChange={e => edita({ posto: e.target.value })} disabled={!podeEditar} placeholder="Ex.: Capitão de Corveta (IM)" />
+        <Input label="Cargo/função" value={a.cargo} onChange={e => edita({ cargo: e.target.value })} disabled={!podeEditar} placeholder={CARGO_PADRAO} />
+      </div>
+      <div className="mt-3 text-center text-xs border border-dashed border-slate-300 rounded p-2 bg-slate-50 leading-5" data-testid="previa-assinatura">
+        <div className="font-medium">{(a.nome || '______________________________').toUpperCase()}</div>
+        {a.posto && <div>{a.posto}</div>}
+        <div>{a.cargo || CARGO_PADRAO}</div>
+        <div className="inline-block border border-slate-400 px-3 mt-1 text-[10px] font-bold">ASSINADO DIGITALMENTE</div>
+      </div>
+      {podeEditar && <div className="mt-3 flex justify-end"><Button size="sm" onClick={gravar} isLoading={salvando} disabled={!mudou}>Gravar assinatura</Button></div>}
+    </div>
+  );
+};
+
 // --------------------------------------------------- Parâmetros e feriados
 const TIPOS_FERIADO: { value: TipoFeriado; label: string }[] = [
   { value: 'NACIONAL', label: 'Nacional' }, { value: 'ESTADUAL', label: 'Estadual (RJ)' },
@@ -185,7 +226,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ p
           {podeEditar && <Button size="sm" onClick={salvarParams} isLoading={salvando} disabled={Object.keys(editados).length === 0}><Save size={14} className="mr-1" /> Salvar alterações</Button>}
         </div>
         <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white">
-          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO && !p.chave.startsWith('gastos_') && !Object.values(PARAM_NORMAS).includes(p.chave as any)).map(p => (
+          {params.filter(p => p.chave !== PARAM_EMISSORA && p.chave !== PARAM_EMISSORA_RATEIO && !p.chave.startsWith('gastos_') && !Object.values(PARAM_NORMAS).includes(p.chave as any) && !Object.values(PARAM_ASSINATURA).includes(p.chave as any)).map(p => (
             <div key={p.chave} className="p-3 grid grid-cols-1 md:grid-cols-5 gap-2 items-center">
               <div className="md:col-span-2"><div className="text-sm font-medium text-slate-800">{p.descricao || p.chave}</div><div className="text-[11px] font-mono text-slate-400">{p.chave}</div></div>
               <input
@@ -202,6 +243,7 @@ export const ParametrosTab: React.FC<{ podeEditar: boolean; oms?: OM[] }> = ({ p
 
         <EmissoraCard oms={oms} params={params} podeEditar={podeEditar} gravado={carregar} />
         <NormaCard params={params} podeEditar={podeEditar} gravado={carregar} />
+        <AssinaturaCard params={params} podeEditar={podeEditar} gravado={carregar} />
 
         <div className="p-4 rounded-lg border border-sky-200 bg-sky-50/60">
           <h4 className="text-sm font-semibold text-sky-900 mb-2">Certificação e vencimento da fatura</h4>

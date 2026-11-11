@@ -2055,6 +2055,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.creditos_om.length === 1 && entrada.valor === 20000 && entrada.origem_chave === '65701-AE-01-2027-001' && entrada.servico_origem === 'AE' && entrada.om_id === hcm.id, 'acerto emitido grava a entrada de R$ 20.000,00 no livro de créditos da OM');
     await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
     await page.getByText('Saldo a favor das OM').waitFor();
+    await page.getByTestId('saldos-om').getByText('65701-AE-01-2027-001-0').waitFor();
     ok((await page.getByText('R$ 20.000,00').count()) >= 2 && await page.getByText('65701-AE-01-2027-001-0').first().isVisible(), 'aba Créditos da OM mostra o crédito de R$ 20.000,00 da OM');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-2-creditos.png'), fullPage: true });
 
@@ -2081,7 +2082,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
 
     // saldo restante e devolução
     await page.getByRole('button', { name: 'Créditos da OM', exact: true }).click();
-    await page.getByText('R$ 5.000,00').first().waitFor();
+    await page.getByTestId('saldos-om').getByText('R$ 5.000,00').first().waitFor();
     await page.getByRole('button', { name: /Devolver crédito de/ }).click();
     ok(await page.getByLabel('Valor do uso').inputValue() === '5000', 'registrar uso sugere o saldo de R$ 5.000,00');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'acerto-4-devolucao.png'), fullPage: false });
@@ -2092,6 +2093,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('dialog').getByRole('button', { name: 'Registrar', exact: true }).click();
     await page.getByText('Devolução registrada.').waitFor();
     ok(db.creditos_om.length === 3 && db.creditos_om.some(u => u.tipo === 'DEVOLUCAO' && u.valor === -5000 && u.documento === 'G424.2026.AC.00999' && u.credito_ref === entrada.id), 'devolução de R$ 5.000,00 registrada com a ALTCRED/GRU, ligada ao crédito de origem');
+    await page.getByText('Nenhuma OM com esse filtro.').waitFor();
     ok((await page.getByText('Nenhuma OM com esse filtro.').count()) === 1, 'OM sem crédito sai da lista (só com saldo)');
   });
 
@@ -2955,6 +2957,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/encerramento_2026_estimativa_real\.xlsx$/.test(dl.suggestedFilename()), `relatório "Estimativa × real" exportado em Excel (${dl.suggestedFilename()})`);
     const [dl2] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
     ok(/\.pdf$/.test(dl2.suggestedFilename()), 'o mesmo relatório em PDF');
+  });
+
+  await cenario('Assinatura dos PDFs: nome, posto/graduação e cargo editáveis (mesma regra das faturas e dos relatórios)', [], async (page, db) => {
+    await page.getByRole('button', { name: 'Parâmetros e feriados' }).click();
+    await page.getByText('Assinatura dos PDFs (faturas e relatórios)').waitFor();
+    ok((await page.getByTestId('previa-assinatura').innerText()).includes('Encarregado da Divisão de Contabilidade'), 'a prévia mostra o cargo padrão "Encarregado da Divisão de Contabilidade"');
+    await page.getByLabel('Nome do Encarregado').fill('Jéssica CAROLINE da S. SAMPAIO Queiroz');
+    await page.getByLabel('Posto/graduação').fill('Capitão de Corveta (IM)');
+    await page.getByLabel('Cargo/função').fill('Encarregado da Divisão de Contabilidade');
+    const prev = (await page.getByTestId('previa-assinatura').innerText()).replace(/\s+/g, ' ');
+    ok(/JÉSSICA CAROLINE DA S\. SAMPAIO QUEIROZ Capitão de Corveta \(IM\) Encarregado da Divisão de Contabilidade ASSINADO DIGITALMENTE/.test(prev), `prévia da assinatura (${prev})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'assinatura-card.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Gravar assinatura' }).click();
+    await page.getByText('Assinatura gravada.').waitFor();
+    const v = k => db.parametros.find(p => p.chave === k)?.valor;
+    ok(v('encarregado_nome') === 'Jéssica CAROLINE da S. SAMPAIO Queiroz' && v('encarregado_posto') === 'Capitão de Corveta (IM)' && v('encarregado_cargo') === 'Encarregado da Divisão de Contabilidade', 'nome, posto/graduação e cargo gravados nos parâmetros');
+    ok(await page.getByText('encarregado_nome').count() === 0, 'os três campos saem da lista genérica (ficam só no cartão da assinatura)');
   });
 
   await browser.close();

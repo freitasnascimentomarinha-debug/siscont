@@ -22,6 +22,7 @@ import { ResetPassword } from './pages/ResetPassword';
 import { UserRole, podeVerPagina } from './types';
 import { cadastroService } from './services/cadastroService';
 import { definirNormas, normasDe } from './utils/normas';
+import { assinaturaDe, definirAssinatura } from './utils/assinatura';
 import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -33,7 +34,7 @@ const AuthenticatedApp = () => {
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
   // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
-  useEffect(() => { cadastroService.listParametros().then(p => definirNormas(normasDe(p))).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
+  useEffect(() => { cadastroService.listParametros().then(p => { definirNormas(normasDe(p)); definirAssinatura(assinaturaDe(p)); }).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
 
   // páginas pedem para abrir outra página (ex.: o resumo do painel abre os Gastos da BNIC) sem conhecer o menu
   useEffect(() => {

@@ -2,6 +2,7 @@
  * Cabeçalho institucional padrão dos PDFs do sistema (modelo das faturas FR-172):
  * brasão à esquerda e três linhas centralizadas em negrito.
  */
+import { Assinatura, obterAssinatura } from './assinatura';
 import type jsPDF from 'jspdf';
 import autoTable, { UserOptions } from 'jspdf-autotable';
 import { BRASAO_MARINHA_PNG, BRASAO_PROPORCAO } from './brasaoMarinha';
@@ -133,21 +134,26 @@ const dataHoraBR = () => new Date().toLocaleString('pt-BR', { dateStyle: 'short'
  * Fecha o relatório: bloco de assinatura ("ASSINADO DIGITALMENTE") no fim e, em todas as páginas, rodapé com a data
  * de geração e "Página x de y". `yFim`: onde terminou o conteúdo da última página (padrão: fim da última tabela).
  */
-export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolean; /** mm entre o fim do conteúdo e a linha da assinatura (padrão 9) */ espaco?: number } = {}): jsPDF {
+export function finalizarPdf(doc: jsPDF, opts: { yFim?: number; assinar?: boolean; /** mm entre o fim do conteúdo e a linha da assinatura (padrão 9) */ espaco?: number; /** nome, posto e cargo (padrão: os dos parâmetros, como nas faturas) */ assinatura?: Assinatura } = {}): jsPDF {
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
   if (opts.assinar !== false) {
     const ultima = doc.getNumberOfPages();
     const t = (doc as any).lastAutoTable;
     const rastro: number | undefined = (doc as any).__rastro?.[ultima];
     let y = (rastro ?? opts.yFim ?? (t && t.pageNumber === ultima ? t.finalY : 30)) + (opts.espaco ?? 9);
-    if (y > H - 23) { doc.addPage(); y = 40; (doc as any).__assinaturaSozinha = true; }
+    if (y > H - 31) { doc.addPage(); y = 40; (doc as any).__assinaturaSozinha = true; }
     doc.setPage(doc.getNumberOfPages());
     const cx = W / 2;
-    doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(cx - 40, y, cx + 40, y);
+    const a = opts.assinatura ?? obterAssinatura();
+    doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(cx - 45, y, cx + 45, y);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(0);
-    doc.text('Encarregado da Divisão de Contabilidade', cx, y + 4.5, { align: 'center' });
+    // mesma regra das faturas: NOME em maiúsculas, posto/graduação, cargo e o selo de assinatura digital
+    doc.text((a.nome || '______________________________').toUpperCase(), cx, y + 4.5, { align: 'center' });
+    let yy = y + 4.5;
+    if (a.posto) { yy += 4.2; doc.text(a.posto, cx, yy, { align: 'center' }); }
+    yy += 4.2; doc.text(a.cargo, cx, yy, { align: 'center' });
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
-    doc.rect(cx - 30, y + 6.5, 60, 6); doc.text('ASSINADO DIGITALMENTE', cx, y + 10.8, { align: 'center' });
+    doc.rect(cx - 30, yy + 2, 60, 6); doc.text('ASSINADO DIGITALMENTE', cx, yy + 6.3, { align: 'center' });
   }
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {

@@ -150,7 +150,7 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   if (d.params.telefone_contabilidade) { y += 4.2; txt(d.params.telefone_contabilidade, cx, y, 8.5, false, 'center'); }
   y += 8.5; txt((d.params.encarregado_nome || '______________________________').toUpperCase(), cx, y, 9.5, false, 'center');
   if (d.params.encarregado_posto) { y += 4.4; txt(d.params.encarregado_posto, cx, y, 9.5, false, 'center'); }
-  y += 4.4; txt('Encarregado da Divisão de Contabilidade', cx, y, 9.5, false, 'center');
+  y += 4.4; txt((d.params.encarregado_cargo || '').trim() || 'Encarregado da Divisão de Contabilidade', cx, y, 9.5, false, 'center');
   y += 1.5; doc.rect(cx - 35, y, 70, 4.8); txt('ASSINADO DIGITALMENTE', cx, y + 3.5, 9.5, false, 'center');
   y += 8;
   // laterais e base da moldura
