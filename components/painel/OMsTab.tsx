@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Download, Search } from 'lucide-react';
+import { Download, FileText, Search } from 'lucide-react';
 // @ts-ignore - pacote xlsx sem tipos completos no build
 import * as XLSX from 'xlsx';
 import { Modal } from '../ui/Modal';
@@ -10,6 +10,8 @@ import {
 } from '../../utils/painelGerencial';
 import { COR, COR_FAIXA, Kpi, Secao, Vazio, br, brl, compacto, mesBR, qtdBR } from './comum';
 import { CtxPainel } from './tipos';
+import { ModoFicha, chavesDoComando, comandosDasLinhas, dadosFicha } from '../../utils/fichaPainel';
+import { pdfFicha } from '../../utils/pdfFicha';
 
 const fmtCampo = (campo: CampoOM, l: LinhaOM): string => {
   switch (campo) {
@@ -26,36 +28,48 @@ const valorCampo = (campo: CampoOM, l: LinhaOM): number => {
   switch (campo) { case 'qtdVencidas': return l.qtdVencidas; case 'pctInad': return l.pctInad ?? 0; case 'atrasoMedio': return l.atrasoMedio; case 'variacao': return l.variacao; case 'contestado': return l.contestado; case 'saldoParado': return l.saldoParado; default: return l.vencido; }
 };
 
-/** Ficha da OM: tudo o que se sabe dela num só lugar (somente consulta). */
-const FichaOM: React.FC<{ chave: string; ctx: CtxPainel; onClose: () => void }> = ({ chave, ctx, onClose }) => {
-  const l = ctx.linhas.find(x => x.chave === chave);
-  const fsOM = useMemo(() => ctx.fs.filter(f => !f.cancelada && chaveOM(f) === chave), [ctx.fs, chave]);
-  const numeros = useMemo(() => new Set(fsOM.map(f => f.numero)), [fsOM]);
-  const recOM = useMemo(() => ctx.recebimentos.filter(r => !!l?.omId && r.omId === l.omId), [ctx.recebimentos, l]);
-  const ate = mesDe(ctx.hoje), de = somaMeses(ate, -11);
-  const hist = useMemo(() => faturadoRecebido(fsOM, recOM, de, ate).map(p => ({ ...p, nome: mesBR(p.mes) })), [fsOM, recOM, de, ate]);
-  const contest = ctx.contest.filter(x => x.fatura && chaveOM(x.fatura) === chave);
-  const cobr = ctx.cobrancas.filter(c => c.faturas.some(n => numeros.has(n)) || (l && c.comando === l.comando));
-  const abertas = fsOM.filter(f => f.saldo > 0.009).sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''));
-  const recentes = fsOM.filter(f => f.saldo <= 0.009).sort((a, b) => (b.emissao || '').localeCompare(a.emissao || '')).slice(0, 10);
-  const ultimaCobr = cobr[0];
-  const ultimoEvento = contest.flatMap(x => x.c.historico.map(h => ({ em: h.em, texto: `contestação ${x.c.numeroFatura}: ${h.acao.toLowerCase()}` }))).sort((a, b) => b.em.localeCompare(a.em))[0];
-  if (!l) return null;
+/** Ficha da OM ou do COMANDO (todas as OM dele): tudo num só lugar, somente consulta, com PDF. */
+const Ficha: React.FC<{ modo: ModoFicha; chaves: string[]; titulo: string; ctx: CtxPainel; onClose: () => void; abrirOM: (chave: string) => void; abrirComando: (comando: string) => void }> = ({ modo, chaves, titulo, ctx, onClose, abrirOM, abrirComando }) => {
+  const d = useMemo(() => dadosFicha(ctx, chaves, modo, titulo), [ctx, chaves, modo, titulo]);
+  const hist = useMemo(() => d.hist.map(p => ({ ...p, nome: mesBR(p.mes) })), [d.hist]);
+  const k = d.kpis;
+  const ultimaCobr = d.cobr[0];
+  const ultimoEvento = d.contest.flatMap(x => x.c.historico.map(h => ({ em: h.em, texto: `contestação ${x.c.numeroFatura}: ${h.acao.toLowerCase()}` }))).sort((a, b) => b.em.localeCompare(a.em))[0];
+  const nomePdf = `extrato_${modo}_${d.titulo.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40)}_${ctx.hoje}.pdf`;
+  if (!d.oms.length) return null;
   return (
-    <Modal isOpen onClose={onClose} title={l.cliente} maxWidth="max-w-5xl">
+    <Modal isOpen onClose={onClose} title={modo === 'comando' ? `Comando: ${d.titulo}` : d.titulo} maxWidth="max-w-5xl">
       <div className="space-y-4 text-sm">
-        <p className="text-xs text-slate-500">{l.comando} · setor {l.setor} · somente consulta</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-slate-500 flex-1">{d.comando} · setor {d.setor} · somente consulta{modo === 'comando' ? ` · ${d.oms.length} OM` : ''}</p>
+          {modo === 'om' && <Button size="sm" variant="ghost" onClick={() => abrirComando(d.oms[0].comando)}>Ver o comando</Button>}
+          <Button size="sm" variant="secondary" onClick={() => pdfFicha(d).save(nomePdf)}><FileText size={14} className="mr-1" />{modo === 'comando' ? 'PDF do comando' : 'PDF da OM'}</Button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <Kpi rotulo="Em aberto" valor={brl(l.emAberto)} detalhe={`${l.qtdAberto} fatura(s)`} />
-          <Kpi rotulo="Vencido" cor={COR.vencido} alerta={l.vencido > 0} valor={brl(l.vencido)} detalhe={`${l.qtdVencidas} fatura(s) · ${l.atrasoMedio} dias em média`} />
-          <Kpi rotulo="Em contestação" cor="#d97706" valor={brl(l.contestado)} detalhe={`${l.qtdContestadas} fatura(s)`} />
-          <Kpi rotulo="Variação em 30 dias" cor="#475569" valor={fmtCampo('variacao', l)} detalhe={l.variacaoPct === null ? undefined : `${l.variacaoPct}% do vencido`} />
+          <Kpi rotulo="Em aberto" valor={brl(k.emAberto)} detalhe={`${k.qtdAberto} fatura(s)`} />
+          <Kpi rotulo="Vencido" cor={COR.vencido} alerta={k.vencido > 0} valor={brl(k.vencido)} detalhe={`${k.qtdVencidas} fatura(s) · ${k.atrasoMedio} dias em média`} />
+          <Kpi rotulo="Em contestação" cor="#d97706" valor={brl(k.contestado)} detalhe={`${k.qtdContestadas} fatura(s)`} />
+          <Kpi rotulo="Variação em 30 dias" cor="#475569" valor={`${k.variacao >= 0 ? '+' : '−'}${brl(Math.abs(k.variacao))}`} detalhe={k.variacaoPct === null ? undefined : `${k.variacaoPct}% do vencido`} />
         </div>
         <div className="flex flex-wrap gap-2" aria-label="Faixas de atraso">
           {['A vencer', ...FAIXAS_ATRASO].map(f => (
-            <span key={f} className="text-xs rounded-md border border-slate-200 px-2 py-1 bg-white" style={{ borderLeft: `4px solid ${COR_FAIXA[f]}` }}>{f}: <b className="tabular-nums">{brl(l.porFaixa[f] || 0)}</b></span>
+            <span key={f} className="text-xs rounded-md border border-slate-200 px-2 py-1 bg-white" style={{ borderLeft: `4px solid ${COR_FAIXA[f]}` }}>{f}: <b className="tabular-nums">{brl(d.porFaixa[f] || 0)}</b></span>
           ))}
         </div>
+        {modo === 'comando' && (
+          <div>
+            <h4 className="text-xs font-bold text-slate-600 mb-1">OM do comando ({d.oms.length}) — clique para abrir a ficha da OM</h4>
+            <div className="max-h-52 overflow-auto border border-slate-200 rounded-lg" data-testid="oms-do-comando">
+              <table className="w-full text-xs"><thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="px-2 py-1.5 text-left">OM</th><th className="px-2 text-right">Em aberto</th><th className="px-2 text-right">Vencido</th><th className="px-2 text-right">% inad.</th><th className="px-2 text-right">Fat. venc.</th><th className="px-2 text-left">Últ. mov.</th></tr></thead>
+                <tbody>{d.oms.map(l => (
+                  <tr key={l.chave} className="border-t border-slate-100 hover:bg-primary-50/40 cursor-pointer" onClick={() => abrirOM(l.chave)}>
+                    <td className="px-2 py-1 font-medium">{l.cliente}</td><td className="px-2 text-right tabular-nums">{brl(l.emAberto)}</td>
+                    <td className={`px-2 text-right tabular-nums font-semibold ${l.vencido > 0 ? 'text-red-700' : 'text-slate-400'}`}>{brl(l.vencido)}</td>
+                    <td className="px-2 text-right">{l.pctInad === null ? '—' : `${l.pctInad.toLocaleString('pt-BR')}%`}</td><td className="px-2 text-right">{l.qtdVencidas || ''}</td><td className="px-2">{br(l.ultimaMov)}</td>
+                  </tr>))}</tbody></table>
+            </div>
+          </div>
+        )}
         <div className="grid md:grid-cols-2 gap-3">
           <div className="border border-slate-200 rounded-lg p-2">
             <h4 className="text-xs font-bold text-slate-600 mb-1">Faturado × recebido (12 meses; recebido pelo ALTCRED/GRU)</h4>
@@ -70,35 +84,35 @@ const FichaOM: React.FC<{ chave: string; ctx: CtxPainel; onClose: () => void }> 
           </div>
           <div className="border border-slate-200 rounded-lg p-2 text-xs space-y-1">
             <h4 className="font-bold text-slate-600">Acompanhamento</h4>
-            <p><span className="text-slate-500">Última movimentação:</span> <b>{br(l.ultimaMov)}</b> (emissão ou pagamento)</p>
-            <p><span className="text-slate-500">Última providência registrada:</span> <b>{ultimaCobr ? `cobrança enviada em ${br(ultimaCobr.enviadaEm)}${ultimaCobr.faturas.some(n => numeros.has(n)) ? '' : ' (ao comando)'}` : ultimoEvento ? `${br(ultimoEvento.em)} — ${ultimoEvento.texto}` : 'nenhuma registrada'}</b></p>
+            <p><span className="text-slate-500">Última movimentação:</span> <b>{br(d.ultimaMov)}</b> (emissão ou pagamento)</p>
+            <p><span className="text-slate-500">Última providência registrada:</span> <b>{ultimaCobr ? `cobrança enviada em ${br(ultimaCobr.enviadaEm)}${ultimaCobr.faturas.some(n => d.numeros.has(n)) ? '' : ' (ao comando)'}` : ultimoEvento ? `${br(ultimoEvento.em)} — ${ultimoEvento.texto}` : 'nenhuma registrada'}</b></p>
             <p><span className="text-slate-500">Responsável pelo acompanhamento:</span> <b>não registrado</b> <span className="text-slate-400">(o sistema ainda não guarda responsável por OM — veja a aba Equipe)</span></p>
-            <p><span className="text-slate-500">Saldo parado (ALTCRED/GRU):</span> <b>{brl(l.saldoParado)}</b></p>
+            <p><span className="text-slate-500">Saldo parado (ALTCRED/GRU):</span> <b>{brl(d.saldoParado)}</b></p>
           </div>
         </div>
 
         <div>
-          <h4 className="text-xs font-bold text-slate-600 mb-1">Faturas com saldo ({abertas.length})</h4>
+          <h4 className="text-xs font-bold text-slate-600 mb-1">Faturas com saldo ({d.abertas.length})</h4>
           <div className="max-h-56 overflow-auto border border-slate-200 rounded-lg">
             <table className="w-full text-xs"><thead className="bg-slate-50 text-slate-600 sticky top-0"><tr>
-              <th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 hidden md:table-cell">Emissão</th><th className="px-2">Vencimento</th><th className="px-2 text-right">Valor</th><th className="px-2 text-right">Saldo</th><th className="px-2 text-right">Atraso</th><th className="px-2 text-left">Situação</th>
+              {modo === 'comando' && <th className="px-2 py-1.5 text-left">OM</th>}<th className="px-2 py-1.5 text-left">Fatura</th><th className="px-2 hidden md:table-cell">Emissão</th><th className="px-2">Vencimento</th><th className="px-2 text-right">Valor</th><th className="px-2 text-right">Saldo</th><th className="px-2 text-right">Atraso</th><th className="px-2 text-left">Situação</th>
             </tr></thead><tbody>
-              {abertas.map(f => { const a = atrasoDe(f, ctx.hoje); return (
-                <tr key={f.id} className="border-t border-slate-100"><td className="px-2 py-1 font-mono whitespace-nowrap">{f.numero}</td><td className="px-2 text-center hidden md:table-cell">{br(f.emissao)}</td><td className="px-2 text-center">{br(f.vencimento)}</td>
+              {d.abertas.map(({ f, om, atraso: a, situacao }) => (
+                <tr key={f.id} className="border-t border-slate-100">{modo === 'comando' && <td className="px-2 py-1 max-w-[200px] truncate" title={om}>{om}</td>}<td className="px-2 py-1 font-mono whitespace-nowrap">{f.numero}</td><td className="px-2 text-center hidden md:table-cell">{br(f.emissao)}</td><td className="px-2 text-center">{br(f.vencimento)}</td>
                   <td className="px-2 text-right tabular-nums">{brl(f.total)}</td><td className="px-2 text-right tabular-nums font-semibold">{brl(f.saldo)}</td><td className={`px-2 text-right ${a ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{a ? `${a} dias` : '—'}</td>
-                  <td className="px-2">{f.contestada ? 'em contestação' : a ? 'vencida' : 'a vencer'}</td></tr>); })}
-              {!abertas.length && <tr><td colSpan={7} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura com saldo.</td></tr>}
+                  <td className="px-2">{situacao}</td></tr>))}
+              {!d.abertas.length && <tr><td colSpan={8} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura com saldo.</td></tr>}
             </tbody></table>
           </div>
-          {recentes.length > 0 && <details className="mt-1 text-xs"><summary className="cursor-pointer text-slate-500">Últimas faturas quitadas ({recentes.length})</summary>
-            <ul className="mt-1 columns-1 md:columns-2">{recentes.map(f => <li key={f.id} className="font-mono">{f.numero} <span className="text-slate-400 font-sans">· {brl(f.total)}</span></li>)}</ul></details>}
+          {d.quitadas.length > 0 && <details className="mt-1 text-xs"><summary className="cursor-pointer text-slate-500">Últimas faturas quitadas ({d.quitadas.length})</summary>
+            <ul className="mt-1 columns-1 md:columns-2">{d.quitadas.map(f => <li key={f.id} className="font-mono">{f.numero} <span className="text-slate-400 font-sans">· {brl(f.total)}</span></li>)}</ul></details>}
         </div>
 
         <div className="grid md:grid-cols-2 gap-3">
-          <div><h4 className="text-xs font-bold text-slate-600 mb-1">Contestações ({contest.length})</h4>
-            {contest.length ? <ul className="text-xs space-y-1">{contest.map(x => <li key={x.c.id} className="border border-slate-200 rounded p-1.5"><b className="font-mono">{x.c.numeroFatura}</b> · {x.c.status.toLowerCase()} · {x.diasAberta} dias{x.aberta ? ` (parada há ${x.diasParada})` : ''} · {brl(x.valor)}</li>)}</ul> : <p className="text-xs text-slate-400">Nenhuma.</p>}</div>
-          <div><h4 className="text-xs font-bold text-slate-600 mb-1">Histórico de cobranças ({cobr.length})</h4>
-            {cobr.length ? <ul className="text-xs space-y-1">{cobr.slice(0, 8).map((c, i) => <li key={i} className="border border-slate-200 rounded p-1.5">{br(c.enviadaEm)} · {brl(c.valor)} · {c.faturas.length} fatura(s){c.faturas.some(n => numeros.has(n)) ? '' : ' (ao comando)'}</li>)}</ul> : <p className="text-xs text-slate-400">Nenhuma cobrança registrada para esta OM.</p>}</div>
+          <div><h4 className="text-xs font-bold text-slate-600 mb-1">Contestações ({d.contest.length})</h4>
+            {d.contest.length ? <ul className="text-xs space-y-1">{d.contest.map(x => <li key={x.c.id} className="border border-slate-200 rounded p-1.5"><b className="font-mono">{x.c.numeroFatura}</b> · {x.c.status.toLowerCase()} · {x.diasAberta} dias{x.aberta ? ` (parada há ${x.diasParada})` : ''} · {brl(x.valor)}</li>)}</ul> : <p className="text-xs text-slate-400">Nenhuma.</p>}</div>
+          <div><h4 className="text-xs font-bold text-slate-600 mb-1">Histórico de cobranças ({d.cobr.length})</h4>
+            {d.cobr.length ? <ul className="text-xs space-y-1">{d.cobr.slice(0, 8).map((c, i) => <li key={i} className="border border-slate-200 rounded p-1.5">{br(c.enviadaEm)} · {brl(c.valor)} · {c.faturas.length} fatura(s){c.faturas.some(n => d.numeros.has(n)) ? '' : ' (ao comando)'}</li>)}</ul> : <p className="text-xs text-slate-400">Nenhuma cobrança registrada para {modo === 'comando' ? 'este comando' : 'esta OM'}.</p>}</div>
         </div>
       </div>
     </Modal>
@@ -115,7 +129,9 @@ export const OMsTab: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
   const [soVencidas, setSoVencidas] = useState(false);
   const [situacao, setSituacao] = useState<SituacaoId | ''>('');
   const [pagina, setPagina] = useState(0);
-  const [ficha, setFicha] = useState<string | null>(null);
+  // ficha aberta: uma OM ou um comando (as duas podem ser abertas uma a partir da outra)
+  const [ficha, setFicha] = useState<{ modo: ModoFicha; chave: string } | null>(null);
+  const comandos = useMemo(() => comandosDasLinhas(linhas), [linhas]);
 
   // OM com contestação parada também contam como "pendência de acompanhamento"
   const comContestParada = useMemo(() => new Set(ctx.contest.filter(x => x.aberta && x.diasParada > c.diasContestParada && x.fatura).map(x => chaveOM(x.fatura!))), [ctx.contest, c]);
@@ -169,7 +185,7 @@ export const OMsTab: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
         {top.length === 0 ? <Vazio>Nenhuma OM com valor neste critério.</Vazio> : (
           <div className="h-72" role="img" aria-label="Gráfico do ranking das OM">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={top} layout="vertical" margin={{ top: 4, right: 96, left: 4, bottom: 0 }} onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) setFicha(top[Number(i)].chave); }}>
+              <BarChart data={top} layout="vertical" margin={{ top: 4, right: 96, left: 4, bottom: 0 }} onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) setFicha({ modo: 'om', chave: top[Number(i)].chave }); }}>
                 <CartesianGrid horizontal={false} stroke={COR.grade} />
                 <XAxis type="number" tickFormatter={moeda ? compacto : undefined} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="nome" width={190} tick={{ fontSize: 10, fill: '#334155' }} axisLine={false} tickLine={false} interval={0} />
@@ -190,6 +206,7 @@ export const OMsTab: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
           <label className="relative"><Search size={14} className="absolute left-2 top-2 text-slate-400" /><input className="pl-7 pr-2 py-1 text-sm border border-slate-300 rounded-md w-52" placeholder="Buscar OM, comando ou setor..." value={busca} onChange={e => { setBusca(e.target.value); setPagina(0); }} aria-label="Buscar OM" /></label>
           <label className="text-xs text-slate-600">Faixa de atraso <select className="ml-1 text-sm border border-slate-300 rounded-md px-1.5 py-1 bg-white" aria-label="Filtrar faixa de atraso" value={faixa} onChange={e => { setFaixa(e.target.value); setPagina(0); }}><option value="">Todas</option><option value="A vencer">A vencer</option>{FAIXAS_ATRASO.map(f => <option key={f} value={f}>{f}</option>)}</select></label>
           <label className="text-sm flex items-center gap-1.5"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soVencidas} onChange={e => { setSoVencidas(e.target.checked); setPagina(0); }} /> Só com vencidas</label>
+          <label className="text-xs text-slate-600">Extrato do comando <select className="ml-1 text-sm border border-slate-300 rounded-md px-1.5 py-1 bg-white max-w-[220px]" aria-label="Abrir extrato do comando" value="" onChange={e => { if (e.target.value) setFicha({ modo: 'comando', chave: e.target.value }); }}><option value="">Escolher…</option>{comandos.map(cm => <option key={cm} value={cm}>{cm}</option>)}</select></label>
           <Button size="sm" variant="secondary" onClick={exportar}><Download size={14} className="mr-1" />Excel</Button>
         </div>
         <p className="px-4 pt-2 text-xs text-slate-500">Clique numa <b>linha</b> para abrir a ficha da OM e no <b>título da coluna</b> para ordenar. {qtdBR(filtradas.length)} de {qtdBR(linhas.length)} OM.</p>
@@ -208,9 +225,9 @@ export const OMsTab: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {visiveis.map(l => (
-                <tr key={l.chave} className="hover:bg-primary-50/40 cursor-pointer" onClick={() => setFicha(l.chave)}>
+                <tr key={l.chave} className="hover:bg-primary-50/40 cursor-pointer" onClick={() => setFicha({ modo: 'om', chave: l.chave })}>
                   <td className="px-2 py-1.5 font-medium max-w-[240px]"><div className="truncate" title={l.cliente}>{l.cliente}</div>
-                    <div className="text-[10px] text-slate-400 truncate">{l.comando}</div>
+                    <div className="text-[10px] truncate"><button type="button" className="text-primary-700 hover:underline" title="Abrir o extrato do comando" aria-label={`Extrato do comando ${l.comando}`} onClick={e => { e.stopPropagation(); setFicha({ modo: 'comando', chave: l.comando }); }}>{l.comando}</button></div>
                     <div className="md:hidden text-[10px] text-slate-500">{l.pctInad === null ? '' : `${l.pctInad}% inad. · `}{l.qtdVencidas} venc. · últ. mov. {br(l.ultimaMov)}</div></td>
                   {visao === 'faixas' && <td className="px-2 hidden xl:table-cell text-slate-500 max-w-[200px] truncate" title={l.comando}>{l.comando}</td>}
                   <td className="px-2 text-right tabular-nums">{brl(l.emAberto)}</td>
@@ -238,7 +255,12 @@ export const OMsTab: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
           </div>
         )}
       </section>
-      {ficha && <FichaOM chave={ficha} ctx={ctx} onClose={() => setFicha(null)} />}
+      {ficha && (() => {
+        const lin = ficha.modo === 'om' ? linhas.find(l => l.chave === ficha.chave) : undefined;
+        const chaves = ficha.modo === 'om' ? [ficha.chave] : chavesDoComando(linhas, ficha.chave);
+        return <Ficha modo={ficha.modo} chaves={chaves} titulo={ficha.modo === 'om' ? lin?.cliente || '' : ficha.chave} ctx={ctx} onClose={() => setFicha(null)}
+          abrirOM={chave => setFicha({ modo: 'om', chave })} abrirComando={comando => setFicha({ modo: 'comando', chave: comando })} />;
+      })()}
     </div>
   );
 };

@@ -511,3 +511,8 @@ A assinatura é a mesma nas faturas e em todos os relatórios em PDF: **NOME** (
 
 ## PDF do Mapa Analítico: vencimento e atraso em colunas próprias
 Na árvore do mapa (e no PDF), cada fatura mostra o **nome e número** na primeira coluna e, em colunas separadas, o **Vencimento** e o **Atraso** (dias). A cobrança por OM já tinha o vencimento em coluna própria.
+
+## Painel do Encarregado › OM: extrato da OM e do COMANDO, com PDF
+- A **ficha da OM** (clique na linha da tabela ou na barra do ranking) tem o botão **PDF da OM** e o botão **Ver o comando**.
+- O **extrato do comando** abre de três jeitos: pelo seletor **Extrato do comando** da barra da tabela; clicando no **nome do comando** abaixo do nome da OM; ou por "Ver o comando" na ficha da OM. Ele soma as OM do comando (em aberto, vencido, contestação, variação, faixas de atraso, gráfico de 12 meses), lista **as OM do comando** (clique numa para abrir a ficha dela) e as **faturas com saldo de todas as OM**, com o nome da OM. O botão **PDF do comando** gera o extrato em PDF.
+- Os dois PDFs (OM e comando) trazem os números, as faixas de atraso, a tabela de faturas com saldo (com **Vencimento** e **Atraso** em colunas próprias), contestações, cobranças enviadas e a assinatura do Encarregado. Respeitam os filtros do cabeçalho do painel (exercício, período, público, setor e comando).

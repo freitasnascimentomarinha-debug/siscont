@@ -3035,6 +3035,48 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/40030-TC-08-2026-001-0 \(Taxa Condominial\)\s+15\/10\/2026\s+\d+ dias/.test(linha) && !/venc\./.test(txt), `a data de vencimento fica numa coluna, separada do número da fatura (${linha.trim().slice(0, 100)})`);
   });
 
+  await cenario('Painel do Encarregado: extrato do comando (além da OM) e PDF das duas opções', [], async (page, db) => {
+    const { execFileSync } = require('child_process');
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '31050', nome: 'Batalhão Naval', sigla: 'BtlNav', setor_id: setor.id, ativo: true };
+    const bn = { id: uid(), codigo: '31050', nome: 'Batalhão Naval', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    const ares = { id: uid(), codigo: '31051', nome: 'ARES-MAS', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(bn, ares);
+    db.parametros.push({ chave: 'encarregado_nome', valor: 'Jéssica CAROLINE da S. SAMPAIO Queiroz' }, { chave: 'encarregado_posto', valor: 'Capitão de Corveta (IM)' });
+    const hoje = new Date().toISOString().slice(0, 10), ano = Number(hoje.slice(0, 4));
+    const f = (om, n, valor, venc) => ({ id: uid(), invoice_number: n, ug: om.codigo, sector: 'DGMM', command: '31050 - Batalhão Naval', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${ano}-01-15`, due_date: venc, month_competence: 1, year_competence: ano, competence: `01/${ano}`, type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false, om_id: om.id });
+    db.invoices = [f(bn, `31050-TC-01-${ano}-001-0`, 1000, `${ano}-01-31`), f(bn, `31050-TC-02-${ano}-001-0`, 500, `${ano}-02-28`), f(ares, `31051-TC-01-${ano}-001-0`, 300, `${ano}-01-31`)];
+    await page.reload();
+    await page.getByRole('button', { name: 'Painel do Encarregado' }).click();
+    await page.getByRole('tab', { name: 'OM', exact: true }).click();
+    await page.getByRole('table', { name: 'Situação por OM' }).waitFor();
+    ok(await page.getByLabel('Abrir extrato do comando').isVisible(), 'a tela tem o seletor "Extrato do comando"');
+    await page.getByLabel('Abrir extrato do comando').selectOption('31050 - Batalhão Naval');
+    await page.getByText('Comando: 31050 - Batalhão Naval').waitFor();
+    const lista = (await page.getByTestId('oms-do-comando').innerText()).replace(/\s+/g, ' ');
+    ok(/Batalhão Naval/.test(lista) && /ARES-MAS/.test(lista), 'o extrato do comando lista as OM dele');
+    const corpo = (await page.getByRole('dialog').innerText()).replace(/\s+/g, ' ');
+    ok(/Em aberto R\$ 1\.800,00/i.test(corpo) && /Faturas com saldo \(3\)/i.test(corpo), `o comando soma as OM: em aberto R$ 1.800,00 e 3 faturas (${corpo.slice(0, 80)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-comando.png'), fullPage: true });
+    const lerPdf = async (botao) => {
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: botao }).click()]);
+      const arq = path.join(os.tmpdir(), `siscont-e2e-ficha-${Date.now()}.pdf`); fs.copyFileSync(await dl.path(), arq);
+      if (SHOTS) fs.copyFileSync(arq, path.join(SHOTS, botao.replace(/\W+/g, '_') + '.pdf'));
+      return { txt: execFileSync('pdftotext', ['-layout', arq, '-']).toString(), nome: dl.suggestedFilename() };
+    };
+    const pc = await lerPdf('PDF do comando');
+    ok(/^extrato_comando_/.test(pc.nome) && /Extrato de situação do comando/.test(pc.txt) && /ARES-MAS/.test(pc.txt) && /TOTAL DO COMANDO/.test(pc.txt) && /Vencimento/.test(pc.txt) && /JÉSSICA CAROLINE DA S\. SAMPAIO QUEIROZ/.test(pc.txt), 'PDF do comando: todas as OM, vencimento em coluna e assinatura do Encarregado');
+    // abrir a ficha de uma OM a partir do comando
+    await page.getByTestId('oms-do-comando').getByText('ARES-MAS').click();
+    await page.getByRole('button', { name: 'PDF da OM' }).waitFor();
+    const po = await lerPdf('PDF da OM');
+    ok(/^extrato_om_/.test(po.nome) && /Extrato de situação da OM/.test(po.txt) && /ARES-MAS/.test(po.txt) && !/Batalhão Naval\s+R\$/.test(po.txt.split('Faturas com saldo')[1] || '') && /ASSINADO DIGITALMENTE/.test(po.txt), 'PDF da OM: só as faturas dela, com a assinatura');
+    await page.getByRole('button', { name: 'Ver o comando' }).click();
+    await page.getByText('Comando: 31050 - Batalhão Naval').waitFor();
+    ok(true, 'da ficha da OM dá para ir ao extrato do comando ("Ver o comando")');
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));
