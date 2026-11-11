@@ -11,9 +11,10 @@ import { ImportarTab } from '../components/cadastros/ImportarTab';
 import { MigrarFaturasTab } from '../components/cadastros/MigrarFaturasTab';
 import { DuplicidadesTab } from '../components/cadastros/DuplicidadesTab';
 import { ListaNaviosTab } from '../components/cadastros/ListaNaviosTab';
+import { RegimesOndTab } from '../components/cadastros/RegimesOndTab';
 import { ExportarTab } from '../components/cadastros/ExportarTab';
 
-type Aba = 'servicos' | 'setores' | 'comandos' | 'oms' | 'classes' | 'listanavios' | 'parametros' | 'duplicidades' | 'exportar' | 'importar' | 'migrar';
+type Aba = 'servicos' | 'setores' | 'comandos' | 'oms' | 'classes' | 'listanavios' | 'parametros' | 'regimes' | 'duplicidades' | 'exportar' | 'importar' | 'migrar';
 
 const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
   { id: 'servicos', label: 'Serviços' },
@@ -23,6 +24,7 @@ const ABAS: { id: Aba; label: string; admin?: boolean }[] = [
   { id: 'classes', label: 'Classes de navio' },
   { id: 'listanavios', label: 'Lista de navios', admin: true },
   { id: 'parametros', label: 'Parâmetros e feriados' },
+  { id: 'regimes', label: 'Regimes OND' },
   { id: 'duplicidades', label: 'Duplicidades', admin: true },
   { id: 'exportar', label: 'Exportar planilhas' },
   { id: 'importar', label: 'Importar planilhas', admin: true },
@@ -71,7 +73,7 @@ export const Cadastros: React.FC = () => {
               </button>
             ))}
           </div>
-          {!admin && <p className="text-xs text-slate-500">Somente administradores alteram os cadastros.</p>}
+          {!admin && aba !== 'regimes' && <p className="text-xs text-slate-500">Somente administradores alteram os cadastros.</p>}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
             {aba === 'oms' && <OmsTab dados={dados} podeEditar={admin} podeCadastrar={gravador} recarregar={recarregar} />}
             {aba === 'duplicidades' && admin && <DuplicidadesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
@@ -81,6 +83,7 @@ export const Cadastros: React.FC = () => {
             {aba === 'classes' && <ClassesTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'servicos' && <ServicosTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'parametros' && <ParametrosTab podeEditar={admin} oms={dados.oms} />}
+            {aba === 'regimes' && <RegimesOndTab dados={dados} podeEditar={gravador} />}
             {aba === 'exportar' && <ExportarTab dados={dados} />}
             {aba === 'importar' && admin && <ImportarTab dados={dados} podeEditar={admin} recarregar={recarregar} />}
             {aba === 'migrar' && admin && <MigrarFaturasTab dados={dados} podeEditar={admin} />}

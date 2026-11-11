@@ -6,7 +6,7 @@ import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes, listarUsosCredito,
 } from '../../services/faturamentoService';
 import { textoConsumo, descreverBase,
-  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, numerar, partes, pad, referencia, totaisLote,
+  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, calcularAcerto, calcularMes, calcularOnd, foraDoOnd, numerar, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -63,6 +63,10 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       // pendências do mês
       const p: string[] = [];
       if (daEmissora.length) p.push(`${ctx.emissora.nome} é a OM emissora: ${brl(daEmissora.reduce((s, i) => s + i.valor, 0))} de rateio (${[...new Set(daEmissora.map(i => i.sigla))].join(', ')}) ficam só para controle e contabilidade de custos — não geram fatura.`);
+      if (tipo === 'OND') {
+        const f = foraDoOnd(d);
+        if (f.length) p.push(`Fora da estimativa pelo regime de fim de exercício (Cadastros › Regimes OND): ${f.map(x => `${x.sigla} — ${x.qtd} OM (${x.regime === 2 ? 'fatura mensal normal' : 'não participa'})`).join('; ')}.`);
+      }
       if (tipo !== 'ACERTO') {
         const [med, atr] = await Promise.all([listarMedicoes([compLote]), listarAtracacoes([compLote])]);
         MEDIDOS.filter(s => siglas.has(s)).forEach(s => { if (!med.some(m => m.sigla === s)) p.push(`Nenhuma medição de ${s} lançada para ${referencia(compLote)}.`); });

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Emissora, resolverEmissora } from '../utils/emissora';
 import { UsoCredito, creditoCompensadoNaFatura } from '../utils/creditosAcerto';
+import { regimeOndService } from './regimeOndService';
 import { supabase } from './supabase';
 import { db } from './db';
 import { cadastroService } from './cadastroService';
@@ -184,10 +185,10 @@ export function omsNaData(ctx: ContextoFaturamento, historico: OMHistorico[], da
 export async function montarDados(ctx: ContextoFaturamento, tipo: TipoLote, comp: string): Promise<DadosLote> {
   const { ano } = partes(comp);
   const comps = competenciasDoLote(tipo, comp);
-  const [precos, medicoes, atracacoes, historicoOM] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps), cadastroService.listarHistoricoOM()]);
+  const [precos, medicoes, atracacoes, historicoOM, regimesOnd] = await Promise.all([listarPrecos([ano]), listarMedicoes(comps), listarAtracacoes(comps), cadastroService.listarHistoricoOM(), tipo === 'OND' ? regimeOndService.listar() : Promise.resolve([])]);
   return {
     competencia: comp, tipo, oms: omsNaData(ctx, historicoOM, dataEmissaoPadrao(comp, ctx.diaEmissao)), servicos: ctx.servicos, precos, medicoes, atracacoes,
-    historico: historicoDe(ctx.invoices),
+    historico: historicoDe(ctx.invoices), regimesOnd,
   };
 }
 

@@ -142,3 +142,7 @@ Com 001–003 aplicados: `psql -d sb -f tests/sql/om_historico_029_tests.sql` (a
 ## Script 030 (perfil Treinamento)
 
 Com 001 (e 018) aplicados: `psql -d sb -f tests/sql/treinamento_030_tests.sql` (aplica o 030 duas vezes). Esperado: o perfil TREINAMENTO é aceito e um valor inválido é recusado; `can_write()` e `is_admin()` falsos e `is_active_user()` verdadeiro; o usuário lê as faturas mas não consegue alterá-las (0 linhas).
+
+## Script 032 (regime de fim de exercício por serviço, com exceções por OM)
+
+Com 001–003 aplicados: `psql -d sb -f tests/sql/regime_ond_032_tests.sql` (aplica o 032 duas vezes). Esperado: regra por serviço (AE, EL, CR, TC, DA = 1; AL = 2; VT, RB = 3); exceções só para as OMs com padrão de 2025 diferente da regra (RB com fatura só em outubro não vira exceção); nenhuma linha duplicada na segunda execução; faturas intactas; o operador registra e o nome dele fica gravado; UPDATE e DELETE são recusados (até pelo administrador do banco); regime inválido ou escopo errado recusados; leitor lê mas não grava.

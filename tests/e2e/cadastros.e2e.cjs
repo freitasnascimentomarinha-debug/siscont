@@ -27,7 +27,7 @@ function novoBanco() {
     invoices: [{ id: 'i1', ug: '91645', client: 'Corveta Barroso' }],
     received_documents: [], payment_allocations: [],
     precos: [], medicoes: [], atracacoes: [], lotes_faturamento: [], contestacoes: [], taxas_poupanca: [], rubricas: [], cobrancas: [], contratos: [], cash_flow_exits: [],
-    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], om_historico: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
+    propostas_tc: [], lotacoes_tc: [], matriz_tc: [], descontos_tc: [], atracacao_anual: [], auditoria: [], pendentes_tc: [], creditos_acerto_uso: [], om_historico: [], regime_ond: [], oms_nao_duplicadas: [], subsidios_tc: [], anexos_tc: [], fechados_tc: [], extratos_tc: [],
   };
 }
 
@@ -2733,6 +2733,81 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const msg = (await page.getByRole('dialog').innerText()).replace(/\s+/g, ' ');
     ok(/2 fatura\(s\) voltarão a ficar em aberto: 40030-AE-0[23]-2026-001-0, 40030-AE-0[23]-2026-001-0/.test(msg), 'confirmação de exclusão diz quais faturas reabrem');
     await page.keyboard.press('Escape');
+  });
+
+  await cenario('Regimes OND: regra por serviço, exceção por OM, vigência, impacto e histórico (Fase A)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '40030', nome: 'Diretoria Industrial', sigla: 'DIM', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd);
+    const mk = (cod, nome) => { const o = { id: uid(), codigo: cod, nome, tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true, nomes_alternativos: [], codigos_anteriores: [] }; db.oms.push(o); return o; };
+    const a = mk('40101', 'Centro de Apoio A'), b = mk('40102', 'Centro de Apoio B'), c = mk('40103', 'Centro de Apoio C');
+    db.service_definitions.push({ id: uid(), name: 'Viatura', unit_measure: 'H/KM', acronym: 'VT', ordem: 30, ativo: true }, { id: uid(), name: 'Telefonia', unit_measure: 'MIN', acronym: 'TL', ordem: 40, ativo: true });
+    const hoje = new Date().toISOString().slice(0, 10), ano = Number(hoje.slice(0, 4));
+    // faturas de AE em jan–set para as três OMs, e a OM C com faturamento mensal já emitido em nov do exercício atual
+    let n = 0;
+    [a, b, c].forEach(o => [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach(m => db.invoices.push({ id: uid(), ug: o.codigo, client: o.nome, om_id: o.id, invoice_number: `${o.codigo}-AE-${String(m).padStart(2, '0')}-${ano}-00${++n % 9 + 1}-0`, service_acronym: 'AE', value: 100, adjustment_addition: 0, adjustment_deduction: 0, issue_date: `${ano}-${String(m).padStart(2, '0')}-15`, due_date: `${ano}-${String(m).padStart(2, '0')}-28`, month_competence: m, year_competence: ano, is_canceled: false, estimado: false, acerto_de: null })));
+    db.invoices.push({ id: uid(), ug: c.codigo, client: c.nome, om_id: c.id, invoice_number: `${c.codigo}-AE-11-${ano}-001-0`, service_acronym: 'AE', value: 100, adjustment_addition: 0, adjustment_deduction: 0, issue_date: `${ano}-11-15`, due_date: `${ano}-11-28`, month_competence: 11, year_competence: ano, is_canceled: false, estimado: false, acerto_de: null });
+    db.regime_ond.push({ id: uid(), escopo: 'SERVICO', sigla: 'AE', om_id: null, ano_inicio: ano, regime: 1, motivo: 'Configuração inicial: comportamento de 2025', origem: 'MIGRACAO', criado_por_nome: null, criado_em: `${ano}-01-02T10:00:00Z` },
+      { id: uid(), escopo: 'SERVICO', sigla: 'VT', om_id: null, ano_inicio: ano, regime: 3, motivo: 'Configuração inicial: comportamento de 2025', origem: 'MIGRACAO', criado_por_nome: null, criado_em: `${ano}-01-02T10:00:00Z` },
+      { id: uid(), escopo: 'OM', sigla: 'AE', om_id: b.id, ano_inicio: ano, regime: 3, motivo: 'Configuração inicial: em 2025 seguiu o regime 3', origem: 'MIGRACAO', criado_por_nome: null, criado_em: `${ano}-01-02T10:00:00Z` });
+    db.profiles[0].role = 'USER';    // operador também registra
+    await page.reload();
+    await page.getByRole('button', { name: 'Cadastros' }).click();
+    await page.getByRole('button', { name: 'Regimes OND' }).click();
+    await page.getByTestId('tabela-regimes').waitFor();
+    await page.getByTestId('tabela-regimes').getByText('1 – Estimativa e acerto').first().waitFor();
+    const tabela = (await page.getByTestId('tabela-regimes').innerText()).replace(/\s+/g, ' ');
+    ok(/AE Água e Esgoto 1 – Estimativa e acerto/.test(tabela) && /VT Viatura 3 – Não participa/.test(tabela), 'regra geral por serviço aparece (AE = 1, VT = 3)');
+    ok(/TL Telefonia Sem regra \(segue como antes\)/.test(tabela), 'serviço sem regra aparece como "Sem regra (segue como antes)"');
+    ok(/AE Água e Esgoto.*3 1/.test(tabela), 'AE: 3 OMs abrangidas e 1 exceção');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-1-servicos.png'), fullPage: true });
+    // OMs abrangidas e exceção
+    await page.getByRole('button', { name: 'Ver OMs de AE' }).click();
+    await page.getByText('Centro de Apoio B').first().waitFor();
+    const lista = (await page.locator('tr', { hasText: 'Centro de Apoio B' }).first().innerText()).replace(/\s+/g, ' ');
+    ok(/3 – Não participa/.test(lista) && /Exceção da OM/.test(lista), 'lista de OMs mostra a exceção da OM B (regime 3)');
+    ok(/1 – Estimativa e acerto/.test((await page.locator('tr', { hasText: 'Centro de Apoio A' }).first().innerText()).replace(/\s+/g, ' ')), 'a OM A segue a regra do serviço');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-2-oms-excecoes.png'), fullPage: true });
+    // nova exceção: OM A não participa em AE a partir do exercício atual → impacto
+    await page.getByRole('button', { name: 'Exceção de Centro de Apoio A em AE' }).click();
+    await page.getByLabel('Regime', { exact: true }).selectOption('3');
+    const imp = (await page.getByTestId('impacto-regime').innerText()).replace(/\s+/g, ' ');
+    ok(/Mudam de regime: 1 de 1 OM/.test(imp) && /Faturas já emitidas, créditos e exercícios anteriores não são alterados/.test(imp), `impacto antes de confirmar (${imp.slice(0, 90)})`);
+    await page.getByLabel('Motivo (opcional)').fill('A OM deixou de receber estimativa');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-3-excecao-impacto.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Registrar', exact: true }).click();
+    await page.getByRole('button', { name: 'Registrar', exact: true }).waitFor({ state: 'detached' });
+    const nova = db.regime_ond.find(r => r.escopo === 'OM' && r.om_id === a.id);
+    ok(nova && nova.regime === 3 && nova.ano_inicio === ano && nova.origem === 'USUARIO' && nova.motivo === 'A OM deixou de receber estimativa', 'exceção gravada com regime, exercício de início, origem e motivo');
+    ok(db.regime_ond.length === 4 && db.regime_ond.filter(r => r.origem === 'MIGRACAO').length === 3, 'as linhas da configuração inicial continuam como estavam (só entrou uma linha nova)');
+    // mudar a regra do serviço para "não participa" é bloqueado se a OM C… (C tem nov faturado, mas hoje o regime 1 → 3 só bloqueia se houver estimativa emitida): fatura de outubro não existe → permitido; regime 2→1 com nov/dez bloqueia
+    await page.getByRole('button', { name: 'Exceção de Centro de Apoio C em AE' }).click();
+    await page.getByLabel('Regime', { exact: true }).selectOption('2');
+    await page.getByRole('button', { name: 'Registrar', exact: true }).click();
+    await page.getByRole('button', { name: 'Registrar', exact: true }).waitFor({ state: 'detached' });
+    ok(db.regime_ond.some(r => r.om_id === c.id && r.regime === 2), 'OM C passa a mensal normal (regime 2)');
+    await page.getByRole('button', { name: 'Exceção de Centro de Apoio C em AE' }).click();
+    await page.getByLabel('Regime', { exact: true }).selectOption('1');
+    const bloq = (await page.getByTestId('impacto-regime').innerText()).replace(/\s+/g, ' ');
+    ok(/Bloqueado/.test(bloq) && /duplicidade/.test(bloq) && await page.getByRole('button', { name: 'Registrar', exact: true }).isDisabled(), 'voltar ao regime 1 com faturamento de nov/dez já emitido é bloqueado (duplicidade)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-4-bloqueio.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    // exercício que já passou não é aceito: o seletor só oferece o atual em diante
+    await page.getByRole('button', { name: 'Alterar regra de VT' }).click();
+    const anos = await page.getByLabel('Vale a partir do exercício').locator('option').allInnerTexts();
+    ok(!anos.includes(String(ano - 1)) && anos.includes(String(ano)), 'a vigência só pode começar no exercício atual ou depois (passado não é recalculado)');
+    await page.getByLabel('Regime', { exact: true }).selectOption('1');
+    await page.getByLabel('Vale a partir do exercício').selectOption(String(ano + 1));
+    await page.getByRole('button', { name: 'Registrar', exact: true }).click();
+    await page.getByRole('button', { name: 'Registrar', exact: true }).waitFor({ state: 'detached' });
+    ok(db.regime_ond.some(r => r.escopo === 'SERVICO' && r.sigla === 'VT' && r.regime === 1 && r.ano_inicio === ano + 1), 'regra de VT muda para o regime 1 a partir do próximo exercício');
+    // o exercício atual continua com a regra antiga
+    ok(/VT Viatura 3 – Não participa/.test((await page.getByTestId('tabela-regimes').innerText()).replace(/\s+/g, ' ')), 'o exercício atual continua com a regra anterior (VT = 3)');
+    // histórico
+    await page.getByRole('button', { name: /Ver histórico de alterações \(\d+\)/ }).click();
+    const hist = (await page.getByTestId('historico-regimes').innerText()).replace(/\s+/g, ' ');
+    ok(/Configuração inicial/.test(hist) && /A OM deixou de receber estimativa/.test(hist), 'histórico lista a configuração inicial e as mudanças com o motivo');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'regimes-ond-5-historico.png'), fullPage: true });
   });
 
   await browser.close();

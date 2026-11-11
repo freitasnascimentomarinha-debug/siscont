@@ -431,3 +431,23 @@ npm run typecheck             # checagem de tipos
 
 ## Script 031 — vencimentos anteriores a 2025
 Recalcula o vencimento (emissão + 30 dias corridos → próximo dia útil) e a data-limite (emissão + 10 dias úteis) das faturas com ponto de atenção de data cuja emissão ou competência é anterior a 2025, e marca esses pontos como resolvidos. O vencimento antigo fica em `vencimentos_anteriores_011` (para desfazer: `update invoices set due_date = due_date_anterior from vencimentos_anteriores_011 ...`).
+
+## Script 032 — Regime de fim de exercício (OND) por serviço, com exceções por OM (Fase A)
+
+**Para que serve:** definir, para cada serviço, como ele é tratado no fim do exercício, sem mexer em nenhuma fatura.
+- **Regime 1 – Estimativa e acerto:** uma fatura estimada em outubro (OUT–DEZ) e acerto com o consumo real em janeiro.
+- **Regime 2 – Mensal normal:** continua faturando em out, nov e dez (sem estimativa e sem acerto).
+- **Regime 3 – Não participa:** fora da estimativa e do acerto.
+- **Sem regra:** o faturamento segue exatamente como era antes.
+
+**Como funciona:** a regra do serviço vale para todas as OMs que o têm; a **exceção por OM** vale só para ela. Para uma OM e um serviço em um exercício, vale: 1) a exceção da OM mais recente com vigência até o exercício; 2) senão, a regra do serviço mais recente; 3) senão, "sem regra". A mudança vale **a partir do exercício informado** (o atual ou um futuro) e nunca recalcula exercícios anteriores.
+
+**Onde:** Cadastros › **Regimes OND** (operador e administrador alteram; o histórico mostra quem, quando, o regime e o motivo). Antes de confirmar, a tela mostra quantas OMs mudam e **bloqueia** o que levaria a duplicidade (passar para o regime 1 com faturamento mensal de nov/dez já emitido) ou a estimativa sem acerto (sair do regime 1 com estimativa já emitida no exercício).
+
+**O que o script faz (idempotente, sem DROP):** cria a tabela `regime_ond` (só recebe linhas novas; UPDATE e DELETE são recusados), com permissões (todos leem; operador e administrador gravam) e trilha de auditoria; e grava a configuração inicial de 2026 (`origem = MIGRACAO`), que reproduz o que foi faturado em 2025:
+- regra do serviço: AE, EL, CR, TC e DA = 1; AL = 2; VT e RB = 3. TL e demais ficam **sem regra**;
+- exceção para a OM cujo padrão de 2025 foi diferente da regra do serviço (R1 = fatura em outubro e nenhuma em nov/dez; R2 = out, nov e dez; R3 = nenhuma em out–dez, mas faturou jan–set). RB com fatura só em outubro **não** vira exceção.
+
+**Efeito no faturamento:** só o lote **OND** (estimativa de outubro) consulta a regra: OMs em regime 2 ou 3 não entram, e a prévia avisa "Fora da estimativa pelo regime…". A média continua **3 × média JAN–AGO com divisor 8**. O **acerto** continua partindo das faturas estimadas já emitidas (uma estimativa emitida sempre tem acerto). O PDF e a estrutura da fatura **não mudam**: 01 serviço, 02 adiantamento, 03 acerto acréscimo, 04 acerto débito, 05 total a pagar (= máx(0, 01 − 02 + 03 − 04)) e 06 total da fatura.
+
+Testes: `tests/regimeOnd.test.ts` (regra, vigência, impacto, lote OND e fórmula do total a pagar), `tests/sql/regime_ond_032_tests.sql` (idempotência, imutabilidade, permissões) e o cenário "Regimes OND" do e2e.

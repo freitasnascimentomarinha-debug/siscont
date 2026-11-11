@@ -14,6 +14,7 @@
 
  */
 import { obterNormas } from './normas';
+import { LinhaRegime, Regime, entraNaEstimativa, resolverRegime } from './regimeOnd';
 export interface OMFat {
   id: string; codigo: string; nome: string; tipo: 'TERRA' | 'NAVIO' | 'EXTRA_MB'; comandoId?: string | null;
   setor: string; comando: string; ativo: boolean; desativadoEm?: string | null; ativadoEm?: string | null;
@@ -89,7 +90,13 @@ export interface DadosLote {
   mesesMediaOnd?: [number, number];
   /** Divisor da média do OND: meses do período (padrão: 8 = JAN–AGO) ou só os meses com fatura. */
   divisorOnd?: 'PERIODO' | 'MESES_FATURADOS';
+  /** Regimes de fim de exercício por serviço e exceções por OM (script 032). Sem linhas = comportamento de antes (nada é excluído). */
+  regimesOnd?: LinhaRegime[];
 }
+
+/** A OM e o serviço entram na estimativa do OND? (regime 1 ou sem regra; regimes 2 e 3 ficam de fora) */
+export const participaDoOnd = (d: Pick<DadosLote, 'regimesOnd'>, omId: string, sigla: string, ano: number) =>
+  entraNaEstimativa(resolverRegime(d.regimesOnd || [], omId, sigla, ano));
 
 const ativaNa = (om: OMFat, comp: string) => {
   const ini = `${comp}-01`;
@@ -154,6 +161,19 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
   return itens.filter(i => i.valor > 0 || i.avisos.length);
 }
 
+/** Quantas OMs ficam fora da estimativa do OND por regra (regime 2 ou 3), por serviço — só para informar na prévia do lote. */
+export function foraDoOnd(d: DadosLote): { sigla: string; regime: Regime; qtd: number }[] {
+  const { ano, mes } = partes(d.competencia);
+  if (mes !== 10) return [];
+  const vistos = new Set<string>(), cont = new Map<string, number>();
+  d.historico.filter(h => h.ano === ano && h.mes >= 1 && h.mes <= 8 && !h.cancelada && !h.acertoDe && h.omId).forEach(h => {
+    const k = `${h.omId}|${h.sigla}`; if (vistos.has(k)) return; vistos.add(k);
+    const e = resolverRegime(d.regimesOnd || [], h.omId, h.sigla, ano);
+    if (e.regime === 2 || e.regime === 3) { const kk = `${h.sigla}|${e.regime}`; cont.set(kk, (cont.get(kk) || 0) + 1); }
+  });
+  return [...cont.entries()].map(([k, qtd]) => { const [sigla, r] = k.split('|'); return { sigla, regime: Number(r) as Regime, qtd }; }).sort((a, b) => a.sigla.localeCompare(b.sigla));
+}
+
 /** Lote OND (competência OUT): estimativa de fim de exercício. */
 export function calcularOnd(d: DadosLote): ItemLote[] {
   const { ano, mes } = partes(d.competencia);
@@ -178,6 +198,7 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
     soma.forEach((s, k) => {
       const [omId, sigla] = k.split('|');
       if (omId !== om.id || !quer(sigla)) return;
+      if (!participaDoOnd(d, om.id, sigla, ano)) return;      // regime 2 ou 3 (script 032)
       if (sigla === 'TC') return; // TC: 3 × valor mensal da tabela (abaixo)
       const divisor = d.divisorOnd === 'MESES_FATURADOS' ? s.meses.size : nMeses;
       const media = r2(s.total / divisor);
@@ -190,7 +211,7 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
       });
     });
     // TC: 3 × valor mensal da tabela do ano (sem tabela, usa a média como os demais)
-    if (quer('TC')) {
+    if (quer('TC') && participaDoOnd(d, om.id, 'TC', ano)) {
       const p = d.precos.find(x => x.ano === ano && x.sigla === 'TC' && x.omId === om.id);
       const s = soma.get(`${om.id}|TC`);
       const mensal = p?.valor ?? (s ? r2(s.total / (d.divisorOnd === 'MESES_FATURADOS' ? s.meses.size : nMeses)) : 0);
@@ -201,7 +222,7 @@ export function calcularOnd(d: DadosLote): ItemLote[] {
       });
     }
     // DA: diária × dias previstos OUT–DEZ
-    if (!quer('DA')) return;
+    if (!quer('DA') || !participaDoOnd(d, om.id, 'DA', ano)) return;
     const prev = d.atracacoes.filter(a => a.omId === om.id && a.previsao && partes(a.competencia).ano === ano && partes(a.competencia).mes >= 10);
     const dias = prev.reduce((s, a) => s + a.diasAtracado, 0);
     if (!dias) return;
