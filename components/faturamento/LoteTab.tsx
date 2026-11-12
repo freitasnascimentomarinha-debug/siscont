@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Calculator, ChevronDown, ChevronRight, FileSpreadsheet, Send } from 'lucide-react';
+import { AlertTriangle, Calculator, ChevronDown, ChevronRight, FileSpreadsheet, FileText, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { linhasPrevia } from '../../utils/resumoFaturamento';
 import {
@@ -137,6 +137,18 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
     } catch (e) { notify.fail('Erro ao emitir o lote', e); } finally { setEmitindo(null); }
   };
 
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  /** PDF único com a capa-resumo e todas as faturas do lote (com anexos), com marca d'água de PRÉVIA em todas as páginas. */
+  const previaPdf = async () => {
+    setGerandoPdf(true);
+    try {
+      const [{ carregarContextoFr172 }, { pdfPreviaLote }] = await Promise.all([import('../../services/fr172Service'), import('../../utils/previaFr172')]);
+      const c = await carregarContextoFr172();
+      const pdf = pdfPreviaLote(final, { tipo, competencia: compLote, emissao, limite, vencimento, servicos: c.servicos, params: c.params });
+      pdf.save(`PREVIA_faturas_${compLote}_${tipo}.pdf`);
+      notify.success(`Prévia em PDF gerada (${final.length} fatura(s)). Todas as páginas levam a marca d'água PRÉVIA.`);
+    } catch (e) { notify.fail('Erro ao gerar a prévia em PDF', e); } finally { setGerandoPdf(false); }
+  };
   const exportarPrevia = () => {
     const ws = XLSX.utils.aoa_to_sheet(linhasPrevia(final));
     ws['!cols'] = [30, 8, 46, 24, 12, 8, 14, 16, 14, 12, 14, 50].map(w => ({ wch: w }));
@@ -255,7 +267,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={exportarPrevia} disabled={!final.length}><FileSpreadsheet size={14} className="mr-1" />Prévia em Excel ({final.length})</Button></div>
+          <div className="flex justify-end gap-2"><Button size="sm" variant="secondary" onClick={previaPdf} isLoading={gerandoPdf} disabled={!final.length}><FileText size={14} className="mr-1" />Prévia em PDF ({final.length})</Button><Button size="sm" variant="secondary" onClick={exportarPrevia} disabled={!final.length}><FileSpreadsheet size={14} className="mr-1" />Prévia em Excel ({final.length})</Button></div>
           {fora.size > 0 && <p className="text-xs text-slate-500">{fora.size} fatura(s) retirada(s) da prévia. <button className="text-primary-700 underline" onClick={() => setFora(new Set())}>Recolocar</button></p>}
           {podeEditar && bloqueados.length > 0 && (
             <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-800 flex flex-wrap items-center gap-3" role="alert">

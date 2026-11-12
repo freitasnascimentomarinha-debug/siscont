@@ -164,11 +164,15 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
   doc.line(ML, topo, MR, topo); doc.line(ML, topo, ML, y); doc.line(MR, topo, MR, y); doc.line(ML, y, MR, y);
 }
 
+/** A fatura (FR-172) e, nas de rebocador, a "Descrição de Manobra" que subsidiou o valor, uma página de anexo por documento. */
+export function desenharFaturaCompleta(doc: jsPDF, d: DadosFr172) {
+  desenharFr172(doc, d);
+  ((d.base?.manobras || []) as DescricaoManobra[]).forEach(dm => { doc.addPage(); desenharDescricaoManobra(doc, dm); });
+}
+
 export function pdfFr172(d: DadosFr172): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  desenharFr172(doc, d);
-  // fatura de rebocador: a "Descrição de Manobra" que subsidiou o valor vai de anexo, uma página por documento
-  ((d.base?.manobras || []) as DescricaoManobra[]).forEach(dm => { doc.addPage(); desenharDescricaoManobra(doc, dm); });
+  desenharFaturaCompleta(doc, d);
   return doc;
 }
 
