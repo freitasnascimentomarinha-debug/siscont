@@ -179,6 +179,8 @@ export function calcularMes(d: DadosLote, comp: string, filtroOm?: (o: OMFat) =>
     if (m.valor != null) {
       valor = m.valor; base = { regra: 'Valor do rateio enviado pela divisão', quantidade: m.quantidade, quantidade2: m.quantidade2 };
       // viatura cobrada com atraso: os meses cobrados saem na fatura (tabela Mês | Valor)
+      // rebocador: as "Descrições de Manobra" (subsídio) seguem com a fatura e vão como anexo do PDF
+      if (m.sigla === 'RB' && m.detalhe?.length) { const dm = m.detalhe.map((x: any) => x?.manobra).filter(Boolean); if (dm.length) base.manobras = dm; }
       if (m.sigla === 'VT' && m.detalhe?.length) base.meses = m.detalhe.filter(x => x.valor != null).map(x => ({ mes: String(x.sigla || '').split(' · ').pop() || '', valor: x.valor }));
     }
     else if (p && m.quantidade != null) { valor = p.valor * m.quantidade; base = { regra: 'Quantidade × valor unitário ' + ano, valorUnitario: p.valor, quantidade: m.quantidade }; }

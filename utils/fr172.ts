@@ -8,6 +8,8 @@ import { citarCorrecao, obterNormas } from './normas';
 import jsPDF from 'jspdf';
 import { compararPorTipoENumero, mesesDoAno, prefixoTipoNumero } from './faturamento';
 import { cabecalhoInstitucional } from './pdfCabecalho';
+import { desenharDescricaoManobra } from './pdfManobra';
+import type { DescricaoManobra } from './importManobras';
 
 export interface DadosFr172 {
   numero: string; emissao: string; limite: string; vencimento?: string | null; mesCompetencia: number; anoCompetencia: number;
@@ -52,6 +54,11 @@ export function detalhamento(d: DadosFr172): [string, string][] {
     case 'AE': return [['CONSUMO DE ÁGUA E ESGOTO (m³)', q1 || '-'], total];
     case 'DA': return [['DIÁRIA DE ATRACAÇÃO (R$)', b.diaria != null ? brl(Number(b.diaria)) : '-'], ['DIAS ATRACADO', q1 || num(b.diasAtracado)], total];
     case 'TC': return [['TAXA CONDOMINIAL MENSAL', brl(d.valorServico)]];
+    case 'RB': {
+      // rebocador: as descrições de manobra seguem anexas (páginas seguintes); o quadro cita os números
+      const dm = ((b.manobras || []) as DescricaoManobra[]);
+      return dm.length ? [['DESCRIÇÃO DE MANOBRA (ANEXO)', dm.map(x => x.numero).filter(Boolean).join(', ') || '-'], total] : [[`QUANTIDADE${d.unidade ? ` (${d.unidade})` : ''}`, q1 || '-'], total];
+    }
     case 'VT': {
       // viatura (cobrada com atraso): tabela Mês | Valor, como na fatura oficial
       const meses = ((b.meses || []) as { mes: string; valor: number }[]).filter(x => x.mes);
@@ -160,6 +167,8 @@ export function desenharFr172(doc: jsPDF, d: DadosFr172) {
 export function pdfFr172(d: DadosFr172): jsPDF {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   desenharFr172(doc, d);
+  // fatura de rebocador: a "Descrição de Manobra" que subsidiou o valor vai de anexo, uma página por documento
+  ((d.base?.manobras || []) as DescricaoManobra[]).forEach(dm => { doc.addPage(); desenharDescricaoManobra(doc, dm); });
   return doc;
 }
 

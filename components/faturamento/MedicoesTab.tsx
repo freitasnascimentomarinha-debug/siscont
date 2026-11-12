@@ -10,6 +10,8 @@ import { AvisoAgua, PlanilhaAgua, RegraObservacao, avisosAgua, conferirObservaco
 import { cadastroService } from '../../services/cadastroService';
 import { ImportarAguaModal, ResultadoAgua } from './ImportarAguaModal';
 import { ImportarViaturaModal, ResultadoVT } from './ImportarViaturaModal';
+import { ImportarManobrasModal, ResultadoRB } from './ImportarManobrasModal';
+import { DescricaoManobra, ehDescricaoManobra, lerDescricaoManobra } from '../../utils/importManobras';
 import { PlanilhaVT, ehPlanilhaViatura, lerPlanilhaViatura } from '../../utils/importViatura';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -42,6 +44,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   const [contaConcess, setContaConcess] = useState('');
   const [relImport, setRelImport] = useState<string[]>([]);
   const ref = useRef<HTMLInputElement>(null);
+  const [manobras, setManobras] = useState<DescricaoManobra[] | null>(null);
   const [viatura, setViatura] = useState<{ planilha: PlanilhaVT; arquivo: string } | null>(null);
   const [agua, setAgua] = useState<{ planilha: PlanilhaAgua; regras: RegraObservacao[]; avisos: AvisoAgua[]; arquivo: string } | null>(null);
   // lançamento da planilha de água que espera a troca de competência/serviço terminar de carregar
@@ -85,6 +88,18 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
   const importar = async (files: FileList | null) => {
     if (!files?.length) return;
     try {
+      // "Descrição de Manobra" do rebocador (um arquivo por navio/meio; pode vir vários de uma vez): conferência própria
+      const lidas: DescricaoManobra[] = [];
+      for (const f of Array.from(files)) {
+        const w = XLSX.read(new Uint8Array(await lerArquivo(f)), { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
+        const mat = (XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]], { header: 1, raw: true, defval: null }) as any[][]).slice(0, 90);
+        const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat) : null;
+        if (d) lidas.push(d);
+      }
+      if (lidas.length) {
+        if (lidas.length < files.length) notify.info(`${files.length - lidas.length} arquivo(s) não são "Descrição de Manobra" e foram ignorados.`);
+        setManobras(lidas); return;
+      }
       const wb = XLSX.read(new Uint8Array(await lerArquivo(files[0])), { dense: true, cellFormula: false, cellStyles: false });
       // planilha de faturas de viatura (uma aba por OM): conferência própria
       if (wb.SheetNames.length >= 3) {
@@ -152,6 +167,27 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
     notify.success(`Planilha de água lida: ${r.grupos.length} OM. Confira e clique em Gravar.${lembrados ? ` ${lembrados} nome(s) guardado(s) no cadastro.` : ''}`);
   };
 
+  const lancarManobras = async (r: ResultadoRB) => {
+    setManobras(null);
+    const novas: Record<string, Linha> = {};
+    r.grupos.forEach(g => {
+      novas[g.omId] = {
+        quantidade: txt(g.docs.reduce((s, d) => s + d.linhas.length, 0)), quantidade2: '', valor: txt(g.valor), estimada: false, origem: `Descrição(ões) de manobra ${g.docs.map(d => d.numero).filter(Boolean).join(', ')}`,
+        detalhe: g.docs.map(d => ({ sigla: `Nº ${d.numero} · ${d.navio}`, dias: null, consumo: null, demanda: null, valor: d.total, manobra: d })),
+      };
+    });
+    const siglaRB = medidos.find(s => s.sigla === 'RB')?.sigla ?? sigla;
+    const novaComp = r.competencia || comp;
+    if (novaComp !== comp || siglaRB !== sigla) { pendente.current = { linhas: novas, rel: r.relatorio, conta: '' }; setComp(novaComp); setSigla(siglaRB); }
+    else { setLinhas(p => ({ ...p, ...novas })); setRelImport(r.relatorio); }
+    for (const { omId, nome } of r.lembrar) {
+      const o = ctx.oms.find(x => x.id === omId);
+      if (!o || (o.nomesAlternativos || []).some(n => n.trim().toLowerCase() === nome.trim().toLowerCase())) continue;
+      try { await cadastroService.saveOM({ ...o, nomesAlternativos: [...(o.nomesAlternativos || []), nome] }); o.nomesAlternativos = [...(o.nomesAlternativos || []), nome]; } catch { /* sem permissão: segue sem lembrar */ }
+    }
+    notify.success(`Descrições de manobra lidas: ${r.grupos.length} cliente(s). Confira e clique em Gravar.`);
+  };
+
   const lancarViatura = async (r: ResultadoVT) => {
     setViatura(null);
     const novas: Record<string, Linha> = {};
@@ -202,7 +238,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
           </select>
         </Campo>
         {podeEditar && <>
-          <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
+          <input ref={ref} type="file" multiple accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files)} />
           <Button variant="secondary" onClick={() => ref.current?.click()}><FileUp size={16} className="mr-2" />Importar rateio da divisão</Button>
           <BaixarModelo rotulo="Planilha modelo para a divisão" modelo={() => modeloRateio(sigla, comp,
             (historico.length ? ctx.omsFat.filter(o => historico.some(h => h.omId === o.id) || linhas[o.id]) : ctx.omsFat.filter(o => o.ativo && o.tipo !== 'NAVIO'))
@@ -221,6 +257,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         </div>
         {semLeitura.length > 0 && <Aviso>{semLeitura.length} OM com leitura nos meses anteriores e sem leitura agora. Use "estimar" (média das 3 últimas, {obterNormas().anexoEstimativa}) ou confirme com a divisão.</Aviso>}
       </div>
+      <ImportarManobrasModal docs={manobras} oms={ctx.oms} competenciaTela={comp} onFechar={() => setManobras(null)} onLancar={lancarManobras} />
       <ImportarViaturaModal planilha={viatura?.planilha ?? null} arquivo={viatura?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp} onFechar={() => setViatura(null)} onLancar={lancarViatura} />
       <ImportarAguaModal planilha={agua?.planilha ?? null} regras={agua?.regras ?? []} avisos={agua?.avisos ?? []} arquivo={agua?.arquivo ?? ''} oms={ctx.oms} competenciaTela={comp}
         onFechar={() => setAgua(null)} onLancar={lancarAgua} />
