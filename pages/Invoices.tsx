@@ -22,6 +22,11 @@ import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura
 import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
 import { MapaAnaliticoTab } from '../components/faturas/MapaAnaliticoTab';
 import { listarPrecos } from '../services/faturamentoService';
+import { cadastroService } from '../services/cadastroService';
+import { datasDaFatura } from '../utils/diasUteis';
+import { lerFatura } from '../utils/cadastroImport';
+import { DescricaoManobra, ehDescricaoManobra, lerDescricaoManobra } from '../utils/importManobras';
+import * as XLSX from 'xlsx';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { arquivoPublico, passaPublico, sufixoPublico } from '../utils/publico';
 import { SEM_FILTROS, FiltrosExtras, clienteDe, comandoDe, passaFiltrosExtras, resumoCabecalho, setorDe, temFiltroExtra } from '../utils/filtrosFaturas';
@@ -126,6 +131,16 @@ export const Invoices: React.FC = () => {
   };
 
   useEffect(() => { refresh(); }, []);
+  // prazos e feriados cadastrados: a fatura avulsa sugere o vencimento e a data-limite de certificação como o lote
+  const [prazos, setPrazos] = useState<{ cert: number; venc: number; feriados: string[] }>({ cert: 10, venc: 30, feriados: [] });
+  useEffect(() => {
+    Promise.all([cadastroService.listParametros().catch(() => []), cadastroService.listFeriados().catch(() => [])]).then(([ps, fs]) => {
+      const num = (k: string, d: number) => { const v = Number(ps.find(p => p.chave === k)?.valor); return Number.isFinite(v) && v > 0 ? v : d; };
+      setPrazos({ cert: num('prazo_certificacao_dias_uteis', 10), venc: num('prazo_vencimento_dias_corridos', 30), feriados: fs.map(f => f.data) });
+    });
+  }, []);
+  const sugerirDatas = (emissao: string) => (/^\d{4}-\d{2}-\d{2}$/.test(emissao)
+    ? datasDaFatura(emissao, { prazoCertificacao: prazos.cert, prazoVencimento: prazos.venc, feriados: prazos.feriados }) : null);
   // outra aba (ou a volta à aba depois de um tempo) mudou os dados: recarrega para o saldo não ficar velho
   useEffect(() => {
     const aoMudar = () => { refresh(); };
@@ -301,11 +316,16 @@ export const Invoices: React.FC = () => {
     if (!formData.client) missingFields.push("Cliente/UG");
     if (!formData.value) missingFields.push("Valor");
     if (!formData.sector) missingFields.push("Setor");
+    if (!formData.issueDate) missingFields.push("Emissão");
+    if (!formData.dueDate) missingFields.push("Vencimento");
+    if (!formData.monthCompetence || !formData.yearCompetence) missingFields.push("Mês/Ano de competência");
 
     if (missingFields.length > 0) {
       setSaveError(`Os seguintes campos são obrigatórios: ${missingFields.join(', ')}`);
       return;
     }
+    if (formData.issueDate && formData.dueDate && formData.dueDate < formData.issueDate) { setSaveError('O vencimento não pode ser anterior à emissão.'); return; }
+    if (formData.issueDate && formData.dataLimiteCertificacao && formData.dataLimiteCertificacao < formData.issueDate) { setSaveError('A data-limite de certificação não pode ser anterior à emissão.'); return; }
     // fatura avulsa de TC/diária só com o valor publicado pela Taxa condominial
     if (!editingId && ehDaTaxa) {
       if (!formData.omId) { setSaveError(`Fatura de ${siglaForm === 'TC' ? 'taxa condominial' : 'diária'}: escolha o cliente na lista do cadastro (o valor vem do preço publicado da OM).`); return; }
@@ -346,6 +366,8 @@ export const Invoices: React.FC = () => {
         observation: formData.observation || '',
         issueDate: formData.issueDate || '',
         dueDate: formData.dueDate || '',
+        ...(formData.dataLimiteCertificacao ? { dataLimiteCertificacao: formData.dataLimiteCertificacao } : {}),
+        ...(formData.baseCalculo !== undefined ? { baseCalculo: formData.baseCalculo } : {}),
         monthCompetence: Number(formData.monthCompetence),
         yearCompetence: Number(formData.yearCompetence),
         competence,
@@ -1028,7 +1050,18 @@ export const Invoices: React.FC = () => {
 
           <Select label="Tipo de Fatura" required options={services} value={formData.type || ''} onChange={handleTypeChange} disabled={isReadOnly} />
 
-          <Input label="Nº Fatura" required value={formData.invoiceNumber || ''} onChange={e => setFormData({ ...formData, invoiceNumber: e.target.value })} disabled={isReadOnly} />
+          <Input label="Nº Fatura" required value={formData.invoiceNumber || ''} onChange={e => setFormData({ ...formData, invoiceNumber: e.target.value })} disabled={isReadOnly}
+            onBlur={() => {
+              // número no padrão UG-SIGLA-MM-AAAA-SEQ-V: completa o que estiver vazio (serviço, mês e ano de competência)
+              const m = (formData.invoiceNumber || '').trim().toUpperCase().match(/^(\d{4,5})-([A-Z]{2})-(\d{2})-(\d{4})-\d{3}-\d$/);
+              if (!m || editingId) return;
+              const sv = services.find(x => x.acronym === m[2]);
+              setFormData(f => ({
+                ...f, ug: f.ug || (m[1].length === 4 ? '0' + m[1] : m[1]), serviceAcronym: f.serviceAcronym || m[2],
+                type: f.type || sv?.value, unitMeasure: f.unitMeasure || sv?.unit,
+                monthCompetence: f.monthCompetence || Number(m[3]), yearCompetence: f.yearCompetence || Number(m[4]),
+              }));
+            }} />
           <Input label="Consumo" value={formData.consumption || ''} onChange={e => setFormData({ ...formData, consumption: e.target.value })} disabled={isReadOnly} />
 
           <div className="flex gap-2">
@@ -1054,12 +1087,66 @@ export const Invoices: React.FC = () => {
             <CurrencyInput label="Acerto Débito (-)" value={formData.adjustmentDeduction} onChange={val => setFormData({ ...formData, adjustmentDeduction: val })} disabled={isReadOnly} />
           </div>
 
-          <Input label="Emissão" type="date" required value={formData.issueDate || ''} onChange={e => setFormData({ ...formData, issueDate: e.target.value })} disabled={isReadOnly} />
-          <Input label="Vencimento" type="date" required value={formData.dueDate || ''} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} disabled={isReadOnly} />
+          <Input label="Emissão" type="date" required value={formData.issueDate || ''} disabled={isReadOnly}
+            onChange={e => {
+              const nova = e.target.value;
+              setFormData(f => {
+                // sugere vencimento (emissão + 30 dias corridos) e data-limite (10 dias úteis) enquanto o campo estiver vazio ou ainda for a sugestão anterior
+                const antes = sugerirDatas(f.issueDate || ''), depois = sugerirDatas(nova);
+                const n = { ...f, issueDate: nova };
+                if (depois) {
+                  if (!f.dueDate || f.dueDate === antes?.vencimento) n.dueDate = depois.vencimento;
+                  if (!f.dataLimiteCertificacao || f.dataLimiteCertificacao === antes?.certificacao) n.dataLimiteCertificacao = depois.certificacao;
+                }
+                return n;
+              });
+            }} />
+          <Input label="Vencimento (pagamento)" type="date" required value={formData.dueDate || ''} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} disabled={isReadOnly} />
+          <div>
+            <Input label="Data-limite de certificação (SIPLAD)" type="date" value={formData.dataLimiteCertificacao || ''} onChange={e => setFormData({ ...formData, dataLimiteCertificacao: e.target.value })} disabled={isReadOnly} />
+            <p className="mt-1 text-xs text-slate-500">Sugerida: emissão + {prazos.cert} dias úteis. Sai no PDF da fatura. Pode ser alterada.</p>
+          </div>
+          <p className="text-xs text-slate-500 self-end pb-1">Vencimento sugerido: emissão + {prazos.venc} dias corridos (próximo dia útil). Ao escolher a emissão, as duas datas são preenchidas; você pode corrigir.</p>
           <div className="flex gap-2">
             <Input label="Mês Comp." type="number" min="1" max="12" required value={formData.monthCompetence || ''} onChange={e => setFormData({ ...formData, monthCompetence: Number(e.target.value) })} disabled={isReadOnly} />
             <Input label="Ano Comp." type="number" min="2025" required value={formData.yearCompetence || ''} onChange={e => setFormData({ ...formData, yearCompetence: Number(e.target.value) })} disabled={isReadOnly} />
           </div>
+
+          {(formData.serviceAcronym || '').toUpperCase() === 'RB' && !isReadOnly && (
+            <div className="md:col-span-2 rounded-lg border border-slate-200 p-3 text-sm">
+              <div className="font-medium text-slate-700 mb-1">Descrição de Manobra (anexo do PDF da fatura de rebocador)</div>
+              {(((formData.baseCalculo as any)?.manobras || []) as DescricaoManobra[]).map(d => (
+                <div key={d.numero} className="flex items-center justify-between text-xs py-0.5">
+                  <span>Nº {d.numero} — {d.navio} ({d.linhas.length} linha(s), R$ {d.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
+                  <button type="button" className="text-red-700 underline" onClick={() => setFormData(f => ({ ...f, baseCalculo: { ...(f.baseCalculo || { regra: 'Fatura avulsa' }), manobras: (((f.baseCalculo as any)?.manobras || []) as DescricaoManobra[]).filter(x => x.numero !== d.numero) } }))}>remover</button>
+                </div>
+              ))}
+              <label className="inline-block mt-1 text-xs text-primary-700 underline cursor-pointer">
+                anexar arquivo(s) .xls da Descrição de Manobra
+                <input type="file" multiple accept=".xls,.xlsx" className="hidden" aria-label="Anexar Descrição de Manobra" onChange={async e => {
+                  const files = Array.from(e.target.files || []); e.target.value = '';
+                  const lidas: DescricaoManobra[] = [];
+                  for (const f of files) {
+                    try {
+                      const w = XLSX.read(new Uint8Array(await f.arrayBuffer()), { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
+                      const mat = (XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]], { header: 1, raw: true, defval: null }) as any[][]).slice(0, 90);
+                      const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat) : null;
+                      if (d) lidas.push(d); else notify.error(`${f.name} não é uma Descrição de Manobra.`);
+                    } catch (err) { notify.fail(`Não consegui ler ${f.name}`, err); }
+                  }
+                  if (!lidas.length) return;
+                  setFormData(f => {
+                    const ja = (((f.baseCalculo as any)?.manobras || []) as DescricaoManobra[]);
+                    const todas = [...ja.filter(x => !lidas.some(l => l.numero === x.numero)), ...lidas];
+                    const soma = Math.round(todas.reduce((t, x) => t + x.total, 0) * 100) / 100;
+                    notify.info(`Anexada(s): soma das manobras R$ ${soma.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}${f.value && Math.abs(Number(f.value) - soma) > 0.005 ? ` — diferente do valor base digitado (R$ ${Number(f.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}); confira.` : '.'}`);
+                    return { ...f, baseCalculo: { ...(f.baseCalculo || { regra: 'Fatura avulsa' }), manobras: todas }, value: f.value || soma };
+                  });
+                }} />
+              </label>
+              <p className="text-[11px] text-slate-500 mt-1">Os arquivos são lidos e guardados na fatura; o PDF sai com uma página de anexo para cada documento.</p>
+            </div>
+          )}
 
           <Input label="Observação" className="md:col-span-2" value={formData.observation || ''} onChange={e => setFormData({ ...formData, observation: e.target.value })} disabled={isReadOnly} />
 

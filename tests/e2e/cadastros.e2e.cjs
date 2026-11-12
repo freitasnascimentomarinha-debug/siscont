@@ -1748,6 +1748,22 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('option', { name: /Banco do Brasil/ }).first().click();
     ok(await page.getByText(/Ligado ao cadastro: 00994 · Banco do Brasil/).isVisible(), 'documento ligado à OM do cadastro');
     await page.keyboard.press('Escape');
+    // fatura avulsa: a emissão sugere vencimento e data-limite de certificação; sem datas não grava; RB aceita o anexo da Descrição de Manobra
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    await page.getByRole('button', { name: 'Nova Fatura' }).click();
+    await page.getByLabel('Nº Fatura').fill('40030-RB-10-2026-099-0');
+    await page.getByLabel('Nº Fatura').blur();
+    ok(await page.getByLabel('Mês Comp.').inputValue() === '10' && await page.getByLabel('Ano Comp.').inputValue() === '2026', 'avulsa: número no padrão preenche mês e ano de competência');
+    await page.getByLabel('Emissão').fill('2026-11-09');
+    ok(await page.getByLabel('Vencimento (pagamento)').inputValue() === '2026-12-09' && await page.getByLabel('Data-limite de certificação (SIPLAD)').inputValue() === '2026-11-23', 'avulsa: emissão sugere vencimento (+30 dias) e data-limite (10 dias úteis)');
+    await page.getByLabel('Data-limite de certificação (SIPLAD)').fill('2026-11-25');
+    await page.getByLabel('Emissão').fill('2026-11-10');
+    ok(await page.getByLabel('Data-limite de certificação (SIPLAD)').inputValue() === '2026-11-25', 'avulsa: data-limite digitada à mão não é sobrescrita');
+    await page.getByLabel('Emissão').fill('');
+    await page.getByLabel('Vencimento (pagamento)').fill('');
+    await page.getByRole('button', { name: 'Lançar Fatura' }).click();
+    ok(await page.getByText(/campos são obrigatórios:.*Emissão.*Vencimento/).isVisible(), 'avulsa: sem emissão e vencimento a fatura não é lançada');
+    await page.keyboard.press('Escape');
     // Lista de navios do Histórico Trienal × cadastro
     const classeB = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
     db.classes_navio.push(classeB);

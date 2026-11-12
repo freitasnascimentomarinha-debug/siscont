@@ -231,6 +231,7 @@ export const supabaseService = {
                 // campos do script 004: só enviados quando preenchidos (funciona antes do script)
                 ...(invoice.omId !== undefined ? { om_id: invoice.omId } : {}),
                 ...(invoice.dataLimiteCertificacao !== undefined ? { data_limite_certificacao: invoice.dataLimiteCertificacao } : {}),
+                ...(invoice.baseCalculo !== undefined ? { base_calculo: invoice.baseCalculo } : {}),
                 ...(invoice.contestada !== undefined ? { contestada: invoice.contestada } : {}),
                 ...(invoice.quitacaoExterna !== undefined ? { quitacao_externa: invoice.quitacaoExterna, quitada_em: invoice.quitadaEm ?? null } : {}),
             });
