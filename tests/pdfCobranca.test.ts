@@ -9,7 +9,7 @@ describe('PDF enxuto da cobrança', () => {
       [{ id: 'c1', client: 'DIM', sector: 'DGMM', command: '40030 - DIM', numero: 'G1.2026.AC.00001', valor: 300 }, { id: 'c2', client: 'DIM', sector: 'DGMM', command: '40030 - DIM', numero: 'G1.2026.AC.00002', valor: 100 }],
       [{ omId: 'o1', nome: 'DIM', setor: 'DGMM', comando: '40030 - DIM' }],
       { hoje: '2026-11-08', faturas: 'vencidas' });
-    const txt = pdfCobrancaEnxuto(mapa, { titulo: 'Teste', linhas: [], rotuloTotal: 'VALOR A PAGAR PELA OM' }).output();
+    const txt = pdfCobrancaEnxuto(mapa, { titulo: 'Teste', linhas: [], rotuloTotal: 'VALOR A PAGAR PELA OM' }).output().replace(/\u00A0/g, ' ');
     expect(txt).toContain('R$ 1.000,00');
     expect(txt).not.toContain('R$ 600,00');
     expect(txt).not.toContain('- R$');

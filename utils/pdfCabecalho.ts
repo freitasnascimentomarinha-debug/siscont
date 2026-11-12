@@ -107,11 +107,17 @@ export function tituloCentralizado(doc: jsPDF, principal: string, secundario?: s
   return y + 7;
 }
 
+/** "R$ 1.234,56" com espaço que não quebra: o valor nunca se divide em duas linhas ("R$" em cima, número embaixo). */
+const semQuebraNoValor = (v: any): any =>
+  typeof v === 'string' ? v.replace(/R\$ (?=[-+]?\d)/g, 'R$\u00A0') : Array.isArray(v) ? v.map(semQuebraNoValor)
+    : v && typeof v === 'object' && 'content' in v ? { ...v, content: semQuebraNoValor(v.content) } : v;
+
 /** Tabela no padrão dos relatórios (cores, grade fina, listras, fonte 8): as opções do chamador prevalecem. */
 export function tabelaPdf(doc: jsPDF, o: UserOptions) {
   const mescla = (a: any, b: any) => ({ ...a, ...b });
   autoTable(doc, {
     theme: 'grid', margin: { left: 14, right: 14 }, ...o,
+    head: o.head ? semQuebraNoValor(o.head) : o.head, body: o.body ? semQuebraNoValor(o.body) : o.body, foot: o.foot ? semQuebraNoValor(o.foot) : o.foot,
     styles: mescla({ fontSize: 8, cellPadding: 1.6, textColor: TEMA.texto, lineColor: TEMA.linha, lineWidth: 0.1 }, o.styles),
     headStyles: mescla({ fillColor: TEMA.faixa, textColor: 255, fontStyle: 'bold' }, o.headStyles),
     footStyles: mescla({ fillColor: TEMA.total, textColor: TEMA.faixa, fontStyle: 'bold' }, o.footStyles),
