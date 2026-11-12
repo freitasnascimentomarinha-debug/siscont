@@ -1755,10 +1755,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Nº Fatura').blur();
     ok(await page.getByLabel('Mês Comp.').inputValue() === '10' && await page.getByLabel('Ano Comp.').inputValue() === '2026', 'avulsa: número no padrão preenche mês e ano de competência');
     await page.getByLabel('Emissão').fill('2026-11-09');
-    ok(await page.getByLabel('Vencimento (pagamento)').inputValue() === '2026-12-09' && await page.getByLabel('Data-limite de certificação (SIPLAD)').inputValue() === '2026-11-23', 'avulsa: emissão sugere vencimento (+30 dias) e data-limite (10 dias úteis)');
+    ok(await page.getByLabel('Vencimento (pagamento)').inputValue() === '2026-11-23' && await page.getByLabel('Data-limite de certificação (SIPLAD)').inputValue() === '2026-11-23', 'avulsa de outubro: vencimento de fim de exercício = data-limite (emissão + 10 dias úteis)');
     await page.getByLabel('Data-limite de certificação (SIPLAD)').fill('2026-11-25');
     await page.getByLabel('Emissão').fill('2026-11-10');
     ok(await page.getByLabel('Data-limite de certificação (SIPLAD)').inputValue() === '2026-11-25', 'avulsa: data-limite digitada à mão não é sobrescrita');
+    await page.getByLabel('Mês Comp.').fill('9');
+    ok(await page.getByLabel('Vencimento (pagamento)').inputValue() === '2026-12-10', 'avulsa fora de outubro: vencimento volta a emissão + 30 dias');
     await page.getByLabel('Emissão').fill('');
     await page.getByLabel('Vencimento (pagamento)').fill('');
     await page.getByRole('button', { name: 'Lançar Fatura' }).click();

@@ -247,7 +247,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
       id: uuidv4(), ug: i.om.codigo, sector: i.om.setor, command: i.om.comando, client: i.om.nome, invoice_number: i.numero,
       consumption: textoConsumo({ ...i, unidade: '' }).replace(/^-$/, ''),
       unit_measure: i.unidade, service_acronym: i.sigla, value: r2(i.valor), adjustment_addition: r2(i.acrescimo), adjustment_deduction: r2(i.debito),
-      issue_date: opcoes.emissao, due_date: i.estimado || opcoes.tipo === 'OND' ? opcoes.limite : (opcoes.vencimento || opcoes.limite), data_limite_certificacao: opcoes.limite, month_competence: mes, year_competence: ano, competence: `${pad(mes)}/${ano}`,
+      issue_date: opcoes.emissao, due_date: i.estimado || i.venceNaLimite || opcoes.tipo === 'OND' ? opcoes.limite : (opcoes.vencimento || opcoes.limite), data_limite_certificacao: opcoes.limite, month_competence: mes, year_competence: ano, competence: `${pad(mes)}/${ano}`,
       type: i.servico, is_canceled: false, observation: obs, siplad_settled: false, om_id: i.omId, origem: `Lote ${opcoes.tipo} ${opcoes.competencia}`,
       contestada: false, lote_id: loteId, base_calculo: i.base, estimado: !!i.estimado, acerto_de: i.acertoDe ?? null,
       _adiant: i.adiantamentos || [],

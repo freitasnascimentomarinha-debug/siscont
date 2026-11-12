@@ -35,6 +35,10 @@ export interface ItemLote {
   base: Base; avisos: string[]; acertoDe?: string; estimado?: boolean;
   /** impede a emissão enquanto houver: ex. faltam faturas/subsídios sem a marca "sem movimento" (confira ou tire do lote) */
   bloqueio?: string;
+  /** entra no faturamento de fim de exercício (OND) pelo regime do serviço/OM (preenchido pela tela do lote) */
+  ond?: boolean;
+  /** vence na data-limite de certificação (vencimento de fim de exercício, fatura de outubro) em vez de emissão + 30 dias */
+  venceNaLimite?: boolean;
   numero?: string; adiantamentos?: { docId: string; numero: string; valor: number }[];
   /** crédito de acerto compensado nesta fatura (já somado ao débito, linha 04) */
   creditos?: { chave: string; numero: string; valor: number }[];

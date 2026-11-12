@@ -6,7 +6,7 @@ import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
 import { textoConsumo, descreverBase,
-  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, apurarOnd, calcularMes, calcularOnd, estimativasJaEmitidas, foraDoOnd, ApuracaoLinha, mesesDoAno, numerar, partes, pad, referencia, totaisLote,
+  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, apurarOnd, calcularMes, calcularOnd, estimativasJaEmitidas, foraDoOnd, ApuracaoLinha, mesesDoAno, numerar, participaDoOnd, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -39,9 +39,13 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const [apuracoes, setApuracoes] = useState<Omit<ApuracaoLinha, 'id'>[]>([]);
   const [marcando, setMarcando] = useState(false);
+  // outubro: o vencimento de TODAS as faturas é o de fim de exercício (= data-limite de certificação). Nas que não são OND é opcional.
+  const [vencFim, setVencFim] = useState(true);
+  const [vencFimNaoOnd, setVencFimNaoOnd] = useState(true);
 
   // competência do lote: OND = outubro; acerto = a escolhida (normalmente JAN do ano seguinte)
   const compLote = tipo === 'OND' ? `${comp.slice(0, 4)}-10` : comp;
+  const outubro = tipo === 'MENSAL' && partes(compLote).mes === 10;
   useEffect(() => {
     const e = dataEmissaoPadrao(compLote, ctx.diaEmissao);
     setEmissao(e); setLimite(dataLimite(e, ctx)); setVencimento(dataVencimento(e, ctx, tipo === 'OND'));
@@ -55,7 +59,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       const d = { ...(await montarDados(ctx, tipo, base)), siglas: [...siglas], divisorOnd: divisor };
       const apur = tipo === 'ACERTO' ? apurarOnd({ ...d, anoOnd: Number(anoOnd) }) : null;
       setApuracoes(apur ? apur.apuracoes : []);
-      const lista = tipo === 'MENSAL' ? calcularMes(d, compLote) : tipo === 'OND' ? calcularOnd(d) : apur!.itens;
+      const lista = (tipo === 'MENSAL' ? calcularMes(d, compLote) : tipo === 'OND' ? calcularOnd(d) : apur!.itens)
+        .map(i => ({ ...i, ond: participaDoOnd(d, i.omId, i.sigla, partes(compLote).ano) }));
       // OM emissora (BNIC): o valor dela no rateio é só controle e contabilidade de custos — não gera fatura
       const emi = ctx.emissora.omId;
       const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
@@ -96,11 +101,12 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
 
   const final = useMemo(() => {
     if (!itens) return [];
-    const inc = itens.filter(i => !fora.has(i.chave)).map(i => (ajustes[i.chave] !== undefined ? { ...i, valor: ajustes[i.chave], base: { ...i.base, ajusteManual: true, valorCalculado: i.valor } } : i));
+    const venceNaLimite = (i: ItemLote) => outubro && vencFim && (i.ond || vencFimNaoOnd);
+    const inc = itens.filter(i => !fora.has(i.chave)).map(i => ({ ...i, venceNaLimite: venceNaLimite(i) })).map(i => (ajustes[i.chave] !== undefined ? { ...i, valor: ajustes[i.chave], base: { ...i.base, ajusteManual: true, valorCalculado: i.valor } } : i));
     const comCredito = compensar && tipo === 'MENSAL' ? aplicarCreditosOm(inc, creditos) : inc;
     const num = numerar(comCredito, ctx.invoices.map(i => i.invoiceNumber), compLote);
     return abater && tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant) : num;
-  }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo]);
+  }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo, vencFim, vencFimNaoOnd]);
   const tot = totaisLote(final);
   const bloqueados = final.filter(i => i.bloqueio);
   const soSemDiferenca = apuracoes.filter(a => a.resultado === 'SEM_DIFERENCA');
@@ -179,6 +185,14 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       {itens && (
         <>
           {pendencias.length > 0 && <Aviso><b>Pendências:</b><ul className="list-disc pl-5">{pendencias.map(p => <li key={p}>{p}</li>)}</ul></Aviso>}
+          {outubro && (
+            <div className="p-2 rounded border border-slate-200 bg-white text-sm space-y-1">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={vencFim} onChange={e => setVencFim(e.target.checked)} className="h-4 w-4 accent-primary-600" aria-label="Vencimento de fim de exercício" />
+                <span>Vencimento de fim de exercício: as faturas de outubro vencem na data-limite de certificação (<b>{br(limite)}</b>) em vez de emissão + {ctx.prazoVencimento} dias.</span></label>
+              <label className={`flex items-center gap-2 pl-6 ${vencFim ? '' : 'opacity-50'}`}><input type="checkbox" checked={vencFimNaoOnd} disabled={!vencFim} onChange={e => setVencFimNaoOnd(e.target.checked)} className="h-4 w-4 accent-primary-600" aria-label="Também nas faturas que não são OND" />
+                <span>Aplicar também às faturas que <b>não são OND</b> ({final.filter(i => !i.ond).length} no lote{final.some(i => !i.ond) ? `: ${[...new Set(final.filter(i => !i.ond).map(i => i.sigla))].join(', ')}` : ''}). Desmarque para que essas vençam em {br(vencimento)}.</span></label>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
             {[['Faturas', String(tot.qtd)], ['01 Serviço', brl(tot.servico)], ['02 Adiantamento', brl(tot.adiantamento)], ['03 Acréscimo', brl(tot.acrescimo)], ['04 Débito', brl(tot.debito)], ['A pagar', brl(tot.final)]].map(([r, v]) => (
               <div key={r} className="p-2 rounded border border-slate-200 bg-white"><div className="text-[10px] uppercase font-semibold text-slate-500">{r}</div><div className="font-bold tabular-nums">{v}</div></div>
@@ -257,7 +271,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           )}
           {podeEditar && final.length > 0 && bloqueados.length === 0 && (
             <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/50 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-slate-700 flex-1">Emitir <b>{final.length}</b> faturas de {referencia(compLote)} com emissão em <b>{br(emissao)}</b>, certificação no SIPLAD até <b>{br(limite)}</b> e vencimento em <b>{br(tipo === 'OND' ? limite : vencimento)}</b>. A numeração segue a ordem acima, sem lacunas.</span>
+              <span className="text-sm text-slate-700 flex-1">Emitir <b>{final.length}</b> faturas de {referencia(compLote)} com emissão em <b>{br(emissao)}</b>, certificação no SIPLAD até <b>{br(limite)}</b> e vencimento em <b>{br(tipo === 'OND' ? limite : vencimento)}</b>{outubro && final.some(i => i.venceNaLimite) ? <> (<b>{final.filter(i => i.venceNaLimite).length}</b> de {final.length} vencem na data-limite, {br(limite)}, pelo fim do exercício)</> : null}. A numeração segue a ordem acima, sem lacunas.</span>
               {!confirmar ? <Button onClick={() => setConfirmar(true)}><Send size={16} className="mr-2" />Emitir lote</Button> : (
                 <>
                   <span className="text-sm font-semibold">Confirma a emissão?</span>
