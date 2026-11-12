@@ -197,12 +197,13 @@ export async function montarDados(ctx: ContextoFaturamento, tipo: TipoLote, comp
 }
 
 /** Adiantamentos com saldo (ALTCRED de adiantamento ou sobra de pagamento). */
-export async function adiantamentosDisponiveis(): Promise<DocAdiantDisp[]> {
+export async function adiantamentosDisponiveis(oms: OM[] = []): Promise<DocAdiantDisp[]> {
   const [docs, baixas, faturas] = await Promise.all([db.getDocuments(), db.getAllocations(), db.getInvoices()]);
+  const omPorId = new Map(oms.map(o => [o.id, o]));
   const porId = new Map(docs.map(d => [d.id, d]));
   return listaAdiantamentos(docs.filter(d => podeBaixar(d.situacaoSiplad)), baixas, faturas)   // adiantamento ainda não processado no SIPLAD não abate fatura
     .filter(l => l.saldo > 0.005)
-    .map(l => { const d = porId.get(l.docId)!; return { id: l.docId, numero: l.numero, saldo: l.saldo, data: l.data, comandoId: d.comandoId ?? null, ug: d.ug ?? null }; });
+    .map(l => { const d = porId.get(l.docId)!; return { id: l.docId, numero: l.numero, saldo: l.saldo, data: l.data, comandoId: d.comandoId ?? null, ug: d.ug ?? null, comandoNome: d.command || null, omComandoId: (d.omId && omPorId.get(d.omId)?.comandoId) || null, cliente: d.client || null }; });
 }
 
 export const dataEmissaoPadrao = (comp: string, dia: number) => {
@@ -296,7 +297,7 @@ export async function emitirLote(itens: ItemLote[], opcoes: {
   }
   const baixas = linhas.flatMap(l => l._adiant.map(a => ({
     id: uuidv4(), document_id: a.docId, invoice_id: l.id, amount: a.valor, date: opcoes.emissao, service_type: l.type,
-    siscont_settled: true, observation: 'Abatimento automático de adiantamento (lote)', tipo_baixa: 'ADIANTAMENTO',
+    siscont_settled: true, observation: a.manual ? 'Abatimento de adiantamento escolhido na emissão do lote (ALTCRED de outro comando)' : 'Abatimento automático de adiantamento (lote)', tipo_baixa: 'ADIANTAMENTO',
   })));
   for (let k = 0; k < baixas.length; k += 500) {
     const { error } = await supabase.from('payment_allocations').insert(baixas.slice(k, k + 500));

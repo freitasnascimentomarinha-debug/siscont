@@ -24,7 +24,7 @@ export interface PrecoFat { ano: number; sigla: string; omId: string | null; val
 export interface MedicaoFat { competencia: string; sigla: string; omId: string; quantidade?: number | null; quantidade2?: number | null; valor?: number | null; estimada?: boolean; /** linhas do detalhe (ex.: meses cobrados da viatura: "ABA · OUT25" e valor) */ detalhe?: { sigla?: string; valor?: number | null }[] | null }
 export interface AtracacaoFat { competencia: string; omId: string; previsao: boolean; diasAtracado: number; diasDocado: number }
 export interface FaturaHist { id: string; numero: string; omId?: string | null; sigla: string; ano: number; mes: number; valor: number; cancelada?: boolean; estimado?: boolean; acertoDe?: string | null; /** saldo ainda em aberto da fatura (para avisar se o estimado não foi pago) */ saldo?: number | null }
-export interface DocAdiantDisp { id: string; numero: string; saldo: number; data: string; comandoId?: string | null; ug?: string | null }
+export interface DocAdiantDisp { id: string; numero: string; saldo: number; data: string; comandoId?: string | null; ug?: string | null; /** nome do comando como está no documento */ comandoNome?: string | null; /** comando da OM a que o documento está ligado (pode estar preenchido mesmo sem o comando do documento) */ omComandoId?: string | null; cliente?: string | null }
 
 export type TipoLote = 'MENSAL' | 'OND' | 'ACERTO' | 'CORRECAO';
 
@@ -39,7 +39,7 @@ export interface ItemLote {
   ond?: boolean;
   /** vence na data-limite de certificação (vencimento de fim de exercício, fatura de outubro) em vez de emissão + 30 dias */
   venceNaLimite?: boolean;
-  numero?: string; adiantamentos?: { docId: string; numero: string; valor: number }[];
+  numero?: string; adiantamentos?: { docId: string; numero: string; valor: number; /** escolhido à mão na prévia (pode ser de outro comando) */ manual?: boolean }[];
   /** crédito de acerto compensado nesta fatura (já somado ao débito, linha 04) */
   creditos?: { chave: string; numero: string; valor: number }[];
 }
@@ -379,24 +379,63 @@ export const calcularAcerto = (d: DadosLote & { anoOnd: number }): ItemLote[] =>
  * Abate o adiantamento disponível do cliente (mesmo comando ou mesma UG), ALTCRED mais antigas primeiro,
  * até o valor da fatura (linha 02 do FR-172).
  */
-export function aplicarAdiantamentos(itens: ItemLote[], docs: DocAdiantDisp[]): ItemLote[] {
+const nomeComando = (c?: string | null) => (c || '').replace(/^\d{4,5}\s*-\s*/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/**
+ * O documento é do cliente? Mesmo comando (pelo código, pelo comando da OM a que o documento está ligado ou pelo nome do comando,
+ * que cobre comandos repetidos no cadastro) ou mesma UG.
+ */
+export function adiantamentoDoCliente(om: Pick<OMFat, 'comandoId' | 'comando' | 'codigo'>, d: DocAdiantDisp): boolean {
+  if (d.ug && d.ug === om.codigo) return true;
+  if (om.comandoId && (d.comandoId === om.comandoId || d.omComandoId === om.comandoId)) return true;
+  const a = nomeComando(om.comando), b = nomeComando(d.comandoNome);
+  return !!a && a === b;
+}
+
+export function aplicarAdiantamentos(
+  itens: ItemLote[], docs: DocAdiantDisp[],
+  opcoes: { automatico?: boolean; /** chave do item → ALTCRED e valor escolhidos à mão (valem para qualquer comando) */ manuais?: Record<string, { docId: string; valor: number }[]> } = {},
+): ItemLote[] {
+  const automatico = opcoes.automatico !== false, manuais = opcoes.manuais || {};
   const saldo = new Map(docs.map(d => [d.id, r2(d.saldo)]));
+  const porId = new Map(docs.map(d => [d.id, d]));
   const ordenados = [...docs].sort((a, b) => a.data.localeCompare(b.data) || a.numero.localeCompare(b.numero));
-  return itens.map(i => {
+  // 1º as escolhas manuais (consomem o saldo antes do automático)
+  const usadosManual = new Map<string, { docId: string; numero: string; valor: number; manual: boolean }[]>();
+  const restaItem = new Map<string, number>();
+  itens.forEach(i => {
     let resta = r2(i.valor + i.acrescimo - i.debito);
-    if (resta <= 0) return { ...i, adiantamentos: [] };
-    const usados: { docId: string; numero: string; valor: number }[] = [];
+    const us: { docId: string; numero: string; valor: number; manual: boolean }[] = [];
+    (manuais[i.chave] || []).forEach(m => {
+      const d = porId.get(m.docId), s = saldo.get(m.docId) || 0;
+      if (!d || resta <= 0 || s <= 0) return;
+      const v = r2(Math.min(s, resta, m.valor));
+      if (v <= 0) return;
+      us.push({ docId: d.id, numero: d.numero, valor: v, manual: true });
+      saldo.set(d.id, r2(s - v)); resta = r2(resta - v);
+    });
+    usadosManual.set(i.chave, us); restaItem.set(i.chave, resta);
+  });
+  return itens.map(i => {
+    let resta = restaItem.get(i.chave) ?? r2(i.valor + i.acrescimo - i.debito);
+    const usados: { docId: string; numero: string; valor: number; manual?: boolean }[] = [...(usadosManual.get(i.chave) || [])];
+    if (!automatico || resta <= 0) return { ...i, adiantamentos: usados };
     ordenados.forEach(d => {
       if (resta <= 0) return;
-      const doCliente = (i.om.comandoId && d.comandoId === i.om.comandoId) || d.ug === i.om.codigo;
       const s = saldo.get(d.id) || 0;
-      if (!doCliente || s <= 0) return;
+      if (!adiantamentoDoCliente(i.om, d) || s <= 0) return;
       const v = r2(Math.min(s, resta));
       usados.push({ docId: d.id, numero: d.numero, valor: v });
       saldo.set(d.id, r2(s - v)); resta = r2(resta - v);
     });
     return { ...i, adiantamentos: usados };
   });
+}
+
+/** Saldo que sobrou de cada ALTCRED depois de aplicar o lote (para mostrar o que não foi usado). */
+export function saldosRestantes(docs: DocAdiantDisp[], itens: ItemLote[]): (DocAdiantDisp & { restante: number })[] {
+  const usado = new Map<string, number>();
+  itens.forEach(i => (i.adiantamentos || []).forEach(a => usado.set(a.docId, r2((usado.get(a.docId) || 0) + a.valor))));
+  return docs.map(d => ({ ...d, restante: r2(d.saldo - (usado.get(d.id) || 0)) })).filter(d => d.restante > 0.005);
 }
 
 /** Totais do lote (linhas do FR-172). */

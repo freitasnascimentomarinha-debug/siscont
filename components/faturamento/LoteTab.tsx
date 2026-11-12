@@ -6,7 +6,7 @@ import {
   ContextoFaturamento, adiantamentosDisponiveis, dataEmissaoPadrao, dataLimite, dataVencimento, emitirLote, montarDados, listarMedicoes, listarAtracacoes,
 } from '../../services/faturamentoService';
 import { textoConsumo, descreverBase,
-  DocAdiantDisp, ItemLote, TipoLote, aplicarAdiantamentos, apurarOnd, calcularMes, calcularOnd, estimativasJaEmitidas, foraDoOnd, ApuracaoLinha, mesesDoAno, numerar, participaDoOnd, partes, pad, referencia, totaisLote,
+  DocAdiantDisp, ItemLote, TipoLote, adiantamentoDoCliente, aplicarAdiantamentos, saldosRestantes, apurarOnd, calcularMes, calcularOnd, estimativasJaEmitidas, foraDoOnd, ApuracaoLinha, mesesDoAno, numerar, participaDoOnd, partes, pad, referencia, totaisLote,
 } from '../../utils/faturamento';
 import { notify } from '../../utils/notify';
 import { Button } from '../ui/Button';
@@ -32,6 +32,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   const [fora, setFora] = useState<Set<string>>(new Set());
   const [ajustes, setAjustes] = useState<Record<string, number>>({});
   const [adiant, setAdiant] = useState<DocAdiantDisp[]>([]);
+  // abatimentos de adiantamento escolhidos à mão na prévia (valem para ALTCRED de qualquer comando)
+  const [manuais, setManuais] = useState<Record<string, { docId: string; valor: number }[]>>({});
   const [pendencias, setPendencias] = useState<string[]>([]);
   const [calculando, setCalculando] = useState(false);
   const [emitindo, setEmitindo] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
   }, [compLote, tipo]);
 
   const calcular = async () => {
-    setCalculando(true); setFora(new Set()); setAjustes({});
+    setCalculando(true); setFora(new Set()); setAjustes({}); setManuais({});
     try {
       const base = tipo === 'ACERTO' ? `${anoOnd}-10` : compLote;
       const d = { ...(await montarDados(ctx, tipo, base)), siglas: [...siglas], divisorOnd: divisor };
@@ -65,7 +67,7 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       const emi = ctx.emissora.omId;
       const daEmissora = emi ? lista.filter(i => i.omId === emi) : [];
       const aFaturar = emi ? lista.filter(i => i.omId !== emi) : lista;
-      setAdiant(abater ? await adiantamentosDisponiveis() : []);
+      setAdiant(tipo === 'ACERTO' ? [] : await adiantamentosDisponiveis(ctx.oms));
       // crédito da OM (livro, só no lote mensal): abate as faturas de qualquer serviço da mesma OM
       let cred: CreditoAberto[] = [];
       if (tipo === 'MENSAL') { try { cred = creditosDaOm((await listarLivroCreditos()).movs); } catch { cred = []; } }
@@ -105,8 +107,8 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
     const inc = itens.filter(i => !fora.has(i.chave)).map(i => ({ ...i, venceNaLimite: venceNaLimite(i) })).map(i => (ajustes[i.chave] !== undefined ? { ...i, valor: ajustes[i.chave], base: { ...i.base, ajusteManual: true, valorCalculado: i.valor } } : i));
     const comCredito = compensar && tipo === 'MENSAL' ? aplicarCreditosOm(inc, creditos) : inc;
     const num = numerar(comCredito, ctx.invoices.map(i => i.invoiceNumber), compLote);
-    return abater && tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant) : num;
-  }, [itens, fora, ajustes, adiant, abater, compensar, creditos, compLote, ctx.invoices, tipo, vencFim, vencFimNaoOnd]);
+    return tipo !== 'ACERTO' ? aplicarAdiantamentos(num, adiant, { automatico: abater, manuais }) : num;
+  }, [itens, fora, ajustes, adiant, manuais, abater, compensar, creditos, compLote, ctx.invoices, tipo, vencFim, vencFimNaoOnd]);
   const tot = totaisLote(final);
   const bloqueados = final.filter(i => i.bloqueio);
   const soSemDiferenca = apuracoes.filter(a => a.resultado === 'SEM_DIFERENCA');
@@ -197,6 +199,15 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
       {itens && (
         <>
           {pendencias.length > 0 && <Aviso><b>Pendências:</b><ul className="list-disc pl-5">{pendencias.map(p => <li key={p}>{p}</li>)}</ul></Aviso>}
+          {tipo !== 'ACERTO' && adiant.length > 0 && (() => {
+            const sobra = saldosRestantes(adiant, final);
+            return sobra.length ? (
+              <details className="p-2 rounded border border-slate-200 bg-white text-sm">
+                <summary className="cursor-pointer"><b>{sobra.length}</b> ALTCRED com saldo de adiantamento que <b>não foi usado</b> neste lote (R$ {sobra.reduce((t, d) => t + d.restante, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Para usar em outra OM, abra a fatura (seta) e escolha a ALTCRED.</summary>
+                <ul className="mt-1 text-xs space-y-0.5">{sobra.map(d => <li key={d.id}>{d.numero} — {d.cliente || d.comandoNome || d.ug} — saldo {brl(d.restante)}</li>)}</ul>
+              </details>
+            ) : null;
+          })()}
           {outubro && (
             <div className="p-2 rounded border border-slate-200 bg-white text-sm space-y-1">
               <label className="flex items-center gap-2"><input type="checkbox" checked={vencFim} onChange={e => setVencFim(e.target.checked)} className="h-4 w-4 accent-primary-600" aria-label="Vencimento de fim de exercício" />
@@ -244,7 +255,11 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
                         <tr className="bg-slate-50 text-xs text-slate-600"><td></td><td colSpan={7} className="px-2 py-2">
                           <div><b>Base de cálculo:</b> {String(i.base.regra)}</div>
                           {descreverBase(i.base, i.sigla).map(l => <div key={l}>{l}</div>)}
-                          {(i.adiantamentos || []).map(a => <div key={a.docId}>Baixa na ALTCRED {a.numero}: {brl(a.valor)}</div>)}
+                          {(i.adiantamentos || []).map(a => (
+                            <div key={a.docId}>Baixa na ALTCRED {a.numero}: {brl(a.valor)}{a.manual && <span className="text-primary-700"> (escolhida à mão)</span>}
+                              {a.manual && podeEditar && <button type="button" className="ml-2 text-red-700 underline" onClick={() => setManuais(p => ({ ...p, [i.chave]: (p[i.chave] || []).filter(m => m.docId !== a.docId) }))}>remover</button>}</div>
+                          ))}
+                          {podeEditar && tipo !== 'ACERTO' && <AbaterManual item={i} docs={saldosRestantes(adiant, final)} onAplicar={(docId, valor) => setManuais(p => ({ ...p, [i.chave]: [...(p[i.chave] || []).filter(m => m.docId !== docId), { docId, valor }] }))} />}
                           {(i.creditos || []).map(c => <div key={c.chave} className="text-orange-700">Compensação do crédito do acerto nº {c.numero}: {brl(c.valor)} (linha 04)</div>)}
                           {i.acertoDe && (i.base as any).tipo !== 'CORRECAO' && (
                             <div className={Number((i.base as any).credito) > 0 ? 'text-emerald-700 font-semibold' : ''}>
@@ -295,6 +310,30 @@ export const LoteTab: React.FC<{ ctx: ContextoFaturamento; usuario: string; pode
           )}
         </>
       )}
+    </div>
+  );
+};
+
+/** Escolha à mão da ALTCRED que abate esta fatura (inclusive de outro comando, com aviso). */
+const AbaterManual: React.FC<{ item: ItemLote; docs: (DocAdiantDisp & { restante: number })[]; onAplicar: (docId: string, valor: number) => void }> = ({ item, docs, onAplicar }) => {
+  const [docId, setDocId] = useState('');
+  const [valor, setValor] = useState('');
+  const resta = Math.round((item.valor + item.acrescimo - item.debito - (item.adiantamentos || []).reduce((s, a) => s + a.valor, 0)) * 100) / 100;
+  if (resta <= 0.005) return null;
+  const d = docs.find(x => x.id === docId);
+  const outro = !!d && !adiantamentoDoCliente(item.om, d);
+  const max = d ? Math.round(Math.min(d.restante, resta) * 100) / 100 : 0;
+  return (
+    <div className="mt-1 p-2 rounded border border-slate-200 bg-white flex flex-wrap items-center gap-2" data-testid="abater-manual">
+      <span className="font-semibold">Abater adiantamento:</span>
+      <select className="border border-slate-300 rounded px-1 py-0.5 max-w-[360px]" value={docId} aria-label={`ALTCRED para ${item.numero}`} onChange={e => { setDocId(e.target.value); const x = docs.find(y => y.id === e.target.value); setValor(x ? String(Math.min(x.restante, resta)) : ''); }}>
+        <option value="">— escolher ALTCRED com saldo —</option>
+        {docs.map(x => <option key={x.id} value={x.id}>{x.numero} · {x.cliente || x.comandoNome || x.ug} · saldo {brl(x.restante)}{adiantamentoDoCliente(item.om, x) ? '' : ' · OUTRO COMANDO'}</option>)}
+      </select>
+      <input type="number" step="0.01" min="0" max={max || undefined} className="w-28 text-right border border-slate-300 rounded px-1 py-0.5" value={valor} aria-label={`Valor a abater em ${item.numero}`} onChange={e => setValor(e.target.value)} />
+      <button type="button" disabled={!d || !(Number(valor) > 0)} className="px-2 py-0.5 rounded bg-primary-600 text-white disabled:opacity-40" onClick={() => { onAplicar(docId, Math.min(Number(valor), max)); setDocId(''); setValor(''); }}>Aplicar</button>
+      {outro && <span className="text-amber-700">Atenção: esta ALTCRED não é do mesmo comando/UG desta OM. Só use se a OM autorizou (fica registrado na baixa).</span>}
+      <span className="text-slate-500">falta abater {brl(resta)}</span>
     </div>
   );
 };
