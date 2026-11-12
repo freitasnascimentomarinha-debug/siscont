@@ -1136,9 +1136,10 @@ export const Invoices: React.FC = () => {
                   const lidas: DescricaoManobra[] = [];
                   for (const f of files) {
                     try {
-                      const w = XLSX.read(new Uint8Array(await f.arrayBuffer()), { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
+                      const bytes = new Uint8Array(await f.arrayBuffer());
+                      const w = XLSX.read(bytes, { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
                       const mat = (XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]], { header: 1, raw: true, defval: null }) as any[][]).slice(0, 90);
-                      const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat) : null;
+                      const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat, bytes) : null;
                       if (d) lidas.push(d); else notify.error(`${f.name} não é uma Descrição de Manobra.`);
                     } catch (err) { notify.fail(`Não consegui ler ${f.name}`, err); }
                   }

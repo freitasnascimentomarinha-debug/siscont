@@ -30,6 +30,7 @@ describe('Descrição de Manobra (subsídio e anexo da fatura de rebocador)', ()
     expect(d.total).toBe(19559.35); expect(d.totalArquivo).toBe(19559.35); expect(d.mes).toBe('2026-10'); expect(d.avisos).toEqual([]);
     expect(d.encarregado).toEqual({ nome: 'VICTOR DA SILVA DIB', posto: 'Segundo-Tenente (AA)', cargo: 'Encarregado da Divisão Marítima' });
     expect(d.agente).toEqual({ nome: 'JULIANA BALBI', cargo: 'AGENTE DE MANOBRAS' });
+    expect(d.rodapeSolicitante).toBe('NPA GURUPI'); expect(d.linhasEmBranco).toBeGreaterThanOrEqual(0);
   });
   it('avisa quando o TOTAL do arquivo não bate com as linhas', () => {
     const m = matriz(); m[17] = ['TOTAL', 'R$ 19,000.00'];

@@ -91,9 +91,10 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
       // "Descrição de Manobra" do rebocador (um arquivo por navio/meio; pode vir vários de uma vez): conferência própria
       const lidas: DescricaoManobra[] = [];
       for (const f of Array.from(files)) {
-        const w = XLSX.read(new Uint8Array(await lerArquivo(f)), { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
+        const bytes = new Uint8Array(await lerArquivo(f));
+        const w = XLSX.read(bytes, { dense: true, cellFormula: false, cellStyles: false, sheetRows: 90 });
         const mat = (XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]], { header: 1, raw: true, defval: null }) as any[][]).slice(0, 90);
-        const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat) : null;
+        const d = ehDescricaoManobra(mat) ? lerDescricaoManobra(f.name, mat, bytes) : null;
         if (d) lidas.push(d);
       }
       if (lidas.length) {

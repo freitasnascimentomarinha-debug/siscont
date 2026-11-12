@@ -6,6 +6,7 @@
  *  - TOTAL; assinaturas do Encarregado da Divisão Marítima e da Agente de Manobras
  * O nº do documento vem do nome do arquivo ("65-2026 NPA MANGARATIBA.xls" → 65-2026). Os arquivos trazem ~65 mil linhas vazias: lê-se só o início.
  */
+import { lerImagensXls, classificarImagensManobra, ImagensManobra } from './xlsImagens';
 type Celula = string | number | boolean | Date | null | undefined;
 type Matriz = Celula[][];
 
@@ -15,6 +16,12 @@ export interface DescricaoManobra {
   linhas: LinhaManobra[]; total: number; totalArquivo: number | null;
   encarregado: { nome: string; posto: string; cargo: string } | null; agente: { nome: string; cargo: string } | null;
   mes: string | null;       // AAAA-MM das datas (null se há mais de um mês)
+  /** linhas em branco da tabela do original (a folha tem espaço fixo até o TOTAL) */
+  linhasEmBranco: number;
+  /** texto do rodapé "OM / NAVIO SOLICITANTE: ..." como está no original */
+  rodapeSolicitante?: string;
+  /** brasão e assinaturas embutidos no arquivo original (data URL) */
+  imagens?: ImagensManobra;
   avisos: string[];
 }
 
@@ -52,7 +59,7 @@ export function ehDescricaoManobra(m: Matriz): boolean {
   return t.some(x => /^DESCRI[ÇC][ÃA]O DE MANOBRA/i.test(x)) && t.some(x => /^MANOBRA REALIZADA/i.test(x));
 }
 
-export function lerDescricaoManobra(arquivo: string, matriz: Matriz): DescricaoManobra | null {
+export function lerDescricaoManobra(arquivo: string, matriz: Matriz, bytes?: ArrayBuffer | Uint8Array): DescricaoManobra | null {
   if (!ehDescricaoManobra(matriz)) return null;
   const linhas0 = matriz.slice(0, 90).map(l => (l || []).filter(c => txt(c) !== '' || c instanceof Date));
   const campo = (rotulo: RegExp) => { const l = linhas0.find(r => r.length && rotulo.test(txt(r[0]))); return l ? l.slice(1).map(txt).filter(Boolean).join(' ') : ''; };
@@ -69,10 +76,15 @@ export function lerDescricaoManobra(arquivo: string, matriz: Matriz): DescricaoM
     if (custo == null) { if (lin.length && r.length <= 2) lin[lin.length - 1].manobra += ' ' + r.map(txt).join(' '); continue; }
     lin.push({ dia: dataIso(r[1]) ?? txt(r[1]), manobra: txt(r[2]), custo, rebocadores: valorMoeda(r[4]), local: txt(r[5]) });
   }
+  // linhas em branco: a tabela do original vai da linha seguinte ao cabeçalho (+1 de espaço) até o TOTAL
+  const iCabRaw = matriz.findIndex(l => (l || []).some(c => /^NAVIO \/ MEIO/i.test(txt(c))));
+  const iTotRaw = matriz.findIndex((l, k) => k > iCabRaw && (l || []).some(c => /^TOTAL$/i.test(txt(c))));
+  const linhasEmBranco = iCabRaw >= 0 && iTotRaw > iCabRaw ? Math.max(0, iTotRaw - (iCabRaw + 2) - lin.length) : 0;
   const total = r2(lin.reduce((s, l) => s + l.custo, 0));
   if (!lin.length) { avisos.push('Nenhuma linha de manobra com custo.'); }
   if (totalArquivo != null && Math.abs(totalArquivo - total) > 0.005) avisos.push(`O TOTAL do arquivo (${totalArquivo.toFixed(2)}) difere da soma das linhas (${total.toFixed(2)}).`);
   if (totalArquivo == null) avisos.push('O arquivo não tem a linha TOTAL.');
+  const rodapeSolicitante = matriz.flatMap(l => (l || []).map(txt)).map(x => x.match(/^OM \/ NAVIO SOLICITANTE:\s*(.+)$/i)?.[1]).find(Boolean);
   const numero = numeroDoArquivo(arquivo);
   if (!numero) avisos.push('Não consegui ler o número do documento no nome do arquivo (esperado: "65-2026 NOME.xls").');
   const meses = [...new Set(lin.map(l => l.dia.slice(0, 7)).filter(s => /^\d{4}-\d{2}$/.test(s)))];
@@ -86,6 +98,7 @@ export function lerDescricaoManobra(arquivo: string, matriz: Matriz): DescricaoM
   const agente = assin.length >= 2 ? { nome: assin[0][1] ?? '', cargo: assin[1][1] ?? '' } : null;
   return {
     arquivo, numero, navio: campo(/^NAVIOS MANOBRADOS/i), solicitante: campo(/^OM SOLICITANTE/i), datas: campo(/^DATA$/i), manobras: campo(/^MANOBRAS?$/i),
-    local: campo(/^LOCAL$/i), linhas: lin, total, totalArquivo, encarregado, agente, mes: meses.length === 1 ? meses[0] : null, avisos,
+    local: campo(/^LOCAL$/i), linhas: lin, total, totalArquivo, encarregado, agente, mes: meses.length === 1 ? meses[0] : null, avisos, linhasEmBranco, rodapeSolicitante,
+    ...(bytes ? { imagens: classificarImagensManobra(lerImagensXls(bytes)) } : {}),
   };
 }
