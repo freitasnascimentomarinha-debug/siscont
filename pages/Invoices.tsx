@@ -366,15 +366,12 @@ export const Invoices: React.FC = () => {
         return !!doc && ehAdiantamento(a, doc);
       }).map(a => a.id);
 
-      for (const aid of advanceAllocationIds) {
-        await db.deleteAllocation(aid);
-      }
+      await db.deleteAllocations(advanceAllocationIds);
 
       const { distribution } = calculateAdvanceDistribution();
 
-      for (const dist of distribution) {
-        if (dist.amountUsed > 0.005) {
-          await db.saveAllocation({
+      await Promise.all(distribution.filter(d => d.amountUsed > 0.005).map(dist => {
+          return db.saveAllocation({
             id: uuidv4(),
             documentId: dist.docId,
             invoiceId: payload.id,
@@ -385,8 +382,7 @@ export const Invoices: React.FC = () => {
             serviceType: payload.type,
             tipoBaixa: 'ADIANTAMENTO',
           });
-        }
-      }
+      }));
 
       closeModal();
       await refresh();
@@ -433,9 +429,7 @@ export const Invoices: React.FC = () => {
       if (inv) {
         try {
           const linkedAllocations = allocations.filter(a => a.invoiceId === inv.id);
-          for (const la of linkedAllocations) {
-            await db.deleteAllocation(la.id);
-          }
+          await db.deleteAllocations(linkedAllocations.map(la => la.id));
           await db.saveInvoice({ ...inv, isCanceled: true, status: InvoiceStatus.CANCELLED, paidAmount: 0 });
           notify.success(`Fatura ${inv.invoiceNumber} cancelada.`);
         } catch (err) {

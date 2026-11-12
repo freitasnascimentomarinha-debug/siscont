@@ -186,7 +186,7 @@ export const db = {
   deleteInvoice: async (id: string) => {
     // Remove primeiro as alocações vinculadas para não deixar saldo "preso" em documentos
     const allocations = await supabaseService.getAllocations();
-    for (const a of allocations.filter(a => a.invoiceId === id)) await supabaseService.deleteAllocation(a.id);
+    await supabaseService.deleteAllocations(allocations.filter(a => a.invoiceId === id).map(a => a.id));
     await supabaseService.deleteInvoice(id);
     invalidateCache('raw_invoices', 'raw_allocations');
   },
@@ -224,7 +224,7 @@ export const db = {
   saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },
   deleteDocument: async (id: string) => {
     const allocations = await supabaseService.getAllocations();
-    for (const a of allocations.filter(a => a.documentId === id)) await supabaseService.deleteAllocation(a.id);
+    await supabaseService.deleteAllocations(allocations.filter(a => a.documentId === id).map(a => a.id));
     await supabaseService.deleteDocument(id);
     invalidateCache('raw_documents', 'raw_allocations');
   },
@@ -232,6 +232,7 @@ export const db = {
   // --- ALLOCATIONS ---
   getAllocations: async (): Promise<PaymentAllocation[]> => cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
   saveAllocation: async (alloc: PaymentAllocation) => { await supabaseService.saveAllocation(alloc); invalidateCache('raw_allocations'); },
+  deleteAllocations: async (ids: string[]) => { await supabaseService.deleteAllocations(ids); invalidateCache('raw_allocations'); },
   deleteAllocation: async (id: string) => { await supabaseService.deleteAllocation(id); invalidateCache('raw_allocations'); },
 
   // --- CASH FLOW ---

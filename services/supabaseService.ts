@@ -350,6 +350,17 @@ export const supabaseService = {
         }, 'saveAllocation');
     },
 
+    /** Apaga várias baixas numa só chamada (antes eram uma por vez, ~2 s cada). */
+    async deleteAllocations(ids: string[]) {
+        for (let i = 0; i < ids.length; i += 200) {
+            const lote = ids.slice(i, i + 200);
+            await withRetry(async () => {
+                const { error } = await supabase.from('payment_allocations').delete().in('id', lote);
+                if (error) throw error;
+            }, 'deleteAllocations');
+        }
+    },
+
     async deleteAllocation(id: string) {
         await withRetry(async () => {
             const { error } = await supabase.from('payment_allocations').delete().eq('id', id);
