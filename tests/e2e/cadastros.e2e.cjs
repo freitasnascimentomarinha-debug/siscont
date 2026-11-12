@@ -3077,6 +3077,50 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'da ficha da OM dá para ir ao extrato do comando ("Ver o comando")');
   });
 
+  await cenario('Extrato de conciliação: filtrar por ALTCRED (qualquer exercício, com ou sem comando/OM)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const amrj = { id: uid(), codigo: '41000', nome: 'Arsenal de Marinha do Rio de Janeiro', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(amrj);
+    const f = (n, valor, venc, extra = {}) => ({ id: uid(), invoice_number: n, ug: '41000', sector: 'DGMM', command: 'Arsenal', client: amrj.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2025-10-15', due_date: venc,
+      month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: amrj.id, ...extra });
+    const f1 = f('41000-EL-09-2025-001-0', 1000, '2025-11-15'), f2 = f('41000-EL-10-2025-002-0', 700, '2025-12-15'), f3 = f('41000-AE-10-2026-003-0', 500, '2099-12-31', { year_competence: 2026, issue_date: '2026-11-15' });
+    db.invoices = [f1, f2, f3];
+    const doc = (n, valor, data, nome = amrj.nome) => ({ id: uid(), document_number: n, document_type: 'ALTCRED', total_value: valor, date: data, operation: 'PAGAMENTO', client: nome, sector: 'DGMM', command: '41000 - Arsenal', ug: '41000', observation: '', exercicio: Number(data.slice(0, 4)) });
+    const d1 = doc('V485.2025.AC.00022', 1500, '2025-10-20'), d2 = doc('G424.2026.AC.00013', 800, '2026-10-05');
+    db.received_documents.push(d1, d2);
+    db.payment_allocations.push({ id: uid(), document_id: d1.id, invoice_id: f1.id, amount: 1000, date: '2025-10-20', service_type: 'EL', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: d1.id, invoice_id: f2.id, amount: 400, date: '2025-10-20', service_type: 'EL', tipo_baixa: 'PAGAMENTO' },
+      { id: uid(), document_id: d2.id, invoice_id: f3.id, amount: 300, date: '2026-10-05', service_type: 'AE', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();
+    await page.getByRole('heading', { name: 'Extrato de Conciliação' }).waitFor();
+    ok(await page.getByLabel('Filtrar por ALTCRED').isVisible(), 'a tela tem o campo "Filtrar por ALTCRED"');
+    // sem comando/OM: procura em todas, em qualquer exercício (a de 2025 aparece mesmo com o exercício atual)
+    await page.getByLabel('Filtrar por ALTCRED').fill('V485.2025.AC.00022');
+    await page.getByTestId('aviso-altcred').waitFor();
+    const corpo = (await page.locator('main, body').first().innerText()).replace(/\s+/g, ' ');
+    ok(/1 ALTCRED encontrada/.test(corpo) && corpo.includes('V485.2025.AC.00022') && !corpo.includes('G424.2026.AC.00013'), 'só a ALTCRED digitada aparece (a de 2025 entra mesmo com o exercício de 2026)');
+    ok(corpo.includes('41000-EL-09-2025-001-0') && corpo.includes('41000-EL-10-2025-002-0') && !corpo.includes('41000-AE-10-2026-003-0'), 'mostra as faturas que ELA pagou, e não as pagas por outras ALTCRED');
+    ok(!/Faturas em aberto/.test(await page.locator('h3').allInnerTexts().then(t => t.join(' '))) && !/Em aberto — vencido/i.test(corpo), 'as faturas em aberto saem do extrato filtrado');
+    ok(!/Faturas em aberto \(vencido/.test(corpo) && /Saldo das ALTCRED/i.test(corpo) && /R\$ 100,00/.test(corpo), 'saldo da ALTCRED: 1.500 − 1.000 − 400 = R$ 100,00 (o Resumo continua fechando)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-altcred.png'), fullPage: true });
+    // pedaço do número, vários, e com comando escolhido
+    await page.getByLabel('Filtrar por ALTCRED').fill('AC.00013, AC.00022');
+    await page.getByText(/2 ALTCRED encontrada/).waitFor();
+    ok(true, 'vários números (ou pedaços) separados por vírgula');
+    await page.getByLabel('Filtrar por ALTCRED').fill('NAO.EXISTE');
+    await page.getByText(/Nenhuma ALTCRED encontrada/).waitFor();
+    ok(true, 'número inexistente: aviso claro');
+    // PDF do filtro
+    await page.getByLabel('Filtrar por ALTCRED').fill('G424.2026.AC.00013');
+    await page.getByText(/1 ALTCRED encontrada/).waitFor();
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
+    ok(/^extrato_altcred_G424\.2026\.AC\.00013\.pdf$/.test(dl.suggestedFilename()), `PDF do extrato filtrado (${dl.suggestedFilename()})`);
+    await page.getByRole('button', { name: 'limpar ALTCRED' }).click();
+    await page.getByText(/Escolha um ou mais comandos/).waitFor();
+    ok(true, 'limpar o filtro volta ao estado normal');
+  });
+
   await browser.close();
   console.log('\n===== RESUMO =====');
   resultados.forEach(([n, r]) => console.log(`${r === 'OK' ? '✅' : '❌'} ${n}`));

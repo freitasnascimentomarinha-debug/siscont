@@ -82,6 +82,11 @@ export const Conciliacao: React.FC = () => {
   const [escopos, setEscopos] = useState<Escopo[]>([]);
   const [exercicio, setExercicio] = useState<string>(String(new Date().getFullYear()));
   const [abertasDoExercicio, setAbertasDoExercicio] = useState(false);
+  // filtro por ALTCRED: um ou vários números (ou pedaços), separados por vírgula, espaço ou ponto e vírgula
+  const [altcredBusca, setAltcredBusca] = useState('');
+  const alvos = useMemo(() => altcredBusca.split(/[,;\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean), [altcredBusca]);
+  const usandoAltcred = alvos.length > 0;
+  const casaAltcred = (d: ReceivedDocument) => { const n = (d.documentNumber || '').toUpperCase(); return alvos.some(a => n.includes(a)); };
   const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
   const hoje = hojeISO();
 
@@ -115,12 +120,16 @@ export const Conciliacao: React.FC = () => {
   const anos = useMemo(() => [...new Set(docs.map(d => String(d.exercicio ?? d.date?.slice(0, 4))).filter(Boolean))].sort().reverse(), [docs]);
 
   const extrato = useMemo<Extrato | null>(() => {
-    if (!escopos.length) return null;
+    if (!escopos.length && !usandoAltcred) return null;
     const omDe = new Map(cad.oms.map(o => [o.id, o]));
     // a OM de cada documento vem do cadastro (nome ou outros nomes; UG só quando é de uma OM só) — códigos como 41000
     // são usados por várias OM e não servem para dizer de quem é a ALTCRED
     const omDoc = new Map(docs.map(d => [d.id, resolv.omDoDocumento(d)]));
-    const testes = escopos.map(escopo => {
+    // só com o filtro de ALTCRED (sem comando/OM): vale qualquer documento; as faturas do extrato são as que essas ALTCRED pagaram
+    const idsAlt = usandoAltcred ? new Set(docs.filter(casaAltcred).map(d => d.id)) : new Set<string>();
+    const faturasPagas = new Set(baixas.filter(b => idsAlt.has(b.documentId)).map(b => b.invoiceId));
+    const testes = (escopos.length ? escopos : [{ tipo: 'TODOS' as const, id: '' }]).map((escopo: any) => {
+      if (escopo.tipo === 'TODOS') return { doc: () => true, fat: (f: Invoice) => faturasPagas.has(f.id) };
       if (escopo.tipo === 'COMANDO') {
         const c = cad.comandos.find(x => x.id === escopo.id);
         const cod = c?.codigo || '#';
@@ -138,8 +147,9 @@ export const Conciliacao: React.FC = () => {
     });
     const docOk = (d: ReceivedDocument) => testes.some(t => t.doc(d));
     const fatOk = (f: Invoice) => testes.some(t => t.fat(f));
-    const doAno = (d: ReceivedDocument) => exercicio === 'todos' || String(d.exercicio ?? d.date?.slice(0, 4)) === exercicio;
-    const fatDoAno = (f: Invoice) => !abertasDoExercicio || exercicio === 'todos' || String(f.yearCompetence) === exercicio;
+    // ao filtrar por ALTCRED o exercício não corta (a ALTCRED pedida aparece, mesmo de outro ano)
+    const doAno = (d: ReceivedDocument) => usandoAltcred || exercicio === 'todos' || String(d.exercicio ?? d.date?.slice(0, 4)) === exercicio;
+    const fatDoAno = (f: Invoice) => usandoAltcred || !abertasDoExercicio || exercicio === 'todos' || String(f.yearCompetence) === exercicio;
     // cliente e comando pelo cadastro (uma OM = um subtotal, mesmo que o documento tenha outra grafia)
     const paraExtrato = (d: ReceivedDocument): DocExtrato => { const r = resolv.rotuloDoDocumento(d); return { id: d.id, numero: d.documentNumber, comando: r.comando, cliente: r.cliente, data: d.date, valor: d.totalValue, saldo: d.availableValue, sobraAdiantamento: d.sobraAdiantamento, operacao: d.operation }; };
     const clienteFatura = (f: Invoice) => (f.omId && omDe.get(f.omId)?.nome) || f.client;
@@ -147,7 +157,7 @@ export const Conciliacao: React.FC = () => {
     const docPorId = new Map(docs.map(d => [d.id, d]));
     const todas = new Map<string, InfoFatura>(faturas.map(f => [f.id, { numero: f.invoiceNumber, cliente: clienteFatura(f), cancelada: f.isCanceled }]));
     return montarExtrato(
-      docs.filter(d => docOk(d) && doAno(d)).map(paraExtrato),
+      docs.filter(d => docOk(d) && doAno(d) && (!usandoAltcred || casaAltcred(d))).map(paraExtrato),
       faturas.filter(f => fatOk(f) && fatDoAno(f)).map(f => ({
         id: f.id, numero: f.invoiceNumber, setor: setorFatura(f), cliente: clienteFatura(f), cancelada: f.isCanceled, vencimento: f.dueDate, contestada: f.contestada,
         saldo: f.isCanceled || f.quitacaoExterna ? 0 : r2(f.saldoAPagar ?? 0),
@@ -155,15 +165,19 @@ export const Conciliacao: React.FC = () => {
       baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, valor: b.amount, adiantamento: ehAdiantamento(b, docPorId.get(b.documentId)) })),
       todas,
       // pagamentos das faturas do escopo (de qualquer pagador) e usos das ALTCRED do escopo (em qualquer fatura), no exercício
-      { porFaturasDoEscopo: true, todosDocs: docs.filter(doAno).map(paraExtrato), hoje },
+      { porFaturasDoEscopo: !usandoAltcred, todosDocs: docs.filter(doAno).map(paraExtrato), hoje },
     );
-  }, [escopos, exercicio, abertasDoExercicio, cad, docs, faturas, baixas, resolv, hoje]);
+  }, [escopos, exercicio, abertasDoExercicio, alvos, cad, docs, faturas, baixas, resolv, hoje]);
 
-  const qs = extrato ? quadros(extrato) : [];
-  const nomeEscopo = soExtra && escopos.length > 2 ? `Extra-Marinha (${escopos.length} clientes)` : escopos.length <= 2 ? escopos.map(e => e.rotulo).join(' + ') : `${escopos.length} comandos/OM (${escopos.map(e => e.rotulo.split(' - ')[0]).join(', ')})`;
-  const titulo = escopos.length ? `Extrato de conciliação — ${nomeEscopo}` : '';
-  const subtitulo = `Exercício ${exercicio === 'todos' ? 'todos' : exercicio} · faturas em aberto ${abertasDoExercicio && exercicio !== 'todos' ? `só de ${exercicio}` : 'de qualquer exercício'} · pagamentos de qualquer pagador · gerado em ${dataBR(hoje)}`;
-  const nomeArq = escopos.length ? `extrato_${soExtra && escopos.length > 2 ? 'extra_mb' : ''}${escopos.map(e => e.rotulo.split(' - ')[0]).join('_').slice(0, 60)}_${exercicio}` : 'extrato';
+  // com o filtro de ALTCRED o extrato mostra só o que é dela (saldo, usos e faturas pagas): as faturas em aberto saem
+  const qs = extrato ? quadros(extrato).filter(q => !(usandoAltcred && /em aberto/i.test(q.titulo))) : [];
+  const resumoLinhas = extrato ? linhasResumo(extrato).filter(([r]) => !(usandoAltcred && /em aberto/i.test(String(r)))) : [];
+  const encontradas = useMemo(() => (usandoAltcred ? docs.filter(casaAltcred) : []), [docs, alvos]);
+  const nomeEscopo = !escopos.length ? `ALTCRED ${alvos.join(', ')}` : soExtra && escopos.length > 2 ? `Extra-Marinha (${escopos.length} clientes)` : escopos.length <= 2 ? escopos.map(e => e.rotulo).join(' + ') : `${escopos.length} comandos/OM (${escopos.map(e => e.rotulo.split(' - ')[0]).join(', ')})`;
+  const titulo = escopos.length || usandoAltcred ? `Extrato de conciliação — ${nomeEscopo}${escopos.length && usandoAltcred ? ` · ALTCRED ${alvos.join(', ')}` : ''}` : '';
+  const subtitulo = usandoAltcred ? `Filtrado por ALTCRED (qualquer exercício) · saldo, usos e faturas pagas · gerado em ${dataBR(hoje)}`
+    : `Exercício ${exercicio === 'todos' ? 'todos' : exercicio} · faturas em aberto ${abertasDoExercicio && exercicio !== 'todos' ? `só de ${exercicio}` : 'de qualquer exercício'} · pagamentos de qualquer pagador · gerado em ${dataBR(hoje)}`;
+  const nomeArq = usandoAltcred ? `extrato_altcred_${alvos.join('_').replace(/[^A-Z0-9_.]/g, '').slice(0, 60)}` : escopos.length ? `extrato_${soExtra && escopos.length > 2 ? 'extra_mb' : ''}${escopos.map(e => e.rotulo.split(' - ')[0]).join('_').slice(0, 60)}_${exercicio}` : 'extrato';
   const fecha = extrato ? Math.abs(extrato.resumo.diferenca) < 0.01 : true;
 
   const exportarPdf = () => {
@@ -172,7 +186,7 @@ export const Conciliacao: React.FC = () => {
     cabecalhoCompacto(doc);
     const y0 = tituloRelatorio(doc, titulo, subtitulo, 26);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...TEMA.faixa); doc.text('RESUMO DA CONCILIAÇÃO', 14, y0 + 2); doc.setTextColor(0);
-    tabelaPdf(doc, { startY: y0 + 4, body: linhasResumo(extrato), styles: { fontSize: 8.5, cellPadding: 1.5 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
+    tabelaPdf(doc, { startY: y0 + 4, body: resumoLinhas, styles: { fontSize: 8.5, cellPadding: 1.5 }, columnStyles: { 1: { halign: 'right', cellWidth: 70 } },
       didParseCell: d => { if ([3, 5].includes(d.row.index)) d.cell.styles.fontStyle = 'bold'; } });
     let y = fimDaTabela(doc) + 6;
     qs.forEach(q => {
@@ -195,7 +209,7 @@ export const Conciliacao: React.FC = () => {
   const exportarExcel = () => {
     if (!extrato) return;
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[titulo], [subtitulo], [], ['Resumo da conciliação', 'Valor'], ...linhasResumo(extrato)]), 'Resumo');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[titulo], [subtitulo], [], ['Resumo da conciliação', 'Valor'], ...resumoLinhas]), 'Resumo');
     qs.forEach(q => {
       const ws = XLSX.utils.aoa_to_sheet([[titulo], [subtitulo], [], [...q.colunas, 'Observação'], ...q.linhas.map(l => [...l.c, l.nota || '']), q.total]);
       XLSX.utils.book_append_sheet(wb, ws, q.titulo.slice(0, 31).replace(/[()]/g, ''));
@@ -224,6 +238,11 @@ export const Conciliacao: React.FC = () => {
               <option value="todos">Todos</option>
             </select>
           </label>
+          <label className="text-xs text-slate-600">Filtrar por ALTCRED
+            <input value={altcredBusca} onChange={e => setAltcredBusca(e.target.value)} list="altcreds-conc" placeholder="Nº (ou parte); vários separados por vírgula" aria-label="Filtrar por ALTCRED" className={`${sel} block mt-1 w-72 font-mono text-xs`} />
+            <datalist id="altcreds-conc">{docs.slice(0, 400).map(d => <option key={d.id} value={d.documentNumber} />)}</datalist>
+          </label>
+          {usandoAltcred && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setAltcredBusca('')}>limpar ALTCRED</button>}
           <label className="text-sm flex items-center gap-1.5 pb-2" title="Sem marcar, as faturas em aberto entram de qualquer exercício (dívida antiga continua aparecendo)">
             <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abertasDoExercicio} disabled={exercicio === 'todos'} onChange={e => setAbertasDoExercicio(e.target.checked)} /> Faturas em aberto só deste exercício
           </label>
@@ -244,13 +263,19 @@ export const Conciliacao: React.FC = () => {
         )}
       </div>
 
-      {!escopos.length && <p className="text-sm text-slate-500">Escolha um ou mais comandos (incluem as OM subordinadas) ou OM para montar o extrato.</p>}
+      {usandoAltcred && (
+        <p className="text-xs text-slate-600" data-testid="aviso-altcred">
+          {encontradas.length ? <><b>{encontradas.length}</b> ALTCRED encontrada(s)</> : <span className="text-red-700 font-semibold">Nenhuma ALTCRED encontrada com "{altcredBusca.trim()}"</span>}
+          {' '}· o filtro de ALTCRED ignora o exercício e mostra o saldo, os usos e as faturas pagas por ela (as faturas em aberto ficam de fora).{escopos.length ? ' Só entram as ALTCRED dos comandos/OM escolhidos.' : ' Sem escolher comando ou OM, procura em todas.'}
+        </p>
+      )}
+      {!escopos.length && !usandoAltcred && <p className="text-sm text-slate-500">Escolha um ou mais comandos (incluem as OM subordinadas) ou OM para montar o extrato — ou digite o número de uma ALTCRED.</p>}
 
       {extrato && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             {([['Saldo das ALTCRED', extrato.totais.saldoAltcred, ''], ['Adiantamentos utilizados', extrato.totais.adiantamentos, ''], ['Faturas pagas', extrato.totais.pagas, ''],
-              ['Em aberto — vencido', extrato.totais.vencido, 'text-red-700'], ['Em aberto — a vencer', extrato.totais.aVencer, ''], ['Em aberto contestado', extrato.totais.contestado, 'text-amber-700']] as const).map(([r, v, cor]) => (
+              ['Em aberto — vencido', extrato.totais.vencido, 'text-red-700'], ['Em aberto — a vencer', extrato.totais.aVencer, ''], ['Em aberto contestado', extrato.totais.contestado, 'text-amber-700']] as const).filter(([r]) => !(usandoAltcred && /em aberto/i.test(r))).map(([r, v, cor]) => (
               <div key={r} className="p-3 rounded-lg border border-slate-200 bg-white">
                 <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">{r}</div>
                 <div className={`text-xl font-bold tabular-nums ${cor || 'text-slate-900'}`}>{brl(v)}</div>
@@ -263,7 +288,7 @@ export const Conciliacao: React.FC = () => {
               {fecha ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />} Resumo da conciliação {fecha ? '— fecha' : '— não fecha: confira as baixas das ALTCRED'}
             </h3>
             <table className="min-w-full text-sm bg-white"><tbody className="divide-y divide-slate-100">
-              {linhasResumo(extrato).map(([r, v], i) => (
+              {resumoLinhas.map(([r, v], i) => (
                 <tr key={r} className={[3, 5].includes(i) ? 'font-semibold' : ''}><td className="px-4 py-1.5">{r}</td><td className="px-4 py-1.5 text-right tabular-nums">{v}</td></tr>
               ))}
             </tbody></table>
