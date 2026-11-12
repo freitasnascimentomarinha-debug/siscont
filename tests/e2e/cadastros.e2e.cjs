@@ -3111,6 +3111,27 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Filtrar por ALTCRED').fill('NAO.EXISTE');
     await page.getByText(/Nenhuma ALTCRED encontrada/).waitFor();
     ok(true, 'número inexistente: aviso claro');
+    // escolher várias numa lista (caixas de marcar)
+    await page.getByLabel('Filtrar por ALTCRED').fill('');
+    await page.getByRole('button', { name: /Escolher ALTCRED/ }).click();
+    await page.getByRole('dialog', { name: 'Escolher ALTCRED' }).waitFor();
+    const lista = (await page.getByRole('dialog', { name: 'Escolher ALTCRED' }).innerText()).replace(/\s+/g, ' ');
+    ok(/V485\.2025\.AC\.00022/.test(lista) && /G424\.2026\.AC\.00013/.test(lista), 'a lista mostra as ALTCRED (número, data, OM, valor e saldo)');
+    await page.getByLabel('ALTCRED V485.2025.AC.00022').check();
+    await page.getByLabel('ALTCRED G424.2026.AC.00013').check();
+    await page.getByText(/2 ALTCRED encontrada/).waitFor();
+    ok((await page.getByLabel('Filtrar por ALTCRED').inputValue()).split(',').length === 2, 'as duas marcadas vão para o filtro');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-altcred-seletor.png'), fullPage: false });
+    await page.getByRole('button', { name: 'Fechar a lista' }).click();
+    const duas = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+    ok(duas.includes('V485.2025.AC.00022') && duas.includes('G424.2026.AC.00013') && duas.includes('41000-AE-10-2026-003-0') && duas.includes('41000-EL-09-2025-001-0'), 'o extrato mostra as duas ALTCRED e as faturas que cada uma pagou');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extrato-altcred-varias.png'), fullPage: true });
+    await page.getByRole('button', { name: /Escolher ALTCRED \(2\)/ }).click();
+    await page.getByLabel('Buscar ALTCRED na lista').fill('G424');
+    await page.getByRole('button', { name: /marcar as 1 da busca/ }).click();
+    await page.getByRole('button', { name: 'desmarcar todas' }).click();
+    ok((await page.getByLabel('Filtrar por ALTCRED').inputValue()) === '', '"desmarcar todas" limpa a escolha');
+    await page.getByRole('button', { name: 'Fechar a lista' }).click();
     // PDF do filtro
     await page.getByLabel('Filtrar por ALTCRED').fill('G424.2026.AC.00013');
     await page.getByText(/1 ALTCRED encontrada/).waitFor();

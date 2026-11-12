@@ -15,6 +15,7 @@ import { Button } from '../components/ui/Button';
 import { SeletorPublico, usePublico } from '../components/ui/SeletorPublico';
 import { passaPublico } from '../utils/publico';
 import { Escopo, OpcaoEscopo, SeletorEscopo } from '../components/conciliacao/SeletorEscopo';
+import { SeletorAltcred } from '../components/conciliacao/SeletorAltcred';
 import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 
 const brl = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -119,12 +120,26 @@ export const Conciliacao: React.FC = () => {
   const soExtra = escopos.length > 0 && escopos.every(e => extraDe(opcoesTodas.find(o => o.tipo === e.tipo && o.id === e.id) || ({ tipo: e.tipo, id: e.id, setor: '' } as OpcaoEscopo)));
   const anos = useMemo(() => [...new Set(docs.map(d => String(d.exercicio ?? d.date?.slice(0, 4))).filter(Boolean))].sort().reverse(), [docs]);
 
+  // o documento é do comando/OM escolhido? (mesma regra do extrato; também serve para listar as ALTCRED a escolher)
+  const omDocMap = useMemo(() => new Map(docs.map(d => [d.id, resolv.omDoDocumento(d)])), [docs, resolv]);
+  const testeDoc = (escopo: Escopo) => (d: ReceivedDocument): boolean => {
+    if (escopo.tipo === 'COMANDO') {
+      const c = cad.comandos.find(x => x.id === escopo.id), cod = c?.codigo || '#', o = omDocMap.get(d.id);
+      return o ? o.comandoId === c?.id : d.comandoId === c?.id || d.ug === cod || (d.ugCliente || '').startsWith(cod);
+    }
+    const om = cad.oms.find(x => x.id === escopo.id), unico = om ? resolv.codigoUnico(om.codigo) : false, od = omDocMap.get(d.id);
+    return od ? od.id === om?.id : unico && (d.ug === om?.codigo || (d.ugCliente || '').startsWith(om?.codigo || '#'));
+  };
+  const altcredsParaEscolher = useMemo(() => docs.filter(d => !escopos.length || escopos.some(e => testeDoc(e)(d)))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.documentNumber.localeCompare(b.documentNumber))
+    .map(d => { const r = resolv.rotuloDoDocumento(d); return { numero: d.documentNumber, cliente: r.cliente, valor: d.totalValue, saldo: d.availableValue, data: d.date, operacao: d.operation }; }),
+    [docs, escopos, cad, resolv, omDocMap]);
+
   const extrato = useMemo<Extrato | null>(() => {
     if (!escopos.length && !usandoAltcred) return null;
     const omDe = new Map(cad.oms.map(o => [o.id, o]));
     // a OM de cada documento vem do cadastro (nome ou outros nomes; UG só quando é de uma OM só) — códigos como 41000
     // são usados por várias OM e não servem para dizer de quem é a ALTCRED
-    const omDoc = new Map(docs.map(d => [d.id, resolv.omDoDocumento(d)]));
     // só com o filtro de ALTCRED (sem comando/OM): vale qualquer documento; as faturas do extrato são as que essas ALTCRED pagaram
     const idsAlt = usandoAltcred ? new Set(docs.filter(casaAltcred).map(d => d.id)) : new Set<string>();
     const faturasPagas = new Set(baixas.filter(b => idsAlt.has(b.documentId)).map(b => b.invoiceId));
@@ -134,14 +149,14 @@ export const Conciliacao: React.FC = () => {
         const c = cad.comandos.find(x => x.id === escopo.id);
         const cod = c?.codigo || '#';
         return {
-          doc: (d: ReceivedDocument) => { const o = omDoc.get(d.id); return o ? o.comandoId === c?.id : d.comandoId === c?.id || d.ug === cod || (d.ugCliente || '').startsWith(cod); },
+          doc: testeDoc(escopo),
           fat: (f: Invoice) => (f.omId ? omDe.get(f.omId)?.comandoId === c?.id : false) || (!f.omId && (f.ug === cod || (f.command || '').startsWith(cod))),
         };
       }
       const o = omDe.get(escopo.id);
       const unico = o ? resolv.codigoUnico(o.codigo) : false;
       return {
-        doc: (d: ReceivedDocument) => { const od = omDoc.get(d.id); return od ? od.id === o?.id : unico && (d.ug === o?.codigo || (d.ugCliente || '').startsWith(o?.codigo || '#')); },
+        doc: testeDoc(escopo),
         fat: (f: Invoice) => f.omId === o?.id || (!f.omId && unico && f.ug === o?.codigo),
       };
     });
@@ -242,6 +257,7 @@ export const Conciliacao: React.FC = () => {
             <input value={altcredBusca} onChange={e => setAltcredBusca(e.target.value)} list="altcreds-conc" placeholder="Nº (ou parte); vários separados por vírgula" aria-label="Filtrar por ALTCRED" className={`${sel} block mt-1 w-72 font-mono text-xs`} />
             <datalist id="altcreds-conc">{docs.slice(0, 400).map(d => <option key={d.id} value={d.documentNumber} />)}</datalist>
           </label>
+          <SeletorAltcred itens={altcredsParaEscolher} marcadas={alvos} onChange={nums => setAltcredBusca(nums.join(', '))} />
           {usandoAltcred && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setAltcredBusca('')}>limpar ALTCRED</button>}
           <label className="text-sm flex items-center gap-1.5 pb-2" title="Sem marcar, as faturas em aberto entram de qualquer exercício (dívida antiga continua aparecendo)">
             <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abertasDoExercicio} disabled={exercicio === 'todos'} onChange={e => setAbertasDoExercicio(e.target.checked)} /> Faturas em aberto só deste exercício
