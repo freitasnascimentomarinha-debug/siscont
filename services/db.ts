@@ -29,12 +29,35 @@ function setCached<T>(key: string, data: T): void {
   cache.set(key, { data, timestamp: Date.now() });
 }
 
+/** Geração de cada chave: sobe a cada invalidação. Uma leitura que começou antes (e termina depois) não pode repor dado antigo. */
+const geracao = new Map<string, number>();
+let geracaoGeral = 0;
+const geracaoDe = (k: string) => geracaoGeral + (geracao.get(k) || 0);
+
+// Outras abas do mesmo navegador: avisa que os dados mudaram para que limpem o cache e atualizem as telas abertas
+const canal: BroadcastChannel | null = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('siscont-dados') : null;
+const avisarTela = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event('siscont:dados-mudaram')); };
+if (canal) canal.onmessage = (e: MessageEvent) => { invalidateCache(...((e.data?.chaves as string[]) || []), '__de_fora__'); avisarTela(); };
+
+// Voltou para a aba depois de mais de 1 minuto parada: outro usuário pode ter gravado; descarta o cache e avisa as telas
+if (typeof document !== 'undefined') {
+  let saiuEm = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saiuEm = Date.now();
+    else if (saiuEm && Date.now() - saiuEm > 60_000) { saiuEm = 0; invalidateCache('raw_invoices', 'raw_documents', 'raw_allocations', '__de_fora__'); avisarTela(); }
+  });
+}
+
 function invalidateCache(...keys: string[]): void {
+  const deFora = keys.includes('__de_fora__');
+  keys = keys.filter(k => k !== '__de_fora__');
+  if (!deFora) { try { canal?.postMessage({ chaves: keys }); } catch { /* sem canal: só esta aba */ } }
   console.log(`[Cache] Invalidando chaves: ${keys.length === 0 ? 'TUDO' : keys.join(', ')}`);
   if (keys.length === 0) {
+    geracaoGeral++;
     cache.clear();
   } else {
-    keys.forEach(k => cache.delete(k));
+    keys.forEach(k => { geracao.set(k, (geracao.get(k) || 0) + 1); cache.delete(k); });
   }
 }
 
@@ -46,11 +69,13 @@ async function cachedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T
   const existing = cache.get(key);
   if (existing?.promise) return existing.promise;
 
+  const nascida = geracaoDe(key);
   const promise = fetcher().then(data => {
-    setCached(key, data);
+    // se houve gravação/cancelamento enquanto lia, este dado já nasceu velho: entrega a quem pediu, mas não guarda
+    if (geracaoDe(key) === nascida) setCached(key, data);
     return data;
   }).catch(err => {
-    cache.delete(key);
+    if (geracaoDe(key) === nascida) cache.delete(key);
     throw err;
   });
 

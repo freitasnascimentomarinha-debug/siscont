@@ -126,6 +126,12 @@ export const Invoices: React.FC = () => {
   };
 
   useEffect(() => { refresh(); }, []);
+  // outra aba (ou a volta à aba depois de um tempo) mudou os dados: recarrega para o saldo não ficar velho
+  useEffect(() => {
+    const aoMudar = () => { refresh(); };
+    window.addEventListener('siscont:dados-mudaram', aoMudar);
+    return () => window.removeEventListener('siscont:dados-mudaram', aoMudar);
+  }, []);
 
   // --- LIST TAB LOGIC (Existing) ---
   // ... (Code reused from previous implementation)

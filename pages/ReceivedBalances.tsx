@@ -127,6 +127,12 @@ export const ReceivedBalances: React.FC = () => {
   };
 
   useEffect(() => { refresh(); }, []);
+  // outra aba (ou a volta à aba depois de um tempo) mudou os dados: recarrega para o saldo não ficar velho
+  useEffect(() => {
+    const aoMudar = () => { refresh(); };
+    window.addEventListener('siscont:dados-mudaram', aoMudar);
+    return () => window.removeEventListener('siscont:dados-mudaram', aoMudar);
+  }, []);
   // volta para a 1ª página quando os filtros ou a aba mudam
   useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterClient, filterDocNumber, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
 
