@@ -687,14 +687,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // 5. sem OM ligada
     ok(await page.getByRole('button', { name: /1 sem OM ligada/ }).isVisible(), 'aponta a fatura sem OM ligada ao cadastro');
     await page.getByLabel('Filtrar por cadastro').selectOption('sem');
+    await page.getByLabel('Ano', { exact: true }).selectOption({ index: 1 });
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/faturas-filtros-nova-barra.png` });
+    await page.getByLabel('Ano', { exact: true }).selectOption('');
     ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro "só sem OM ligada" mostra só a fatura sem cadastro');
-    await page.getByRole('button', { name: 'limpar estes filtros' }).click();
+    await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
     // 2. filtro de várias escolhas: só o setor COMOPNAV
     await page.getByRole('button', { name: /^Setor:/ }).click();
     await page.getByTitle('Mostrar só COMOPNAV').click({ force: true });
     await page.keyboard.press('Escape');
     ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro de setor (várias escolhas): só COMOPNAV');
-    await page.getByRole('button', { name: 'limpar estes filtros' }).click();
+    await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
     // acompanhamento e lote
     await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).getByRole('button').first().waitFor();
     await page.getByLabel('Selecionar a fatura 40030-TC-08-2026-001-0').check();

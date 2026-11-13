@@ -521,6 +521,25 @@ export const Invoices: React.FC = () => {
   const opComandos = useMemo(() => [...new Set(invoices.map(comandoDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
   const opClientes = useMemo(() => [...new Set(invoices.map(clienteDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
   const semOM = useMemo(() => invoices.filter(i => !i.omId).length, [invoices]);
+  // filtros ligados (mostrados como etiquetas) e o "limpar tudo": o Público não entra, é o seletor global da página
+  const filtrosLigados = useMemo(() => {
+    const l: { rotulo: string; limpar: () => void }[] = [];
+    const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    if (searchText) l.push({ rotulo: `Procurando “${searchText}”`, limpar: () => setSearchText('') });
+    if (filterMonth) l.push({ rotulo: `Mês: ${MESES[Number(filterMonth)] || filterMonth}`, limpar: () => setFilterMonth('') });
+    if (filterYear !== '') l.push({ rotulo: `Ano: ${Number(filterYear) === 0 ? 'sem competência' : filterYear}`, limpar: () => setFilterYear('') });
+    if (filterType) l.push({ rotulo: `Serviço: ${filterType}`, limpar: () => setFilterType('') });
+    if (filterStatus) l.push({ rotulo: `Status: ${translateStatus(filterStatus)}`, limpar: () => setFilterStatus('') });
+    if (filterSiplad) l.push({ rotulo: `SIPLAD: ${filterSiplad === 'yes' ? 'lançada' : 'pendente'}`, limpar: () => setFilterSiplad('') });
+    if (filterPontos) l.push({ rotulo: `Pontos: ${filterPontos === 'any' ? 'com algum' : `gravidade ${filterPontos}`}`, limpar: () => setFilterPontos('') });
+    if (extras.setoresExcluidos.size) l.push({ rotulo: `Setor: ${extras.setoresExcluidos.size} tirado(s)`, limpar: () => setExtra({ setoresExcluidos: new Set() }) });
+    if (extras.comandosExcluidos.size) l.push({ rotulo: `Comando: ${extras.comandosExcluidos.size} tirado(s)`, limpar: () => setExtra({ comandosExcluidos: new Set() }) });
+    if (extras.clientesExcluidos.size) l.push({ rotulo: `Cliente: ${extras.clientesExcluidos.size} tirado(s)`, limpar: () => setExtra({ clientesExcluidos: new Set() }) });
+    if (extras.cadastro) l.push({ rotulo: 'Cadastro: sem OM ligada', limpar: () => setExtra({ cadastro: '' }) });
+    if (extras.andamento) l.push({ rotulo: `Andamento: ${({ naoEnviada: 'não enviadas', naoCertificada: 'não certificadas', semSiafi: 'sem SIAFI' } as Record<string, string>)[extras.andamento] || extras.andamento}`, limpar: () => setExtra({ andamento: '' }) });
+    return l;
+  }, [searchText, filterMonth, filterYear, filterType, filterStatus, filterSiplad, filterPontos, extras]);
+  const limparFiltros = () => { setSearchText(''); setFilterMonth(''); setFilterYear(''); setFilterType(''); setFilterStatus(''); setFilterSiplad(''); setFilterPontos(''); setExtras(SEM_FILTROS); };
   const semCompetencia = useMemo(() => invoices.filter(i => !i.yearCompetence).length, [invoices]);
   const totalPaginas = Math.max(1, Math.ceil(filteredInvoices.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
@@ -766,55 +785,45 @@ export const Invoices: React.FC = () => {
       {/* --- LIST VIEW --- */}
       {activeTab === 'list' && (
         <>
-          {/* Filters */}
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row md:flex-wrap gap-3 items-end">
-            <div className="flex-1 w-full md:min-w-[220px]">
-              <Input label="Busca" placeholder="UG, Cliente ou número..." value={searchText} onChange={e => setSearchText(e.target.value)} />
+          {/* Filtros: uma barra só, em grupos (o Público fica no alto da página; a ordem se muda clicando no título da coluna) */}
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-3" data-testid="filtros-faturas">
+            <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+              <fieldset className="w-full md:w-52"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Buscar</legend><Input label="UG, cliente ou nº" placeholder="Digite para buscar..." value={searchText} onChange={e => setSearchText(e.target.value)} /></fieldset>
+              <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Período</legend>
+                <div className="w-28"><Select label="Mês" options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} /></div><div className="w-24"><Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y })).concat(semCompetencia ? [{ label: 'Sem competência', value: 0 }] : [])} value={filterYear} onChange={e => setFilterYear(e.target.value)} /></div></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">O quê</legend><div className="w-40"><Select label="Serviço" options={services} value={filterType} onChange={e => setFilterType(e.target.value)} /></div></fieldset>
+              <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
+                <div className="w-28"><Select label="Status" options={[{ label: 'Em Aberto', value: InvoiceStatus.OPEN }, { label: 'Quitada', value: InvoiceStatus.PAID }, { label: 'Vencida', value: InvoiceStatus.OVERDUE }, { label: 'Cancelada', value: InvoiceStatus.CANCELLED }]} value={filterStatus} onChange={e => setFilterStatus(e.target.value)} /></div><div className="w-28"><Select label="SIPLAD" options={[{ label: 'Todos', value: '' }, { label: 'Lançado', value: 'yes' }, { label: 'Pendente', value: 'no' }]} value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} /></div><div className="w-32"><Select label="Pontos" options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} value={filterPontos} onChange={e => setFilterPontos(e.target.value)} /></div></fieldset>
             </div>
-            <div className="w-full md:w-32">
-              <Select label="Mês" options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3 pt-3 border-t border-slate-100">
+              <fieldset className="flex flex-wrap items-end gap-3"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+                <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={extras.setoresExcluidos} onChange={x => setExtra({ setoresExcluidos: x })} />
+                <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={extras.comandosExcluidos} onChange={x => setExtra({ comandosExcluidos: x })} largura="w-96" />
+                <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={extras.clientesExcluidos} onChange={x => setExtra({ clientesExcluidos: x })} largura="w-96" />
+              </fieldset>
+              <fieldset className="flex flex-wrap items-end gap-3"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Acompanhamento</legend>
+                <label className="text-xs font-semibold text-slate-600">Cadastro
+                  <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.cadastro} onChange={e => setExtra({ cadastro: e.target.value as FiltrosExtras['cadastro'] })} aria-label="Filtrar por cadastro">
+                    <option value="">Todas</option><option value="sem">Só sem OM ligada ({semOM})</option>
+                  </select></label>
+                <label className="text-xs font-semibold text-slate-600">Andamento
+                  <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.andamento} onChange={e => setExtra({ andamento: e.target.value as FiltrosExtras['andamento'] })} aria-label="Filtrar por andamento">
+                    <option value="">Todas</option><option value="naoEnviada">Ainda não enviadas</option><option value="naoCertificada">Ainda não certificadas</option><option value="semSiafi">Sem registro no SIAFI</option>
+                  </select></label>
+              </fieldset>
             </div>
-            <div className="w-full md:w-64">
-              <Select label="Ordenar por" options={[
-                { label: 'Competência (mais recente) › vencimento › A–Z', value: 'competencia|0' },
-                { label: 'Competência (mais antiga) › vencimento › A–Z', value: 'competencia|1' },
-                { label: 'Vencimento (mais antigo primeiro)', value: 'vencimento|1' },
-                { label: 'Vencimento (mais recente primeiro)', value: 'vencimento|0' },
-                { label: 'Cliente (A–Z)', value: 'cliente|1' },
-                { label: 'Número da fatura', value: 'numero|1' },
-              ]} value={`${ordem.campo}|${ordem.asc ? 1 : 0}`} onChange={e => { const [c, a] = e.target.value.split('|'); setOrdem({ campo: c as any, asc: a === '1' }); }} />
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 text-sm" aria-live="polite">
+              {filtrosLigados.length > 0
+                ? <span className="text-slate-600"><b>{filteredInvoices.length.toLocaleString('pt-BR')}</b> de {invoices.length.toLocaleString('pt-BR')} faturas atendem aos filtros:</span>
+                : <span className="text-slate-500">Nenhum filtro ligado: todas as faturas do público escolhido.</span>}
+              {filtrosLigados.map(f => (
+                <span key={f.rotulo} className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 pl-2 pr-1 py-0.5 text-xs">
+                  {f.rotulo}
+                  <button type="button" className="rounded-full hover:bg-primary-100 px-1" aria-label={`Tirar filtro ${f.rotulo}`} onClick={f.limpar}>×</button>
+                </span>
+              ))}
+              {filtrosLigados.length > 0 && <button type="button" className="ml-auto text-primary-700 underline text-sm" onClick={limparFiltros}>Limpar filtros</button>}
             </div>
-            <div className="w-full md:w-28">
-              <Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y })).concat(semCompetencia ? [{ label: 'Sem competência', value: 0 }] : [])} value={filterYear} onChange={e => setFilterYear(e.target.value)} />
-            </div>
-            <div className="w-full md:w-40">
-              <Select label="Status" options={[{ label: 'Em Aberto', value: InvoiceStatus.OPEN }, { label: 'Quitada', value: InvoiceStatus.PAID }, { label: 'Vencida', value: InvoiceStatus.OVERDUE }, { label: 'Cancelada', value: InvoiceStatus.CANCELLED }]} value={filterStatus} onChange={e => setFilterStatus(e.target.value)} />
-            </div>
-            <div className="w-full md:w-28">
-              <Select label="Siplad?" options={[{ label: 'Todos', value: '' }, { label: 'Lançado', value: 'yes' }, { label: 'Pendente', value: 'no' }]} value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} />
-            </div>
-            <div className="w-full md:w-48">
-              <Select label="Tipo" options={services} value={filterType} onChange={e => setFilterType(e.target.value)} />
-            </div>
-            <div className="w-full md:w-44">
-              <Select label="Pontos de atenção" options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} value={filterPontos} onChange={e => setFilterPontos(e.target.value)} />
-            </div>
-          </div>
-
-          {/* Filtros de várias escolhas e andamento */}
-          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-wrap gap-4 items-end">
-            <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={extras.setoresExcluidos} onChange={x => setExtra({ setoresExcluidos: x })} />
-            <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={extras.comandosExcluidos} onChange={x => setExtra({ comandosExcluidos: x })} largura="w-96" />
-            <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={extras.clientesExcluidos} onChange={x => setExtra({ clientesExcluidos: x })} largura="w-96" />
-            <label className="text-xs font-semibold text-slate-600">Cadastro
-              <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.cadastro} onChange={e => setExtra({ cadastro: e.target.value as FiltrosExtras['cadastro'] })} aria-label="Filtrar por cadastro">
-                <option value="">Todas</option><option value="sem">Só sem OM ligada ({semOM})</option>
-              </select></label>
-            <label className="text-xs font-semibold text-slate-600">Andamento
-              <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={extras.andamento} onChange={e => setExtra({ andamento: e.target.value as FiltrosExtras['andamento'] })} aria-label="Filtrar por andamento">
-                <option value="">Todas</option><option value="naoEnviada">Ainda não enviadas</option><option value="naoCertificada">Ainda não certificadas</option><option value="semSiafi">Sem registro no SIAFI</option>
-              </select></label>
-            {temFiltroExtra(extras) && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setExtras(SEM_FILTROS)}>limpar estes filtros</button>}
           </div>
 
           {!isReadOnly && <BarraLoteFaturas selecionadas={[...selecionadas]} totalFiltradas={filteredInvoices.length} selecionouTodas={selecionadas.size === filteredInvoices.length}
