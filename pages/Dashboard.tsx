@@ -237,25 +237,28 @@ export const Dashboard: React.FC = () => {
           <p className="text-slate-500 text-sm">Posição em <b>{br(hoje)}</b>. Clique em qualquer cartão ou barra para ver as faturas.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />}Atualizar</Button>
           <Button size="sm" variant="secondary" onClick={gerarExcelCompleto}><Download size={14} className="mr-1" />Excel completo (com gráficos)</Button>
           <Button size="sm" variant="secondary" onClick={gerarPdfCompleto}><FileText size={14} className="mr-1" />PDF completo (com gráficos)</Button>
           <Button size="sm" variant="secondary" onClick={exportarSaldosPDF}><Wallet size={14} className="mr-1" />Extrato de saldos (PDF)</Button>
         </div>
       </div>
-      <div className="flex flex-wrap items-end gap-3 bg-white p-3 rounded-xl border border-slate-200">
-        <label className="text-xs font-semibold text-slate-600">Ano de referência
+      <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3" data-testid="filtros-painel">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Período</legend><label className="text-xs font-semibold text-slate-600">Ano de referência
           <select className="block mt-1 text-sm border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={ano} onChange={e => setAno(Number(e.target.value))} aria-label="Ano de referência">
             {anos.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
-        </label>
-        <SeletorPublico valor={publico} onChange={setPublico} />
-        <MultiFiltro rotulo="Setor" opcoes={opcoes('setor')} excluidos={exSetor} onChange={setExSetor} />
-        <MultiFiltro rotulo="Comando" opcoes={opcoes('comando')} excluidos={exComando} onChange={setExComando} largura="w-96" />
-        <MultiFiltro rotulo="Cliente (OM)" opcoes={opcoes('cliente')} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
-        <MultiFiltro rotulo="Serviço" opcoes={opcoes('tipo')} excluidos={exServico} onChange={setExServico} />
+        </label></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+            <div className="flex flex-wrap items-end gap-3"><MultiFiltro rotulo="Setor" opcoes={opcoes('setor')} excluidos={exSetor} onChange={setExSetor} />
+              <MultiFiltro rotulo="Comando" opcoes={opcoes('comando')} excluidos={exComando} onChange={setExComando} largura="w-96" />
+              <MultiFiltro rotulo="Cliente (OM)" opcoes={opcoes('cliente')} excluidos={exCliente} onChange={setExCliente} largura="w-96" /></div></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">O quê</legend><MultiFiltro rotulo="Serviço" opcoes={opcoes('tipo')} excluidos={exServico} onChange={setExServico} /></fieldset>
+        </div>
         {filtrosAtivos.length > 0 && (
-          <div className="flex flex-wrap gap-1 pb-1">
+          <div className="flex flex-wrap items-center gap-1 pt-3 border-t border-slate-100"><span className="text-xs text-slate-500 mr-1">Ligados:</span>
             {filtrosAtivos.map(([rot, v, limpar]) => (
               <button key={rot} onClick={limpar} className="text-xs bg-primary-50 text-primary-800 border border-primary-200 rounded-full px-2 py-1 flex items-center gap-1" title="Remover filtro">{rot}: {v} <X size={12} /></button>
             ))}
@@ -266,7 +269,7 @@ export const Dashboard: React.FC = () => {
       {filtrosAtivos.length > 0 && (
         <div className="p-3 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 text-sm flex flex-wrap items-center gap-3" role="status">
           <AlertTriangle size={18} className="shrink-0" />
-          <span className="flex-1"><b>Filtro ativo</b> — os valores abaixo <b>não são o total geral</b>: {filtrosAtivos.map(f => `${f[0]} ${f[1]}`).join(' · ')}.</span>
+          <span className="flex-1"><b>Filtro ativo</b> — os valores abaixo <b>não são o total geral</b> (filtros ligados na barra acima).</span>
           <button onClick={() => { setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setExServico(new Set()); setPublico('TODOS'); }} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Limpar filtros (ver total geral)</button>
         </div>
       )}

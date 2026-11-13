@@ -73,7 +73,6 @@ export const Cobranca: React.FC = () => {
   const [ultimaMsg, setUltimaMsg] = useState<'' | 'nunca' | '30' | '60' | '90'>('');
   // MB × Extra-MB (a Cobrança começa só na MB, como o quadro da planilha; o Painel do Encarregado, em Todos)
   const [publico, setPublico] = usePublico('cobranca', 'MB');
-  const [qContest, setQContest] = useState(false);
   const [cobrancas, setCobrancas] = useState<{ comando: string; enviadaEm: string }[]>([]);
   const [msg, setMsg] = useState<{ comando: string; indicativo: string | null; texto: string; faturas: FaturaAberta[]; posicao: string; prazo: string } | null>(null);
 
@@ -110,7 +109,7 @@ export const Cobranca: React.FC = () => {
   };
   const q = useMemo(() => quadroAberto(abertas, h), [abertas, h]);
   // quadro como na planilha: sem extra-MB e sem contestadas (abas próprias), salvo se marcado
-  const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => qContest || !f.contestada), h), [abertas, h, qContest]);
+  const qQuadro = useMemo(() => quadroAberto(abertas.filter(f => incluirContestadas || !f.contestada), h), [abertas, h, incluirContestadas]);
   const linha = (f: FaturaAberta) => (linhaPor === 'setor' ? f.setor : linhaPor === 'comando' ? f.comando : f.cliente);
   const blocos = [
     ...qQuadro.porExercicio.map(e => ({ titulo: `Faturas vencidas ${e.ano}`, fs: e.faturas })),
@@ -271,7 +270,10 @@ export const Cobranca: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Cobrança</h2>
           <p className="text-slate-500 text-sm">Faturas em aberto por exercício, setor, comando e tipo; mensagens de cobrança por comando. {atualizadoEm && <span className="text-slate-400">Atualizado em {atualizadoEm}.</span>}</p>
         </div>
-        <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
+        <div className="flex items-end gap-3">
+          <SeletorPublico valor={publico} onChange={setPublico} />
+          <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
+        </div>
       </div>
       <div className="flex space-x-1 border-b border-slate-200">
         {([['quadro', 'Faturas em aberto'], ['mensagens', 'Mensagens de cobrança']] as const).map(([k, l]) => (
@@ -281,25 +283,39 @@ export const Cobranca: React.FC = () => {
       {!base && carregando && <p className="text-sm text-slate-500">Carregando...</p>}
 
       {base && aba === 'quadro' && (
-        <div className="flex flex-wrap gap-3 items-end">
-          <SeletorPublico valor={publico} onChange={setPublico} />
-          <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
-          <div className="flex flex-wrap items-center gap-2 pb-1 text-xs">
+        <div className="space-y-3">
+          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-2" data-testid="filtros-cobranca">
+            <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+                <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(s => !noGrupo(s))))} title={setoresMaterial.join(', ')}>Só {nomeGrupo}</button>
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(noGrupo)))}>Exceto {nomeGrupo}</button>
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set())}>Todos</button>
             {podeEditar && <button className="text-primary-700 underline" onClick={() => setEditarGrupo({ nome: nomeGrupo, setores: new Set(setoresMaterial) })}>definir grupo…</button>}
+          </div></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
+                <label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label></fieldset>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-sm" aria-live="polite">
+              {(exSetores.size > 0 || incluirContestadas)
+                ? <><span className="text-slate-600">Filtros ligados:</span>
+                    {exSetores.size > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">Setores: {exSetores.size} tirado(s)</span>}
+                    {incluirContestadas && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">com as contestadas</span>}
+                    <button className="ml-auto text-primary-700 underline text-sm" onClick={() => { setExSetores(new Set()); setIncluirContestadas(false); }}>limpar filtros</button></>
+                : <span className="text-slate-500">Nenhum filtro ligado: todos os setores, sem as faturas em contestação.</span>}
+            </div>
           </div>
-          {aba === 'quadro' && <>
-            <label className="text-xs text-slate-600">Linhas por
+          <div className="flex flex-wrap items-end gap-3" data-testid="visualizacao-cobranca">
+            <label className="text-xs text-slate-600">Mostrar linhas por
               <select className={`${sel} block mt-1`} value={linhaPor} onChange={e => setLinhaPor(e.target.value as any)} aria-label="Linhas por">
                 <option value="setor">Setor</option><option value="comando">Comando</option><option value="cliente">OM cliente</option>
               </select>
             </label>
-            <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={qContest} onChange={e => setQContest(e.target.checked)} /> Incluir contestadas</label>
+            <div className="flex-1" />
             <Button variant="secondary" onClick={exportarExcel}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
             <Button variant="secondary" onClick={exportarPdf}><FileText size={16} className="mr-1" />PDF</Button>
-          </>}
+          </div>
         </div>
       )}
 
@@ -309,35 +325,40 @@ export const Cobranca: React.FC = () => {
         <div className="space-y-3">
           {semIndicativo > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semIndicativo} comando(s) com faturas vencidas não têm indicativo naval: a mensagem sairia sem o destinatário. Digite o indicativo na coluna e clique em gravar (fica no cadastro do comando).</p>}
           {!cobrancas.length && <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-2">Nenhuma cobrança registrada ainda. Depois de enviar a mensagem, clique em <b>Enviada — registrar</b> para a data aparecer em "Última cobrança".</p>}
-          <div className="flex flex-wrap gap-3 items-end bg-white rounded-lg border border-slate-200 p-3" aria-label="Filtros da cobrança">
-            <SeletorPublico valor={publico} onChange={setPublico} />
-            <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
-            <MultiFiltro rotulo="Comandos" opcoes={comandosVencidos} excluidos={exComandos} onChange={setExComandos} largura="w-96" />
-            <label className="text-xs text-slate-600">Atraso
+          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3" aria-label="Filtros da cobrança">
+            <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+                <div className="flex flex-wrap items-end gap-3"><MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+                  <MultiFiltro rotulo="Comandos" opcoes={comandosVencidos} excluidos={exComandos} onChange={setExComandos} largura="w-96" /></div></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Cobrança</legend>
+                <div className="flex flex-wrap items-end gap-3"><label className="text-xs text-slate-600">Atraso
               <select className={`${sel} block mt-1`} value={faixaMsg} onChange={e => setFaixaMsg(e.target.value)} aria-label="Faixa de atraso">
                 <option value="">Todas as faixas</option>
                 {FAIXAS.filter(x => x.rotulo !== 'A vencer').map(x => <option key={x.rotulo} value={x.rotulo}>{x.rotulo}</option>)}
               </select>
             </label>
-            <label className="text-xs text-slate-600">Última cobrança
+                  <label className="text-xs text-slate-600">Última cobrança
               <select className={`${sel} block mt-1`} value={ultimaMsg} onChange={e => setUltimaMsg(e.target.value as any)} aria-label="Última cobrança">
                 <option value="">Qualquer</option><option value="nunca">Nunca cobrados</option>
                 <option value="30">Há mais de 30 dias (ou nunca)</option><option value="60">Há mais de 60 dias (ou nunca)</option><option value="90">Há mais de 90 dias (ou nunca)</option>
               </select>
-            </label>
-            <label className="text-xs text-slate-600">Buscar
+            </label></div></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Procurar</legend><label className="text-xs text-slate-600">Buscar
               <input className={`${sel} block mt-1 w-56`} placeholder="OM, fatura, comando, tipo" value={buscaMsg} onChange={e => setBuscaMsg(e.target.value)} aria-label="Buscar nas faturas vencidas" />
-            </label>
-            <label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
-            {filtrosMsgLigados && <button className="text-xs text-primary-700 underline pb-2" onClick={limparFiltrosMsg}>limpar filtros</button>}
-            <div className="ml-auto flex items-end gap-3">
+            </label></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend><label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label></fieldset>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
               <span className="text-sm text-slate-600">{vencidasPorComando.length} comando(s) · {vencidasPorComando.reduce((s, v) => s + v.fs.length, 0)} fatura(s) · <b className="tabular-nums">{brl(vencidasPorComando.reduce((s, v) => s + v.total, 0))}</b></span>
-              <label className="text-xs text-slate-600">Um PDF por
+              {filtrosMsgLigados && <button className="text-sm text-primary-700 underline" onClick={limparFiltrosMsg}>limpar filtros</button>}
+              <div className="ml-auto flex items-end gap-3">
+                <label className="text-xs text-slate-600">Um PDF por
                 <select className={`${sel} block mt-1`} value={lotePor} onChange={e => setLotePor(e.target.value as any)} aria-label="Um PDF por">
                   <option value="cliente">OM cliente</option><option value="comando">Comando (do cadastro)</option><option value="setor">Setor (COMOPNAV, DGPM, DGMM…)</option>
                 </select>
               </label>
-              <Button variant="secondary" onClick={gerarLote} isLoading={gerandoLote} title="Gera um PDF (em árvore) para cada OM ou comando do filtro, todos num arquivo .zip, com um índice em Excel"><FileText size={16} className="mr-1" />PDFs em lote (.zip)</Button>
+                <Button variant="secondary" onClick={gerarLote} isLoading={gerandoLote} title="Gera um PDF (em árvore) para cada OM ou comando do filtro, todos num arquivo .zip, com um índice em Excel"><FileText size={16} className="mr-1" />PDFs em lote (.zip)</Button>
+              </div>
             </div>
           </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">

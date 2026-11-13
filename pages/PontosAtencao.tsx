@@ -119,7 +119,7 @@ const PontosLista: React.FC = () => {
         {(['alta', 'media', 'baixa'] as Gravidade[]).map(g => (
           <button key={g} onClick={() => { setFGrav(fGrav === g ? '' : g); setFSituacao('pendentes'); }}
             className={`p-3 rounded-lg border text-left ${fGrav === g ? 'ring-2 ring-primary-500' : ''} ${COR_GRAVIDADE[g].fundo}`}>
-            <div className="text-[11px] uppercase tracking-wide font-semibold">Gravidade {COR_GRAVIDADE[g].rotulo}</div>
+            <div className="text-[11px] uppercase tracking-wide font-semibold">Gravidade {COR_GRAVIDADE[g].rotulo}{fGrav === g ? ' · filtro ligado' : ''}</div>
             <div className="text-2xl font-bold tabular-nums">{contagem(g).toLocaleString('pt-BR')}</div>
           </button>
         ))}
@@ -139,7 +139,7 @@ const PontosLista: React.FC = () => {
       )}
       {porTipo.length > 0 && (
         <div className="bg-white rounded-lg border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-800 mb-2">Pendências por tipo</h3>
+          <h3 className="text-sm font-semibold text-slate-800 mb-2">Pendências por tipo <span className="font-normal text-slate-500">(clique para filtrar; clique de novo para tirar)</span></h3>
           <div className="flex flex-wrap gap-2">
             {porTipo.map(([t, n]) => {
               const d = TIPOS_PONTO[t];
@@ -155,7 +155,8 @@ const PontosLista: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white p-3 rounded-lg border border-slate-200 flex flex-wrap gap-2 items-end">
+      <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2" data-testid="filtros-pontos">
+      <div className="flex flex-wrap gap-2 items-end">
         <label className="flex-1 min-w-[200px] text-xs text-slate-600">Busca
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Número, cliente ou descrição..." className={`${sel} w-full mt-1`} />
         </label>
@@ -164,22 +165,30 @@ const PontosLista: React.FC = () => {
             <option value="pendentes">Pendentes</option><option value="resolvidos">Resolvidos / ciente</option><option value="todos">Todos</option>
           </select>
         </label>
-        <label className="text-xs text-slate-600">Gravidade
-          <select value={fGrav} onChange={e => setFGrav(e.target.value as any)} className={`${sel} block mt-1`}>
-            <option value="">Todas</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
-          </select>
-        </label>
-        <label className="text-xs text-slate-600">Tipo
-          <select value={fTipo} onChange={e => setFTipo(e.target.value)} className={`${sel} block mt-1 max-w-[220px]`}>
-            <option value="">Todos</option>
-            {Object.entries(TIPOS_PONTO).map(([k, d]) => <option key={k} value={k}>{d.titulo}</option>)}
-          </select>
-        </label>
         <label className="text-xs text-slate-600">Registro
           <select value={fAlvo} onChange={e => setFAlvo(e.target.value)} className={`${sel} block mt-1`}>
             <option value="">Faturas e documentos</option><option value="fatura">Faturas</option><option value="documento">ALTCRED / GRU</option>
           </select>
         </label>
+      </div>
+      {(() => {
+        const lig: { rotulo: string; limpar: () => void }[] = [];
+        if (busca.trim()) lig.push({ rotulo: `Procurando “${busca.trim()}”`, limpar: () => setBusca('') });
+        if (fSituacao !== 'pendentes') lig.push({ rotulo: `Situação: ${fSituacao === 'resolvidos' ? 'resolvidos / ciente' : 'todos'}`, limpar: () => setFSituacao('pendentes') });
+        if (fGrav) lig.push({ rotulo: `Gravidade ${COR_GRAVIDADE[fGrav as Gravidade].rotulo}`, limpar: () => setFGrav('') });
+        if (fTipo) lig.push({ rotulo: `Tipo: ${TIPOS_PONTO[fTipo]?.titulo || fTipo}`, limpar: () => setFTipo('') });
+        if (fAlvo) lig.push({ rotulo: fAlvo === 'fatura' ? 'Só faturas' : 'Só ALTCRED / GRU', limpar: () => setFAlvo('') });
+        return (
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-sm" aria-live="polite">
+            <span className="text-slate-600"><b>{filtradas.length.toLocaleString('pt-BR')}</b> ponto(s){lig.length ? ' com estes filtros:' : ' (pendentes, de todos os tipos e gravidades)'}</span>
+            {lig.map(f => (
+              <span key={f.rotulo} className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 pl-2 pr-1 py-0.5 text-xs">{f.rotulo}
+                <button type="button" className="rounded-full hover:bg-primary-100 px-1" aria-label={`Tirar filtro ${f.rotulo}`} onClick={f.limpar}>×</button></span>
+            ))}
+            {lig.length > 0 && <button type="button" className="ml-auto text-primary-700 underline text-sm" onClick={() => { setBusca(''); setFSituacao('pendentes'); setFGrav(''); setFTipo(''); setFAlvo(''); }}>Limpar filtros</button>}
+          </div>
+        );
+      })()}
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
