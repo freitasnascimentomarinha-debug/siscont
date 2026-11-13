@@ -183,3 +183,15 @@ describe('PDF no formato da árvore, só com o que está filtrado', () => {
     expect(l.find(x => x.nivel === 'cliente')!.celulas[8]).toBe('— (sobra R$ 5000.00)');
   });
 });
+
+describe('contestadas no mapa: fora, dentro ou só elas', () => {
+  const om = [{ omId: 'a', nome: 'OM A', setor: 'S', comando: 'C' }];
+  const f = (id: string, saldo: number, contestada: boolean) => ({ id, omId: 'a', client: 'OM A', sector: 'S', command: 'C', numero: id, tipo: 'TC', vencimento: '2026-01-10', saldo, contestada });
+  const fs = [f('F1', 100, false), f('F2', 40, true)];
+  const hoje = '2026-06-01';
+  it('fora (padrão): a contestada não conta; dentro: conta; só: só ela', () => {
+    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', semContestadas: true }).total.divida).toBe(100);
+    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome' }).total.divida).toBe(140);
+    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', soContestadas: true }).total.divida).toBe(40);
+  });
+});

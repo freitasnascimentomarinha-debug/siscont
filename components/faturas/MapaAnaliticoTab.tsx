@@ -33,7 +33,9 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
   const [filtroFat, setFiltroFat] = useState<string | undefined>(undefined); // 'vencidas' | 'aVencer' | faixa de atraso
-  const [semContestadas, setSemContestadas] = useState(true);
+  // faturas em contestação: 'fora' (padrão: não entram na dívida nem na árvore), 'dentro' (contam, marcadas) ou 'so' (só elas, para acompanhar)
+  const [contest, setContest] = useState<'fora' | 'dentro' | 'so'>('fora');
+  const semContestadas = contest === 'fora', soContestadas = contest === 'so';
   const [soComCredito, setSoComCredito] = useState(false);
   const [soSobra, setSoSobra] = useState(false);
   const [foco, setFoco] = useState<{ setor?: string; om?: string }>({});
@@ -53,10 +55,10 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
-  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, oms: [...escolhidas], ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, escolhidas, filtroFat, semContestadas, foco]);
+  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, soContestadas, oms: [...escolhidas], ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, escolhidas, filtroFat, semContestadas, soContestadas, foco]);
   const contestadas = useMemo(() => faturas.filter(f => f.contestada), [faturas]);
   // lista para escolher: todas as OM que têm algo no mapa (com os outros filtros, menos a escolha de OM)
-  const todasOM = useMemo(() => clientesDoMapa(montarMapa(faturas, creditos, oms, { hoje, ordem: 'nome', semContestadas })), [faturas, creditos, oms, hoje, semContestadas]);
+  const todasOM = useMemo(() => clientesDoMapa(montarMapa(faturas, creditos, oms, { hoje, ordem: 'nome', semContestadas, soContestadas })), [faturas, creditos, oms, hoje, semContestadas, soContestadas]);
   const qOM = buscaOM.trim().toLowerCase();
   const visiveisOM = todasOM.filter(c => !qOM || `${c.nome} ${c.comando} ${c.setor}`.toLowerCase().includes(qOM));
   const alternarOM = (nome: string) => setEscolhidas(prev => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; });
@@ -106,7 +108,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     if (foco.setor) f.push(`setor ${foco.setor}`);
     if (foco.om) f.push(`OM ${foco.om}`);
     if (busca.trim()) f.push(`busca "${busca.trim()}"`);
-    f.push(semContestadas ? 'sem as faturas contestadas' : 'com as faturas contestadas');
+    f.push(contest === 'fora' ? 'sem as faturas contestadas' : contest === 'dentro' ? 'com as faturas contestadas' : 'só as faturas contestadas');
     return f.join(' · ');
   };
   const exportarPdf = () => {
@@ -209,13 +211,23 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
             <button type="button" onClick={() => setPainelOM(v => !v)} aria-expanded={painelOM} className={`px-3 py-1.5 text-sm rounded-md border pb-1.5 ${escolhidas.size ? 'bg-primary-50 border-primary-400 text-primary-800 font-semibold' : 'bg-white border-slate-300 text-slate-700'}`}>
           Escolher OM{escolhidas.size ? ` (${escolhidas.size})` : ''}</button></fieldset>
-          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação (cartões acima)</legend>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              <span className="text-xs text-slate-500">Vencidas, a vencer, crédito, a pagar: <b>cartões</b> acima.</span>
-              <label className="text-sm flex items-center gap-1.5 " title="Faturas em contestação não entram na dívida nem aparecem na árvore"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={semContestadas} onChange={e => setSemContestadas(e.target.checked)} /> Tirar as contestadas{contestadas.length ? ` (${contestadas.length} · ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))})` : ''}</label>
+              
+              <div className="flex flex-col gap-1" role="radiogroup" aria-label="Faturas contestadas">
+                <div className="inline-flex rounded-md border border-slate-300 overflow-hidden text-sm">
+                  {([['fora', 'Não contar'], ['dentro', 'Contar na dívida'], ['so', 'Ver só as contestadas']] as const).map(([v, r]) => (
+                    <label key={v} className={`px-3 py-1.5 cursor-pointer border-l first:border-l-0 border-slate-300 ${contest === v ? 'bg-primary-600 text-white font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+                      <input type="radio" name="contestadas-mapa" className="sr-only" checked={contest === v} onChange={() => setContest(v)} />{r}</label>
+                  ))}
+                </div>
+                <span className="text-[11px] text-slate-500">{contestadas.length
+                  ? `${contestadas.length} fatura(s) contestada(s), ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))}: ` + (contest === 'fora' ? 'fora da dívida e da árvore.' : contest === 'dentro' ? 'contam na dívida e aparecem marcadas "contestada".' : 'só elas aparecem na árvore.')
+                  : 'Nenhuma fatura em contestação.'}</span>
+              </div>
             </div></fieldset>
         </div>
-        {!(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && <p className="text-xs text-slate-500">Nenhum filtro ligado: todas as OM com dívida ou crédito.</p>}
+        {!(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || contest !== 'fora') && <p className="text-xs text-slate-500">Nenhum filtro ligado: todas as OM com dívida ou crédito.</p>}
       </div>
 
       {painelOM && (
@@ -242,17 +254,18 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           </div>
         </section>
       )}
-      {(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && (
+      {(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || contest !== 'fora') && (
         <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Filtros do mapa">
           <span className="text-slate-500">Mostrando só:</span>
           {escolhidas.size > 0 && <button type="button" onClick={() => setEscolhidas(new Set())} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Mostrar todas as OM de novo">{escolhidas.size} OM escolhida(s) <X size={11} /></button>}
           {filtroFat && <button type="button" onClick={() => setFiltroFat(undefined)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">{ROTULO_FAT[filtroFat] || `Faturas com ${filtroFat} de atraso`}{semContestadas ? ' (sem contestadas)' : ''} <X size={12} /></button>}
           {soComValor && <button type="button" onClick={() => setSoComValor(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com valor a pagar <X size={12} /></button>}
           {soComCredito && <button type="button" onClick={() => setSoComCredito(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito <X size={12} /></button>}
+          {contest !== 'fora' && <button type="button" onClick={() => setContest('fora')} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Voltar ao padrão: contestadas fora da dívida">{contest === 'dentro' ? 'Contestadas contadas na dívida' : 'Só as contestadas'} ×</button>}
           {soSobra && <button type="button" onClick={() => setSoSobra(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito que sobra <X size={12} /></button>}
           {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">Setor {foco.setor} <X size={12} /></button>}
           {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM {foco.om} <X size={12} /></button>}
-          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); }}>Limpar filtros</button>
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); setContest('fora'); }}>Limpar filtros</button>
         </div>
       )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}

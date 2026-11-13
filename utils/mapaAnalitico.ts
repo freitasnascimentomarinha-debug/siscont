@@ -39,6 +39,8 @@ export interface OpcoesMapa {
   faturas?: 'vencidas' | 'aVencer' | string;
   /** tira as faturas em contestação (não entram na dívida nem aparecem na árvore) */
   semContestadas?: boolean;
+  /** só as faturas em contestação (para acompanhá-las); vale em lugar de semContestadas */
+  soContestadas?: boolean;
   /** só OM que têm crédito / que têm crédito sobrando */
   soComCredito?: boolean; soSobra?: boolean;
 }
@@ -63,6 +65,7 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
 
   const passaFatura = (f: FaturaMapa) => {
     if (o.semContestadas && f.contestada) return false;
+    if (o.soContestadas && !f.contestada) return false;
     if (!o.faturas) return true;
     if (o.faturas === 'vencidas') return f.vencimento < o.hoje;
     if (o.faturas === 'aVencer') return f.vencimento >= o.hoje;
