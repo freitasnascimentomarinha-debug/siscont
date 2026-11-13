@@ -64,9 +64,7 @@ export const translateAuthError = (err: any): Error => {
 };
 
 const normalizeRole = (role: unknown): UserRole =>
-  role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.READ_ONLY || role === UserRole.ENCARREGADO || role === UserRole.TREINAMENTO
-    ? (role as UserRole)
-    : UserRole.READ_ONLY;
+  (Object.values(UserRole) as string[]).includes(role as string) ? (role as UserRole) : UserRole.READ_ONLY;
 
 const fallbackName = (authUser: AuthUser) =>
   (authUser.user_metadata as any)?.name || authUser.email?.split('@')[0] || 'Usuário';

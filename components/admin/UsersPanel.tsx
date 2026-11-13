@@ -6,7 +6,7 @@ import {
 import { adminApi, AdminApiError } from '../../services/adminApi';
 import { db } from '../../services/db';
 import { useAuth, MIN_PASSWORD_LENGTH } from '../../context/AuthContext';
-import { ManagedUser, ROLE_LABELS, UserRole } from '../../types';
+import { FUNCOES_SETOR, FuncaoSetor, ManagedUser, ROLE_LABELS, SETORES_DIVISAO, SetorDivisao, UserRole } from '../../types';
 import { Button } from '../ui/Button';
 import { Input, Select } from '../ui/Input';
 import { Modal } from '../ui/Modal';
@@ -15,7 +15,8 @@ const ROLE_OPTIONS = [
   { label: 'Administrador — vê todas as páginas, inclusive esta tela', value: UserRole.ADMIN },
   { label: 'Operador — todas as páginas, exceto Administração; inclui, edita e exclui lançamentos', value: UserRole.USER },
   { label: 'Consulta — só o Painel inicial (visualiza e exporta)', value: UserRole.READ_ONLY },
-  { label: 'Encarregado — Painel inicial e Painel do Encarregado (visualiza e exporta)', value: UserRole.ENCARREGADO },
+  { label: 'Consulta Gerencial — Painel inicial e Painel do Encarregado (só visualiza)', value: UserRole.CONSULTA_GERENCIAL },
+  { label: 'Encarregado da Divisão — todas as páginas, exceto Administração; só visualiza e exporta (não lança)', value: UserRole.ENCARREGADO },
   { label: 'Treinamento — vê todas as páginas (menos Administração) e pode lançar, mas só em dados de TESTE: nada chega ao banco', value: UserRole.TREINAMENTO },
 ];
 
@@ -24,8 +25,12 @@ const ROLE_BADGE: Record<UserRole, string> = {
   [UserRole.USER]: 'bg-emerald-100 text-emerald-700',
   [UserRole.READ_ONLY]: 'bg-slate-100 text-slate-600',
   [UserRole.ENCARREGADO]: 'bg-amber-100 text-amber-800',
+  [UserRole.CONSULTA_GERENCIAL]: 'bg-sky-100 text-sky-800',
   [UserRole.TREINAMENTO]: 'bg-fuchsia-100 text-fuchsia-800',
 };
+
+const SETOR_OPTIONS = [{ label: '— não informado —', value: '' }, ...Object.entries(SETORES_DIVISAO).map(([value, label]) => ({ label, value }))];
+const FUNCAO_OPTIONS = [{ label: '— não informada —', value: '' }, ...Object.entries(FUNCOES_SETOR).map(([value, label]) => ({ label, value }))];
 
 const fmtDateTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -107,7 +112,7 @@ export const UsersPanel: React.FC = () => {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'' | UserRole | 'BLOCKED'>('');
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: UserRole.USER as UserRole, password: '', confirm: '' });
+  const [form, setForm] = useState({ name: '', email: '', role: UserRole.USER as UserRole, setor: '', funcao: '', password: '', confirm: '' });
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
@@ -176,14 +181,15 @@ export const UsersPanel: React.FC = () => {
     user: users.filter(u => u.role === UserRole.USER).length,
     readOnly: users.filter(u => u.role === UserRole.READ_ONLY).length,
     encarregado: users.filter(u => u.role === UserRole.ENCARREGADO).length,
+    gerencial: users.filter(u => u.role === UserRole.CONSULTA_GERENCIAL).length,
     treinamento: users.filter(u => u.role === UserRole.TREINAMENTO).length,
     blocked: users.filter(u => !u.active).length,
   }), [users]);
 
   const open = (d: Dialog) => {
     setFormError(null);
-    if (d?.kind === 'create') setForm({ name: '', email: '', role: UserRole.USER, password: generatePassword(), confirm: '' });
-    if (d?.kind === 'edit') setForm({ name: d.user.name, email: d.user.email, role: d.user.role, password: '', confirm: '' });
+    if (d?.kind === 'create') setForm({ name: '', email: '', role: UserRole.USER, setor: '', funcao: '', password: generatePassword(), confirm: '' });
+    if (d?.kind === 'edit') setForm({ name: d.user.name, email: d.user.email, role: d.user.role, setor: d.user.setor || '', funcao: d.user.funcao || '', password: '', confirm: '' });
     if (d?.kind === 'password') setForm(f => ({ ...f, password: '', confirm: '' }));
     setDialog(d);
   };
@@ -213,7 +219,10 @@ export const UsersPanel: React.FC = () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return setFormError('Informe um e-mail válido.');
     if (form.password.length < MIN_PASSWORD_LENGTH) return setFormError(`A senha deve ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`);
     run(
-      () => adminApi.createUser({ name: form.name.trim(), email: form.email.trim(), password: form.password, role: form.role }),
+      () => adminApi.createUser({
+        name: form.name.trim(), email: form.email.trim(), password: form.password, role: form.role,
+        ...(form.setor ? { setor: form.setor as SetorDivisao } : {}), ...(form.funcao ? { funcao: form.funcao as FuncaoSetor } : {}),
+      }),
       `Usuário ${form.name.trim()} criado. Ele já pode entrar com o e-mail e a senha definidos.`
     );
   };
@@ -231,6 +240,9 @@ export const UsersPanel: React.FC = () => {
           name: form.name.trim(),
           role: form.role,
           ...(form.email.trim().toLowerCase() !== (u.email || '').toLowerCase() ? { email: form.email.trim() } : {}),
+          // setor/função só vão se mudaram (assim a edição continua funcionando mesmo antes do script 035)
+          ...(form.setor !== (u.setor || '') ? { setor: (form.setor || null) as SetorDivisao | null } : {}),
+          ...(form.funcao !== (u.funcao || '') ? { funcao: (form.funcao || null) as FuncaoSetor | null } : {}),
         });
       } else {
         await db.updateProfile({ id: u.id, name: form.name.trim(), role: form.role });
@@ -324,7 +336,8 @@ export const UsersPanel: React.FC = () => {
             { key: UserRole.ADMIN, label: `Administradores (${counts.admin})` },
             { key: UserRole.USER, label: `Operadores (${counts.user})` },
             { key: UserRole.READ_ONLY, label: `Consulta (${counts.readOnly})` },
-            { key: UserRole.ENCARREGADO, label: `Encarregado (${counts.encarregado})` },
+            { key: UserRole.CONSULTA_GERENCIAL, label: `Consulta Gerencial (${counts.gerencial})` },
+            { key: UserRole.ENCARREGADO, label: `Encarregado da Divisão (${counts.encarregado})` },
             { key: UserRole.TREINAMENTO, label: `Treinamento (${counts.treinamento})` },
             { key: 'BLOCKED' as const, label: `Bloqueados/Pendentes (${counts.blocked})` },
           ].map(f => (
@@ -391,6 +404,9 @@ export const UsersPanel: React.FC = () => {
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${ROLE_BADGE[u.role]}`}>{ROLE_LABELS[u.role]}</span>
+                    {(u.setor || u.funcao) && (
+                      <div className="text-[11px] text-slate-500 mt-1">{[u.setor && SETORES_DIVISAO[u.setor], u.funcao && FUNCOES_SETOR[u.funcao]].filter(Boolean).join(' · ')}</div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {u.active ? (
@@ -432,6 +448,9 @@ export const UsersPanel: React.FC = () => {
           <Input label="Nome (posto/graduação e nome de guerra)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: 1ºSG-AD Silva" disabled={isSubmitting} />
           <Input label="E-mail" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="nome@marinha.mil.br" disabled={isSubmitting} />
           <Select label="Perfil de Acesso" options={ROLE_OPTIONS} value={form.role} onChange={e => setForm({ ...form, role: e.target.value as UserRole })} disabled={isSubmitting} />
+          <Select label="Setor (informativo)" options={SETOR_OPTIONS} value={form.setor} onChange={e => setForm({ ...form, setor: e.target.value })} disabled={isSubmitting} />
+          <Select label="Função no setor (informativa)" options={FUNCAO_OPTIONS} value={form.funcao} onChange={e => setForm({ ...form, funcao: e.target.value })} disabled={isSubmitting} />
+          <p className="text-[11px] text-slate-500 -mt-2">Setor e função só identificam a pessoa: por enquanto não limitam o que ela acessa.</p>
           <PasswordField label="Senha inicial" value={form.password} onChange={v => setForm({ ...form, password: v })} disabled={isSubmitting} allowGenerate />
           <p className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-100">O login é criado já confirmado e ativo. Oriente o usuário a trocar a senha em <b>Minha Conta</b> no primeiro acesso.</p>
           <div className="flex justify-end gap-2 pt-2">
@@ -461,6 +480,9 @@ export const UsersPanel: React.FC = () => {
               onChange={e => setForm({ ...form, role: e.target.value as UserRole })}
               disabled={isSubmitting}
             />
+            <Select label="Setor (informativo)" options={SETOR_OPTIONS} value={form.setor} onChange={e => setForm({ ...form, setor: e.target.value })} disabled={isSubmitting} />
+            <Select label="Função no setor (informativa)" options={FUNCAO_OPTIONS} value={form.funcao} onChange={e => setForm({ ...form, funcao: e.target.value })} disabled={isSubmitting} />
+            <p className="text-[11px] text-slate-500 -mt-2">Setor e função só identificam a pessoa: por enquanto não limitam o que ela acessa.</p>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={close} disabled={isSubmitting}>Cancelar</Button>
               <Button onClick={() => submitEdit(dialog.user)} isLoading={isSubmitting}>Salvar</Button>

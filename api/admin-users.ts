@@ -18,8 +18,11 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-export type Role = 'ADMIN' | 'USER' | 'READ_ONLY' | 'ENCARREGADO' | 'TREINAMENTO';
-const ROLES: Role[] = ['ADMIN', 'USER', 'READ_ONLY', 'ENCARREGADO', 'TREINAMENTO'];
+export type Role = 'ADMIN' | 'USER' | 'READ_ONLY' | 'ENCARREGADO' | 'CONSULTA_GERENCIAL' | 'TREINAMENTO';
+const ROLES: Role[] = ['ADMIN', 'USER', 'READ_ONLY', 'ENCARREGADO', 'CONSULTA_GERENCIAL', 'TREINAMENTO'];
+// Setor e função (informativos, script 035). Autocontido de propósito: sem imports relativos.
+const SETORES = ['FATURAMENTO', 'ACOMPANHAMENTO_CONTABIL', 'CUSTOS'];
+const FUNCOES = ['ENCARREGADO_SETOR', 'AUXILIAR'];
 const MIN_PASSWORD = 8;
 const BAN_FOREVER = '876000h'; // ~100 anos
 
@@ -32,6 +35,8 @@ export interface ManagedUser {
   createdAt: string | null;
   lastSignInAt: string | null;
   emailConfirmed: boolean;
+  setor: string | null;
+  funcao: string | null;
 }
 
 export interface ApiResult {
@@ -53,6 +58,14 @@ const isEmail = (v: unknown): v is string =>
 const normRole = (v: unknown): Role => {
   if (typeof v === 'string' && (ROLES as string[]).includes(v)) return v as Role;
   throw new HttpError(400, 'Perfil de acesso inválido.');
+};
+
+/** Campo opcional de lista fixa: ausente = não muda; vazio/nulo = limpa; valor da lista = grava; outro = erro. */
+const optChoice = (v: unknown, allowed: string[], label: string): string | null | undefined => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  if (typeof v === 'string' && allowed.includes(v)) return v;
+  throw new HttpError(400, `${label} inválido.`);
 };
 
 const requireId = (v: unknown): string => {
@@ -111,6 +124,8 @@ async function listUsers(admin: SupabaseClient): Promise<ManagedUser[]> {
         createdAt: u.created_at || p.created_at || null,
         lastSignInAt: u.last_sign_in_at || null,
         emailConfirmed: !!(u.email_confirmed_at || u.confirmed_at),
+        setor: SETORES.includes(p.setor) ? p.setor : null,
+        funcao: FUNCOES.includes(p.funcao) ? p.funcao : null,
       } as ManagedUser;
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -168,6 +183,8 @@ export async function handleAdminUsers(
         const email = body.email.trim().toLowerCase();
         const password = requirePassword(body.password);
         const role = normRole(body.role || 'USER');
+        const setor = optChoice(body.setor, SETORES, 'Setor');
+        const funcao = optChoice(body.funcao, FUNCOES, 'Função');
 
         const { data, error } = await admin.auth.admin.createUser({
           email,
@@ -180,7 +197,8 @@ export async function handleAdminUsers(
 
         const { error: pErr } = await admin
           .from('profiles')
-          .upsert({ id: data.user.id, name, email, role, active: true });
+          // setor/funcao só vão se informados (o banco pode ainda não ter o script 035)
+          .upsert({ id: data.user.id, name, email, role, active: true, ...(setor != null ? { setor } : {}), ...(funcao != null ? { funcao } : {}) });
         if (pErr) {
           // Desfaz para não deixar login sem perfil
           await admin.auth.admin.deleteUser(data.user.id);
@@ -206,6 +224,10 @@ export async function handleAdminUsers(
           }
           patch.role = role;
         }
+        const setor = optChoice(body.setor, SETORES, 'Setor');
+        if (setor !== undefined) patch.setor = setor;
+        const funcao = optChoice(body.funcao, FUNCOES, 'Função');
+        if (funcao !== undefined) patch.funcao = funcao;
         if (body.email !== undefined) {
           if (!isEmail(body.email)) throw new HttpError(400, 'E-mail inválido.');
           const email = body.email.trim().toLowerCase();

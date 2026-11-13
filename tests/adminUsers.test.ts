@@ -92,6 +92,26 @@ describe('criar', () => {
     const lista = await call('tok-admin', { action: 'list' });
     expect(lista.body.users.find((x: any) => x.id === OPER).role).toBe('TREINAMENTO');   // a lista não rebaixa para Consulta
   });
+  it('cria Consulta Gerencial e guarda setor e função informativos', async () => {
+    const r = await call('tok-admin', { action: 'create', name: 'Chefe', email: 'chefe@mb.br', password: 'senhaforte1', role: 'CONSULTA_GERENCIAL', setor: 'FATURAMENTO', funcao: 'AUXILIAR' });
+    expect(r.status).toBe(200);
+    expect(fake.profiles.get(r.body.id)).toMatchObject({ role: 'CONSULTA_GERENCIAL', active: true, setor: 'FATURAMENTO', funcao: 'AUXILIAR' });
+    const lista = await call('tok-admin', { action: 'list' });
+    expect(lista.body.users.find((x: any) => x.id === r.body.id)).toMatchObject({ role: 'CONSULTA_GERENCIAL', setor: 'FATURAMENTO', funcao: 'AUXILIAR' });
+  });
+  it('sem setor/função informados, o perfil nasce sem esses campos (banco ainda sem o script 035 não quebra)', async () => {
+    const r = await call('tok-admin', { action: 'create', name: 'Sem Setor', email: 'ss@mb.br', password: 'senhaforte1', role: 'USER' });
+    expect(r.status).toBe(200);
+    expect('setor' in fake.profiles.get(r.body.id)).toBe(false);
+    expect('funcao' in fake.profiles.get(r.body.id)).toBe(false);
+    const lista = await call('tok-admin', { action: 'list' });
+    expect(lista.body.users.find((x: any) => x.id === r.body.id)).toMatchObject({ setor: null, funcao: null });
+  });
+  it('recusa setor e função fora da lista', async () => {
+    expect((await call('tok-admin', { action: 'create', name: 'X', email: 'x@mb.br', password: '12345678', role: 'USER', setor: 'COZINHA' })).status).toBe(400);
+    expect((await call('tok-admin', { action: 'create', name: 'X', email: 'x@mb.br', password: '12345678', role: 'USER', funcao: 'REI' })).status).toBe(400);
+    expect((await call('tok-admin', { action: 'update', id: OPER, setor: 'COZINHA' })).status).toBe(400);
+  });
   it('valida senha curta, e-mail e perfil', async () => {
     expect((await call('tok-admin', { action: 'create', name: 'X', email: 'x@mb.br', password: '123', role: 'USER' })).status).toBe(400);
     expect((await call('tok-admin', { action: 'create', name: 'X', email: 'invalido', password: '12345678', role: 'USER' })).status).toBe(400);
@@ -106,6 +126,21 @@ describe('criar', () => {
 });
 
 describe('editar', () => {
+  it('define, troca e limpa setor e função sem mexer no resto', async () => {
+    expect((await call('tok-admin', { action: 'update', id: OPER, setor: 'CUSTOS', funcao: 'ENCARREGADO_SETOR' })).status).toBe(200);
+    expect(fake.profiles.get(OPER)).toMatchObject({ role: 'USER', active: true, setor: 'CUSTOS', funcao: 'ENCARREGADO_SETOR' });
+    expect((await call('tok-admin', { action: 'update', id: OPER, name: 'Só o nome' })).status).toBe(200);   // não informar = não muda
+    expect(fake.profiles.get(OPER)).toMatchObject({ name: 'Só o nome', setor: 'CUSTOS', funcao: 'ENCARREGADO_SETOR' });
+    expect((await call('tok-admin', { action: 'update', id: OPER, setor: null, funcao: '' })).status).toBe(200);
+    expect(fake.profiles.get(OPER)).toMatchObject({ setor: null, funcao: null });
+  });
+  it('muda para Encarregado da Divisão e Consulta Gerencial', async () => {
+    expect((await call('tok-admin', { action: 'update', id: OPER, role: 'ENCARREGADO' })).status).toBe(200);
+    expect(fake.profiles.get(OPER).role).toBe('ENCARREGADO');
+    expect((await call('tok-admin', { action: 'update', id: OPER, role: 'CONSULTA_GERENCIAL' })).status).toBe(200);
+    const lista = await call('tok-admin', { action: 'list' });
+    expect(lista.body.users.find((x: any) => x.id === OPER).role).toBe('CONSULTA_GERENCIAL');   // a lista não rebaixa para Consulta
+  });
   it('altera nome e perfil sem perder demais campos', async () => {
     const r = await call('tok-admin', { action: 'update', id: OPER, name: 'Operador 2', role: 'READ_ONLY' });
     expect(r.status).toBe(200);

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { ManagedUser, UserRole } from '../types';
+import { FuncaoSetor, ManagedUser, SetorDivisao, UserRole } from '../types';
 
 /** Erro da API de administração; `notConfigured` indica que falta a chave service_role no servidor. */
 export class AdminApiError extends Error {
@@ -55,8 +55,8 @@ async function call<T = any>(action: string, payload: Record<string, any> = {}):
 
 export const adminApi = {
   listUsers: async (): Promise<ManagedUser[]> => (await call<{ users: ManagedUser[] }>('list')).users,
-  createUser: (u: { name: string; email: string; password: string; role: UserRole }) => call('create', u),
-  updateUser: (u: { id: string; name?: string; email?: string; role?: UserRole }) => call('update', u),
+  createUser: (u: { name: string; email: string; password: string; role: UserRole; setor?: SetorDivisao | null; funcao?: FuncaoSetor | null }) => call('create', u),
+  updateUser: (u: { id: string; name?: string; email?: string; role?: UserRole; setor?: SetorDivisao | null; funcao?: FuncaoSetor | null }) => call('update', u),
   setPassword: (id: string, password: string) => call('set_password', { id, password }),
   setActive: (id: string, active: boolean) => call('set_active', { id, active }),
   deleteUser: (id: string) => call('delete', { id }),

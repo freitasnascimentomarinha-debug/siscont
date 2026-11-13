@@ -5,7 +5,8 @@ export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER',
   READ_ONLY = 'READ_ONLY', // Added: Perfil de Consulta
-  ENCARREGADO = 'ENCARREGADO', // vê o Painel inicial e o Painel do Encarregado
+  ENCARREGADO = 'ENCARREGADO', // "Encarregado da Divisão": vê todas as páginas (menos Administração), só visualiza e exporta; é quem assina
+  CONSULTA_GERENCIAL = 'CONSULTA_GERENCIAL', // chefias: só o Painel inicial e o Painel do Encarregado, somente leitura
   TREINAMENTO = 'TREINAMENTO', // vê tudo e pode lançar, mas só em dados de teste (nada chega ao banco)
 }
 
@@ -47,24 +48,40 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'Administrador',
   [UserRole.USER]: 'Operador',
   [UserRole.READ_ONLY]: 'Consulta',
-  [UserRole.ENCARREGADO]: 'Encarregado',
+  [UserRole.ENCARREGADO]: 'Encarregado da Divisão',
+  [UserRole.CONSULTA_GERENCIAL]: 'Consulta Gerencial',
   [UserRole.TREINAMENTO]: 'Treinamento',
 };
+
+/** Setores da Divisão de Contabilidade e funções no setor. Informativos: por enquanto não restringem o acesso. */
+export const SETORES_DIVISAO = {
+  FATURAMENTO: 'Faturamento',
+  ACOMPANHAMENTO_CONTABIL: 'Acompanhamento Contábil',
+  CUSTOS: 'Contabilidade de Custos',
+} as const;
+export type SetorDivisao = keyof typeof SETORES_DIVISAO;
+export const FUNCOES_SETOR = {
+  ENCARREGADO_SETOR: 'Encarregado de setor',
+  AUXILIAR: 'Auxiliar',
+} as const;
+export type FuncaoSetor = keyof typeof FUNCOES_SETOR;
 
 /**
  * Páginas que cada perfil vê:
  *  - Administrador: todas;  - Operador: todas, exceto Administração;
- *  - Consulta: só o Painel inicial;  - Encarregado: Painel inicial, Painel do Encarregado e Gastos da BNIC (só consulta).
+ *  - Consulta: só o Painel inicial;  - Consulta Gerencial: Painel inicial e Painel do Encarregado (só consulta);
+ *  - Encarregado da Divisão: todas, exceto Administração (só consulta: não lança).
  * (null = todas as páginas, menos as listadas em `exceto`)
  */
 export const PAGINAS_DO_PERFIL: Record<UserRole, { somente?: string[]; exceto?: string[] }> = {
   [UserRole.ADMIN]: {},
   [UserRole.USER]: { exceto: ['admin'] },
   [UserRole.READ_ONLY]: { somente: ['dashboard'] },
-  [UserRole.ENCARREGADO]: { somente: ['dashboard', 'painel', 'gastos'] },
+  [UserRole.ENCARREGADO]: { exceto: ['admin'] },   // lê tudo para supervisionar; não grava (podeEditarDados = false e o banco recusa)
+  [UserRole.CONSULTA_GERENCIAL]: { somente: ['dashboard', 'painel'] },
   [UserRole.TREINAMENTO]: { exceto: ['admin'] },   // vê todas as páginas (menos a Administração de usuários); o que lança é só de teste
 };
-/** Só administrador e operador incluem, alteram e excluem (Consulta e Encarregado só visualizam e exportam). */
+/** Só administrador e operador incluem, alteram e excluem (Consulta, Consulta Gerencial e Encarregado da Divisão só visualizam e exportam). */
 export const podeEditarDados = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.USER || role === UserRole.TREINAMENTO;
 /** Na tela, o Treinamento enxerga o que o administrador enxerga (botões e abas); o que ele grava vai só para a cópia de teste. */
 export const veComoAdmin = (role: UserRole | undefined | null) => role === UserRole.ADMIN || role === UserRole.TREINAMENTO;
@@ -88,6 +105,8 @@ export interface ManagedUser extends User {
   createdAt: string | null;
   lastSignInAt: string | null;
   emailConfirmed: boolean;
+  setor?: SetorDivisao | null;   // informativo (script 035)
+  funcao?: FuncaoSetor | null;   // informativo (script 035)
 }
 
 // New Interface for Client Management (UG Automation)
