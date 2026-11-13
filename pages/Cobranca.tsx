@@ -68,6 +68,7 @@ export const Cobranca: React.FC = () => {
   const [incluirContestadas, setIncluirContestadas] = useState(false);
   // filtros das mensagens de cobrança (a tabela, a mensagem e o PDF seguem o filtro)
   const [exComandos, setExComandos] = useExcluidosLembrados('siscont.cobranca.comandos');
+  const [exClientes, setExClientes] = useExcluidosLembrados('siscont.cobranca.clientes');
   const [faixaMsg, setFaixaMsg] = useState('');
   const [buscaMsg, setBuscaMsg] = useState('');
   const [ultimaMsg, setUltimaMsg] = useState<'' | 'nunca' | '30' | '60' | '90'>('');
@@ -96,8 +97,11 @@ export const Cobranca: React.FC = () => {
   const faturaExtra = (f: FaturaAberta) => cls.faturaExtra({ omId: f.omId, client: f.cliente, sector: f.setor, command: f.comando });
   const abertas = useMemo(() => {
     if (!base) return [];
-    return abertasTodas.filter(f => !exSetores.has(f.setor) && passaPublico(publico, faturaExtra(f)));
-  }, [base, exSetores, abertasTodas, publico, cls]);
+    return abertasTodas.filter(f => !exSetores.has(f.setor) && !exComandos.has(f.comando) && !exClientes.has(f.cliente) && passaPublico(publico, faturaExtra(f)));
+  }, [base, exSetores, exComandos, exClientes, abertasTodas, publico, cls]);
+  // listas dos filtros: de todas as faturas em aberto (para o que foi tirado poder voltar)
+  const opComandos = useMemo(() => [...new Set(abertasTodas.map(f => f.comando).filter(Boolean))].sort(), [abertasTodas]);
+  const opClientes = useMemo(() => [...new Set(abertasTodas.map(f => f.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [abertasTodas]);
   const noGrupo = (s: string) => setoresMaterial.includes(s.toUpperCase());
   const gravarGrupo = async () => {
     if (!editarGrupo) return;
@@ -142,7 +146,6 @@ export const Cobranca: React.FC = () => {
   };
 
   // ------------- mensagens de cobrança
-  const comandosVencidos = useMemo(() => [...new Set(q.vencidas.map(f => f.comando).filter(Boolean))].sort(), [q]);
   const vencidasFiltradas = useMemo(() => {
     const b = semAcento(buscaMsg.trim());
     return q.vencidas.filter(f => (incluirContestadas || !f.contestada) && !exComandos.has(f.comando)
@@ -162,8 +165,8 @@ export const Cobranca: React.FC = () => {
       })
       .sort((a, b) => b.total - a.total);
   }, [vencidasFiltradas, cobrancas, ultimaMsg, h]);
-  const filtrosMsgLigados = !!(exSetores.size || exComandos.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas);
-  const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); };
+  const filtrosMsgLigados = !!(exSetores.size || exComandos.size || exClientes.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas);
+  const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setExClientes(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); };
 
   /** Comando do cadastro pelo texto "40030 - Nome" (código) ou pelo nome. */
   const comandoDe = (texto: string) => {
@@ -287,7 +290,11 @@ export const Cobranca: React.FC = () => {
           <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-2" data-testid="filtros-cobranca">
             <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
               <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
-                <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+                <div className="flex flex-wrap items-end gap-3">
+                  <MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
+                  <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComandos} onChange={setExComandos} largura="w-96" />
+                  <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exClientes} onChange={setExClientes} largura="w-96" />
+                </div>
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(s => !noGrupo(s))))} title={setoresMaterial.join(', ')}>Só {nomeGrupo}</button>
             <button className="px-2 py-1 rounded-full border border-slate-300 hover:bg-slate-50" onClick={() => setExSetores(new Set(todosSetores.filter(noGrupo)))}>Exceto {nomeGrupo}</button>
@@ -298,12 +305,14 @@ export const Cobranca: React.FC = () => {
                 <label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label></fieldset>
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-sm" aria-live="polite">
-              {(exSetores.size > 0 || incluirContestadas)
+              {(exSetores.size > 0 || exComandos.size > 0 || exClientes.size > 0 || incluirContestadas)
                 ? <><span className="text-slate-600">Filtros ligados:</span>
                     {exSetores.size > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">Setores: {exSetores.size} tirado(s)</span>}
+                    {exComandos.size > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">Comando: {exComandos.size} tirado(s)</span>}
+                    {exClientes.size > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">Cliente: {exClientes.size} tirado(s)</span>}
                     {incluirContestadas && <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">com as contestadas</span>}
-                    <button className="ml-auto text-primary-700 underline text-sm" onClick={() => { setExSetores(new Set()); setIncluirContestadas(false); }}>limpar filtros</button></>
-                : <span className="text-slate-500">Nenhum filtro ligado: todos os setores, sem as faturas em contestação.</span>}
+                    <button className="ml-auto text-primary-700 underline text-sm" onClick={() => { setExSetores(new Set()); setExComandos(new Set()); setExClientes(new Set()); setIncluirContestadas(false); }}>limpar filtros</button></>
+                : <span className="text-slate-500">Nenhum filtro ligado: todos os setores, comandos e clientes, sem as faturas em contestação.</span>}
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3" data-testid="visualizacao-cobranca">
@@ -329,7 +338,8 @@ export const Cobranca: React.FC = () => {
             <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
               <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
                 <div className="flex flex-wrap items-end gap-3"><MultiFiltro rotulo="Setores" opcoes={todosSetores} excluidos={exSetores} onChange={setExSetores} />
-                  <MultiFiltro rotulo="Comandos" opcoes={comandosVencidos} excluidos={exComandos} onChange={setExComandos} largura="w-96" /></div></fieldset>
+                  <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComandos} onChange={setExComandos} largura="w-96" />
+                  <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exClientes} onChange={setExClientes} largura="w-96" /></div></fieldset>
               <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Cobrança</legend>
                 <div className="flex flex-wrap items-end gap-3"><label className="text-xs text-slate-600">Atraso
               <select className={`${sel} block mt-1`} value={faixaMsg} onChange={e => setFaixaMsg(e.target.value)} aria-label="Faixa de atraso">

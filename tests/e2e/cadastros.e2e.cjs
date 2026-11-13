@@ -1073,6 +1073,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Cobrança' }).waitFor();
     await page.getByText('Faturas vencidas 2025').waitFor();
     const bloco2025 = page.locator('section').filter({ hasText: 'Faturas vencidas 2025' });
+    // filtros da aba Faturas em aberto: Comando e Cliente (OM), além de Setores
+    ok(await page.getByRole('button', { name: /^Comando:/ }).isVisible() && await page.getByRole('button', { name: /^Cliente \(OM\):/ }).isVisible(), 'quadro tem os filtros Comando e Cliente (OM)');
+    await page.getByRole('button', { name: /^Cliente \(OM\):/ }).click();
+    await page.getByTitle(/^Mostrar só /).first().click({ force: true });
+    await page.keyboard.press('Escape');
+    ok(/Cliente: \d+ tirado/.test(await page.getByTestId('filtros-cobranca').innerText()), 'cliente escolhido: o quadro mostra a etiqueta "Cliente: N tirado(s)"');
+    await page.getByRole('button', { name: 'limpar filtros' }).click();
+    await page.getByText('Faturas vencidas 2025').waitFor();
     ok((await bloco2025.innerText()).includes('R$ 19.615,73'), 'vencidas 2025 por setor × tipo (TC R$ 19.615,73)');
     const totalAberto = page.locator('section').filter({ hasText: 'Faturas em aberto — total' });
     ok((await totalAberto.innerText()).includes('R$ 45.788,97'), 'em aberto total sem contestadas: R$ 45.788,97');
