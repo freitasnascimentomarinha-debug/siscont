@@ -199,28 +199,23 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Dívida menos o crédito de cada OM. Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="relative"><span className="text-xs font-semibold text-slate-600 block mb-1">Buscar</span>
+      {/* Filtros do mapa: o que entra na árvore. (Os cartões acima também filtram; a ordem e o expandir/recolher ficam junto da árvore.) */}
+      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm space-y-2" data-testid="filtros-mapa">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Procurar</legend>
+            <label className="relative"><span className="text-xs font-semibold text-slate-600 block mb-1">Buscar</span>
           <Search size={14} className="absolute left-2 bottom-2.5 text-slate-400" />
-          <input className="pl-7 pr-2 py-1.5 text-sm border border-slate-300 rounded-md w-60" placeholder="OM, comando, setor, fatura ou ALTCRED..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar no mapa" /></label>
-        <label className="text-xs font-semibold text-slate-600">Ordenar por
-          <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={ordem} onChange={e => setOrdem(e.target.value as OrdemMapa)} aria-label="Ordenar o mapa">
-            <option value="liquido">Maior valor a pagar</option><option value="divida">Maior dívida</option><option value="nome">Nome (A–Z)</option>
-          </select></label>
-        <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={soComValor} onChange={e => setSoComValor(e.target.checked)} /> Só OM com valor a pagar</label>
-        <label className="text-sm flex items-center gap-1.5 pb-2" title="Faturas em contestação não entram na dívida nem aparecem na árvore"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={semContestadas} onChange={e => setSemContestadas(e.target.checked)} /> Tirar as contestadas{contestadas.length ? ` (${contestadas.length} · ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))})` : ''}</label>
-        <div className="flex gap-3 pb-2 text-sm">
-          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'cliente')))}>expandir tudo</button>
-          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'comando')))}>até as OM</button>
-          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set())}>recolher tudo</button>
+          <input className="pl-7 pr-2 py-1.5 text-sm border border-slate-300 rounded-md w-60" placeholder="OM, comando, setor, fatura ou ALTCRED..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar no mapa" /></label></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+            <button type="button" onClick={() => setPainelOM(v => !v)} aria-expanded={painelOM} className={`px-3 py-1.5 text-sm rounded-md border pb-1.5 ${escolhidas.size ? 'bg-primary-50 border-primary-400 text-primary-800 font-semibold' : 'bg-white border-slate-300 text-slate-700'}`}>
+          Escolher OM{escolhidas.size ? ` (${escolhidas.size})` : ''}</button></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="text-xs text-slate-500">Vencidas, a vencer, crédito, a pagar: <b>cartões</b> acima.</span>
+              <label className="text-sm flex items-center gap-1.5 " title="Faturas em contestação não entram na dívida nem aparecem na árvore"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={semContestadas} onChange={e => setSemContestadas(e.target.checked)} /> Tirar as contestadas{contestadas.length ? ` (${contestadas.length} · ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))})` : ''}</label>
+            </div></fieldset>
         </div>
-        <button type="button" onClick={() => setPainelOM(v => !v)} aria-expanded={painelOM} className={`px-3 py-1.5 text-sm rounded-md border pb-1.5 ${escolhidas.size ? 'bg-primary-50 border-primary-400 text-primary-800 font-semibold' : 'bg-white border-slate-300 text-slate-700'}`}>
-          Escolher OM{escolhidas.size ? ` (${escolhidas.size})` : ''}</button>
-        <div className="flex-1" />
-        <div className="flex gap-2 pb-0.5">
-          <Button variant="secondary" size="sm" onClick={exportarExcel}><FileSpreadsheet size={14} className="mr-1" />Excel</Button>
-          <Button variant="secondary" size="sm" onClick={exportarPdf}><FileText size={14} className="mr-1" />PDF</Button>
-        </div>
+        {!(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra) && <p className="text-xs text-slate-500">Nenhum filtro ligado: todas as OM com dívida ou crédito.</p>}
       </div>
 
       {painelOM && (
@@ -257,11 +252,27 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           {soSobra && <button type="button" onClick={() => setSoSobra(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito que sobra <X size={12} /></button>}
           {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">Setor {foco.setor} <X size={12} /></button>}
           {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM {foco.om} <X size={12} /></button>}
-          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); }}>ver todos</button>
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); }}>Limpar filtros</button>
         </div>
       )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}
 
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-2" data-testid="visualizacao-mapa">
+        <label className="text-xs font-semibold text-slate-600">Ordenar a árvore por
+          <select className="mt-1 block text-sm font-normal border border-slate-300 rounded-md px-2 py-1.5 bg-white" value={ordem} onChange={e => setOrdem(e.target.value as OrdemMapa)} aria-label="Ordenar o mapa">
+            <option value="liquido">Maior valor a pagar</option><option value="divida">Maior dívida</option><option value="nome">Nome (A–Z)</option>
+          </select></label>
+        <div className="pb-2"><span className="text-xs font-semibold text-slate-600 mr-2">Abrir</span><span className="inline-flex gap-3 text-sm">
+          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'cliente')))}>expandir tudo</button>
+          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set(idsDoMapa(mapa, 'comando')))}>até as OM</button>
+          <button type="button" className="text-primary-700 underline" onClick={() => setAbertos(new Set())}>recolher tudo</button>
+        </span></div>
+        <div className="flex-1" />
+        <div className="flex gap-2 pb-0.5">
+          <Button variant="secondary" size="sm" onClick={exportarExcel}><FileSpreadsheet size={14} className="mr-1" />Excel</Button>
+          <Button variant="secondary" size="sm" onClick={exportarPdf}><FileText size={14} className="mr-1" />PDF</Button>
+        </div>
+      </div>
       <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">

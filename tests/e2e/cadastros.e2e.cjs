@@ -814,8 +814,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'focar', exact: true }).first().click({ force: true });
     await page.getByLabel('Filtros do mapa').waitFor();
     ok(await page.getByLabel('Filtros do mapa').getByText(/^OM /).isVisible(), 'foco numa OM mostra a etiqueta do filtro');
-    await page.getByRole('button', { name: 'ver todos' }).click();
-    ok(await page.getByLabel('Filtros do mapa').count() === 0, '"ver todos" tira os filtros');
+    await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
+    ok(await page.getByLabel('Filtros do mapa').count() === 0, '"Limpar filtros" tira os filtros');
     ok(await page.locator('.recharts-wrapper').count() === 0, 'os dois gráficos saíram do mapa');
     // busca, ordenação e exportação
     await page.getByLabel('Buscar no mapa').fill('G1.2026.AC.00002');
