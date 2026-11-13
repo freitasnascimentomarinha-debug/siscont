@@ -2541,7 +2541,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Painel inicial' }).click();
     await page.getByLabel('Ano de referência').selectOption('2026');
     const venc = async () => (await page.getByRole('button', { name: /^Total vencidas:/ }).innerText()).replace(/\s+/g, ' ');
-    ok((await venc()).includes('R$ 1.500,00'), 'painel: Todos = R$ 1.500,00 vencidas');
+    await page.waitForFunction(() => /R\$ 1\.500,00/.test(document.body.innerText), null, { timeout: 15000 }).catch(() => undefined);
+    { const v = await venc(); ok(v.includes('R$ 1.500,00'), 'painel: Todos = R$ 1.500,00 vencidas'); }
     await radio('Extra-MB').click();
     ok((await venc()).includes('R$ 500,00') && (await page.getByTitle('Remover filtro').first().innerText()).includes('Extra-MB'), 'painel: só Extra-MB = R$ 500,00, com etiqueta do filtro');
     await radio('MB').click();

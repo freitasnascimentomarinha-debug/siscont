@@ -16,5 +16,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // bibliotecas pesadas em arquivos próprios: ficam no cache do navegador entre publicações
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/node_modules\/(xlsx|cfb|ssf|codepage)\//.test(id)) return 'planilhas';
+          if (/node_modules\/(recharts|d3-[^/]+|victory-vendor|internmap)\//.test(id)) return 'graficos';
+          if (/node_modules\/(@supabase)\//.test(id)) return 'supabase';
+          return undefined;
+        },
+      },
+    },
   }
 });

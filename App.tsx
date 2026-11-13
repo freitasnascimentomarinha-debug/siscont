@@ -1,24 +1,8 @@
 
-import { PontosAtencaoPage } from './pages/PontosAtencao';
-import { Conciliacao } from './pages/Conciliacao';
-import { Faturamento } from './pages/Faturamento';
-import { Contestacoes } from './pages/Contestacoes';
-import { Cobranca } from './pages/Cobranca';
-import { PainelEncarregado } from './pages/PainelEncarregado';
-import { GastosBNIC } from './pages/GastosBNIC';
-import { TaxaCondominial } from './pages/TaxaCondominial';
-import { ExtraMarinha } from './pages/ExtraMarinha';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
-import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
-import { Invoices } from './pages/Invoices';
-import { ReceivedBalances } from './pages/ReceivedBalances';
-import { CashFlow } from './pages/CashFlow';
-import { Admin } from './pages/Admin';
-import { Cadastros } from './pages/Cadastros';
-import { ResetPassword } from './pages/ResetPassword';
 import { UserRole, podeVerPagina } from './types';
 import { cadastroService } from './services/cadastroService';
 import { definirNormas, normasDe } from './utils/normas';
@@ -27,6 +11,34 @@ import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
+
+/** Carrega a tela sob demanda; se o arquivo sumiu (nova versão publicada com a aba aberta), recarrega a página uma vez. */
+function telaLazy<M>(carregar: () => Promise<M>, pegar: (m: M) => React.ComponentType<any>) {
+  return lazy(async () => {
+    try { return { default: pegar(await carregar()) }; }
+    catch (e) {
+      try { if (!sessionStorage.getItem('siscont-recarregou')) { sessionStorage.setItem('siscont-recarregou', '1'); window.location.reload(); return new Promise<never>(() => undefined); } } catch { /* sem storage */ }
+      throw e;
+    }
+  });
+}
+// Cada tela é baixada só quando aberta (primeiro acesso bem mais leve)
+const PontosAtencaoPage = telaLazy(() => import('./pages/PontosAtencao'), m => m.PontosAtencaoPage);
+const Conciliacao = telaLazy(() => import('./pages/Conciliacao'), m => m.Conciliacao);
+const Faturamento = telaLazy(() => import('./pages/Faturamento'), m => m.Faturamento);
+const Contestacoes = telaLazy(() => import('./pages/Contestacoes'), m => m.Contestacoes);
+const Cobranca = telaLazy(() => import('./pages/Cobranca'), m => m.Cobranca);
+const PainelEncarregado = telaLazy(() => import('./pages/PainelEncarregado'), m => m.PainelEncarregado);
+const GastosBNIC = telaLazy(() => import('./pages/GastosBNIC'), m => m.GastosBNIC);
+const TaxaCondominial = telaLazy(() => import('./pages/TaxaCondominial'), m => m.TaxaCondominial);
+const ExtraMarinha = telaLazy(() => import('./pages/ExtraMarinha'), m => m.ExtraMarinha);
+const Dashboard = telaLazy(() => import('./pages/Dashboard'), m => m.Dashboard);
+const Invoices = telaLazy(() => import('./pages/Invoices'), m => m.Invoices);
+const ReceivedBalances = telaLazy(() => import('./pages/ReceivedBalances'), m => m.ReceivedBalances);
+const CashFlow = telaLazy(() => import('./pages/CashFlow'), m => m.CashFlow);
+const Admin = telaLazy(() => import('./pages/Admin'), m => m.Admin);
+const Cadastros = telaLazy(() => import('./pages/Cadastros'), m => m.Cadastros);
+const ResetPassword = telaLazy(() => import('./pages/ResetPassword'), m => m.ResetPassword);
 
 export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'cobranca' | 'conciliacao' | 'contestacoes' | 'pontos' | 'taxa' | 'auditoria' | 'cadastros' | 'admin' | 'extramb';
 
@@ -70,7 +82,9 @@ const AuthenticatedApp = () => {
 
   return (
     <Layout currentPage={currentPage} onPageChange={setCurrentPage}>
-      {renderPage()}
+      <Suspense fallback={<div role="status" className="flex items-center justify-center py-24"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" /><span className="sr-only">Carregando…</span></div>}>
+        {renderPage()}
+      </Suspense>
     </Layout>
   );
 };
@@ -104,7 +118,7 @@ const AppContent = () => {
 
   // Link de "Esqueci minha senha": exige criar a nova senha antes de entrar
   if (isPasswordRecovery) {
-    return <ResetPassword />;
+    return <Suspense fallback={null}><ResetPassword /></Suspense>;
   }
 
   if (!user) {
