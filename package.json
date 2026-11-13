@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "varredura": "VARREDURA=1 CENARIO=Varredura node tests/e2e/cadastros.e2e.cjs",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

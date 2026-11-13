@@ -42,3 +42,7 @@ BASE_URL=http://localhost:5179 node tests/e2e/cadastros.e2e.cjs   # cadastros e 
 | `api/admin-users.ts` | função de servidor (Vercel) para gestão de usuários |
 | `supabase/migrations/` | scripts SQL do banco |
 | `tests/` | testes automatizados |
+
+
+## Varredura automática (todas as telas e botões)
+Com o servidor de teste no ar (comando acima), rode `npm run varredura`. O robô abre cada página com 7.000 faturas de teste, clica nos botões seguros e relata erros, travamentos, tempo e consultas por tela. `VARREDURA_FATURAS=20000` aumenta o volume; `VARREDURA_OUT=arquivo.json` grava o resultado.
