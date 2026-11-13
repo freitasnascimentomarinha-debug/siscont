@@ -2566,6 +2566,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Tipo de documento').selectOption('GRU');
     await page.getByText('GRU ABC123').first().waitFor();
     ok(await page.getByText('G1.2026.AC.00001').count() === 0, 'recebimentos: filtro "Só GRU" mostra a GRU e esconde a ALTCRED');
+    await page.getByLabel('Busca', { exact: true }).fill('itaú');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/recebimentos-filtros.png` });
+    await page.getByLabel('Busca', { exact: true }).fill('');
     await page.getByLabel('Tipo de documento').selectOption('auto');
 
     // Extrato de conciliação

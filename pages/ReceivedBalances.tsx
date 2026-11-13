@@ -50,13 +50,11 @@ export const ReceivedBalances: React.FC = () => {
   const [filterYear, setFilterYear] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'with_balance' | 'no_balance'>('all');
   const [filterSiplad, setFilterSiplad] = useState('todas');
-  const [filterClient, setFilterClient] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [filterCommand, setFilterCommand] = useState('');
-  const [filterDocNumber, setFilterDocNumber] = useState('');
+  const [filterBusca, setFilterBusca] = useState('');   // um só campo: nº do documento, cliente ou UG
   // os Recebimentos mostram só as ALTCRED; as GRU ficam na página Extra-Marinha (aqui só aparecem se escolher "GRU" ou "Todos")
   const [filterTipoDoc, setFilterTipoDoc] = useState<'auto' | 'ALTCRED' | 'GRU' | 'todos'>('auto');
-  const [filterUG, setFilterUG] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
 
@@ -136,7 +134,7 @@ export const ReceivedBalances: React.FC = () => {
     return () => window.removeEventListener('siscont:dados-mudaram', aoMudar);
   }, []);
   // volta para a 1ª página quando os filtros ou a aba mudam
-  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterClient, filterDocNumber, filterTipoDoc, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
+  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterBusca, filterTipoDoc, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
 
   // --- Auto-fill Service Type when selecting invoice ---
   useEffect(() => {
@@ -180,6 +178,27 @@ export const ReceivedBalances: React.FC = () => {
     return m;
   }, [invoices, allocations]);
   const daAba = (d: ReceivedDocument) => d.operation === activeTab || (activeTab === OperationType.ADIANTAMENTO && !!d.sobraAdiantamento);
+  // filtros ligados (etiquetas) e o "limpar tudo": o Público não entra, é o seletor global da página
+  const filtrosLigados = (() => {
+    const l: { rotulo: string; limpar: () => void }[] = [];
+    const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    if (filterBusca.trim()) l.push({ rotulo: `Procurando “${filterBusca.trim()}”`, limpar: () => setFilterBusca('') });
+    if (filterFatura.trim()) l.push({ rotulo: `Fatura paga: ${filterFatura.trim()}`, limpar: () => setFilterFatura('') });
+    if (filterMonth) l.push({ rotulo: `Mês: ${MESES[Number(filterMonth)] || filterMonth}`, limpar: () => setFilterMonth('') });
+    if (filterYear) l.push({ rotulo: `Ano: ${filterYear}`, limpar: () => setFilterYear('') });
+    if (filterTipoDoc !== 'auto') l.push({ rotulo: `Tipo: ${filterTipoDoc === 'todos' ? 'ALTCRED e GRU' : `só ${filterTipoDoc}`}`, limpar: () => setFilterTipoDoc('auto') });
+    if (filterSiplad !== 'todas') l.push({ rotulo: 'SIPLAD filtrado', limpar: () => setFilterSiplad('todas') });
+    if (filterStatus !== 'all') l.push({ rotulo: filterStatus === 'with_balance' ? 'Só com saldo' : 'Só sem saldo', limpar: () => setFilterStatus('all') });
+    if (filterPontos) l.push({ rotulo: `Pontos: ${filterPontos === 'any' ? 'com algum' : `gravidade ${filterPontos}`}`, limpar: () => setFilterPontos('') });
+    if (exSetor.size) l.push({ rotulo: `Setor: ${exSetor.size} tirado(s)`, limpar: () => setExSetor(new Set()) });
+    if (exComando.size) l.push({ rotulo: `Comando: ${exComando.size} tirado(s)`, limpar: () => setExComando(new Set()) });
+    if (exCliente.size) l.push({ rotulo: `Cliente: ${exCliente.size} tirado(s)`, limpar: () => setExCliente(new Set()) });
+    return l;
+  })();
+  const limparFiltros = () => {
+    setFilterBusca(''); setFilterFatura(''); setFilterMonth(''); setFilterYear(''); setFilterTipoDoc('auto'); setFilterSiplad('todas'); setFilterStatus('all'); setFilterPontos('');
+    setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set());
+  };
   const uniq = (l: string[]) => [...new Set(l)].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const opSetores = useMemo(() => uniq(documents.filter(daAba).map(d => rot(d).setor)), [documents, rotulos, activeTab]);
   const opComandos = useMemo(() => uniq(documents.filter(daAba).map(d => rot(d).comando)), [documents, rotulos, activeTab]);
@@ -211,10 +230,11 @@ export const ReceivedBalances: React.FC = () => {
     const r = rot(d);
     if (exSetor.has(r.setor) || exComando.has(r.comando) || exCliente.has(r.cliente)) return false;
     if (!passaPublico(publico, docExtra(d))) return false;
-    if (filterClient && !(d.client || '').toLowerCase().includes(filterClient.toLowerCase())) return false;
+    if (filterBusca.trim()) {
+      const q = filterBusca.trim().toLowerCase();
+      if (!`${d.documentNumber || ''} ${d.client || ''} ${r.cliente} ${d.ug || ''}`.toLowerCase().includes(q)) return false;
+    }
     if (filterFatura.trim() && !(faturasPagasPorDoc.get(d.id) || []).some(n => n.includes(filterFatura.trim().toLowerCase()))) return false;
-    if (filterDocNumber && !(d.documentNumber || '').toLowerCase().includes(filterDocNumber.toLowerCase())) return false;
-    if (filterUG && !(d.ug || '').toLowerCase().includes(filterUG.toLowerCase())) return false;
     if (filterPontos) {
       const abertos = pendentes(d.pontos);
       if (filterPontos === 'any' ? !abertos.length : !abertos.some(p => p.gravidade === filterPontos)) return false;
@@ -693,7 +713,8 @@ export const ReceivedBalances: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Recebimentos</h2>
           <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · pela data do documento (ou agrupados por setor, comando e OM do cadastro)</p>
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0 [&_button]:whitespace-nowrap">
+        <div className="flex flex-wrap items-end gap-2 shrink-0 [&_button]:whitespace-nowrap">
+          <SeletorPublico valor={publico} onChange={setPublico} />
           {!isReadOnly && (
             <span className="relative group inline-flex">
               <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} aria-describedby="dica-importar" aria-label="Importar ALTCRED do PDF do SIPLAD">
@@ -741,35 +762,35 @@ export const ReceivedBalances: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters Area */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3">
-        <div className="flex items-center gap-2 text-slate-700 font-medium mb-1">
-          <Filter size={16} /> Filtros Avançados
+      {/* Filtros: uma barra só, em grupos (o Público fica no alto da página) */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3" data-testid="filtros-recebimentos">
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+          <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Procurar</legend>
+            <div className="w-56"><Input label="Busca" value={filterBusca} onChange={e => setFilterBusca(e.target.value)} placeholder="Nº do documento, cliente ou UG" /></div>
+            <div className="w-52"><Input label="Fatura paga (nº)" value={filterFatura} onChange={e => setFilterFatura(e.target.value)} placeholder="Ex.: 41000-TC-09..." /></div></fieldset>
+          <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Período</legend>
+            <div className="w-28"><Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} /></div><div className="w-24"><Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} /></div></fieldset>
+          <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
+            <div className="w-44"><Select label="Tipo de documento" value={filterTipoDoc} onChange={e => setFilterTipoDoc(e.target.value as any)} options={[{ label: 'Automático (ALTCRED; no Público Extra-MB, também GRU)', value: 'auto' }, { label: 'Só ALTCRED', value: 'ALTCRED' }, { label: 'Só GRU', value: 'GRU' }, { label: 'ALTCRED e GRU', value: 'todos' }]} /></div><div className="w-40"><Select label="Situação no SIPLAD" value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} options={FILTRO_SITUACAO} /></div><div className="w-36"><Select label="Saldo do documento" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} /></div><div className="w-32"><Select label="Pontos" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} /></div></fieldset>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          <Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} />
-          <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
-          <Select label="Tipo de documento" value={filterTipoDoc} onChange={e => setFilterTipoDoc(e.target.value as any)} options={[{ label: 'Automático (ALTCRED; no Público Extra-MB, também GRU)', value: 'auto' }, { label: 'Só ALTCRED', value: 'ALTCRED' }, { label: 'Só GRU', value: 'GRU' }, { label: 'ALTCRED e GRU', value: 'todos' }]} />
-          <Select label="Situação no SIPLAD" value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} options={FILTRO_SITUACAO} />
-          <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
-          <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
-          <Input label="Cliente (texto)" value={filterClient} onChange={e => setFilterClient(e.target.value)} placeholder="Nome no documento..." />
-          <Input label="Fatura paga (nº)" value={filterFatura} onChange={e => setFilterFatura(e.target.value)} placeholder="Ex.: 41000-TC-09..." />
-          <Input label="Nº Doc" value={filterDocNumber} onChange={e => setFilterDocNumber(e.target.value)} placeholder="Buscar Nº..." />
-          <Select label="Pontos de atenção" value={filterPontos} onChange={e => setFilterPontos(e.target.value)} options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} />
+        <div className="flex flex-wrap items-end gap-x-5 gap-y-3 pt-3 border-t border-slate-100">
+          <fieldset className="flex flex-wrap items-end gap-3"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+            <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
+            <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
+            <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
+          </fieldset>
         </div>
-        <div className="flex flex-wrap items-end gap-4">
-          <SeletorPublico valor={publico} onChange={setPublico} />
-          <MultiFiltro rotulo="Setor" opcoes={opSetores} excluidos={exSetor} onChange={setExSetor} />
-          <MultiFiltro rotulo="Comando" opcoes={opComandos} excluidos={exComando} onChange={setExComando} largura="w-96" />
-          <MultiFiltro rotulo="Cliente (OM)" opcoes={opClientes} excluidos={exCliente} onChange={setExCliente} largura="w-96" />
-          <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={() => {
-            setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterSiplad('todas'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
-            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos(''); setFilterTipoDoc('auto');
-          }}>
-            <X size={14} className="mr-1" /> Limpar Filtros
-          </Button>
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 text-sm" aria-live="polite">
+          {filtrosLigados.length > 0
+            ? <span className="text-slate-600"><b>{filteredDocs.length.toLocaleString('pt-BR')}</b> de {documents.filter(daAba).length.toLocaleString('pt-BR')} documentos atendem aos filtros:</span>
+            : <span className="text-slate-500">Nenhum filtro ligado: todos os documentos desta aba.</span>}
+          {filtrosLigados.map(f => (
+            <span key={f.rotulo} className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 pl-2 pr-1 py-0.5 text-xs">
+              {f.rotulo}
+              <button type="button" className="rounded-full hover:bg-primary-100 px-1" aria-label={`Tirar filtro ${f.rotulo}`} onClick={f.limpar}>×</button>
+            </span>
+          ))}
+          {filtrosLigados.length > 0 && <button type="button" className="ml-auto text-primary-700 underline text-sm" onClick={limparFiltros}>Limpar filtros</button>}
         </div>
       </div>
 
@@ -789,7 +810,7 @@ export const ReceivedBalances: React.FC = () => {
         ))}
       </div>
 
-      {activeTab === OperationType.ADIANTAMENTO && <ResumoAdiantamentos documentos={documents} baixas={allocations} faturas={invoices} />}
+      {activeTab === OperationType.ADIANTAMENTO && <ResumoAdiantamentos documentos={filteredDocs} baixas={allocations} faturas={invoices} />}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-xs text-slate-600 flex items-center gap-2">Ordem da lista

@@ -10,17 +10,12 @@ const br = (iso?: string | null) => (iso ? iso.slice(0, 10).split('-').reverse()
 
 /** Resumo de adiantamentos por cliente (saldo disponível) e faturas que usaram cada adiantamento. */
 export const ResumoAdiantamentos: React.FC<{ documentos: ReceivedDocument[]; baixas: PaymentAllocation[]; faturas: Invoice[] }> = ({ documentos, baixas, faturas }) => {
-  const [soComSaldo, setSoComSaldo] = useState(false);
-  const [busca, setBusca] = useState('');
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const alternar = (k: string) => setAbertos(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   const linhas = useMemo(() => listaAdiantamentos(documentos, baixas, faturas), [documentos, baixas, faturas]);
-  const grupos = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return resumoPorCliente(linhas.filter(l => (!soComSaldo || l.saldo > 0.005)
-      && (!q || `${l.cliente} ${l.comando} ${l.numero} ${l.usos.map(u => u.fatura).join(' ')}`.toLowerCase().includes(q))));
-  }, [linhas, soComSaldo, busca]);
+  // sem busca nem filtro próprios: segue os filtros da página (os documentos já chegam filtrados)
+  const grupos = useMemo(() => resumoPorCliente(linhas), [linhas]);
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const tot = grupos.reduce((t, g) => ({ enviado: r2(t.enviado + g.enviado), utilizado: r2(t.utilizado + g.utilizado), saldo: r2(t.saldo + g.saldo) }), { enviado: 0, utilizado: 0, saldo: 0 });
   const negativos = linhas.filter(l => l.saldo < -0.005);
@@ -45,12 +40,9 @@ export const ResumoAdiantamentos: React.FC<{ documentos: ReceivedDocument[]; bai
       <div className="p-4 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between">
         <div>
           <h3 className="font-bold text-slate-800">Resumo de adiantamentos por cliente</h3>
-          <p className="text-xs text-slate-500">ALTCRED encaminhadas para adiantamento (inteiras ou a sobra de um pagamento), quanto já foi usado e o saldo disponível. Clique no cliente para ver as ALTCRED e as faturas que usaram o saldo.</p>
+          <p className="text-xs text-slate-500">ALTCRED encaminhadas para adiantamento (inteiras ou a sobra de um pagamento), quanto já foi usado e o saldo disponível. Segue os filtros da página. Clique no cliente para ver as ALTCRED e as faturas que usaram o saldo.</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Cliente, ALTCRED ou fatura..." aria-label="Buscar no resumo de adiantamentos"
-            className="text-sm border border-slate-300 rounded-md px-2 py-1.5 w-56" />
-          <label className="text-sm flex items-center gap-1.5"><input type="checkbox" checked={soComSaldo} onChange={e => setSoComSaldo(e.target.checked)} className="h-4 w-4 accent-primary-600" /> Só com saldo</label>
           <Button size="sm" variant="secondary" onClick={exportar} disabled={!linhas.length}><FileSpreadsheet size={14} className="mr-1" /> Excel</Button>
         </div>
       </div>
@@ -113,7 +105,7 @@ export const ResumoAdiantamentos: React.FC<{ documentos: ReceivedDocument[]; bai
                 </React.Fragment>
               );
             })}
-            {!grupos.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">Nenhum adiantamento{soComSaldo ? ' com saldo' : ''}.</td></tr>}
+            {!grupos.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">Nenhum adiantamento com esses filtros.</td></tr>}
           </tbody>
         </table>
       </div>
