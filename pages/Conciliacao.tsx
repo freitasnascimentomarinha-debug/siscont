@@ -239,31 +239,37 @@ export const Conciliacao: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Extrato de Conciliação</h2>
           <p className="text-slate-500 text-sm max-w-3xl">Por comando ou OM (um ou vários): resumo da conciliação, saldo das ALTCRED, adiantamentos utilizados, faturas pagas e faturas em aberto — os quadros enviados às OM. Os pagamentos aparecem de qualquer pagador, e os usos das ALTCRED da OM em faturas de outras OM também.</p>
         </div>
-        <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
+        <div className="flex items-end gap-3">
+          <SeletorPublico valor={publico} onChange={setPublico} />
+          <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />} Atualizar</Button>
+        </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg border border-slate-200 space-y-3">
-        <div className="flex flex-wrap gap-3 items-end">
-          <SeletorPublico valor={publico} onChange={setPublico} />
-          <SeletorEscopo opcoes={opcoes} selecionados={escopos} onChange={setEscopos} />
-          {publico === 'EXTRA' && <button type="button" className="text-sm text-amber-800 underline pb-2" onClick={todosExtra} title="Põe no extrato todos os clientes Extra-MB ativos">todos os clientes Extra-MB</button>}
-          <label className="text-xs text-slate-600">Exercício (ALTCRED e pagamentos)
+      <div className="bg-white p-4 rounded-lg border border-slate-200 space-y-3" data-testid="filtros-extrato">
+        <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
+            <div className="flex items-end gap-3"><SeletorEscopo opcoes={opcoes} selecionados={escopos} onChange={setEscopos} />
+              {publico === 'EXTRA' && <button type="button" className="text-sm text-amber-800 underline pb-2" onClick={todosExtra} title="Põe no extrato todos os clientes Extra-MB ativos">todos os clientes Extra-MB</button>}</div></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Período</legend>
+            <div className="flex items-end gap-4"><label className="text-xs text-slate-600">Exercício (ALTCRED e pagamentos)
             <select value={exercicio} onChange={e => setExercicio(e.target.value)} className={`${sel} block mt-1`} aria-label="Exercício do extrato">
               {[...new Set([String(new Date().getFullYear()), ...anos])].map(a => <option key={a} value={a}>{a}</option>)}
               <option value="todos">Todos</option>
             </select>
           </label>
-          <label className="text-xs text-slate-600">Filtrar por ALTCRED
+              <label className="text-sm flex items-center gap-1.5 pb-2" title="Sem marcar, as faturas em aberto entram de qualquer exercício (dívida antiga continua aparecendo)">
+            <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abertasDoExercicio} disabled={exercicio === 'todos'} onChange={e => setAbertasDoExercicio(e.target.checked)} /> Faturas em aberto só deste exercício
+          </label></div></fieldset>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">ALTCRED (digitar ou escolher: é o mesmo filtro)</legend>
+            <div className="flex items-end gap-2"><label className="text-xs text-slate-600">Número da ALTCRED (ou parte)
             <input value={altcredBusca} onChange={e => setAltcredBusca(e.target.value)} list="altcreds-conc" placeholder="Nº (ou parte); vários separados por vírgula" aria-label="Filtrar por ALTCRED" className={`${sel} block mt-1 w-72 font-mono text-xs`} />
             <datalist id="altcreds-conc">{docs.slice(0, 400).map(d => <option key={d.id} value={d.documentNumber} />)}</datalist>
           </label>
-          <SeletorAltcred itens={altcredsParaEscolher} marcadas={alvos} onChange={nums => setAltcredBusca(nums.join(', '))} />
-          {usandoAltcred && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setAltcredBusca('')}>limpar ALTCRED</button>}
-          <label className="text-sm flex items-center gap-1.5 pb-2" title="Sem marcar, as faturas em aberto entram de qualquer exercício (dívida antiga continua aparecendo)">
-            <input type="checkbox" className="h-4 w-4 accent-primary-600" checked={abertasDoExercicio} disabled={exercicio === 'todos'} onChange={e => setAbertasDoExercicio(e.target.checked)} /> Faturas em aberto só deste exercício
-          </label>
-          <Button variant="secondary" onClick={exportarPdf} disabled={!extrato}><FileText size={16} className="mr-1" /> PDF</Button>
-          <Button variant="secondary" onClick={exportarExcel} disabled={!extrato}><FileSpreadsheet size={16} className="mr-1" /> Excel</Button>
+              <SeletorAltcred itens={altcredsParaEscolher} marcadas={alvos} onChange={nums => setAltcredBusca(nums.join(', '))} />
+              {usandoAltcred && <button type="button" className="text-sm text-primary-700 underline pb-2" onClick={() => setAltcredBusca('')}>limpar ALTCRED</button>}</div></fieldset>
+          <div className="flex-1" />
+          <div className="flex gap-2"><Button variant="secondary" onClick={exportarPdf} disabled={!extrato}><FileText size={16} className="mr-1" /> PDF</Button>
+            <Button variant="secondary" onClick={exportarExcel} disabled={!extrato}><FileSpreadsheet size={16} className="mr-1" /> Excel</Button></div>
         </div>
         {escopos.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Comandos e OM do extrato">
