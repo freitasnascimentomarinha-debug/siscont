@@ -777,24 +777,27 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await vencido.getAttribute('aria-pressed') === 'true', 'cartão "Vencido" fica ligado (destacado)');
     await page.getByText('40030-TC-08-2026-001-0').first().waitFor();
     ok(await page.getByText('40030-EL-08-2026-001-0').count() === 0, 'clicar em "Vencido" deixa na árvore só as faturas vencidas');
-    ok(await page.getByText('41000-TC-05-2026-001-0').count() === 0 && await page.getByText('Arsenal de Marinha do Rio de Janeiro').count() === 0, 'a fatura vencida contestada não entra (e a OM que só tinha ela sai da árvore)');
-    ok(await page.getByLabel('Filtros do mapa').getByText(/Só faturas vencidas \(sem contestadas\)/).isVisible(), 'etiqueta mostra o filtro ligado');
+    ok(await page.getByTestId('fatura-contestada').count() === 1, 'a fatura vencida contestada aparece dentro da OM, marcada "contestada" (fora da dívida)');
+    ok(await page.getByLabel('Filtros do mapa').getByText(/Só faturas vencidas/).isVisible(), 'etiqueta mostra o filtro ligado');
     if (SHOTS) { await page.waitForTimeout(1200); await page.screenshot({ path: path.join(SHOTS, 'mapa-vencidas.png'), fullPage: true }); }
     ok((await page.locator('tfoot').innerText()).replace(/\s+/g, ' ').includes('R$ 600,00'), 'total a pagar das vencidas: R$ 1.000 − crédito R$ 400 = R$ 600');
     const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF', exact: true }).click()]);
     const conteudo = fs.readFileSync(await pdf.path(), 'latin1');
     if (SHOTS) fs.copyFileSync(await pdf.path(), path.join(SHOTS, 'mapa-analitico-vencidas.pdf'));
     ok(/^mapa_analitico_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdf.suggestedFilename()), 'PDF do mapa gerado');
-    ok(conteudo.includes('40030-TC-08-2026-001-0') && !conteudo.includes('40030-EL-08-2026-001-0') && !conteudo.includes('41000-TC-05-2026-001-0'), 'PDF imprime só o filtro: a vencida, sem a fatura a vencer e sem a contestada');
+    ok(conteudo.includes('40030-TC-08-2026-001-0') && !conteudo.includes('40030-EL-08-2026-001-0') && conteudo.includes('41000-TC-05-2026-001-0') && /CONTESTADA/.test(conteudo) && conteudo.includes('Contestado'), 'PDF imprime só o filtro: a vencida e a contestada (marcada, na coluna Contestado), sem a fatura a vencer');
     ok(conteudo.includes('40030 - Diretoria Industrial da Marinha') && conteudo.includes('G1.2026.AC.00001'), 'PDF no formato da árvore: comando, OM, fatura e ALTCRED');
-    await page.getByText('Contar na dívida', { exact: true }).click();
+    // cartão "Em contestação": só as OM que têm fatura contestada
+    const cartaoContest = page.getByRole('button', { name: /^Em contestação/ });
+    await cartaoContest.click();
     await page.getByText('41000-TC-05-2026-001-0').first().waitFor();
-    ok(true, '"Contar na dívida": a vencida contestada volta para a árvore');
-    await page.getByText('Ver só as contestadas', { exact: true }).click();
-    await page.getByText('41000-TC-05-2026-001-0').first().waitFor();
-    ok(await page.getByText('40030-EL-08-2026-001-0').count() === 0, '"Ver só as contestadas": só a contestada fica na árvore, com etiqueta do filtro');
+    ok(await page.getByText('40030-TC-08-2026-001-0').count() === 0, 'cartão "Em contestação": ficam só as OM com fatura contestada');
+    await page.getByTitle(/fatura\(s\) contestada\(s\): fora da dívida/).first().click();
+    await page.getByText(/Faturas contestadas —/).first().waitFor();
+    ok(true, 'clicar no valor da coluna Contestado abre as faturas contestadas da OM');
+    await page.keyboard.press('Escape');
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/mapa-so-contestadas.png` });
-    await page.getByText('Não contar', { exact: true }).click();
+    await cartaoContest.click();
     await vencido.click();
     await page.getByText('40030-EL-08-2026-001-0').first().waitFor();
     ok(await vencido.getAttribute('aria-pressed') === 'false', 'clicar de novo em "Vencido" desliga o filtro');

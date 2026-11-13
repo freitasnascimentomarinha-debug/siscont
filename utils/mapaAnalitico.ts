@@ -18,11 +18,13 @@ export interface FaturaMapa { id: string; omId?: string | null; client: string; 
 export interface CreditoMapa { id: string; client: string; sector: string; command: string; numero: string; valor: number; /** de onde veio, quando não é o cliente do próprio documento */ origem?: string }
 export interface OMRef { omId: string; nome: string; setor: string; comando: string }
 export type OrdemMapa = 'liquido' | 'divida' | 'nome';
-export interface Totais { qtd: number; divida: number; vencido: number; aVencer: number; credito: number; liquido: number; sobra: number }
+export interface Totais { qtd: number; divida: number; vencido: number; aVencer: number; credito: number; liquido: number; sobra: number; /** faturas em contestação: ficam FORA da dívida e do a pagar, em coluna à parte */ contestado: number; qtdContestadas: number }
 export interface NoMapa extends Totais {
   id: string; nivel: 'setor' | 'comando' | 'cliente'; nome: string;
   filhos: NoMapa[];
   faturas?: (FaturaMapa & { atraso: number })[]; creditos?: CreditoMapa[];
+  /** faturas em contestação desta OM (só no modo "separar"): não entram na dívida */
+  contestadas?: (FaturaMapa & { atraso: number })[];
   /** crédito que não foi ligado a nenhuma OM do cadastro (nome diferente) */
   semCadastro?: boolean;
 }
@@ -39,19 +41,22 @@ export interface OpcoesMapa {
   faturas?: 'vencidas' | 'aVencer' | string;
   /** tira as faturas em contestação (não entram na dívida nem aparecem na árvore) */
   semContestadas?: boolean;
+  /** 'separar': as faturas contestadas saem da dívida e do a pagar e vão para a coluna "Contestado" (aparecem marcadas dentro da OM) */
+  contestadas?: 'separar';
   /** só as faturas em contestação (para acompanhá-las); vale em lugar de semContestadas */
   soContestadas?: boolean;
   /** só OM que têm crédito / que têm crédito sobrando */
   soComCredito?: boolean; soSobra?: boolean;
 }
 
-const zero = (): Totais => ({ qtd: 0, divida: 0, vencido: 0, aVencer: 0, credito: 0, liquido: 0, sobra: 0 });
+const zero = (): Totais => ({ qtd: 0, divida: 0, vencido: 0, aVencer: 0, credito: 0, liquido: 0, sobra: 0, contestado: 0, qtdContestadas: 0 });
 const somar = (a: Totais, b: Totais): Totais => ({
   qtd: a.qtd + b.qtd, divida: r2(a.divida + b.divida), vencido: r2(a.vencido + b.vencido), aVencer: r2(a.aVencer + b.aVencer),
   credito: r2(a.credito + b.credito), liquido: r2(a.liquido + b.liquido), sobra: r2(a.sobra + b.sobra),
+  contestado: r2(a.contestado + b.contestado), qtdContestadas: a.qtdContestadas + b.qtdContestadas,
 });
 
-interface Acc { chave: string; nome: string; setor: string; comando: string; faturas: FaturaMapa[]; creditos: CreditoMapa[]; semCadastro: boolean }
+interface Acc { chave: string; nome: string; setor: string; comando: string; faturas: FaturaMapa[]; contestadas: FaturaMapa[]; creditos: CreditoMapa[]; semCadastro: boolean }
 
 export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: OMRef[], o: OpcoesMapa): MapaAnalitico {
   const porId = new Map(oms.map(x => [x.omId, x]));
@@ -59,13 +64,16 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   const nos = new Map<string, Acc>();
   const no = (chave: string, nome: string, setor: string, comando: string, semCadastro: boolean) => {
     let a = nos.get(chave);
-    if (!a) { a = { chave, nome, setor: setor || 'Sem Setor', comando: comando || 'Sem Comando', faturas: [], creditos: [], semCadastro }; nos.set(chave, a); }
+    if (!a) { a = { chave, nome, setor: setor || 'Sem Setor', comando: comando || 'Sem Comando', faturas: [], contestadas: [], creditos: [], semCadastro }; nos.set(chave, a); }
     return a;
   };
 
+  const separar = o.contestadas === 'separar';
   const passaFatura = (f: FaturaMapa) => {
-    if (o.semContestadas && f.contestada) return false;
-    if (o.soContestadas && !f.contestada) return false;
+    if (!separar) {
+      if (o.semContestadas && f.contestada) return false;
+      if (o.soContestadas && !f.contestada) return false;
+    }
     if (!o.faturas) return true;
     if (o.faturas === 'vencidas') return f.vencimento < o.hoje;
     if (o.faturas === 'aVencer') return f.vencimento >= o.hoje;
@@ -75,7 +83,7 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
     if (f.saldo <= 0.005 || !passaFatura(f)) return;
     const om = (f.omId && porId.get(f.omId)) || porNome.get(norm(f.client));
     const a = om ? no(om.omId, om.nome, om.setor, om.comando, false) : no(`n:${norm(f.client)}`, f.client, f.sector, f.command, false);
-    a.faturas.push(f);
+    if (separar && f.contestada) a.contestadas.push(f); else a.faturas.push(f);
   });
   creditos.forEach(c => {
     if (c.valor <= 0.005) return;
@@ -88,11 +96,13 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
   const q = norm(o.busca || '');
   let lista = [...nos.values()];
   // com um filtro de faturas ligado, OM sem nenhuma fatura que passe no filtro não aparece (só crédito não interessa ali)
-  if (o.faturas) lista = lista.filter(a => a.faturas.length > 0);
+  if (o.faturas) lista = lista.filter(a => a.faturas.length > 0 || a.contestadas.length > 0);
+  // com "só as contestadas" (separar), ficam só as OM que têm fatura em contestação
+  if (separar && o.soContestadas) lista = lista.filter(a => a.contestadas.length > 0);
   if (o.setor) lista = lista.filter(a => a.setor === o.setor);
   if (o.om) lista = lista.filter(a => a.nome === o.om);
   if (o.oms?.length) { const set = new Set(o.oms); lista = lista.filter(a => set.has(a.nome)); }
-  if (q) lista = lista.filter(a => norm(`${a.nome} ${a.setor} ${a.comando}`).includes(q) || a.faturas.some(f => norm(f.numero).includes(q)) || a.creditos.some(c => norm(c.numero).includes(q)));
+  if (q) lista = lista.filter(a => norm(`${a.nome} ${a.setor} ${a.comando}`).includes(q) || a.faturas.some(f => norm(f.numero).includes(q)) || a.contestadas.some(f => norm(f.numero).includes(q)) || a.creditos.some(c => norm(c.numero).includes(q)));
 
   const clienteNo = (a: Acc): NoMapa => {
     const divida = r2(a.faturas.reduce((s, f) => s + f.saldo, 0));
@@ -101,8 +111,10 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
     return {
       id: `cli:${a.chave}`, nivel: 'cliente', nome: a.nome, filhos: [], semCadastro: a.semCadastro,
       qtd: a.faturas.length, divida, vencido, aVencer: r2(divida - vencido), credito,
+      contestado: r2(a.contestadas.reduce((x, f) => x + f.saldo, 0)), qtdContestadas: a.contestadas.length,
       liquido: r2(Math.max(0, divida - credito)), sobra: r2(Math.max(0, credito - divida)),
       faturas: [...a.faturas].sort((x, y) => x.vencimento.localeCompare(y.vencimento)).map(f => ({ ...f, atraso: Math.max(0, diasEntre(f.vencimento, o.hoje)) })),
+      contestadas: [...a.contestadas].sort((x, y) => x.vencimento.localeCompare(y.vencimento)).map(f => ({ ...f, atraso: Math.max(0, diasEntre(f.vencimento, o.hoje)) })),
       creditos: [...a.creditos].sort((x, y) => y.valor - x.valor),
     };
   };
@@ -140,11 +152,11 @@ export const idsDoMapa = (m: MapaAnalitico, ate: 'setor' | 'comando' | 'cliente'
   return out;
 };
 
-export const CAB_MAPA = ['Setor', 'Comando', 'Cliente (OM)', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Crédito disponível', 'A pagar (líquido)', 'Crédito que sobra'];
+export const CAB_MAPA = ['Setor', 'Comando', 'Cliente (OM)', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Contestado (fora da dívida)', 'Crédito disponível', 'A pagar (líquido)', 'Crédito que sobra'];
 export function linhasMapa(m: MapaAnalitico): any[][] {
   const out: any[][] = [CAB_MAPA];
-  m.setores.forEach(s => s.filhos.forEach(c => c.filhos.forEach(x => out.push([s.nome, c.nome, x.nome, x.qtd, x.vencido, x.aVencer, x.divida, x.credito, x.liquido, x.sobra]))));
-  out.push(['TOTAL', '', '', m.total.qtd, m.total.vencido, m.total.aVencer, m.total.divida, m.total.credito, m.total.liquido, m.total.sobra]);
+  m.setores.forEach(s => s.filhos.forEach(c => c.filhos.forEach(x => out.push([s.nome, c.nome, x.nome, x.qtd, x.vencido, x.aVencer, x.divida, x.contestado, x.credito, x.liquido, x.sobra]))));
+  out.push(['TOTAL', '', '', m.total.qtd, m.total.vencido, m.total.aVencer, m.total.divida, m.total.contestado, m.total.credito, m.total.liquido, m.total.sobra]);
   return out;
 }
 
@@ -226,7 +238,7 @@ export function maioresOMs(m: MapaAnalitico, n = 10) {
 export type NivelPdf = 'setor' | 'comando' | 'cliente' | 'fatura' | 'credito';
 export interface LinhaPdf { nivel: NivelPdf; celulas: string[] }
 /** Vencimento e atraso ficam em colunas próprias, separados do nome/número da fatura. */
-export const CAB_PDF_ARVORE = ['Setor › Comando › OM › fatura', 'Vencimento', 'Atraso', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Crédito', 'A pagar'];
+export const CAB_PDF_ARVORE = ['Setor › Comando › OM › fatura', 'Vencimento', 'Atraso', 'Faturas', 'Vencido', 'A vencer', 'Dívida', 'Contestado', 'Crédito', 'A pagar'];
 
 /**
  * Linhas do PDF exatamente como a árvore do mapa (só o que passou nos filtros): setor, comando, OM e, dentro de
@@ -234,7 +246,7 @@ export const CAB_PDF_ARVORE = ['Setor › Comando › OM › fatura', 'Venciment
  */
 export function linhasArvorePdf(m: MapaAnalitico, moeda: (n: number) => string, data: (iso: string) => string): LinhaPdf[] {
   const v = (n: number) => (n > 0.005 ? moeda(n) : '—');
-  const no = (n: NoMapa): string[] => [n.nome, '', '', n.qtd ? String(n.qtd) : '—', v(n.vencido), v(n.aVencer), v(n.divida), v(n.credito),
+  const no = (n: NoMapa): string[] => [n.nome, '', '', n.qtd ? String(n.qtd) : '—', v(n.vencido), v(n.aVencer), v(n.divida), v(n.contestado), v(n.credito),
     n.liquido > 0.005 ? moeda(n.liquido) : n.sobra > 0.005 ? `— (sobra ${moeda(n.sobra)})` : '—'];
   const out: LinhaPdf[] = [];
   m.setores.forEach(s => {
@@ -245,8 +257,11 @@ export function linhasArvorePdf(m: MapaAnalitico, moeda: (n: number) => string, 
         out.push({ nivel: 'cliente', celulas: no(x) });
         (x.faturas || []).forEach(f => out.push({ nivel: 'fatura', celulas: [
           `${f.numero} (${f.tipo})${f.contestada ? ' · contestada' : ''}`, data(f.vencimento), f.atraso ? `${f.atraso} dias` : '—',
-          '', f.atraso ? moeda(f.saldo) : '', f.atraso ? '' : moeda(f.saldo), moeda(f.saldo), '', ''] }));
-        (x.creditos || []).forEach(c2 => out.push({ nivel: 'credito', celulas: [`ALTCRED/GRU ${c2.numero}${c2.origem ? ` (${c2.origem})` : ''}`, '', '', '', '', '', '', moeda(c2.valor), ''] }));
+          '', f.atraso ? moeda(f.saldo) : '', f.atraso ? '' : moeda(f.saldo), moeda(f.saldo), '', '', ''] }));
+        // faturas em contestação: dentro da OM, marcadas, só na coluna Contestado (não entram na dívida)
+        (x.contestadas || []).forEach(f => out.push({ nivel: 'fatura', celulas: [
+          `${f.numero} (${f.tipo}) · CONTESTADA`, data(f.vencimento), f.atraso ? `${f.atraso} dias` : '—', '', '', '', '', moeda(f.saldo), '', ''] }));
+        (x.creditos || []).forEach(c2 => out.push({ nivel: 'credito', celulas: [`ALTCRED/GRU ${c2.numero}${c2.origem ? ` (${c2.origem})` : ''}`, '', '', '', '', '', '', '', moeda(c2.valor), ''] }));
       });
     });
   });

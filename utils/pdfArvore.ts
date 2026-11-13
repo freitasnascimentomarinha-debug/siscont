@@ -41,9 +41,9 @@ export function pdfArvore(mapa: MapaAnalitico, o: OpcoesPdfArvore): jsPDF {
   const t = mapa.total;
   tabelaPdf(doc, {
     startY: y + 1, head: [CAB_PDF_ARVORE], body: linhas.map(l => l.celulas),
-    foot: [[o.rotuloTotal || 'TOTAL A PAGAR (LÍQUIDO)', '', '', String(t.qtd), vazio(t.vencido), vazio(t.aVencer), vazio(t.divida), vazio(t.credito), brl(t.liquido)]],
+    foot: [[o.rotuloTotal || 'TOTAL A PAGAR (LÍQUIDO)', '', '', String(t.qtd), vazio(t.vencido), vazio(t.aVencer), vazio(t.divida), vazio(t.contestado), vazio(t.credito), brl(t.liquido)]],
     styles: { fontSize: 8, cellPadding: { top: 1.1, bottom: 1.1, left: 2, right: 2 } }, alternateRowStyles: { fillColor: [255, 255, 255] }, footStyles: { fillColor: TEMA.faixa, textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 86 }, 1: { halign: 'center', cellWidth: 22 }, 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 14 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' } },
+    columnStyles: { 0: { cellWidth: 70 }, 1: { halign: 'center', cellWidth: 21 }, 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 16 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' } },
     didParseCell: (d: any) => {
       if (d.section !== 'body') { if (d.column.index === 1) d.cell.styles.halign = 'center'; else if (d.column.index >= 2) d.cell.styles.halign = 'right'; return; }
       const n = niveis[d.row.index];

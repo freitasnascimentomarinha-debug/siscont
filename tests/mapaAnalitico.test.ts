@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CreditoMapa, FaturaMapa, OMRef, linhasArvorePdf, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa, idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa } from '../utils/mapaAnalitico';
+import { CAB_MAPA, CAB_PDF_ARVORE, CreditoMapa, FaturaMapa, OMRef, linhasArvorePdf, clientesDoMapa, creditosDoMapa, creditosDoMapaLista, faturasDaFaixaMapa, faturasDoMapa, idadeDaDivida, idsDoMapa, linhasMapa, maioresOMs, montarMapa } from '../utils/mapaAnalitico';
 
 const oms: OMRef[] = [
   { omId: 'a', nome: 'Diretoria Industrial da Marinha', setor: 'DGMM', comando: '40030 - Diretoria Industrial da Marinha' },
@@ -164,7 +164,7 @@ describe('PDF no formato da árvore, só com o que está filtrado', () => {
   it('setor › comando › OM › faturas e créditos, na ordem da árvore', () => {
     const l = linhasArvorePdf(montarMapa(fs, crs, oms, { hoje, semContestadas: true }), moeda, data);
     expect(l.map(x => x.nivel)).toEqual(['setor', 'comando', 'cliente', 'fatura', 'fatura', 'credito']);
-    expect(l[2].celulas).toEqual(['Diretoria Industrial da Marinha', '', '', '2', 'R$ 1000.00', 'R$ 300.00', 'R$ 1300.00', 'R$ 400.00', 'R$ 900.00']);
+    expect(l[2].celulas).toEqual(['Diretoria Industrial da Marinha', '', '', '2', 'R$ 1000.00', 'R$ 300.00', 'R$ 1300.00', '—', 'R$ 400.00', 'R$ 900.00']);   // 8ª coluna: Contestado
     expect(l[3].celulas[0]).toBe('N-1 (TC)');                                      // nome/número da fatura, sem a data
     expect(l[3].celulas.slice(1, 3)).toEqual(['01/10/2026', '40 dias']);            // vencimento e atraso em colunas próprias
     expect(l[3].celulas.slice(4, 7)).toEqual(['R$ 1000.00', '', 'R$ 1000.00']);     // vencida: vai na coluna Vencido
@@ -180,18 +180,44 @@ describe('PDF no formato da árvore, só com o que está filtrado', () => {
   });
   it('OM só com crédito mostra a sobra na coluna A pagar', () => {
     const l = linhasArvorePdf(montarMapa([], [cr('2', 'Arsenal de Marinha do Rio de Janeiro', 5000)], oms, { hoje }), moeda, data);
-    expect(l.find(x => x.nivel === 'cliente')!.celulas[8]).toBe('— (sobra R$ 5000.00)');
+    expect(l.find(x => x.nivel === 'cliente')!.celulas[9]).toBe('— (sobra R$ 5000.00)');
   });
 });
 
-describe('contestadas no mapa: fora, dentro ou só elas', () => {
-  const om = [{ omId: 'a', nome: 'OM A', setor: 'S', comando: 'C' }];
-  const f = (id: string, saldo: number, contestada: boolean) => ({ id, omId: 'a', client: 'OM A', sector: 'S', command: 'C', numero: id, tipo: 'TC', vencimento: '2026-01-10', saldo, contestada });
-  const fs = [f('F1', 100, false), f('F2', 40, true)];
+describe('contestadas no mapa: coluna à parte, fora da dívida', () => {
+  const om = [{ omId: 'a', nome: 'OM A', setor: 'S', comando: 'C' }, { omId: 'b', nome: 'OM B', setor: 'S', comando: 'C' }];
+  const f = (id: string, omId: string, saldo: number, contestada: boolean, venc = '2026-01-10') => ({ id, omId, client: omId === 'a' ? 'OM A' : 'OM B', sector: 'S', command: 'C', numero: id, tipo: 'TC', vencimento: venc, saldo, contestada });
+  const fs = [f('F1', 'a', 100, false), f('F2', 'a', 40, true), f('F3', 'b', 25, true, '2026-12-10')];
   const hoje = '2026-06-01';
-  it('fora (padrão): a contestada não conta; dentro: conta; só: só ela', () => {
-    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', semContestadas: true }).total.divida).toBe(100);
-    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome' }).total.divida).toBe(140);
-    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', soContestadas: true }).total.divida).toBe(40);
+  const m = () => montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', contestadas: 'separar' });
+  it('a contestada sai da dívida e do a pagar e vai para a coluna Contestado, em todos os níveis', () => {
+    const t = m().total;
+    expect(t.divida).toBe(100); expect(t.liquido).toBe(100); expect(t.qtd).toBe(1);
+    expect(t.contestado).toBe(65); expect(t.qtdContestadas).toBe(2);
+    const [a, b] = m().setores[0].filhos[0].filhos;
+    expect([a.nome, a.divida, a.contestado, a.qtdContestadas]).toEqual(['OM A', 100, 40, 1]);
+    expect([b.nome, b.divida, b.liquido, b.contestado]).toEqual(['OM B', 0, 0, 25]);           // OM só com contestada aparece, com dívida zero
+    expect(m().setores[0].contestado).toBe(65);                                                  // soma do setor
+    expect(a.contestadas!.map(x => x.numero)).toEqual(['F2']);
+  });
+  it('"só as contestadas" deixa só as OM que têm fatura contestada; o filtro de vencidas também vale para elas', () => {
+    expect(montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', contestadas: 'separar', soContestadas: true }).total.contestado).toBe(65);
+    const so = montarMapa([f('F1', 'a', 100, false), f('F9', 'b', 30, false)] as any, [], om as any, { hoje, ordem: 'nome', contestadas: 'separar', soContestadas: true });
+    expect(so.setores.length).toBe(0);                                                           // ninguém tem contestada
+    const venc = montarMapa(fs as any, [], om as any, { hoje, ordem: 'nome', contestadas: 'separar', faturas: 'vencidas' });
+    expect(venc.total.contestado).toBe(40);                                                      // a contestada a vencer (F3) não entra no "só vencidas"
+  });
+  it('Excel e PDF trazem a coluna Contestado', () => {
+    expect(CAB_MAPA).toContain('Contestado (fora da dívida)');
+    const l = linhasMapa(m());
+    expect(l[1][CAB_MAPA.indexOf('Contestado (fora da dívida)')]).toBe(40);
+    expect(l[l.length - 1][CAB_MAPA.indexOf('Contestado (fora da dívida)')]).toBe(65);
+    const moeda = (n: number) => `R$ ${n.toFixed(2)}`;
+    const pdf = linhasArvorePdf(m(), moeda, d => d);
+    expect(CAB_PDF_ARVORE[7]).toBe('Contestado');
+    const linhaOM = pdf.find(x => x.nivel === 'cliente' && x.celulas[0] === 'OM A')!;
+    expect(linhaOM.celulas[7]).toBe('R$ 40.00');
+    const contest = pdf.find(x => x.celulas[0].includes('F2'))!;
+    expect(contest.celulas[0]).toContain('CONTESTADA'); expect(contest.celulas[7]).toBe('R$ 40.00'); expect(contest.celulas[6]).toBe('');
   });
 });

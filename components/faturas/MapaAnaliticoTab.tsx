@@ -32,10 +32,9 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
   const [busca, setBusca] = useState('');
   const [ordem, setOrdem] = useState<OrdemMapa>('liquido');
   const [soComValor, setSoComValor] = useState(false);
+  // contestadas: ficam fora da dívida, em coluna à parte; o cartão "Em contestação" liga/desliga só as OM que têm fatura contestada
+  const [soContest, setSoContest] = useState(false);
   const [filtroFat, setFiltroFat] = useState<string | undefined>(undefined); // 'vencidas' | 'aVencer' | faixa de atraso
-  // faturas em contestação: 'fora' (padrão: não entram na dívida nem na árvore), 'dentro' (contam, marcadas) ou 'so' (só elas, para acompanhar)
-  const [contest, setContest] = useState<'fora' | 'dentro' | 'so'>('fora');
-  const semContestadas = contest === 'fora', soContestadas = contest === 'so';
   const [soComCredito, setSoComCredito] = useState(false);
   const [soSobra, setSoSobra] = useState(false);
   const [foco, setFoco] = useState<{ setor?: string; om?: string }>({});
@@ -55,19 +54,19 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     docs.filter(d => d.availableValue > 0.005).map(d => ({ id: d.id, client: d.client, sector: d.sector, command: d.command, numero: d.documentNumber, availableValue: d.availableValue })),
     baixas.map(b => ({ documentId: b.documentId, invoiceId: b.invoiceId, amount: b.amount })),
     invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, omId: i.omId ?? null, client: i.client, isCanceled: i.isCanceled })), oms), [docs, baixas, invoices, oms]);
-  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, semContestadas, soContestadas, oms: [...escolhidas], ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, escolhidas, filtroFat, semContestadas, soContestadas, foco]);
+  const mapa = useMemo(() => montarMapa(faturas, creditos, oms, { hoje, ordem, busca, soComValor, soComCredito, soSobra, faturas: filtroFat, contestadas: 'separar', soContestadas: soContest, oms: [...escolhidas], ...foco }), [faturas, creditos, oms, hoje, ordem, busca, soComValor, soComCredito, soSobra, escolhidas, filtroFat, soContest, foco]);
   const contestadas = useMemo(() => faturas.filter(f => f.contestada), [faturas]);
   // lista para escolher: todas as OM que têm algo no mapa (com os outros filtros, menos a escolha de OM)
-  const todasOM = useMemo(() => clientesDoMapa(montarMapa(faturas, creditos, oms, { hoje, ordem: 'nome', semContestadas, soContestadas })), [faturas, creditos, oms, hoje, semContestadas, soContestadas]);
+  const todasOM = useMemo(() => clientesDoMapa(montarMapa(faturas, creditos, oms, { hoje, ordem: 'nome', contestadas: 'separar' })), [faturas, creditos, oms, hoje]);
   const qOM = buscaOM.trim().toLowerCase();
   const visiveisOM = todasOM.filter(c => !qOM || `${c.nome} ${c.comando} ${c.setor}`.toLowerCase().includes(qOM));
   const alternarOM = (nome: string) => setEscolhidas(prev => { const n = new Set(prev); n.has(nome) ? n.delete(nome) : n.add(nome); return n; });
-  const limparCartoes = () => { setFiltroFat(undefined); setSoComValor(false); setSoComCredito(false); setSoSobra(false); };
+  const limparCartoes = () => { setFiltroFat(undefined); setSoComValor(false); setSoComCredito(false); setSoSobra(false); setSoContest(false); };
   const alternarFat = (v: string) => setFiltroFat(x => (x === v ? undefined : v));
   const ROTULO_FAT: Record<string, string> = { vencidas: 'Só faturas vencidas', aVencer: 'Só faturas a vencer', 'A vencer': 'Só faturas a vencer' };
 
   const padrao = useMemo(() => new Set(idsDoMapa(mapa, 'setor')), [mapa]);
-  const aberto = (id: string) => (abertos ?? padrao).has(id) || !!busca.trim() || !!foco.om || !!filtroFat;
+  const aberto = (id: string) => (abertos ?? padrao).has(id) || !!busca.trim() || !!foco.om || !!filtroFat || soContest;
   const alternar = (id: string) => setAbertos(prev => { const n = new Set(prev ?? padrao); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const t = mapa.total;
   const clientes = useMemo(() => clientesDoMapa(mapa), [mapa]);
@@ -94,7 +93,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
 
   const exportarExcel = () => {
     const ws = XLSX.utils.aoa_to_sheet(linhasMapa(mapa));
-    ws['!cols'] = [14, 44, 50, 9, 16, 16, 16, 18, 18, 18].map(w => ({ wch: w }));
+    ws['!cols'] = [14, 44, 50, 9, 16, 16, 16, 20, 18, 18, 18].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Mapa analítico');
     XLSX.writeFile(wb, `mapa_analitico${arquivoPublico(publico)}_${hoje}.xlsx`);
   };
@@ -108,7 +107,8 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     if (foco.setor) f.push(`setor ${foco.setor}`);
     if (foco.om) f.push(`OM ${foco.om}`);
     if (busca.trim()) f.push(`busca "${busca.trim()}"`);
-    f.push(contest === 'fora' ? 'sem as faturas contestadas' : contest === 'dentro' ? 'com as faturas contestadas' : 'só as faturas contestadas');
+    if (soContest) f.push('só OM com fatura contestada');
+    f.push('faturas contestadas fora da dívida (coluna Contestado)');
     return f.join(' · ');
   };
   const exportarPdf = () => {
@@ -118,9 +118,14 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
     }).save(`mapa_analitico${arquivoPublico(publico)}_${hoje}.pdf`);
   };
 
+  /** Faturas contestadas de um nó (para o detalhe): desce até as OM. */
+  const contestadasDe = (n: NoMapa, setor: string, comando: string): LinhaFaturaMapa[] => n.nivel === 'cliente'
+    ? (n.contestadas || []).map(f => ({ id: f.id, om: n.nome, setor, comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, atraso: f.atraso, saldo: f.saldo, contestada: true }))
+    : n.filhos.flatMap(x => contestadasDe(x, n.nivel === 'setor' ? n.nome : setor, n.nivel === 'comando' ? n.nome : comando));
+
   const Linha: React.FC<{ n: NoMapa; setor?: string; comando?: string }> = ({ n, setor, comando }) => {
     const abre = aberto(n.id);
-    const filhos = n.nivel === 'cliente' ? (n.faturas?.length || n.creditos?.length) : n.filhos.length;
+    const filhos = n.nivel === 'cliente' ? (n.faturas?.length || n.contestadas?.length || n.creditos?.length) : n.filhos.length;
     const estilo = n.nivel === 'setor' ? 'bg-slate-100 font-bold text-slate-800' : n.nivel === 'comando' ? 'bg-slate-50 font-semibold text-slate-700' : 'bg-white text-slate-700';
     const recuo = n.nivel === 'setor' ? 'pl-3' : n.nivel === 'comando' ? 'pl-8' : 'pl-14';
     const cliqueLinha = filhos ? () => alternar(n.id) : undefined;
@@ -147,12 +152,17 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
               </div>
             </div>
           </td>
-          <td className="px-2 py-2 text-right tabular-nums text-xs">{n.qtd || '—'}</td>
-          <td className={`px-2 py-2 text-right tabular-nums ${n.vencido > 0.005 ? 'text-red-700' : 'text-slate-400'}`}>{vazio(n.vencido)}</td>
-          <td className="px-2 py-2 text-right tabular-nums">{vazio(n.aVencer)}</td>
-          <td className="px-2 py-2 text-right tabular-nums">{vazio(n.divida)}</td>
-          <td className="px-2 py-2 text-right tabular-nums text-green-700">{vazio(n.credito)}</td>
-          <td className={`px-2 py-2 text-right tabular-nums font-bold ${n.liquido > 0.005 ? 'text-red-700' : 'text-slate-400'}`}>
+          <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-xs">{n.qtd || '—'}</td>
+          <td className={`px-2 py-2 text-right tabular-nums whitespace-nowrap ${n.vencido > 0.005 ? 'text-red-700' : 'text-slate-400'}`}>{vazio(n.vencido)}</td>
+          <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{vazio(n.aVencer)}</td>
+          <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">{vazio(n.divida)}</td>
+          <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap">
+            {n.contestado > 0.005
+              ? <button type="button" className="text-amber-700 font-semibold underline decoration-dotted hover:text-amber-900" title={`${n.qtdContestadas} fatura(s) contestada(s): fora da dívida. Clique para ver.`} onClick={e => { e.stopPropagation(); setDetalhe({ titulo: `Faturas contestadas — ${n.nome}`, faturas: contestadasDe(n, setor || '', comando || '') }); }}>{brl(n.contestado)}</button>
+              : <span className="text-slate-300">—</span>}
+          </td>
+          <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap text-green-700">{vazio(n.credito)}</td>
+          <td className={`px-2 py-2 text-right tabular-nums whitespace-nowrap font-bold ${n.liquido > 0.005 ? 'text-red-700' : 'text-slate-400'}`}>
             {n.liquido > 0.005 ? brl(n.liquido) : '—'}
             {n.sobra > 0.005 && <div className="text-[10px] font-normal text-green-700" title="Crédito que ultrapassa a dívida da OM e fica disponível">sobra {brl(n.sobra)}</div>}
           </td>
@@ -165,14 +175,22 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
               <td className="py-1 pl-24 pr-2"><span className="font-mono text-slate-700">{f.numero}</span> <span className="text-slate-400">({f.tipo})</span>{f.contestada && <span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1">contestada</span>}</td>
               <td></td>
               <td className={`px-2 py-1 text-right ${f.atraso ? 'text-red-700' : 'text-slate-400'}`} colSpan={2}>{dataBR(f.vencimento)}{f.atraso ? ` · ${f.atraso} dias` : ''}</td>
-              <td className="px-2 py-1 text-right tabular-nums">{brl(f.saldo)}</td><td></td><td></td>
+              <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">{brl(f.saldo)}</td><td></td><td></td><td></td>
+            </tr>
+          ))}
+          {(n.contestadas || []).map(f => (
+            <tr key={f.id} className="bg-amber-50/60 text-xs text-slate-500 border-l-4 border-l-amber-300" data-testid="fatura-contestada">
+              <td className="py-1 pl-24 pr-2"><span className="font-mono text-slate-700">{f.numero}</span> <span className="text-slate-400">({f.tipo})</span><span className="ml-1 text-[10px] bg-amber-100 text-amber-800 rounded px-1" title="Em contestação: fora da dívida e do a pagar">contestada</span></td>
+              <td></td>
+              <td className={`px-2 py-1 text-right ${f.atraso ? 'text-red-700' : 'text-slate-400'}`} colSpan={2}>{dataBR(f.vencimento)}{f.atraso ? ` · ${f.atraso} dias` : ''}</td>
+              <td></td><td className="px-2 py-1 text-right tabular-nums whitespace-nowrap text-amber-800">{brl(f.saldo)}</td><td></td><td></td>
             </tr>
           ))}
           {n.creditos!.map(c => (
             <tr key={c.id} className="bg-white text-xs text-green-700 border-l-4 border-l-green-200">
               <td className="py-1 pl-24 pr-2 font-medium"><FileCheck size={12} className="inline mr-1" />ALTCRED/GRU: {c.numero}<span className="ml-2 font-normal text-green-800/80">saldo ainda não lançado em fatura{c.origem ? ` · ${c.origem}` : ''}</span></td>
-              <td></td><td></td><td></td><td></td>
-              <td className="px-2 py-1 text-right tabular-nums">{brl(c.valor)}</td><td></td>
+              <td></td><td></td><td></td><td></td><td></td>
+              <td className="px-2 py-1 text-right tabular-nums whitespace-nowrap">{brl(c.valor)}</td><td></td>
             </tr>
           ))}
         </>}
@@ -192,12 +210,13 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
         <p>Se esse saldo já pagou alguma fatura, falta lançar a baixa: em <b>Recebimentos</b>, abra o documento e use <b>Baixa assistida</b> ou <b>Pagar Faturas</b>; o crédito sai daqui e a fatura sai da dívida.</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
         <Cartao rotulo="Dívida em aberto" valor={brl(t.divida)} dica={`${t.qtd} fatura(s) com saldo a pagar. Clique para tirar os filtros dos cartões.`} ativo={!filtroFat && !soComValor && !soComCredito && !soSobra} onClick={limparCartoes} />
         <Cartao rotulo="Vencido" valor={brl(t.vencido)} tom={t.vencido > 0 ? 'alerta' : 'normal'} dica="Clique para deixar na árvore só as faturas vencidas" ativo={filtroFat === 'vencidas'} onClick={() => alternarFat('vencidas')} />
         <Cartao rotulo="A vencer" valor={brl(t.aVencer)} dica="Clique para deixar na árvore só as faturas a vencer" ativo={filtroFat === 'aVencer'} onClick={() => alternarFat('aVencer')} />
         <Cartao rotulo="Crédito que abate a dívida" valor={brl(t.credito - t.sobra)} tom="ok" dica="Saldo de ALTCRED/GRU que ainda NÃO foi lançado em nenhuma fatura e que reduz a dívida da própria OM. Clique para deixar na árvore só as OM que têm crédito" ativo={soComCredito} onClick={() => setSoComCredito(v => !v)} />
         <Cartao rotulo="Crédito que sobra" valor={brl(t.sobra)} tom="ok" dica="Clique para deixar na árvore só as OM com crédito maior que a dívida" ativo={soSobra} onClick={() => setSoSobra(v => !v)} />
+        <Cartao rotulo="Em contestação" valor={brl(t.contestado)} tom={t.contestado > 0 ? 'alerta' : 'normal'} dica={`${t.qtdContestadas} fatura(s) contestada(s): ficam FORA da dívida e do a pagar, na coluna Contestado. Clique para deixar na árvore só as OM que têm fatura contestada.`} ativo={soContest} onClick={() => setSoContest(v => !v)} />
         <Cartao rotulo="A pagar (líquido)" valor={brl(t.liquido)} tom="destaque" dica="Dívida menos o crédito de cada OM. Clique para deixar na árvore só as OM com valor a pagar" ativo={soComValor} onClick={() => setSoComValor(v => !v)} />
       </div>
 
@@ -211,23 +230,13 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
             <button type="button" onClick={() => setPainelOM(v => !v)} aria-expanded={painelOM} className={`px-3 py-1.5 text-sm rounded-md border pb-1.5 ${escolhidas.size ? 'bg-primary-50 border-primary-400 text-primary-800 font-semibold' : 'bg-white border-slate-300 text-slate-700'}`}>
           Escolher OM{escolhidas.size ? ` (${escolhidas.size})` : ''}</button></fieldset>
-          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação (cartões acima)</legend>
+          <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               
-              <div className="flex flex-col gap-1" role="radiogroup" aria-label="Faturas contestadas">
-                <div className="inline-flex rounded-md border border-slate-300 overflow-hidden text-sm">
-                  {([['fora', 'Não contar'], ['dentro', 'Contar na dívida'], ['so', 'Ver só as contestadas']] as const).map(([v, r]) => (
-                    <label key={v} className={`px-3 py-1.5 cursor-pointer border-l first:border-l-0 border-slate-300 ${contest === v ? 'bg-primary-600 text-white font-semibold' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-                      <input type="radio" name="contestadas-mapa" className="sr-only" checked={contest === v} onChange={() => setContest(v)} />{r}</label>
-                  ))}
-                </div>
-                <span className="text-[11px] text-slate-500">{contestadas.length
-                  ? `${contestadas.length} fatura(s) contestada(s), ${brl(contestadas.reduce((x, f) => x + f.saldo, 0))}: ` + (contest === 'fora' ? 'fora da dívida e da árvore.' : contest === 'dentro' ? 'contam na dívida e aparecem marcadas "contestada".' : 'só elas aparecem na árvore.')
-                  : 'Nenhuma fatura em contestação.'}</span>
-              </div>
+              <span className="text-xs text-slate-500 max-w-md">Vencidas, a vencer, crédito, a pagar e <b>em contestação</b>: use os <b>cartões</b> acima. As contestadas ficam <b>fora da dívida</b>, na coluna Contestado.</span>
             </div></fieldset>
         </div>
-        {!(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || contest !== 'fora') && <p className="text-xs text-slate-500">Nenhum filtro ligado: todas as OM com dívida ou crédito.</p>}
+        {!(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || soContest) && <p className="text-xs text-slate-500">Nenhum filtro ligado: todas as OM com dívida ou crédito.</p>}
       </div>
 
       {painelOM && (
@@ -254,18 +263,18 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
           </div>
         </section>
       )}
-      {(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || contest !== 'fora') && (
+      {(escolhidas.size > 0 || foco.setor || foco.om || filtroFat || soComValor || soComCredito || soSobra || soContest) && (
         <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Filtros do mapa">
           <span className="text-slate-500">Mostrando só:</span>
           {escolhidas.size > 0 && <button type="button" onClick={() => setEscolhidas(new Set())} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Mostrar todas as OM de novo">{escolhidas.size} OM escolhida(s) <X size={11} /></button>}
-          {filtroFat && <button type="button" onClick={() => setFiltroFat(undefined)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">{ROTULO_FAT[filtroFat] || `Faturas com ${filtroFat} de atraso`}{semContestadas ? ' (sem contestadas)' : ''} <X size={12} /></button>}
+          {filtroFat && <button type="button" onClick={() => setFiltroFat(undefined)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">{ROTULO_FAT[filtroFat] || `Faturas com ${filtroFat} de atraso`}<X size={12} /></button>}
           {soComValor && <button type="button" onClick={() => setSoComValor(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com valor a pagar <X size={12} /></button>}
           {soComCredito && <button type="button" onClick={() => setSoComCredito(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito <X size={12} /></button>}
-          {contest !== 'fora' && <button type="button" onClick={() => setContest('fora')} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Voltar ao padrão: contestadas fora da dívida">{contest === 'dentro' ? 'Contestadas contadas na dívida' : 'Só as contestadas'} ×</button>}
+          {soContest && <button type="button" onClick={() => setSoContest(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com fatura contestada ×</button>}
           {soSobra && <button type="button" onClick={() => setSoSobra(false)} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM com crédito que sobra <X size={12} /></button>}
           {foco.setor && <button type="button" onClick={() => setFoco(f => ({ ...f, setor: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">Setor {foco.setor} <X size={12} /></button>}
           {foco.om && <button type="button" onClick={() => setFoco(f => ({ ...f, om: undefined }))} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary-50 text-primary-800 border border-primary-200 text-xs" title="Remover este filtro">OM {foco.om} <X size={12} /></button>}
-          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); setContest('fora'); }}>Limpar filtros</button>
+          <button type="button" className="text-primary-700 underline text-xs" onClick={() => { setFoco({}); limparCartoes(); setEscolhidas(new Set()); }}>Limpar filtros</button>
         </div>
       )}
       {semCadastro > 0 && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">{semCadastro} crédito(s) estão em nome de um cliente que não existe no cadastro de OM; por isso não abatem nenhuma dívida. Ligue o nome da ALTCRED à OM em Recebimentos.</p>}
@@ -293,18 +302,18 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
               <tr>
                 <th className="px-3 py-3 text-left">Setor › Comando › OM</th>
                 <th className="px-2 py-3 text-right">Faturas</th><th className="px-2 py-3 text-right">Vencido</th><th className="px-2 py-3 text-right">A vencer</th>
-                <th className="px-2 py-3 text-right">Dívida</th><th className="px-2 py-3 text-right">Crédito</th><th className="px-2 py-3 text-right">A pagar</th>
+                <th className="px-2 py-3 text-right">Dívida</th><th className="px-2 py-3 text-right" title="Faturas em contestação: fora da dívida e do a pagar">Contestado</th><th className="px-2 py-3 text-right">Crédito</th><th className="px-2 py-3 text-right">A pagar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {mapa.setores.map(s => <Linha key={s.id} n={s} />)}
-              {!mapa.setores.length && <tr><td colSpan={7} className="text-center py-8 text-slate-500">{filtrado ? 'Nada com esses filtros.' : 'Nenhuma pendência encontrada.'}</td></tr>}
+              {!mapa.setores.length && <tr><td colSpan={8} className="text-center py-8 text-slate-500">{filtrado ? 'Nada com esses filtros.' : 'Nenhuma pendência encontrada.'}</td></tr>}
             </tbody>
             <tfoot className="bg-slate-800 text-white font-bold">
               <tr>
                 <td className="px-3 py-3 uppercase">Total a pagar (líquido)</td>
-                <td className="px-2 py-3 text-right tabular-nums">{t.qtd}</td><td className="px-2 py-3 text-right tabular-nums">{vazio(t.vencido)}</td><td className="px-2 py-3 text-right tabular-nums">{vazio(t.aVencer)}</td>
-                <td className="px-2 py-3 text-right tabular-nums">{vazio(t.divida)}</td><td className="px-2 py-3 text-right tabular-nums">{vazio(t.credito)}</td><td className="px-2 py-3 text-right tabular-nums text-lg">{brl(t.liquido)}</td>
+                <td className="px-2 py-3 text-right tabular-nums whitespace-nowrap">{t.qtd}</td><td className="px-2 py-3 text-right tabular-nums whitespace-nowrap">{vazio(t.vencido)}</td><td className="px-2 py-3 text-right tabular-nums whitespace-nowrap">{vazio(t.aVencer)}</td>
+                <td className="px-2 py-3 text-right tabular-nums whitespace-nowrap">{vazio(t.divida)}</td><td className="px-2 py-3 text-right tabular-nums whitespace-nowrap text-amber-200">{vazio(t.contestado)}</td><td className="px-2 py-3 text-right tabular-nums whitespace-nowrap">{vazio(t.credito)}</td><td className="px-2 py-3 text-right tabular-nums whitespace-nowrap text-lg">{brl(t.liquido)}</td>
               </tr>
             </tfoot>
           </table>
@@ -331,8 +340,8 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
                   <tbody>{fOM.map(c => (
                     <tr key={c.id} className="border-t border-slate-100 hover:bg-primary-50/40 cursor-pointer" onClick={() => abrirOM(c)}>
                       <td className="px-2 py-1.5 font-medium"><button type="button" className="text-left hover:text-primary-700 hover:underline" title="Abrir o detalhe da OM">{c.nome}</button><div className="text-[11px] text-slate-500 font-normal">{c.comando}</div></td>
-                      <td className="px-2">{c.setor}</td><td className="px-2 text-right tabular-nums">{vazio(c.divida)}</td><td className="px-2 text-right tabular-nums text-green-700">{vazio(c.credito)}</td>
-                      <td className="px-2 text-right tabular-nums font-semibold">{brl(detalhe.modoOM === 'sobra' ? c.sobra : c.liquido)}</td>
+                      <td className="px-2">{c.setor}</td><td className="px-2 text-right tabular-nums whitespace-nowrap">{vazio(c.divida)}</td><td className="px-2 text-right tabular-nums whitespace-nowrap text-green-700">{vazio(c.credito)}</td>
+                      <td className="px-2 text-right tabular-nums whitespace-nowrap font-semibold">{brl(detalhe.modoOM === 'sobra' ? c.sobra : c.liquido)}</td>
                     </tr>))}</tbody>
                 </table>
               )}
@@ -346,7 +355,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
                         <td className="px-2 py-1 min-w-[220px] max-w-[360px] whitespace-normal break-words leading-tight" title={f.om}>{f.om}</td><td className="px-2">{f.tipo}</td>
                         <td className="px-2 text-center">{dataBR(f.vencimento)}</td>
                         <td className={`px-2 text-right ${f.atraso ? 'text-red-700 font-semibold' : 'text-slate-400'}`}>{f.atraso ? `${f.atraso} dias` : '—'}</td>
-                        <td className="px-2 text-right tabular-nums font-semibold">{brl(f.saldo)}</td>
+                        <td className="px-2 text-right tabular-nums whitespace-nowrap font-semibold">{brl(f.saldo)}</td>
                       </tr>
                     ))}
                     {!fFat.length && <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400">Nenhuma fatura.</td></tr>}
@@ -358,7 +367,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
                   <thead className="bg-green-50 text-green-900 sticky top-0"><tr><th className="px-2 py-2 text-left">ALTCRED/GRU</th><th className="px-2 py-2 text-left">OM</th><th className="px-2 py-2 text-left">Origem</th><th className="px-2 py-2 text-right">Crédito disponível</th></tr></thead>
                   <tbody>
                     {fCre.map(c => (
-                      <tr key={c.id} className="border-t border-green-100"><td className="px-2 py-1.5 font-mono">{c.numero}</td><td className="px-2">{c.om}</td><td className="px-2 text-slate-500">{c.origem || '—'}</td><td className="px-2 text-right tabular-nums font-semibold text-green-700">{brl(c.valor)}</td></tr>
+                      <tr key={c.id} className="border-t border-green-100"><td className="px-2 py-1.5 font-mono">{c.numero}</td><td className="px-2">{c.om}</td><td className="px-2 text-slate-500">{c.origem || '—'}</td><td className="px-2 text-right tabular-nums whitespace-nowrap font-semibold text-green-700">{brl(c.valor)}</td></tr>
                     ))}
                     {!fCre.length && <tr><td colSpan={4} className="px-2 py-4 text-center text-slate-400">Nenhum crédito.</td></tr>}
                   </tbody>
