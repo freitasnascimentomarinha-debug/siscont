@@ -2694,6 +2694,27 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.locator('nav').getByRole('button', { name: 'Pontos de Atenção' }).click();
     await page.getByText(/Extra-Marinha: \d+ ponto\(s\) de contratos e GRU/).waitFor();
     ok(true, 'pontos da Extra-MB resumidos na página Pontos de Atenção');
+    // registrar uma GRU nova pela própria página (e baixar a fatura de agosto do Itaú)
+    await page.locator('nav').getByRole('button', { name: 'Extra-Marinha' }).click();
+    await page.getByRole('heading', { name: 'Extra-Marinha' }).waitFor();
+    await page.getByRole('button', { name: /^GRU recebidas/ }).click();
+    await page.getByRole('button', { name: 'Registrar GRU' }).click();
+    const dlgGru = page.getByRole('dialog');
+    await dlgGru.getByLabel('Cliente Extra-Marinha').selectOption({ label: 'Banco Itaú (00997)' });
+    await dlgGru.getByLabel('Número da GRU').fill('GRU NOVA777');
+    await dlgGru.getByLabel('Valor').fill('3290000');   // o campo de valor lê os dígitos como centavos
+    await dlgGru.getByLabel('Data do pagamento').fill('2026-10-20');
+    await dlgGru.getByLabel('Autenticação bancária').fill('AUT-123');
+    ok(await dlgGru.getByText('40015-AL-08-2026-005-0').first().isVisible(), 'registrar GRU: lista as faturas em aberto do cliente');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'extramb-registrar-gru.png') });
+    await dlgGru.getByLabel(/Selecionar a fatura 40015-AL-08-2026-005-0|40015-AL-08-2026-005-0/).first().check();
+    await page.getByRole('button', { name: /Salvar e baixar 1 fatura/ }).click();
+    await page.getByText(/GRU GRU NOVA777 registrada e 1 fatura/).waitFor();
+    const novaGru = db.received_documents.find(d => d.document_number === 'GRU NOVA777');
+    ok(novaGru && novaGru.document_type === 'GRU' && novaGru.total_value === 32900 && novaGru.operation === 'PAGAMENTO' && novaGru.om_id === itau.id && novaGru.gru_autenticacao === 'AUT-123', 'GRU gravada como documento tipo GRU do cliente Extra-MB, com a autenticação');
+    ok(db.payment_allocations.some(a => a.document_id === novaGru.id && a.invoice_id === db.invoices.find(i => i.invoice_number === '40015-AL-08-2026-005-0').id && a.amount === 32900), 'e a fatura de agosto foi baixada pela GRU nova');
+    await page.getByText('GRU NOVA777').first().waitFor();
+    ok(true, 'a GRU nova aparece na lista de GRU da Extra-Marinha');
   });
 
   await cenario('Fluxo de caixa: saldo mensal começa zerado em janeiro e recomeça na virada do ano', [], async (page, db) => {

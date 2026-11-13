@@ -9,6 +9,7 @@ import { carregarExtraMB } from '../services/extraMBService';
 import { useAuth } from '../context/AuthContext';
 import { OM, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
+import { RegistrarGruModal } from '../components/extramb/RegistrarGruModal';
 import { Modal } from '../components/ui/Modal';
 import { notify } from '../utils/notify';
 import { dataBR, hojeISO } from '../utils/datas';
@@ -54,6 +55,7 @@ export const ExtraMarinha: React.FC = () => {
   const [fBusca, setFBusca] = useState('');
   // gru
   const [gSoAlerta, setGSoAlerta] = useState(false);
+  const [registrandoGru, setRegistrandoGru] = useState(false);
   // e-mail
   const [eComp, setEComp] = useState('');
   const [eMarcadas, setEMarcadas] = useState<Set<string>>(new Set());
@@ -308,6 +310,7 @@ export const ExtraMarinha: React.FC = () => {
             <label className="text-sm flex items-center gap-1.5 pb-2"><input type="checkbox" className="h-4 w-4 accent-amber-600" checked={gSoAlerta} onChange={e => setGSoAlerta(e.target.checked)} /> Só as que pedem atenção ({comAlerta})</label>
             <span className="ml-auto text-sm text-slate-600 pb-1.5">{grusFiltradas.length} documento(s) · recebido <b className="tabular-nums">{brlEx(grusFiltradas.reduce((s, g) => s + g.valor, 0))}</b> · disponível <b className="tabular-nums">{brlEx(grusFiltradas.reduce((s, g) => s + g.disponivel, 0))}</b></span>
             <Button variant="secondary" onClick={excelGru}><FileSpreadsheet size={16} className="mr-1" />Excel</Button>
+            {podeEditar && <Button onClick={() => setRegistrandoGru(true)}><Plus size={16} className="mr-1" />Registrar GRU</Button>}
           </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -371,7 +374,7 @@ export const ExtraMarinha: React.FC = () => {
               </div>
               <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
                 <h3 className="px-4 py-2 bg-slate-800 text-white text-sm font-semibold">GRU recebidas em {ano}</h3>
-                <p className="px-4 py-1.5 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">As GRU não entram no Fluxo de Caixa nem na lista de Recebimentos (que mostra só ALTCRED, exceto no Público Extra-MB). Para registrar uma GRU ou baixar faturas com ela: Recebimentos › Público Extra-MB (ou filtro "Tipo de documento" = GRU), ou Novo Documento › Tipo GRU.</p>
+                <p className="px-4 py-1.5 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">As GRU não entram no Fluxo de Caixa nem na lista de Recebimentos (que mostra só ALTCRED, exceto no Público Extra-MB). Para registrar uma GRU nova (e baixar as faturas com ela), use o botão Registrar GRU acima. Para corrigir ou excluir uma GRU já registrada: Recebimentos › Público Extra-MB (ou "Tipo de documento" = GRU).</p>
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Pagamento', 'GRU', 'Autenticação', 'Valor', 'Faturas pagas'].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-100">
@@ -508,6 +511,7 @@ export const ExtraMarinha: React.FC = () => {
           </div>
         )}
       </Modal>
+      <RegistrarGruModal aberto={registrandoGru} onClose={() => setRegistrandoGru(false)} clientes={oms.filter(o => o.tipo === 'EXTRA_MB')} onSalvo={carregar} />
     </div>
   );
 };
