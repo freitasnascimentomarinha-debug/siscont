@@ -11,6 +11,7 @@ const XLSX = require(path.join(__dirname, '../../node_modules/xlsx'));
 const BASE = process.env.BASE_URL || 'http://localhost:5179';
 const SHOTS = process.env.SHOTS_DIR || null;
 const extras = process.argv.slice(2);
+const { varredura } = require('./varredura.cjs');
 
 const now = Math.floor(Date.now() / 1000);
 let seq = 0; const uid = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
@@ -3209,6 +3210,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Escolha um ou mais comandos/).waitFor();
     ok(true, 'limpar o filtro volta ao estado normal');
   });
+
+  if (process.env.VARREDURA) {
+    await cenario('Varredura: todas as páginas, abas e botões seguros com volume realista', [], async (page, db) => {
+      const m = await varredura(page, db, uid, { faturas: Number(process.env.VARREDURA_FATURAS) || 7000 });
+      ok(m.length > 5, `${m.length} páginas percorridas`);
+    });
+  }
 
   await browser.close();
   console.log('\n===== RESUMO =====');
