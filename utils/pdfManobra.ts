@@ -36,7 +36,13 @@ export function desenharDescricaoManobra(doc: jsPDF, dm: DescricaoManobra) {
   };
 
   // cabeçalho: brasão (do próprio arquivo, na proporção da folha) e título sublinhado
-  figura(doc, dm.imagens?.brasao, mm(48), mm(20), mm(47), mm(20));
+  // brasão na proporção correta (no arquivo original ele aparece achatado)
+  if (dm.imagens?.brasao) {
+    try {
+      const pr = doc.getImageProperties(dm.imagens.brasao), alt = 11, larg = alt * pr.width / pr.height;
+      figura(doc, dm.imagens.brasao, L, 4.5, larg, alt);
+    } catch { /* sem o brasão */ }
+  }
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   const cx = (L + R) / 2;
   t('BASE NAVAL DA ILHA DAS COBRAS', cx, mm(37), 9, true, 'center');
@@ -57,9 +63,9 @@ export function desenharDescricaoManobra(doc: jsPDF, dm: DescricaoManobra) {
   };
   quadro(66, 83, 'NAVIOS MANOBRADOS', dm.navio, { neg: true });
   doc.setLineWidth(0.25);
-  quadro(83, 99, 'DATA', datas, { amarelo: true });
+  quadro(83, 99, 'DATA', datas);
   quadro(105, 138, 'OM SOLICITANTE', dm.solicitante, { neg: true });
-  quadro(146, 184, 'MANOBRAS', textoManobras(dm.manobras), { neg: true, amarelo: true, vermelho: true, embaixo: true });
+  quadro(146, 184, 'MANOBRAS', textoManobras(dm.manobras), { neg: true, vermelho: true, embaixo: true });
   quadro(184, 200, 'LOCAL', dm.local, { neg: true });
 
   // tabela
