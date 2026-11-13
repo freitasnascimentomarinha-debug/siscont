@@ -23,6 +23,8 @@ const ROLES: Role[] = ['ADMIN', 'USER', 'READ_ONLY', 'ENCARREGADO', 'CONSULTA_GE
 // Setor e função (informativos, script 035). Autocontido de propósito: sem imports relativos.
 const SETORES = ['FATURAMENTO', 'ACOMPANHAMENTO_CONTABIL', 'CUSTOS'];
 const FUNCOES = ['ENCARREGADO_SETOR', 'AUXILIAR'];
+const MAX_ATRIBUICOES = 3;
+export interface Atribuicao { setor: string; funcao: string | null }
 const MIN_PASSWORD = 8;
 const BAN_FOREVER = '876000h'; // ~100 anos
 
@@ -37,6 +39,8 @@ export interface ManagedUser {
   emailConfirmed: boolean;
   setor: string | null;
   funcao: string | null;
+  /** setores do usuário, cada um com a sua função (script 036); o primeiro é o "principal" (setor/funcao) */
+  atribuicoes: Atribuicao[];
 }
 
 export interface ApiResult {
@@ -126,6 +130,7 @@ async function listUsers(admin: SupabaseClient): Promise<ManagedUser[]> {
         emailConfirmed: !!(u.email_confirmed_at || u.confirmed_at),
         setor: SETORES.includes(p.setor) ? p.setor : null,
         funcao: FUNCOES.includes(p.funcao) ? p.funcao : null,
+        atribuicoes: atribuicoesDoPerfil(p),
       } as ManagedUser;
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -160,6 +165,36 @@ async function authorize(admin: SupabaseClient, authHeader: string | undefined) 
   return data.user;
 }
 
+/** Lista de setores/funções do perfil; sem o script 036, usa o par antigo (setor/funcao). */
+function atribuicoesDoPerfil(p: any): Atribuicao[] {
+  if (Array.isArray(p?.atribuicoes) && p.atribuicoes.length) {
+    return p.atribuicoes
+      .filter((a: any) => a && SETORES.includes(a.setor))
+      .map((a: any) => ({ setor: a.setor, funcao: FUNCOES.includes(a.funcao) ? a.funcao : null }));
+  }
+  return SETORES.includes(p?.setor) ? [{ setor: p.setor, funcao: FUNCOES.includes(p.funcao) ? p.funcao : null }] : [];
+}
+
+/** Valida a lista enviada pela tela: até 3 setores, sem repetir, função opcional. undefined = não mexer. */
+function normAtribuicoes(v: any): Atribuicao[] | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return [];
+  if (!Array.isArray(v)) throw new HttpError(400, 'Setores e funções inválidos.');
+  if (v.length > MAX_ATRIBUICOES) throw new HttpError(400, `No máximo ${MAX_ATRIBUICOES} setores por usuário.`);
+  const vistos = new Set<string>();
+  return v.map((x: any) => {
+    const setor = String(x?.setor ?? '');
+    if (!SETORES.includes(setor)) throw new HttpError(400, 'Setor inválido.');
+    if (vistos.has(setor)) throw new HttpError(400, 'O mesmo setor foi repetido.');
+    vistos.add(setor);
+    const f = x?.funcao;
+    if (f != null && f !== '' && !FUNCOES.includes(String(f))) throw new HttpError(400, 'Função inválida.');
+    return { setor, funcao: f == null || f === '' ? null : String(f) };
+  });
+}
+
+const SEM_036 = 'Falta executar o script supabase/migrations/036_atribuicoes_usuario.sql no Supabase para guardar vários setores por usuário.';
+
 export async function handleAdminUsers(
   admin: SupabaseClient,
   req: { method?: string; authorization?: string; body?: any }
@@ -185,6 +220,7 @@ export async function handleAdminUsers(
         const role = normRole(body.role || 'USER');
         const setor = optChoice(body.setor, SETORES, 'Setor');
         const funcao = optChoice(body.funcao, FUNCOES, 'Função');
+        const atribuicoes = normAtribuicoes(body.atribuicoes);
 
         const { data, error } = await admin.auth.admin.createUser({
           email,
@@ -198,11 +234,13 @@ export async function handleAdminUsers(
         const { error: pErr } = await admin
           .from('profiles')
           // setor/funcao só vão se informados (o banco pode ainda não ter o script 035)
-          .upsert({ id: data.user.id, name, email, role, active: true, ...(setor != null ? { setor } : {}), ...(funcao != null ? { funcao } : {}) });
+          .upsert({ id: data.user.id, name, email, role, active: true, ...(setor != null ? { setor } : {}), ...(funcao != null ? { funcao } : {}),
+            // lista de setores (script 036): o primeiro par também vai em setor/funcao
+            ...(atribuicoes?.length ? { atribuicoes, setor: atribuicoes[0].setor, funcao: atribuicoes[0].funcao } : {}) });
         if (pErr) {
           // Desfaz para não deixar login sem perfil
           await admin.auth.admin.deleteUser(data.user.id);
-          throw new HttpError(500, `Erro ao criar perfil: ${pErr.message}`);
+          throw new HttpError(500, /atribuicoes/.test(pErr.message) ? SEM_036 : `Erro ao criar perfil: ${pErr.message}`);
         }
         return ok({ id: data.user.id });
       }
@@ -228,6 +266,8 @@ export async function handleAdminUsers(
         if (setor !== undefined) patch.setor = setor;
         const funcao = optChoice(body.funcao, FUNCOES, 'Função');
         if (funcao !== undefined) patch.funcao = funcao;
+        const atribuicoes = normAtribuicoes(body.atribuicoes);
+        if (atribuicoes !== undefined) { patch.atribuicoes = atribuicoes; patch.setor = atribuicoes[0]?.setor ?? null; patch.funcao = atribuicoes[0]?.funcao ?? null; }
         if (body.email !== undefined) {
           if (!isEmail(body.email)) throw new HttpError(400, 'E-mail inválido.');
           const email = body.email.trim().toLowerCase();
@@ -239,7 +279,7 @@ export async function handleAdminUsers(
         }
         if (Object.keys(patch).length === 0) throw new HttpError(400, 'Nada para atualizar.');
         const { error } = await admin.from('profiles').upsert({ id, ...(current || {}), ...patch });
-        if (error) throw new HttpError(500, `Erro ao salvar perfil: ${error.message}`);
+        if (error) throw new HttpError(500, /atribuicoes/.test(error.message) ? SEM_036 : `Erro ao salvar perfil: ${error.message}`);
         return ok();
       }
 

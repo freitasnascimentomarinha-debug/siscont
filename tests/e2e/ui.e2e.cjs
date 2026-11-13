@@ -161,12 +161,12 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     assert(await page.getByText('Consulta', { exact: true }).first().isVisible(), 'perfil "Consulta" exibido');
   });
 
-  await scenario('Encarregado vê Painel inicial e Painel do Encarregado', baseState(), async page => {
+  await scenario('Encarregado da Divisão vê todas as páginas (menos Administração), só para consulta', baseState(), async page => {
     await login(page, 'enc@mb.br', 'senha12345');
     await page.getByRole('heading', { name: 'Painel inicial' }).waitFor({ timeout: 10000 });
     const m = await menu(page);
-    assert(m.join('|') === 'Painel inicial|Painel do Encarregado|Gastos da BNIC', `menu com os dois painéis e os Gastos da BNIC (${m.join(', ')})`);
-    assert(await page.getByText('Encarregado', { exact: true }).first().isVisible(), 'perfil "Encarregado" exibido');
+    assert(!m.includes('Administração') && m.includes('Painel do Encarregado') && m.includes('Cadastros') && m.includes('Gastos da BNIC') && m.length >= 12, `menu completo sem Administração (${m.length} itens)`);
+    assert(await page.getByText('Encarregado da Divisão', { exact: true }).first().isVisible(), 'perfil "Encarregado da Divisão" exibido');
     await page.locator('nav').getByRole('button', { name: 'Painel do Encarregado' }).click();
     await page.getByRole('heading', { name: 'Painel do Encarregado' }).waitFor();
     assert(!(await page.getByText('definir grupo…').count()), 'encarregado não edita o grupo de setores (só visualiza)');
@@ -217,6 +217,31 @@ const assert = (cond, msg) => { if (!cond) throw new Error('FALHOU: ' + msg); co
     await page.getByTitle('Minha Conta: alterar nome e senha').click();
     await page.getByRole('heading', { name: 'Minha Conta' }).waitFor();
     assert(await page.getByLabel('Senha atual').isVisible(), 'formulário de troca de senha disponível');
+  });
+
+  await scenario('Admin dá vários setores, cada um com a sua função, a um usuário', baseState(), async page => {
+    await login(page, 'admin@mb.br', 'senha12345');
+    await page.getByRole('button', { name: 'Administração' }).click();
+    await page.getByRole('cell', { name: /SG Leitor/ }).waitFor();
+    await page.getByRole('row', { name: /SG Leitor/ }).getByTitle('Editar').click();
+    await page.getByRole('heading', { name: 'Editar Usuário' }).waitFor();
+    assert(await page.getByText('Nenhum setor informado').isVisible(), 'sem setor: orientação para deixar em branco');
+    await page.getByRole('button', { name: /Adicionar setor/ }).click();
+    await page.getByLabel('Setor 1', { exact: true }).selectOption('FATURAMENTO');
+    await page.getByLabel('Função no setor 1', { exact: true }).selectOption('ENCARREGADO_SETOR');
+    await page.getByRole('button', { name: /Adicionar setor/ }).click();
+    assert(!(await page.getByLabel('Setor 2', { exact: true }).locator('option[value="FATURAMENTO"]').count()), 'o setor já escolhido não aparece de novo na linha seguinte');
+    await page.getByLabel('Setor 2', { exact: true }).selectOption('CUSTOS');
+    await page.getByLabel('Função no setor 2', { exact: true }).selectOption('AUXILIAR');
+    await page.getByRole('button', { name: /Adicionar setor/ }).click();
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await page.getByText(/linha de setor sem o setor escolhido/).waitFor();
+    assert(true, 'linha de setor vazia é recusada com mensagem');
+    await page.getByRole('button', { name: 'Remover setor 3' }).click();
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/admin-setores-funcoes.png` });
+    await page.getByRole('button', { name: 'Salvar' }).click();
+    await page.getByText('Usuário atualizado.').waitFor();
+    const up = (await page.evaluate(() => null), null);
   });
 
   await browser.close();

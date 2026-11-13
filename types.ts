@@ -65,6 +65,11 @@ export const FUNCOES_SETOR = {
   AUXILIAR: 'Auxiliar',
 } as const;
 export type FuncaoSetor = keyof typeof FUNCOES_SETOR;
+/** Um setor do usuário com a função que ele exerce nele. Quem acumula tem mais de um (máximo 3, sem repetir o setor). */
+export interface Atribuicao { setor: SetorDivisao; funcao?: FuncaoSetor | null }
+export const MAX_ATRIBUICOES = 3;
+/** Texto curto: "Faturamento (Encarregado de setor) · Custos (Auxiliar)". */
+export const textoAtribuicoes = (a?: Atribuicao[] | null) => (a || []).map(x => `${SETORES_DIVISAO[x.setor]}${x.funcao ? ` (${FUNCOES_SETOR[x.funcao]})` : ''}`).join(' · ');
 
 /**
  * Páginas que cada perfil vê:
@@ -107,6 +112,7 @@ export interface ManagedUser extends User {
   emailConfirmed: boolean;
   setor?: SetorDivisao | null;   // informativo (script 035)
   funcao?: FuncaoSetor | null;   // informativo (script 035)
+  atribuicoes?: Atribuicao[];    // vários setores, cada um com a sua função (script 036)
 }
 
 // New Interface for Client Management (UG Automation)

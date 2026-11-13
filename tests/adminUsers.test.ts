@@ -125,6 +125,47 @@ describe('criar', () => {
   });
 });
 
+describe('vários setores, cada um com a sua função (script 036)', () => {
+  const ATRIB = [{ setor: 'FATURAMENTO', funcao: 'ENCARREGADO_SETOR' }, { setor: 'CUSTOS', funcao: 'AUXILIAR' }];
+  it('cria com mais de um setor: guarda a lista e o primeiro par em setor/funcao', async () => {
+    const r = await call('tok-admin', { action: 'create', name: 'Acumula', email: 'ac@mb.br', password: 'senhaforte1', role: 'USER', atribuicoes: ATRIB });
+    expect(r.status).toBe(200);
+    expect(fake.profiles.get(r.body.id)).toMatchObject({ atribuicoes: ATRIB, setor: 'FATURAMENTO', funcao: 'ENCARREGADO_SETOR' });
+    const u = (await call('tok-admin', { action: 'list' })).body.users.find((x: any) => x.id === r.body.id);
+    expect(u.atribuicoes).toEqual(ATRIB);
+  });
+  it('edita, troca a ordem, tira um setor e limpa tudo', async () => {
+    expect((await call('tok-admin', { action: 'update', id: OPER, atribuicoes: ATRIB })).status).toBe(200);
+    expect(fake.profiles.get(OPER).atribuicoes).toEqual(ATRIB);
+    expect((await call('tok-admin', { action: 'update', id: OPER, atribuicoes: [ATRIB[1]] })).status).toBe(200);
+    expect(fake.profiles.get(OPER)).toMatchObject({ atribuicoes: [ATRIB[1]], setor: 'CUSTOS', funcao: 'AUXILIAR' });
+    expect((await call('tok-admin', { action: 'update', id: OPER, name: 'Só o nome' })).status).toBe(200);   // não informar = não muda
+    expect(fake.profiles.get(OPER).atribuicoes).toEqual([ATRIB[1]]);
+    expect((await call('tok-admin', { action: 'update', id: OPER, atribuicoes: [] })).status).toBe(200);
+    expect(fake.profiles.get(OPER)).toMatchObject({ atribuicoes: [], setor: null, funcao: null });
+  });
+  it('função é opcional em cada setor', async () => {
+    expect((await call('tok-admin', { action: 'update', id: OPER, atribuicoes: [{ setor: 'CUSTOS' }, { setor: 'FATURAMENTO', funcao: '' }] })).status).toBe(200);
+    expect(fake.profiles.get(OPER).atribuicoes).toEqual([{ setor: 'CUSTOS', funcao: null }, { setor: 'FATURAMENTO', funcao: null }]);
+  });
+  it('recusa setor repetido, setor ou função inexistente, mais de 3 e formato errado', async () => {
+    const upd = (a: any) => call('tok-admin', { action: 'update', id: OPER, atribuicoes: a });
+    expect((await upd([{ setor: 'CUSTOS' }, { setor: 'CUSTOS', funcao: 'AUXILIAR' }])).status).toBe(400);
+    expect((await upd([{ setor: 'COZINHA' }])).status).toBe(400);
+    expect((await upd([{ setor: 'CUSTOS', funcao: 'REI' }])).status).toBe(400);
+    expect((await upd([{ setor: 'FATURAMENTO' }, { setor: 'CUSTOS' }, { setor: 'ACOMPANHAMENTO_CONTABIL' }, { setor: 'FATURAMENTO' }])).status).toBe(400);
+    expect((await upd('FATURAMENTO')).status).toBe(400);
+    expect((await upd([{ funcao: 'AUXILIAR' }])).status).toBe(400);
+  });
+  it('perfil antigo (só setor/funcao, sem a lista) aparece como um par; banco sem o script 036 devolve mensagem clara', async () => {
+    fake.profiles.get(OPER).setor = 'CUSTOS'; fake.profiles.get(OPER).funcao = 'AUXILIAR';
+    const u = (await call('tok-admin', { action: 'list' })).body.users.find((x: any) => x.id === OPER);
+    expect(u.atribuicoes).toEqual([{ setor: 'CUSTOS', funcao: 'AUXILIAR' }]);
+    const sem = (await call('tok-admin', { action: 'list' })).body.users.find((x: any) => x.id === ADMIN);
+    expect(sem.atribuicoes).toEqual([]);
+  });
+});
+
 describe('editar', () => {
   it('define, troca e limpa setor e função sem mexer no resto', async () => {
     expect((await call('tok-admin', { action: 'update', id: OPER, setor: 'CUSTOS', funcao: 'ENCARREGADO_SETOR' })).status).toBe(200);

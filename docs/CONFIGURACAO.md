@@ -528,3 +528,10 @@ Execute `supabase/migrations/035_perfis_consulta_gerencial_setor_funcao.sql` no 
 - **Setor e função** (Faturamento / Acompanhamento Contábil / Contabilidade de Custos; Encarregado de setor / Auxiliar): campos **informativos** no cadastro do usuário. Por enquanto **não restringem nada**; ficam prontos para quando houver mais pessoal por setor. O usuário comum não consegue alterar os próprios (gatilho `profiles_protect_fields`).
 - Limite conhecido: a restrição de páginas por perfil é da **tela**. No banco, qualquer usuário ativo ainda **lê** todas as tabelas (os painéis dependem dessa leitura); só a **escrita** é restrita por perfil.
 Testes: `tests/perfis.test.ts` e `tests/adminUsers.test.ts`.
+
+## Script 036 — Vários setores, cada um com a sua função, por usuário
+Execute `supabase/migrations/036_atribuicoes_usuario.sql` no SQL Editor **antes** de publicar a versão do código que o acompanha (idempotente, não apaga nem altera dados).
+- Nova coluna `profiles.atribuicoes` (lista de pares setor + função; máximo 3, sem repetir o setor, função opcional). O que já estava em `setor`/`funcao` (script 035) vira o primeiro par; as colunas antigas continuam guardando o primeiro par ("setor principal").
+- **Administração › Editar/Novo usuário**: lista "Setores e funções" com *+ Adicionar setor* e *remover*. Quem acumula funções tem uma linha por setor (ex.: Faturamento – Encarregado de setor e Contabilidade de Custos – Auxiliar). Quem não pertence a um setor (administrador, Encarregado da Divisão, consulta, treinamento) fica sem nenhuma linha.
+- Continua **informativo**: não restringe o acesso. Só o administrador altera (gatilho de proteção do perfil). Teste do script: `tests/sql/atribuicoes_036_tests.sql`.
+

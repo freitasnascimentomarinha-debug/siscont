@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FUNCOES_SETOR, ROLE_LABELS, SETORES_DIVISAO, UserRole, podeEditarDados, podeVerPagina } from '../types';
+import { MAX_ATRIBUICOES, textoAtribuicoes, FUNCOES_SETOR, ROLE_LABELS, SETORES_DIVISAO, UserRole, podeEditarDados, podeVerPagina } from '../types';
 
 const PAGINAS = ['dashboard', 'painel', 'pontos', 'faturamento', 'invoices', 'contestacoes', 'received', 'conciliacao', 'cobranca', 'extramb', 'cashflow', 'taxa', 'gastos', 'cadastros', 'auditoria', 'admin'];
 const vistas = (r: UserRole) => PAGINAS.filter(p => podeVerPagina(r, p));
@@ -30,5 +30,14 @@ describe('rótulos, setores e funções', () => {
   it('setores e funções batem com as listas do banco (script 035) e da API', () => {
     expect(Object.keys(SETORES_DIVISAO)).toEqual(['FATURAMENTO', 'ACOMPANHAMENTO_CONTABIL', 'CUSTOS']);
     expect(Object.keys(FUNCOES_SETOR)).toEqual(['ENCARREGADO_SETOR', 'AUXILIAR']);
+  });
+});
+
+describe('setores e funções do usuário (várias atribuições)', () => {
+  it('texto curto das atribuições e limite de 3', () => {
+    expect(MAX_ATRIBUICOES).toBe(3);
+    expect(textoAtribuicoes([])).toBe('');
+    expect(textoAtribuicoes([{ setor: 'FATURAMENTO', funcao: 'ENCARREGADO_SETOR' }, { setor: 'CUSTOS', funcao: 'AUXILIAR' }])).toBe('Faturamento (Encarregado de setor) · Contabilidade de Custos (Auxiliar)');
+    expect(textoAtribuicoes([{ setor: 'CUSTOS' }])).toBe('Contabilidade de Custos');
   });
 });
