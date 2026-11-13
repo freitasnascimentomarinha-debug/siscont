@@ -2550,6 +2550,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await radio('MB').click();
     await page.getByText('G1.2026.AC.00001').first().waitFor();
     ok(await page.getByText('GRU ABC123').count() === 0, 'recebimentos: MB mostra só a ALTCRED da DIM');
+    await radio('Todos').click();
+    await page.getByText('G1.2026.AC.00001').first().waitFor();
+    ok(await page.getByText('GRU ABC123').count() === 0, 'recebimentos: no Público Todos as GRU não aparecem (ficam na Extra-Marinha)');
+    await page.getByLabel('Tipo de documento').selectOption('GRU');
+    await page.getByText('GRU ABC123').first().waitFor();
+    ok(await page.getByText('G1.2026.AC.00001').count() === 0, 'recebimentos: filtro "Só GRU" mostra a GRU e esconde a ALTCRED');
+    await page.getByLabel('Tipo de documento').selectOption('auto');
 
     // Extrato de conciliação
     await page.getByRole('button', { name: 'Extrato de conciliação' }).first().click();

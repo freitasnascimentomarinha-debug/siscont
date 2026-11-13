@@ -371,6 +371,7 @@ export const ExtraMarinha: React.FC = () => {
               </div>
               <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
                 <h3 className="px-4 py-2 bg-slate-800 text-white text-sm font-semibold">GRU recebidas em {ano}</h3>
+                <p className="px-4 py-1.5 text-xs text-slate-500 bg-slate-50 border-b border-slate-100">As GRU não entram no Fluxo de Caixa nem na lista de Recebimentos (que mostra só ALTCRED, exceto no Público Extra-MB). Para registrar uma GRU ou baixar faturas com ela: Recebimentos › Público Extra-MB (ou filtro "Tipo de documento" = GRU), ou Novo Documento › Tipo GRU.</p>
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Pagamento', 'GRU', 'Autenticação', 'Valor', 'Faturas pagas'].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-100">

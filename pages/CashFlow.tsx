@@ -266,7 +266,7 @@ const Lancamentos: React.FC = () => {
       {/* ... (Keep existing header and charts) ... */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <p className="text-slate-500 text-sm">Entradas: ALTCRED/GRU recebidas (automáticas). Saídas: notas de empenho por rubrica ou categoria.</p>
+          <p className="text-slate-500 text-sm">Entradas: ALTCRED recebidas (automáticas); as GRU não entram aqui (ficam na página Extra-Marinha). Saídas: notas de empenho por rubrica ou categoria.</p>
         </div>
         <div className="flex gap-2">
           {!isReadOnly && (

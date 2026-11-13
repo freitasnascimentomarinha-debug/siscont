@@ -54,6 +54,8 @@ export const ReceivedBalances: React.FC = () => {
   const [filterSector, setFilterSector] = useState('');
   const [filterCommand, setFilterCommand] = useState('');
   const [filterDocNumber, setFilterDocNumber] = useState('');
+  // os Recebimentos mostram só as ALTCRED; as GRU ficam na página Extra-Marinha (aqui só aparecem se escolher "GRU" ou "Todos")
+  const [filterTipoDoc, setFilterTipoDoc] = useState<'auto' | 'ALTCRED' | 'GRU' | 'todos'>('auto');
   const [filterUG, setFilterUG] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
@@ -134,7 +136,7 @@ export const ReceivedBalances: React.FC = () => {
     return () => window.removeEventListener('siscont:dados-mudaram', aoMudar);
   }, []);
   // volta para a 1ª página quando os filtros ou a aba mudam
-  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterClient, filterDocNumber, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
+  useEffect(() => { setPagina(0); }, [activeTab, filterMonth, filterYear, filterStatus, filterSiplad, filterClient, filterDocNumber, filterTipoDoc, filterUG, filterPontos, filterFatura, exSetor, exComando, exCliente, porPagina]);
 
   // --- Auto-fill Service Type when selecting invoice ---
   useEffect(() => {
@@ -167,6 +169,7 @@ export const ReceivedBalances: React.FC = () => {
   const resolv = useMemo(() => criarResolvedor(cad.oms, cad.comandos, cad.setores), [cad]);
   const rotulos = useMemo(() => new Map<string, Rotulo>(documents.map(d => [d.id, resolv.rotuloDoDocumento(d)])), [documents, resolv]);
   const [publico, setPublico] = usePublico('recebimentos');
+  useEffect(() => { setPagina(0); }, [publico]);
   const cls = useClassificadorPublico(cad.oms as OMTipo[]);
   const docExtra = (d: ReceivedDocument) => { const om = rotulos.get(d.id)?.omId; return om ? cls.omExtra(om) : cls.docExtra(d); };
   const rot = (d: ReceivedDocument) => rotulos.get(d.id) || { omId: null, setor: d.sector || 'Sem setor', comando: d.command || 'Sem comando', cliente: d.client || 'Sem cliente', comandoId: null };
@@ -184,6 +187,9 @@ export const ReceivedBalances: React.FC = () => {
 
   // --- Filtering Logic ---
   const filteredDocs = documents.filter(d => {
+    // automático: só ALTCRED; com o Público Extra-MB aparecem as GRU também (é como esses clientes pagam)
+    const tipoDoc = filterTipoDoc === 'auto' ? (publico === 'EXTRA' ? 'todos' : 'ALTCRED') : filterTipoDoc;
+    if (tipoDoc !== 'todos' && d.documentType !== tipoDoc) return false;
     // 1. Tab Filter
     // sobra de ALTCRED de pagamento enviada para adiantamento aparece também na aba Adiantamentos
     if (d.operation !== activeTab && !(activeTab === OperationType.ADIANTAMENTO && d.sobraAdiantamento)) return false;
@@ -743,6 +749,7 @@ export const ReceivedBalances: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3">
           <Select label="Mês" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} />
           <Select label="Ano" value={filterYear} onChange={e => setFilterYear(e.target.value)} options={years.map(y => ({ label: y, value: y }))} />
+          <Select label="Tipo de documento" value={filterTipoDoc} onChange={e => setFilterTipoDoc(e.target.value as any)} options={[{ label: 'Automático (ALTCRED; no Público Extra-MB, também GRU)', value: 'auto' }, { label: 'Só ALTCRED', value: 'ALTCRED' }, { label: 'Só GRU', value: 'GRU' }, { label: 'ALTCRED e GRU', value: 'todos' }]} />
           <Select label="Situação no SIPLAD" value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} options={FILTRO_SITUACAO} />
           <Select label="Status" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)} options={[{ label: 'Todos', value: 'all' }, { label: 'Com Saldo', value: 'with_balance' }, { label: 'Sem Saldo', value: 'no_balance' }]} />
           <Input label="UG" value={filterUG} onChange={e => setFilterUG(e.target.value)} placeholder="Buscar UG..." />
@@ -759,7 +766,7 @@ export const ReceivedBalances: React.FC = () => {
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={() => {
             setFilterMonth(''); setFilterYear(''); setFilterStatus('all'); setFilterSiplad('todas'); setFilterUG(''); setFilterSector(''); setFilterCommand(''); setFilterClient(''); setFilterDocNumber('');
-            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos('');
+            setFilterFatura(''); setExSetor(new Set()); setExComando(new Set()); setExCliente(new Set()); setFilterPontos(''); setFilterTipoDoc('auto');
           }}>
             <X size={14} className="mr-1" /> Limpar Filtros
           </Button>

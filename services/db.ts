@@ -1,6 +1,6 @@
 
 import { hojeISO } from '../utils/datas';
-import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition } from '../types';
+import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition, DocumentType } from '../types';
 import { supabaseService } from './supabaseService';
 import { ehAdiantamento } from '../utils/baixas';
 import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
@@ -247,7 +247,8 @@ export const db = {
     ]);
 
     const items: CashFlowItem[] = [];
-    docs.forEach(d => {
+    // GRU não entram no fluxo de caixa (ficam na página Extra-Marinha); só as ALTCRED são entrada recebida
+    docs.filter(d => d.documentType !== DocumentType.GRU).forEach(d => {
       items.push({ id: d.id, date: d.date, documentNumber: d.documentNumber, client: d.client, type: 'ENTRY', value: d.totalValue, description: `Entrada via ${d.documentType} (${d.operation})`, observation: d.observation, balanceAfter: 0 });
     });
     exits.forEach(e => {
