@@ -1,6 +1,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { registrarErro } from '../services/errosService';
 
 interface Props {
   children: ReactNode;
@@ -22,6 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('CRITICAL APP ERROR:', error, errorInfo);
+    void registrarErro(error, 'tela quebrou: ' + (errorInfo.componentStack || '').split('\n').slice(0, 4).join(' '));
   }
 
   public render() {

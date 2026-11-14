@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
+import { instalarCapturaDeErros } from './services/errosService';
+
+instalarCapturaDeErros();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

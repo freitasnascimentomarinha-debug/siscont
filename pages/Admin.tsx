@@ -3,11 +3,12 @@ import { db } from '../services/db';
 import { TABELAS_BACKUP_EXTRAS, exportarTabela, registrarBackup } from '../services/auditoriaService';
 import { Button } from '../components/ui/Button';
 import { UsersPanel } from '../components/admin/UsersPanel';
+import { ErrosPanel } from '../components/admin/ErrosPanel';
 // @ts-ignore
 import * as XLSX from 'xlsx';
 import { Upload, Save, Shield, Database, Cloud, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-type AdminTab = 'users' | 'backup';
+type AdminTab = 'users' | 'backup' | 'erros';
 
 /** Administração: usuários e rotinas do sistema. Clientes, serviços e parâmetros ficam em "Cadastros". */
 export const Admin: React.FC = () => {
@@ -125,19 +126,20 @@ export const Admin: React.FC = () => {
       </div>
 
       <div className="flex space-x-1 border-b border-slate-200 overflow-x-auto">
-        {(['users', 'backup'] as AdminTab[]).map(tab => (
+        {(['users', 'backup', 'erros'] as AdminTab[]).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === tab ? 'border-primary-600 text-primary-700 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
           >
-            {tab === 'users' ? 'Usuários' : 'Sistema'}
+            {tab === 'users' ? 'Usuários' : tab === 'erros' ? 'Erros' : 'Sistema'}
           </button>
         ))}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {activeTab === 'users' && <UsersPanel />}
+        {activeTab === 'erros' && <ErrosPanel />}
 
         {/* --- BACKUP / SYSTEM TAB --- */}
         {activeTab === 'backup' && (

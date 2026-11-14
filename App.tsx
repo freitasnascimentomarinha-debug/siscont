@@ -11,6 +11,7 @@ import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
+import { definirPaginaDoErro } from './services/errosService';
 
 /** Carrega a tela sob demanda; se o arquivo sumiu (nova versão publicada com a aba aberta), recarrega a página uma vez. */
 function telaLazy<M>(carregar: () => Promise<M>, pegar: (m: M) => React.ComponentType<any>) {
@@ -45,6 +46,7 @@ export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamen
 const AuthenticatedApp = () => {
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
+  useEffect(() => { definirPaginaDoErro(currentPage); }, [currentPage]);
   // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
   useEffect(() => { cadastroService.listParametros().then(p => { definirNormas(normasDe(p)); definirAssinatura(assinaturaDe(p)); }).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
 
