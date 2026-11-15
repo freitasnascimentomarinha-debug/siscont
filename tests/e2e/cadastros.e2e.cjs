@@ -2404,6 +2404,30 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('Não está ligado ao cadastro').isVisible(), 'texto que não é de nenhuma OM continua avisando');
   });
 
+  await cenario('SIPLAD: ALTCRED de outros serviços (R.901.16, sem fatura) cadastrada como "Outros": só no fluxo de caixa', [pdfSiplad('Processada', 'Z999.2026.AC.00010'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00011')], async (page, db, arquivos) => {
+    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00010').first().waitFor({ timeout: 20000 });
+    ok(await page.getByLabel('Ação para Z999.2026.AC.00011').inputValue() === 'IGNORAR', 'a devolvida continua vindo como "Não importar"');
+    const opcoes = await page.getByLabel('Ação para Z999.2026.AC.00010').locator('option').allInnerTexts();
+    ok(opcoes.some(o => /Outros \(só fluxo de caixa\)/.test(o)), 'cada linha oferece "Cadastrar como Outros (só fluxo de caixa)"');
+    // a "Não importar" também pode virar Outros (o usuário sabe que o crédito entrou), com aviso de conferência
+    await page.getByLabel('Ação para Z999.2026.AC.00011').selectOption('OUTROS');
+    ok(await page.getByText(/Confira se o crédito realmente entrou na R\.901\.16/).isVisible(), 'avisa para conferir quando a situação no SIPLAD não é de crédito entrado');
+    await page.getByLabel('Ação para Z999.2026.AC.00010').selectOption('OUTROS');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-outros.png') });
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
+    const d10 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00010'), d11 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00011');
+    ok(d10 && d10.operation === 'OUTROS' && d10.aguardando === false && /outros serviços/.test(d10.observation || ''), 'gravada como operação "Outros", sem "aguardando" e com a nota');
+    ok(d11 && d11.operation === 'OUTROS', 'a que estava em "Não importar" também foi gravada quando o usuário escolheu Outros');
+    // aparece como entrada no Fluxo de caixa e não oferece saldo para baixa
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
+    await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
+    ok(await page.getByText('Z999.2026.AC.00010').first().isVisible(), 'a ALTCRED de outros serviços aparece como entrada no Fluxo de caixa');
+  });
+
   await cenario('SIPLAD: situação da ALTCRED (processada, aguardando, devolvida) identificada na importação, na lista e no filtro', [pdfSiplad('Aguardando processamento', 'Z999.2026.AC.00002'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00003'), pdfSiplad('Processada', 'Z999.2026.AC.00004')], async (page, db, arquivos) => {
     await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();

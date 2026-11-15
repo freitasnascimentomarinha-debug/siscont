@@ -10,4 +10,11 @@ export const ehAdiantamento = (b: BaixaTipada, doc?: DocOperacao | null): boolea
   b.tipoBaixa ? b.tipoBaixa === 'ADIANTAMENTO' : doc?.operation === 'ADIANTAMENTO';
 
 /** Documento que pode ser usado como adiantamento ao lançar uma fatura. */
+/**
+ * Saldo que o documento ainda oferece para baixar faturas. Documento da operação "Outros" (ALTCRED recebida na R.901.16 para outros
+ * serviços, sem fatura) não paga fatura nenhuma: não tem saldo para baixa e fica só no fluxo de caixa.
+ */
+export const saldoDisponivelDoc = (d: { operation: string; totalValue: number }, usado: number): number =>
+  d.operation === 'OUTROS' ? 0 : Math.round((d.totalValue - usado) * 100) / 100;
+
 export const aceitaAdiantamento = (d: DocOperacao) => d.operation === 'ADIANTAMENTO' || !!d.sobraAdiantamento;

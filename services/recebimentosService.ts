@@ -111,6 +111,17 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
   });
 }
 
+/**
+ * ALTCRED recebida na R.901.16 que NÃO é para pagar fatura (outros serviços): cadastrada na operação "Outros".
+ * Entra só no fluxo de caixa; não fica "aguardando destinação" e não oferece saldo para baixa nem adiantamento.
+ */
+export function comoRecebimentoOutros(i: ItemImportacao): ItemImportacao {
+  if (i.acao === 'ESTORNO' || i.acao === 'IGNORAR') return i;
+  const nota = 'Recebida na R.901.16 para outros serviços (sem fatura): só fluxo de caixa.';
+  return { ...i, doc: { ...i.doc, operation: OperationType.OUTROS, aguardando: false, informedAdvance: false, sobraAdiantamento: false, destinacao: [],
+    observation: [i.doc.observation, nota].filter(Boolean).join(' | ') } };
+}
+
 export async function gravarImportacaoSiplad(itens: ItemImportacao[]) {
   let n = 0;
   for (const i of itens) {

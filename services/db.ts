@@ -3,7 +3,7 @@ import { hojeISO } from '../utils/datas';
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition, DocumentType } from '../types';
 import { supabaseService } from './supabaseService';
 import { exercicio } from './exercicio';
-import { ehAdiantamento } from '../utils/baixas';
+import { ehAdiantamento, saldoDisponivelDoc } from '../utils/baixas';
 import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
 
 // --- Simple In-Memory Cache ---
@@ -213,7 +213,7 @@ export const db = {
       usado.set(a.documentId, (usado.get(a.documentId) || 0) + a.amount);
     });
     const pontos = avaliarPontos(invoices, docs, allocations).documentos;
-    return docs.map(doc => ({ ...doc, availableValue: Math.round((doc.totalValue - (usado.get(doc.id) || 0)) * 100) / 100, /* centavos: evita resíduo de ponto flutuante (0,0000000000036 aparecia como saldo R$ 0,00) */ pontos: pontos.get(doc.id) || [] }));
+    return docs.map(doc => ({ ...doc, availableValue: saldoDisponivelDoc(doc, usado.get(doc.id) || 0), /* centavos: evita resíduo de ponto flutuante (0,0000000000036 aparecia como saldo R$ 0,00) */ pontos: pontos.get(doc.id) || [] }));
   },
 
   // --- PONTOS DE ATENÇÃO ---
