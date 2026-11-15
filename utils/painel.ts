@@ -11,13 +11,16 @@ export interface FaturaPainel {
   id: string; numero: string; cliente: string; setor: string; comando: string; tipo: string;
   ano: number; mes: number; emissao: string; vencimento: string;
   total: number; pago: number; saldo: number; cancelada: boolean; contestada: boolean;
+  /** Linha já agrupada pelo banco (função painel_resumo): quantas faturas ela representa e se já vem como vencida/faixa. */
+  qtd?: number; vencidaDb?: boolean; faixaDb?: string; ehTc?: boolean;
 }
 export type Grupo = 'VENCIDAS_ANTERIORES' | 'VENCIDAS_ANO' | 'VENCIDAS' | 'A_VENCER' | 'EM_ABERTO' | 'FATURADAS_ANO' | 'CONTESTADAS';
 export interface Bloco { valor: number; qtd: number }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const soma = (l: FaturaPainel[], f: (x: FaturaPainel) => number) => r2(l.reduce((s, x) => s + f(x), 0));
-const bloco = (l: FaturaPainel[]): Bloco => ({ valor: soma(l, x => x.saldo), qtd: l.length });
+const nq = (l: FaturaPainel[]) => l.reduce((s, x) => s + (x.qtd ?? 1), 0);
+const bloco = (l: FaturaPainel[]): Bloco => ({ valor: soma(l, x => x.saldo), qtd: nq(l) });
 export const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
 export const FAIXAS_IDADE = ['A vencer', '1 a 30 dias', '31 a 90 dias', '91 a 180 dias', '181 a 365 dias', 'Mais de 1 ano'] as const;
 
@@ -26,10 +29,11 @@ const comSaldo = (f: FaturaPainel) => !f.cancelada && f.saldo > 0.009;
 /** Em aberto = com saldo, não cancelada e NÃO contestada. */
 export const emAberto = (f: FaturaPainel) => comSaldo(f) && !f.contestada;
 export const emContestacao = (f: FaturaPainel) => comSaldo(f) && f.contestada;
-export const vencida = (f: FaturaPainel, hoje: string) => emAberto(f) && !!f.vencimento && f.vencimento.slice(0, 10) < hoje;
+export const vencida = (f: FaturaPainel, hoje: string) => emAberto(f) && (f.vencidaDb ?? (!!f.vencimento && f.vencimento.slice(0, 10) < hoje));
 
 export function faixaIdade(f: FaturaPainel, hoje: string): (typeof FAIXAS_IDADE)[number] {
   if (!vencida(f, hoje)) return 'A vencer';
+  if (f.faixaDb) return f.faixaDb as (typeof FAIXAS_IDADE)[number];
   const d = diasEntre(f.vencimento, hoje);
   return d <= 30 ? '1 a 30 dias' : d <= 90 ? '31 a 90 dias' : d <= 180 ? '91 a 180 dias' : d <= 365 ? '181 a 365 dias' : 'Mais de 1 ano';
 }
@@ -55,7 +59,7 @@ export function resumoPainel(fs: FaturaPainel[], ano: number, hoje: string) {
 
   const porMes = MESES.map((m, i) => {
     const l = doAno.filter(f => f.mes === i + 1);
-    return { mes: m, faturado: soma(l, f => f.total), pago: soma(l, f => f.pago), emAberto: soma(l, f => (emAberto(f) ? f.saldo : 0)), qtd: l.length };
+    return { mes: m, faturado: soma(l, f => f.total), pago: soma(l, f => f.pago), emAberto: soma(l, f => (emAberto(f) ? f.saldo : 0)), qtd: nq(l) };
   });
   const idade = FAIXAS_IDADE.map(faixa => { const l = abertas.filter(f => faixaIdade(f, hoje) === faixa); return { faixa, ...bloco(l) }; });
 
@@ -65,14 +69,14 @@ export function resumoPainel(fs: FaturaPainel[], ano: number, hoje: string) {
       const k = chave(f) || '(sem informação)';
       const g = m.get(k) || { nome: k, vencido: 0, aVencer: 0, qtd: 0 };
       if (vencida(f, hoje)) g.vencido += f.saldo; else g.aVencer += f.saldo;
-      g.qtd++; m.set(k, g);
+      g.qtd += f.qtd ?? 1; m.set(k, g);
     });
     return [...m.values()].map(g => ({ ...g, vencido: r2(g.vencido), aVencer: r2(g.aVencer), total: r2(g.vencido + g.aVencer) })).sort((a, b) => b.total - a.total);
   };
 
   const faturadoAno = soma(doAno, f => f.total), pagoAno = soma(doAno, f => f.pago);
   return {
-    faturadoAno: { valor: faturadoAno, qtd: doAno.length },
+    faturadoAno: { valor: faturadoAno, qtd: nq(doAno) },
     faturadoAnterior: soma(anterior, f => f.total),
     pagoAno, percentualPago: faturadoAno ? Math.round((pagoAno / faturadoAno) * 1000) / 10 : 0,
     vencidasAnteriores: bloco(venc.filter(f => f.ano < ano)),

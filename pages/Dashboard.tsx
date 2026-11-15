@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { db } from '../services/db';
 import { cadastroService } from '../services/cadastroService';
 import { listarPrecos } from '../services/faturamentoService';
+import { LinhaResumo, painelService } from '../services/painelResumoService';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, ReceivedDocument } from '../types';
 import { Button } from '../components/ui/Button';
@@ -46,6 +47,16 @@ const paraPainel = (i: Invoice, rotulo: (omId: string) => Rotulo | undefined): F
   total: totalDe(i), pago: i.paidAmount || 0,
   saldo: i.isCanceled || i.status === InvoiceStatus.PAID ? 0 : i.saldoAPagar ?? Math.max(0, totalDe(i) - (i.paidAmount || 0)),
   cancelada: !!i.isCanceled, contestada: !!i.contestada,
+  };
+};
+
+/** Linha já agrupada pelo banco (painel_resumo): setor/comando/cliente vêm do cadastro da OM; o texto só vale para fatura sem OM. */
+const paraLinha = (l: LinhaResumo, k: number, rotulo: (omId: string) => Rotulo | undefined): FaturaPainel => {
+  const r = l.omId ? rotulo(l.omId) : undefined;
+  return {
+    id: `g${k}`, numero: '', cliente: r?.cliente || l.cliente || '—', setor: r?.setor || l.setor || '—', comando: r?.comando || l.comando || '—', tipo: l.tipo,
+    ano: l.ano, mes: l.mes, emissao: '', vencimento: '', total: l.total, pago: l.pago, saldo: l.saldo, cancelada: false, contestada: l.contestada,
+    qtd: l.qtd, vencidaDb: l.vencida, faixaDb: l.faixa, ehTc: l.ehTc,
   };
 };
 
@@ -102,8 +113,12 @@ const DicaGrafico: React.FC<any> = ({ active, payload, label, rotulo }) => {
 };
 
 export const Dashboard: React.FC = () => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [documents, setDocuments] = useState<ReceivedDocument[]>([]);
+  // Resumo vindo do banco (rápido). Se a função do banco não existir, volta ao modo antigo: baixa todas as faturas (invoices).
+  const [linhas, setLinhas] = useState<LinhaResumo[]>([]);
+  const [modoAntigo, setModoAntigo] = useState(false);
+  // Faturas e documentos completos: só são baixados quando precisam (abrir uma lista, exportar)
+  const [det, setDet] = useState<{ invoices: Invoice[]; documents: ReceivedDocument[] } | null>(null);
+  const [carregandoDet, setCarregandoDet] = useState(false);
   const [precos, setPrecos] = useState<{ ano: number; sigla: string; omId?: string | null; valor: number }[]>([]);
   const [nomesOM, setNomesOM] = useState<Map<string, string>>(new Map());
   const [cad, setCad] = useState<{ oms: OMCad[]; comandos: ComandoCad[]; setores: SetorCad[] }>({ oms: [], comandos: [], setores: [] });
@@ -122,13 +137,17 @@ export const Dashboard: React.FC = () => {
   const [verTodasTc, setVerTodasTc] = useState(false);
 
   const carregar = async () => {
-    setCarregando(true);
+    setCarregando(true); setDet(null);
     try {
-      const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]);
-      setInvoices(invs); setDocuments(docs);
       const a = new Date().getFullYear();
-      const [p, oms, comandos, setores] = await Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => []),
+      const cadP = Promise.all([listarPrecos([a - 2, a - 1, a, a + 1]).catch(() => []), cadastroService.listOMs().catch(() => []),
         cadastroService.listComandos().catch(() => []), cadastroService.listSetores().catch(() => [])]);
+      let resumo: LinhaResumo[] | null = null;
+      try { resumo = await painelService.resumo(hoje); } catch { resumo = null; }   // função ainda não criada no banco: modo antigo
+      let antigo: { invoices: Invoice[]; documents: ReceivedDocument[] } | null = null;
+      if (!resumo) { const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]); antigo = { invoices: invs, documents: docs }; }
+      const [p, oms, comandos, setores] = await cadP;
+      setLinhas(resumo || []); setModoAntigo(!resumo); setDet(antigo);
       setPrecos(p); setNomesOM(new Map((oms as any[]).map(o => [o.id as string, (o.sigla || o.nome) as string] as [string, string])));
       setCad({ oms: oms as any, comandos: comandos as any, setores: setores as any });
     } catch (err) { notify.fail('Erro ao carregar o painel', err); } finally { setCarregando(false); }
@@ -142,14 +161,33 @@ export const Dashboard: React.FC = () => {
     return (id: string) => { if (!memo.has(id)) { const o = porId.get(id); memo.set(id, o ? resolv.rotuloDaOM(o) : undefined); } return memo.get(id); };
   }, [cad, resolv]);
   const cls = useClassificadorPublico(cad.oms as OMTipo[]);
-  const idsExtra = useMemo(() => new Set(invoices.filter(i => cls.faturaExtra(i)).map(i => i.id)), [invoices, cls]);
-  const todas = useMemo(() => invoices.map(i => paraPainel(i, rotuloOM)), [invoices, rotuloOM]);
+  /** Faturas (ou grupos de faturas) no formato do painel + quais são Extra-MB. */
+  const derivarFaturas = (invs: Invoice[]) => ({ fats: invs.map(i => paraPainel(i, rotuloOM)), extras: new Set(invs.filter(i => cls.faturaExtra(i)).map(i => i.id)) });
+  const derivarLinhas = (ls: LinhaResumo[]) => ({
+    fats: ls.map((l, k) => paraLinha(l, k, rotuloOM)),
+    extras: new Set(ls.map((l, k) => (cls.faturaExtra({ omId: l.omId, client: l.cliente || undefined, sector: l.setor || undefined, command: l.comando || undefined }) ? `g${k}` : '')).filter(Boolean)),
+  });
+  const base = useMemo(() => (modoAntigo ? derivarFaturas(det?.invoices || []) : derivarLinhas(linhas)), [modoAntigo, det, linhas, rotuloOM, cls]);
+  const todas = base.fats, idsExtra = base.extras;
   const passa = (x: { setor: string; comando: string; cliente: string }) => !exSetor.has(x.setor) && !exComando.has(x.comando) && !exCliente.has(x.cliente);
-  const filtradas = useMemo(() => todas.filter(f => passa(f) && !exServico.has(f.tipo) && passaPublico(publico, idsExtra.has(f.id))), [todas, exSetor, exComando, exCliente, exServico, publico, idsExtra]);
+  const filtrar = (fats: FaturaPainel[], extras: Set<string>) => fats.filter(f => passa(f) && !exServico.has(f.tipo) && passaPublico(publico, extras.has(f.id)));
+  const filtradas = useMemo(() => filtrar(todas, idsExtra), [todas, exSetor, exComando, exCliente, exServico, publico, idsExtra]);
+  /** Baixa as faturas completas só quando precisa (lista ao clicar num cartão, exportações). */
+  const garantirDetalhe = async () => {
+    if (modoAntigo) return { fats: todas, extras: idsExtra, documents: det?.documents || [] };
+    let d = det;
+    if (!d) {
+      setCarregandoDet(true);
+      try { const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]); d = { invoices: invs, documents: docs }; setDet(d); }
+      finally { setCarregandoDet(false); }
+    }
+    return { ...derivarFaturas(d.invoices), documents: d.documents };
+  };
+  const filtradasDet = async () => { const d = await garantirDetalhe(); return { fats: filtrar(d.fats, d.extras), documents: d.documents }; };
   const setCliente = (c: string) => setExCliente(new Set(opcoes('cliente').filter(o => o !== c)));
   const r = useMemo(() => resumoPainel(filtradas, ano, hoje), [filtradas, ano, hoje]);
   // taxa condominial segue os filtros: só as OM que passam no setor/comando/cliente, e some se o serviço TC estiver fora
-  const tiposTC = useMemo(() => [...new Set(todas.filter(f => /-TC-/.test(f.numero)).map(f => f.tipo))], [todas]);
+  const tiposTC = useMemo(() => [...new Set(todas.filter(f => f.ehTc ?? /-TC-/.test(f.numero)).map(f => f.tipo))], [todas]);
   const tcForaDoFiltro = tiposTC.length > 0 && tiposTC.every(t => exServico.has(t));
   const tc = useMemo(() => {
     const ok = (omId?: string | null) => { if (tcForaDoFiltro || !passaPublico(publico, cls.omExtra(omId))) return false; const rt = omId ? rotuloOM(omId) : undefined; return !rt || passa(rt); };
@@ -165,8 +203,14 @@ export const Dashboard: React.FC = () => {
     return !e.length ? '' : e.length <= 2 ? `todos exceto ${e.join(', ')}` : o.length - e.length <= 2 ? o.filter(v => !ex.has(v)).join(', ') : `${o.length - e.length} de ${o.length}`;
   };
 
-  const abrir = (titulo: string, g: Grupo) => { setBuscaLista(''); setLista({ titulo, faturas: doGrupo(filtradas, g, ano, hoje) }); };
-  const abrirFiltro = (titulo: string, f: (x: FaturaPainel) => boolean) => { setBuscaLista(''); setLista({ titulo, faturas: filtradas.filter(f) }); };
+  const abrir = async (titulo: string, g: Grupo) => {
+    try { const d = await filtradasDet(); setBuscaLista(''); setLista({ titulo, faturas: doGrupo(d.fats, g, ano, hoje) }); }
+    catch (e) { notify.fail('Não foi possível abrir a lista de faturas', e); }
+  };
+  const abrirFiltro = async (titulo: string, f: (x: FaturaPainel) => boolean) => {
+    try { const d = await filtradasDet(); setBuscaLista(''); setLista({ titulo, faturas: d.fats.filter(f) }); }
+    catch (e) { notify.fail('Não foi possível abrir a lista de faturas', e); }
+  };
   const filtrosAtivos = ([
     ['Público', publico !== 'TODOS' ? `só ${ROTULO_PUBLICO[publico]}` : '', () => setPublico('TODOS')],
     ['Setor', resumoFiltro(exSetor, 'setor'), () => setExSetor(new Set())],
@@ -201,26 +245,31 @@ export const Dashboard: React.FC = () => {
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Faturas');
     XLSX.writeFile(wb, `${lista.titulo.replace(/[^\wÀ-ú]+/g, '_')}.xlsx`);
   };
-  const dadosExport = () => ({
-    ano, hoje, geradoEm: new Date().toLocaleString('pt-BR'), r, tc, filtros: filtrosAtivos.map(f => `${f[0]} ${f[1]}`),
-    abertas: doGrupo(filtradas, 'EM_ABERTO', ano, hoje), contestadas: doGrupo(filtradas, 'CONTESTADAS', ano, hoje),
-  });
-  const gerarPdfCompleto = () => {
-    try { pdfPainelInicial(dadosExport()); notify.success('PDF gerado.'); } catch (e) { notify.fail('Não foi possível gerar o PDF', e); }
+  const dadosExport = async () => {
+    const d = await filtradasDet();
+    return {
+      ano, hoje, geradoEm: new Date().toLocaleString('pt-BR'), r, tc, filtros: filtrosAtivos.map(f => `${f[0]} ${f[1]}`),
+      abertas: doGrupo(d.fats, 'EM_ABERTO', ano, hoje), contestadas: doGrupo(d.fats, 'CONTESTADAS', ano, hoje),
+    };
+  };
+  const gerarPdfCompleto = async () => {
+    try { pdfPainelInicial(await dadosExport()); notify.success('PDF gerado.'); } catch (e) { notify.fail('Não foi possível gerar o PDF', e); }
   };
   const gerarExcelCompleto = async () => {
     try {
-      baixarBytes(await excelPainelInicial(dadosExport()), `painel_inicial_${ano}_${hoje}.xlsx`);
+      baixarBytes(await excelPainelInicial(await dadosExport()), `painel_inicial_${ano}_${hoje}.xlsx`);
       notify.success('Excel gerado.');
     } catch (e) { notify.fail('Não foi possível gerar o Excel', e); }
   };
-  const exportarSaldosPDF = () => {
+  const exportarSaldosPDF = async () => {
+    let d; try { d = await filtradasDet(); } catch (e) { notify.fail('Não foi possível preparar o extrato', e); return; }
+    const documents = d.documents;
     const doc = new jsPDF('l');
     cabecalhoCompacto(doc);
     const yIni = tituloRelatorio(doc, 'Extrato de saldos disponíveis e faturas em aberto', `Posição em ${br(hoje)} · faturas em contestação fora do em aberto`, 26);
     const docs = documents.filter(d => d.availableValue > 0.005 && passa(resolv.rotuloDoDocumento(d)) && passaPublico(publico, cls.docExtra(d)));
     tabelaPdf(doc, { startY: yIni, head: [['Setor', 'Comando', 'Cliente', 'Documento', 'Operação', 'Saldo disponível']], body: docs.map(d => { const rt = resolv.rotuloDoDocumento(d); return [rt.setor, rt.comando, rt.cliente, d.documentNumber, d.operation, brl(d.availableValue)]; }), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
-    tabelaPdf(doc, { startY: fimDaTabela(doc) + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(filtradas, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
+    tabelaPdf(doc, { startY: fimDaTabela(doc) + 8, head: [['Setor', 'Cliente', 'Serviço', 'Fatura', 'Vencimento', 'Saldo em aberto']], body: doGrupo(d.fats, 'EM_ABERTO', ano, hoje).map(f => [f.setor, f.cliente, f.tipo, f.numero, br(f.vencimento), brl(f.saldo)]), styles: { fontSize: 8 }, columnStyles: { 5: { halign: 'right' } } });
     salvarPdf(doc, 'extrato_saldos_siscont.pdf');
   };
 
@@ -238,6 +287,7 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <SeletorPublico valor={publico} onChange={setPublico} />
+          {carregandoDet && <span role="status" className="text-xs text-slate-500 self-center">Carregando as faturas…</span>}
           <Button size="sm" variant="ghost" onClick={carregar} isLoading={carregando}>{!carregando && <RefreshCw size={14} className="mr-1" />}Atualizar</Button>
           <Button size="sm" variant="secondary" onClick={gerarExcelCompleto}><Download size={14} className="mr-1" />Excel completo (com gráficos)</Button>
           <Button size="sm" variant="secondary" onClick={gerarPdfCompleto}><FileText size={14} className="mr-1" />PDF completo (com gráficos)</Button>

@@ -53,6 +53,28 @@ function handler(db, log) {
       });
       return json(200, [...m.values()]);
     }
+    if (url.pathname === '/rest/v1/rpc/painel_resumo_json') {   // script 038: mesma regra do SQL, em JS, sobre o banco simulado
+      if (process.env.PAINEL_ANTIGO) return json(404, { code: 'PGRST202', message: 'function not found' });
+      const { p_hoje } = JSON.parse(req.postData() || '{}');
+      const docs = new Map(db.received_documents.map(d => [d.id, d]));
+      const al = new Map();
+      db.payment_allocations.forEach(a => { const d = docs.get(a.document_id); if (!d) return; const t = al.get(a.invoice_id) || { adiant: 0, pg: 0 }; if ((a.tipo_baixa || d.operation) === 'ADIANTAMENTO') t.adiant += a.amount; else t.pg += a.amount; al.set(a.invoice_id, t); });
+      const grupos = new Map();
+      db.invoices.filter(i => !i.is_canceled).forEach(i => {
+        const t = al.get(i.id) || { adiant: 0, pg: 0 };
+        const base = i.value + (i.adjustment_addition || 0) - (i.adjustment_deduction || 0), aPagar = Math.max(0, base - t.adiant);
+        const sal = (i.quitacao_externa || '') !== '' || t.pg >= aPagar - 0.01 ? 0 : Math.max(0, Math.round((aPagar - t.pg) * 100) / 100);
+        const venc = sal > 0.009 && !i.contestada && !!i.due_date && i.due_date < p_hoje;
+        const dias = venc ? Math.round((Date.parse(p_hoje) - Date.parse(i.due_date)) / 86400000) : 0;
+        const faixa = !venc ? 'A vencer' : dias <= 30 ? '1 a 30 dias' : dias <= 90 ? '31 a 90 dias' : dias <= 180 ? '91 a 180 dias' : dias <= 365 ? '181 a 365 dias' : 'Mais de 1 ano';
+        const comOm = i.om_id && db.oms.some(o => o.id === i.om_id);
+        const r = { om_id: i.om_id || null, setor: comOm ? null : i.sector, comando: comOm ? null : i.command, cliente: comOm ? null : i.client, tipo: i.type || i.service_acronym || '—',
+          ano: i.year_competence, mes: i.month_competence, contestada: !!i.contestada, vencida: venc, faixa, eh_tc: /-TC-/.test(i.invoice_number || '') };
+        const k = JSON.stringify(r), g = grupos.get(k) || { ...r, qtd: 0, total: 0, pago: 0, saldo: 0 };
+        g.qtd++; g.total += base; g.pago += (i.quitacao_externa || '') !== '' ? Math.max(t.pg, aPagar) : t.pg; g.saldo += sal; grupos.set(k, g);
+      });
+      return json(200, [...grupos.values()].map(g => ({ ...g, total: Math.round(g.total * 100) / 100, pago: Math.round(g.pago * 100) / 100, saldo: Math.round(g.saldo * 100) / 100 })));
+    }
     if (url.pathname === '/rest/v1/rpc/om_adicionar_nome_alternativo') {
       const { p_om, p_nome } = JSON.parse(req.postData() || '{}');
       const o = db.oms.find(x => x.id === p_om); if (o && !(o.nomes_alternativos || []).includes(p_nome)) o.nomes_alternativos = [...(o.nomes_alternativos || []), p_nome];
@@ -1620,7 +1642,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Painel inicial' }).click();
     await page.getByLabel('Ano de referência').selectOption('2026');
     const valorDe = async t => (await page.getByRole('button', { name: new RegExp(`^${t}:`) }).innerText()).replace(/\s+/g, ' ');
-    await page.getByRole('button', { name: /^Faturado em 2026:/ }).waitFor();
+    await page.getByRole('button', { name: /^Faturado em 2026:.*R\$ 2\.000,00/ }).waitFor({ timeout: 20000 });
     ok((await valorDe('Faturado em 2026')).includes('R$ 2.000,00'), 'faturado em 2026 = R$ 2.000,00 (sem a cancelada)');
     ok((await valorDe('Vencidas até 2025')).includes('R$ 350,00'), 'vencidas até 2025 = R$ 350,00 (2024 + saldo parcial de 2025)');
     ok((await valorDe('Vencidas de 2026')).includes('R$ 200,00'), 'vencidas de 2026 = R$ 200,00');

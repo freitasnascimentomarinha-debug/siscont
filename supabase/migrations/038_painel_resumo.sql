@@ -61,3 +61,16 @@ as $$
 $$;
 
 grant execute on function public.painel_resumo(date) to authenticated;
+
+-- Mesma coisa em UMA resposta só (lista em JSON): o servidor limita a 1000 linhas por chamada, mas não limita um valor único.
+create or replace function public.painel_resumo_json(p_hoje date default current_date)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select coalesce(jsonb_agg(to_jsonb(r)), '[]'::jsonb) from public.painel_resumo(p_hoje) r
+$$;
+
+grant execute on function public.painel_resumo_json(date) to authenticated;
