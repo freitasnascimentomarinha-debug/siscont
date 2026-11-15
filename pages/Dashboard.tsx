@@ -149,7 +149,7 @@ export const Dashboard: React.FC = () => {
       let resumo: LinhaResumo[] | null = null;
       try { resumo = await painelService.resumo(hoje); } catch { resumo = null; }   // função ainda não criada no banco: modo antigo
       let antigo: { invoices: Invoice[]; documents: ReceivedDocument[] } | null = null;
-      if (!resumo) { const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]); antigo = { invoices: invs, documents: docs }; }
+      if (!resumo) { const [invs, docs] = await Promise.all([db.getInvoices({ completo: true }), db.getDocuments()]); antigo = { invoices: invs, documents: docs }; }
       const [p, oms, comandos, setores] = await cadP;
       setLinhas(resumo || []); setModoAntigo(!resumo); setDet(antigo);
       setPrecos(p); setNomesOM(new Map((oms as any[]).map(o => [o.id as string, (o.sigla || o.nome) as string] as [string, string])));
@@ -182,7 +182,7 @@ export const Dashboard: React.FC = () => {
     let d = det;
     if (!d) {
       setCarregandoDet(true);
-      try { const [invs, docs] = await Promise.all([db.getInvoices(), db.getDocuments()]); d = { invoices: invs, documents: docs }; setDet(d); }
+      try { const [invs, docs] = await Promise.all([db.getInvoices({ completo: true }), db.getDocuments()]); d = { invoices: invs, documents: docs }; setDet(d); }
       finally { setCarregandoDet(false); }
     }
     return { ...derivarFaturas(d.invoices), documents: d.documents };

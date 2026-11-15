@@ -31,7 +31,7 @@ async function inserir(tabela: string, linhas: any[], onProgresso?: (m: string) 
 export async function carregarContexto(proposta: PropostaCadastro): Promise<{ ctx: ContextoImportacao; omsCadastradas: number }> {
   const [oms, comandos, setores, servicos, feriados, parametros, faturas, documentos] = await Promise.all([
     cadastroService.listOMs(), cadastroService.listComandos(), cadastroService.listSetores(), cadastroService.listServicos(),
-    cadastroService.listFeriados(), cadastroService.listParametros(), supabaseService.getInvoices(), supabaseService.getDocuments(),
+    cadastroService.listFeriados(), cadastroService.listParametros(), supabaseService.getInvoices({ completo: true }), supabaseService.getDocuments({ completo: true }),
   ]);
   const setorDe = new Map(setores.map(s => [s.id, s.sigla]));
   const cmdDe = new Map(comandos.map(c => [c.id, c]));
@@ -107,7 +107,7 @@ export async function aplicarMigracao(plano: PlanoMigracao, onProgresso?: (m: st
 /** Situação da migração já gravada (para mostrar e permitir desfazer). */
 export async function situacaoMigracao() {
   const [faturas, documentos, baixas] = await Promise.all([
-    supabaseService.getInvoices(), supabaseService.getDocuments(), supabaseService.getAllocations(),
+    supabaseService.getInvoices({ completo: true }), supabaseService.getDocuments({ completo: true }), supabaseService.getAllocations({ completo: true }),
   ]);
   const fatMig = new Set(faturas.filter(f => f.origem?.startsWith('Planilha')).map(f => f.id));
   const docMig = new Set(documentos.filter(d => d.origem?.startsWith('Planilha')).map(d => d.id));
@@ -144,7 +144,7 @@ export async function desfazerMigracao(onProgresso?: (m: string) => void) {
  * usuário já marcou como resolvido.
  */
 export async function gravarPontosEmExistentes(plano: PlanoMigracao, onProgresso?: (m: string) => void): Promise<number> {
-  const [faturas, documentos] = await Promise.all([supabaseService.getInvoices(), supabaseService.getDocuments()]);
+  const [faturas, documentos] = await Promise.all([supabaseService.getInvoices({ completo: true }), supabaseService.getDocuments({ completo: true })]);
   const chave = (n: string) => (n || '').trim().toUpperCase();
   const idFat = new Map(faturas.map(f => [chave(f.invoiceNumber), f]));
   const idDoc = new Map(documentos.map(d => [chave(d.documentNumber), d]));

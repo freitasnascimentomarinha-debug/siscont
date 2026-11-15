@@ -37,7 +37,7 @@ export const RegimesOndTab: React.FC<{ dados: DadosCadastro; podeEditar: boolean
   const [verHistorico, setVerHistorico] = useState(false);
 
   const carregar = useCallback(async () => {
-    const [ls, fs, ok] = await Promise.all([regimeOndService.listar(), db.getInvoices(), regimeOndService.instalado()]);
+    const [ls, fs, ok] = await Promise.all([regimeOndService.listar(), db.getInvoices({ completo: true }), regimeOndService.instalado()]);
     setLinhas(ls); setFaturas(fs); setInstalado(ok);
   }, []);
   useEffect(() => { carregar().catch(() => undefined); }, [carregar]);

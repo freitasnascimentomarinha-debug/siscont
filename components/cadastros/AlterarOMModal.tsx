@@ -37,7 +37,7 @@ export const AlterarOMModal: React.FC<{ om: OM | null; dados: DadosCadastro; onC
     if (!om) return;
     setNome(''); setCodigo(''); setComandoId(''); setSetorId(''); setSigla(''); setVigencia(hojeISO()); setAto(''); setMotivo(''); setErro(null); setImpacto(null);
     cadastroService.listarHistoricoOM(om.id).then(setHistorico).catch(() => setHistorico([]));
-    Promise.all([db.getInvoices(), db.getDocuments()]).then(([invs, docs]) => {
+    Promise.all([db.getInvoices({ completo: true }), db.getDocuments()]).then(([invs, docs]) => {
       const res = criarResolvedor(dados.oms, dados.comandos, dados.setores);
       const fs = invs.filter(i => i.omId === om.id && !i.isCanceled && (i.saldoAPagar ?? 0) > 0.005);
       const ds = docs.filter(d => d.availableValue > 0.005 && res.omDoDocumento(d)?.id === om.id);

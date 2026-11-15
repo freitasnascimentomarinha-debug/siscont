@@ -118,7 +118,7 @@ export interface ContextoFaturamento {
 export async function carregarContexto(): Promise<ContextoFaturamento> {
   const [oms, comandos, setores, servicos, feriados, parametros, invoices] = await Promise.all([
     cadastroService.listOMs(), cadastroService.listComandos(), cadastroService.listSetores(), cadastroService.listServicos(),
-    cadastroService.listFeriados(), cadastroService.listParametros(), db.getInvoices(),
+    cadastroService.listFeriados(), cadastroService.listParametros(), db.getInvoices({ completo: true }),
   ]);
   const cmd = new Map(comandos.map(c => [c.id, c]));
   const set = new Map(setores.map(s => [s.id, s]));

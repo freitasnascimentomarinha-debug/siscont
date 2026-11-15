@@ -12,6 +12,7 @@ import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/ui/Toaster';
 import { definirPaginaDoErro } from './services/errosService';
+import { useExercicio } from './services/exercicio';
 
 /** Carrega a tela sob demanda; se o arquivo sumiu (nova versão publicada com a aba aberta), recarrega a página uma vez. */
 function telaLazy<M>(carregar: () => Promise<M>, pegar: (m: M) => React.ComponentType<any>) {
@@ -46,6 +47,7 @@ export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamen
 const AuthenticatedApp = () => {
   const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
+  const janela = useExercicio();   // trocou a janela de exercícios: a tela recarrega com os novos dados
   useEffect(() => { definirPaginaDoErro(currentPage); }, [currentPage]);
   // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
   useEffect(() => { cadastroService.listParametros().then(p => { definirNormas(normasDe(p)); definirAssinatura(assinaturaDe(p)); }).catch(() => { /* sem parâmetros: valem os padrões */ }); }, []);
@@ -84,7 +86,7 @@ const AuthenticatedApp = () => {
 
   return (
     <Layout currentPage={currentPage} onPageChange={setCurrentPage}>
-      <Suspense fallback={<div role="status" className="flex items-center justify-center py-24"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" /><span className="sr-only">Carregando…</span></div>}>
+      <Suspense key={String(janela)} fallback={<div role="status" className="flex items-center justify-center py-24"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" /><span className="sr-only">Carregando…</span></div>}>
         {renderPage()}
       </Suspense>
     </Layout>

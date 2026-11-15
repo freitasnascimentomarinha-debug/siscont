@@ -11,6 +11,36 @@ import {
     CAMPOS_DOC_FASE2
 } from '../types';
 
+import { exercicio } from './exercicio';
+
+// --- Janela de exercícios (script 039) ---
+// Com a janela ligada, faturas, documentos e baixas vêm de UMA chamada (dados_janela). As três leituras pedidas juntas dividem a mesma resposta.
+interface DadosJanela { invoices: any[]; documents: any[]; allocations: any[] }
+let janelaMemo: { desde: number; em: number; p: Promise<DadosJanela> } | null = null;
+async function lerJanela(desde: number): Promise<DadosJanela | null> {
+    const agora = Date.now();
+    if (!janelaMemo || janelaMemo.desde !== desde || agora - janelaMemo.em > 3000) {
+        const p = (async () => {
+            const { data, error } = await supabase.rpc('dados_janela', { p_desde: desde });
+            if (error) throw error;
+            if (!data || !Array.isArray(data.invoices) || !Array.isArray(data.documents) || !Array.isArray(data.allocations)) throw new Error('dados_janela devolveu um formato inesperado');
+            return data as DadosJanela;
+        })();
+        janelaMemo = { desde, em: agora, p };
+        p.catch(() => { if (janelaMemo?.p === p) janelaMemo = null; });
+    }
+    try { return await janelaMemo.p; } catch (e) { console.warn('[Janela] indisponível, carregando todos os anos:', e); return null; }
+}
+/** Lê a tabela: pela janela (se ligada e disponível) ou inteira. `completo` = histórico inteiro, para validações e importações. */
+async function lerTabela(tabela: 'invoices' | 'received_documents' | 'payment_allocations', completo?: boolean): Promise<{ data: any[]; error: any }> {
+    const desde = exercicio.get();
+    if (desde !== null && !completo) {
+        const j = await lerJanela(desde);
+        if (j) return { data: tabela === 'invoices' ? j.invoices : tabela === 'received_documents' ? j.documents : j.allocations, error: null };
+    }
+    return selectAll(tabela);
+}
+
 // --- Leitura paginada ---
 // O Supabase (PostgREST) devolve no máximo 1.000 linhas por consulta. Com a migração das planilhas
 // passam de 6.000 faturas, então todas as leituras de tabela inteira são feitas em páginas.
@@ -159,9 +189,9 @@ export const supabaseService = {
     },
 
     // --- INVOICES ---
-    async getInvoices(): Promise<Invoice[]> {
+    async getInvoices(opts?: { completo?: boolean }): Promise<Invoice[]> {
         return await withRetry(async () => {
-            const { data, error } = await selectAll('invoices');
+            const { data, error } = await lerTabela('invoices', opts?.completo);
             if (error) throw error;
             return (data || []).map(i => ({
                 id: i.id,
@@ -247,9 +277,9 @@ export const supabaseService = {
     },
 
     // --- DOCUMENTS ---
-    async getDocuments(): Promise<ReceivedDocument[]> {
+    async getDocuments(opts?: { completo?: boolean }): Promise<ReceivedDocument[]> {
         return await withRetry(async () => {
-            const { data, error } = await selectAll('received_documents');
+            const { data, error } = await lerTabela('received_documents', opts?.completo);
             if (error) throw error;
             return (data || []).map(d => ({
                 id: d.id,
@@ -307,9 +337,9 @@ export const supabaseService = {
     },
 
     // --- ALLOCATIONS ---
-    async getAllocations(): Promise<PaymentAllocation[]> {
+    async getAllocations(opts?: { completo?: boolean }): Promise<PaymentAllocation[]> {
         return await withRetry(async () => {
-            const { data, error } = await selectAll('payment_allocations');
+            const { data, error } = await lerTabela('payment_allocations', opts?.completo);
             if (error) throw error;
             return (data || []).map(a => ({
                 id: a.id,

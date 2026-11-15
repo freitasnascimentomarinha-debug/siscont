@@ -1,4 +1,5 @@
 
+import { SeletorExercicio } from './ui/SeletorExercicio';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -224,6 +225,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
                 <button onClick={() => navigateTo('admin')} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Fazer backup agora</button>
               </div>
             )}
+            <SeletorExercicio />
             {children}
           </div>
         </div>

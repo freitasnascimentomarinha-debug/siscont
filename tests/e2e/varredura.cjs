@@ -53,6 +53,7 @@ async function varredura(page, db, uid, opcoes = {}) {
   });
   const T_INI = Date.now();
   page.setDefaultTimeout(3000);
+  if (process.env.VARREDURA_JANELA) await page.addInitScript(ano => { try { window.localStorage.setItem('siscont.exercicio.desde', ano); } catch { /* sem storage */ } }, process.env.VARREDURA_JANELA);   // roda o teste com a janela de exercícios ligada
   const erros = [], falhas = [], medidas = [];
   let reqs = 0, bytes = 0, emVoo = 0, ultimaAtividade = Date.now();
   page.on('pageerror', e => erros.push(`JS: ${e.message}`));

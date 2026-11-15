@@ -75,6 +75,29 @@ function handler(db, log) {
       });
       return json(200, [...grupos.values()].map(g => ({ ...g, total: Math.round(g.total * 100) / 100, pago: Math.round(g.pago * 100) / 100, saldo: Math.round(g.saldo * 100) / 100 })));
     }
+    if (url.pathname === '/rest/v1/rpc/dados_janela') {   // script 039: faturas/documentos/baixas da janela, com fechamento (mesma regra do SQL)
+      if (process.env.JANELA_INDISPONIVEL) return json(404, { code: 'PGRST202', message: 'function not found' });
+      const { p_desde } = JSON.parse(req.postData() || '{}');
+      const docs = new Map(db.received_documents.map(d => [d.id, d])), invs = new Map(db.invoices.map(i => [i.id, i]));
+      const al = new Map();
+      db.payment_allocations.forEach(a => { const d = docs.get(a.document_id); if (!d) return; const t = al.get(a.invoice_id) || { adiant: 0, pg: 0 }; if ((a.tipo_baixa || d.operation) === 'ADIANTAMENTO') t.adiant += a.amount; else t.pg += a.amount; al.set(a.invoice_id, t); });
+      const F = new Set(), D = new Set();
+      db.invoices.forEach(i => {
+        const t = al.get(i.id) || { adiant: 0, pg: 0 }, base = i.value + (i.adjustment_addition || 0) - (i.adjustment_deduction || 0);
+        if (i.year_competence >= p_desde || i.contestada || (!i.is_canceled && !(i.quitacao_externa || '') && t.pg < Math.max(0, base - t.adiant) - 0.01)) F.add(i.id);
+      });
+      db.received_documents.forEach(d => {
+        const usado = db.payment_allocations.filter(a => a.document_id === d.id && invs.get(a.invoice_id) && !invs.get(a.invoice_id).is_canceled).reduce((s, a) => s + a.amount, 0);
+        if (Number((d.date || '').slice(0, 4)) >= p_desde || d.total_value - usado > 0.005) D.add(d.id);
+      });
+      for (let k = 0; k < 20; k++) {
+        const antes = F.size + D.size;
+        db.payment_allocations.forEach(a => { if (D.has(a.document_id) || F.has(a.invoice_id)) { F.add(a.invoice_id); D.add(a.document_id); } });
+        if (F.size + D.size === antes) break;
+      }
+      return json(200, { invoices: db.invoices.filter(i => F.has(i.id)), documents: db.received_documents.filter(d => D.has(d.id)),
+        allocations: db.payment_allocations.filter(a => D.has(a.document_id) || F.has(a.invoice_id)), total_faturas: db.invoices.length, total_documentos: db.received_documents.length });
+    }
     if (url.pathname === '/rest/v1/rpc/om_adicionar_nome_alternativo') {
       const { p_om, p_nome } = JSON.parse(req.postData() || '{}');
       const o = db.oms.find(x => x.id === p_om); if (o && !(o.nomes_alternativos || []).includes(p_nome)) o.nomes_alternativos = [...(o.nomes_alternativos || []), p_nome];
@@ -1624,6 +1647,55 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Fazer backup agora' }).click();
     await page.getByRole('heading', { name: 'Administração' }).waitFor();
     ok(true, 'lembrete leva à Administração');
+  });
+
+  await cenario('Janela de exercícios: carrega só os anos recentes e o que ainda importa, sem mudar nenhum valor', [], async (page, db) => {
+    const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
+    db.oms.push(amrj);
+    const fat = (n, ano, venc, valor, extra = {}) => ({
+      id: uid(), ug: '81100', sector: 'DGMM', command: '40030 - DIM', client: 'Arsenal de Marinha do Rio de Janeiro', invoice_number: n, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: `${ano}-03-15`, due_date: venc, month_competence: 3, year_competence: ano, competence: '', type: 'Água e Esgoto', service_acronym: 'AE',
+      is_canceled: false, siplad_settled: false, om_id: amrj.id, origem: 'Planilha', quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [], ...extra,
+    });
+    const A = fat('81100-AE-03-2023-001-0', 2023, '2023-05-15', 800);                       // antiga, paga em SISCONT por dois documentos (um deles ainda com saldo): entra pelo fechamento
+    const B = fat('81100-AE-03-2023-002-0', 2023, '2023-05-15', 300, { quitacao_externa: 'Quitada antes do SISCONT' });   // antiga e quitada: fica fora
+    const F = fat('81100-AE-03-2023-003-0', 2023, '2023-05-15', 200);                       // antiga, paga em SISCONT com documento todo usado: fica fora
+    const C = fat('81100-AE-03-2024-001-0', 2024, '2024-05-15', 500);                       // 2024 em aberto: entra
+    const E = fat('81100-AE-03-2024-002-0', 2024, '2024-05-15', 150, { contestada: true }); // 2024 contestada: entra
+    const G = fat('81100-AE-03-2026-001-0', 2026, '2026-05-01', 1000);                      // 2026 vencida: entra
+    db.invoices = [A, B, F, C, E, G];
+    const doc = (n, ano, valor) => ({ id: uid(), document_number: n, document_type: 'ALTCRED', total_value: valor, date: `${ano}-04-01`, operation: 'PAGAMENTO', client: amrj.nome, sector: 'DGMM', command: '40030', om_id: amrj.id });
+    const D1 = doc('G1.2023.AC.00001', 2023, 400), D2 = doc('G1.2023.AC.00002', 2023, 1000), D3 = doc('G1.2023.AC.00003', 2023, 200);
+    db.received_documents.push(D1, D2, D3);
+    const bx = (d, i, v) => ({ id: uid(), document_id: d.id, invoice_id: i.id, amount: v, date: '2023-04-02', service_type: 'AE', tipo_baixa: 'PAGAMENTO' });
+    db.payment_allocations.push(bx(D1, A, 400), bx(D2, A, 400), bx(D3, F, 200));   // D2 sobra 600; D1 e D3 totalmente usados
+    await page.reload();
+    const numeros = async () => (await page.locator('main').innerText());
+    const abrirFaturas = async () => { await page.getByRole('button', { name: 'Faturas emitidas' }).click(); await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor(); await page.waitForTimeout(800); };
+    const emAbertoEnc = async () => { await page.getByRole('button', { name: 'Painel do Encarregado' }).click(); await page.getByRole('button', { name: /^Em aberto em/ }).waitFor({ timeout: 20000 }); return (await page.getByRole('button', { name: /^Em aberto em/ }).innerText()).replace(/\s+/g, ' '); };
+
+    // 1) "Todos os anos" (padrão): todas as faturas aparecem
+    await abrirFaturas();
+    let t = await numeros();
+    ok(['2023-001', '2023-002', '2023-003', '2024-001', '2024-002', '2026-001'].every(n => t.includes(`81100-AE-03-${n}-0`)), 'todos os anos: as 6 faturas aparecem');
+    const abertoTodos = await emAbertoEnc();
+
+    // 2) janela "Desde 2025": sai a fatura antiga quitada e a antiga paga com documento todo usado; fica o que importa
+    await page.getByLabel('Anos carregados').selectOption(String(new Date().getFullYear() - 1));
+    await page.getByRole('button', { name: 'Faturas emitidas' }).click(); await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor(); await page.waitForTimeout(800);
+    t = await numeros();
+    ok(!t.includes('81100-AE-03-2023-002-0') && !t.includes('81100-AE-03-2023-003-0'), 'janela: as faturas antigas já quitadas (2023-002 e 2023-003) ficam fora');
+    ok(t.includes('81100-AE-03-2023-001-0'), 'janela: a antiga 2023-001 entra pelo fechamento (um dos documentos que a pagaram ainda tem saldo)');
+    ok(t.includes('81100-AE-03-2024-001-0') && t.includes('81100-AE-03-2024-002-0') && t.includes('81100-AE-03-2026-001-0'), 'janela: as em aberto, a contestada e a de 2026 aparecem');
+    ok(await page.getByText('Mostrando de').isVisible(), 'aviso de que há anos fora da tela, com o botão "Mostrar todos os anos"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'janela-exercicios.png') });
+    const abertoJanela = await emAbertoEnc();
+    ok(abertoJanela === abertoTodos, `o "Em aberto" do Painel do Encarregado é o mesmo com a janela (${abertoJanela})`);
+
+    // 3) voltar para todos os anos
+    await page.getByRole('button', { name: 'Mostrar todos os anos' }).click();
+    await abrirFaturas();
+    ok((await numeros()).includes('81100-AE-03-2023-002-0'), 'voltar para "Todos os anos" traz as faturas antigas de volta');
   });
 
   await cenario('Página inicial: números de cara, composição do em aberto, gráficos, lista ao clicar e taxa condominial', [], async (page, db) => {

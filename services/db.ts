@@ -2,6 +2,7 @@
 import { hojeISO } from '../utils/datas';
 import { Invoice, ReceivedDocument, PaymentAllocation, CashFlowExit, CashFlowItem, User, UserRole, InvoiceStatus, OperationType, Client, ServiceDefinition, DocumentType } from '../types';
 import { supabaseService } from './supabaseService';
+import { exercicio } from './exercicio';
 import { ehAdiantamento } from '../utils/baixas';
 import { avaliarPontos, marcarResolvido, reabrir, PontoAtencao, RegistroPonto } from '../utils/pontosAtencao';
 
@@ -57,7 +58,7 @@ function invalidateCache(...keys: string[]): void {
     geracaoGeral++;
     cache.clear();
   } else {
-    keys.forEach(k => { geracao.set(k, (geracao.get(k) || 0) + 1); cache.delete(k); });
+    keys.flatMap(k => [k, `${k}_completo`]).forEach(k => { geracao.set(k, (geracao.get(k) || 0) + 1); cache.delete(k); });
   }
 }
 
@@ -82,6 +83,19 @@ async function cachedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T
   cache.set(key, { data: null, timestamp: 0, promise });
   return promise;
 }
+/** As três listas cruas. `completo` = histórico inteiro mesmo com a janela ligada (importação, numeração, duplicidades, exclusões). */
+const lerCrus = (completo?: boolean) => {
+  const c = !!completo && exercicio.get() !== null;
+  const sufixo = c ? '_completo' : '';
+  return Promise.all([
+    cachedFetch(`raw_invoices${sufixo}`, () => supabaseService.getInvoices({ completo: c })),
+    cachedFetch(`raw_allocations${sufixo}`, () => supabaseService.getAllocations({ completo: c })),
+    cachedFetch(`raw_documents${sufixo}`, () => supabaseService.getDocuments({ completo: c })),
+  ]);
+};
+// trocar a janela de exercícios descarta tudo o que está em cache
+exercicio.subscribe(() => invalidateCache());
+
 const TABELA_PONTOS = { fatura: 'invoices', documento: 'received_documents' } as const;
 const SEM_005 = 'Falta executar o script supabase/migrations/005_pontos_atencao.sql no Supabase para gravar pontos de atenção.';
 
@@ -143,12 +157,8 @@ export const db = {
   deleteService: async (id: string) => { await supabaseService.deleteService(id); invalidateCache('services'); },
 
   // --- INVOICES ---
-  getInvoices: async (): Promise<Invoice[]> => {
-    const [invoices, allocations, documents] = await Promise.all([
-      cachedFetch('raw_invoices', () => supabaseService.getInvoices()),
-      cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
-      cachedFetch('raw_documents', () => supabaseService.getDocuments())
-    ]);
+  getInvoices: async (opts?: { completo?: boolean }): Promise<Invoice[]> => {
+    const [invoices, allocations, documents] = await lerCrus(opts?.completo);
 
     // Índices para não varrer listas grandes a cada fatura (milhares de faturas após a migração)
     const docPorId = new Map(documents.map(d => [d.id, d]));
@@ -185,7 +195,7 @@ export const db = {
   saveInvoice: async (invoice: Invoice) => { await supabaseService.saveInvoice(invoice); invalidateCache('raw_invoices'); },
   deleteInvoice: async (id: string) => {
     // Remove primeiro as alocações vinculadas para não deixar saldo "preso" em documentos
-    const allocations = await supabaseService.getAllocations();
+    const allocations = await supabaseService.getAllocations({ completo: true });
     await supabaseService.deleteAllocations(allocations.filter(a => a.invoiceId === id).map(a => a.id));
     await supabaseService.deleteInvoice(id);
     invalidateCache('raw_invoices', 'raw_allocations');
@@ -193,11 +203,7 @@ export const db = {
 
   // --- DOCUMENTS ---
   getDocuments: async (): Promise<ReceivedDocument[]> => {
-    const [docs, allocations, invoices] = await Promise.all([
-      cachedFetch('raw_documents', () => supabaseService.getDocuments()),
-      cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
-      cachedFetch('raw_invoices', () => supabaseService.getInvoices())
-    ]);
+    const [invoices, allocations, docs] = await lerCrus();
 
     const canceladas = new Set(invoices.filter(i => i.isCanceled).map(i => i.id));
     const existentes = new Set(invoices.map(i => i.id));
@@ -223,14 +229,14 @@ export const db = {
 
   saveDocument: async (doc: ReceivedDocument) => { await supabaseService.saveDocument(doc); invalidateCache('raw_documents'); },
   deleteDocument: async (id: string) => {
-    const allocations = await supabaseService.getAllocations();
+    const allocations = await supabaseService.getAllocations({ completo: true });
     await supabaseService.deleteAllocations(allocations.filter(a => a.documentId === id).map(a => a.id));
     await supabaseService.deleteDocument(id);
     invalidateCache('raw_documents', 'raw_allocations');
   },
 
   // --- ALLOCATIONS ---
-  getAllocations: async (): Promise<PaymentAllocation[]> => cachedFetch('raw_allocations', () => supabaseService.getAllocations()),
+  getAllocations: async (opts?: { completo?: boolean }): Promise<PaymentAllocation[]> => (await lerCrus(opts?.completo))[1],
   saveAllocation: async (alloc: PaymentAllocation) => { await supabaseService.saveAllocation(alloc); invalidateCache('raw_allocations'); },
   deleteAllocations: async (ids: string[]) => { await supabaseService.deleteAllocations(ids); invalidateCache('raw_allocations'); },
   deleteAllocation: async (id: string) => { await supabaseService.deleteAllocation(id); invalidateCache('raw_allocations'); },
@@ -274,9 +280,9 @@ export const db = {
     const [clients, services, invoices, documents, allocations, exits, users] = await Promise.all([
       supabaseService.getClients(),
       supabaseService.getServices(),
-      supabaseService.getInvoices(),
-      supabaseService.getDocuments(),
-      supabaseService.getAllocations(),
+      supabaseService.getInvoices({ completo: true }),
+      supabaseService.getDocuments({ completo: true }),
+      supabaseService.getAllocations({ completo: true }),
       supabaseService.getExits(),
       supabaseService.getUsers().catch(() => [] as User[]),
     ]);

@@ -23,7 +23,7 @@ export const DuplicidadesTab: React.FC<{ dados: DadosCadastro; podeEditar: boole
 
   useEffect(() => {
     cadastroService.listarNaoDuplicadas().then(setIgnorados);
-    db.getInvoices().then(invs => { const m = new Map<string, number>(); invs.forEach(i => { if (i.omId) m.set(i.omId, (m.get(i.omId) || 0) + 1); }); setFaturas(m); }).catch(() => undefined);
+    db.getInvoices({ completo: true }).then(invs => { const m = new Map<string, number>(); invs.forEach(i => { if (i.omId) m.set(i.omId, (m.get(i.omId) || 0) + 1); }); setFaturas(m); }).catch(() => undefined);
   }, []);
 
   const grupos = useMemo(() => gruposDuplicados(paresDuplicados(dados.oms, ignorados)), [dados.oms, ignorados]);
