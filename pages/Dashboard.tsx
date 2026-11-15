@@ -21,6 +21,9 @@ import { OMTipo, ROTULO_PUBLICO, passaPublico } from '../utils/publico';
 import { TEMA, cabecalhoCompacto, fimDaTabela, salvarPdf, tabelaPdf, tituloRelatorio } from '../utils/pdfCabecalho';
 import { excelPainelInicial, pdfPainelInicial } from '../utils/exportPainelInicial';
 import { baixarBytes } from '../utils/baixarArquivo';
+import { ResumoAberto, ResumoGrupoModal } from '../components/painel/ResumoGrupoModal';
+import { FaturadoDividaPanel } from '../components/painel/FaturadoDivida';
+import { Dimensao } from '../utils/painelAgrupar';
 
 // Cores (paleta validada): série 1 azul, série 2 laranja; status com rótulo; rampa azul ordinal para a idade da dívida.
 const COR = { faturado: '#2a78d6', pago: '#eb6834', vencido: '#d03b3b', aVencer: '#0ca30c', grade: '#e2e8f0', eixo: '#64748b' };
@@ -133,6 +136,7 @@ export const Dashboard: React.FC = () => {
   const [publico, setPublico] = usePublico('painel-inicial');
   const [ordem, setOrdem] = useState<{ campo: 'vencimento' | 'saldo' | 'total' | 'numero' | 'cliente' | 'atraso'; asc: boolean }>({ campo: 'saldo', asc: false });
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaPainel[] } | null>(null);
+  const [resumo, setResumo] = useState<(ResumoAberto & { pred: (f: FaturaPainel) => boolean }) | null>(null);
   const [buscaLista, setBuscaLista] = useState('');
   const [verTodasTc, setVerTodasTc] = useState(false);
 
@@ -203,13 +207,17 @@ export const Dashboard: React.FC = () => {
     return !e.length ? '' : e.length <= 2 ? `todos exceto ${e.join(', ')}` : o.length - e.length <= 2 ? o.filter(v => !ex.has(v)).join(', ') : `${o.length - e.length} de ${o.length}`;
   };
 
-  const abrir = async (titulo: string, g: Grupo) => {
-    try { const d = await filtradasDet(); setBuscaLista(''); setLista({ titulo, faturas: doGrupo(d.fats, g, ano, hoje) }); }
-    catch (e) { notify.fail('Não foi possível abrir a lista de faturas', e); }
-  };
-  const abrirFiltro = async (titulo: string, f: (x: FaturaPainel) => boolean) => {
-    try { const d = await filtradasDet(); setBuscaLista(''); setLista({ titulo, faturas: d.fats.filter(f) }); }
-    catch (e) { notify.fail('Não foi possível abrir a lista de faturas', e); }
+  /** Clique num cartão ou barra: abre o RESUMO por setor/comando/OM (as faturas completas só são baixadas ao pedir a lista). */
+  const abrirFiltro = (titulo: string, pred: (x: FaturaPainel) => boolean, metrica: 'saldo' | 'total' = 'saldo') => setResumo({ titulo, faturas: filtradas.filter(pred), metrica, pred });
+  const abrir = (titulo: string, g: Grupo) => abrirFiltro(titulo, f => doGrupo([f], g, ano, hoje).length > 0, g === 'FATURADAS_ANO' ? 'total' : 'saldo');
+  /** Da janela de resumo para a lista de faturas (todas, ou só as de um setor/comando/OM). */
+  const verFaturas = async (dim: Dimensao | null, nome: string | null) => {
+    if (!resumo) return;
+    try {
+      const d = await filtradasDet();
+      const f = d.fats.filter(x => resumo.pred(x) && (!dim || (x[dim] || '(sem informação)') === nome));
+      setBuscaLista(''); setLista({ titulo: nome ? `${resumo.titulo} — ${nome}` : resumo.titulo, faturas: f });
+    } catch (e) { notify.fail('Não foi possível abrir a lista de faturas', e); }
   };
   const filtrosAtivos = ([
     ['Público', publico !== 'TODOS' ? `só ${ROTULO_PUBLICO[publico]}` : '', () => setPublico('TODOS')],
@@ -373,12 +381,14 @@ export const Dashboard: React.FC = () => {
         ) : <p className="text-sm text-emerald-700 flex items-center gap-2"><CheckCircle2 size={16} />Nenhuma fatura em aberto com os filtros escolhidos.</p>}
       </Painel>
 
+      <FaturadoDividaPanel faturas={filtradas} hoje={hoje} ano={ano} />
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Painel titulo={`Faturado por mês — ${ano}`} subtitulo="Barras azuis: valor faturado na competência · laranja: quanto dessas faturas já foi pago" dica="Clique numa barra para ver as faturas daquela competência.">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={r.porMes} margin={{ top: 4, right: 8, left: 8, bottom: 0 }} barGap={2}
-                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) abrirFiltro(`Faturas de ${r.porMes[Number(i)].mes}/${ano}`, f => !f.cancelada && f.ano === ano && f.mes === Number(i) + 1); }}>
+                onClick={(e: any) => { const i = e?.activeTooltipIndex ?? e?.activeIndex; if (i !== undefined && i !== null) abrirFiltro(`Faturas de ${r.porMes[Number(i)].mes}/${ano}`, f => !f.cancelada && f.ano === ano && f.mes === Number(i) + 1, 'total'); }}>
                 <CartesianGrid vertical={false} stroke={COR.grade} />
                 <XAxis dataKey="mes" tick={{ fontSize: 11, fill: COR.eixo }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={compacto} tick={{ fontSize: 10, fill: COR.eixo }} axisLine={false} tickLine={false} width={78} />
@@ -474,6 +484,7 @@ export const Dashboard: React.FC = () => {
       </Painel>
 
       {/* Lista de faturas (abre ao clicar) */}
+      <ResumoGrupoModal resumo={lista ? null : resumo} hoje={hoje} onClose={() => setResumo(null)} onVerFaturas={verFaturas} />
       <Modal isOpen={!!lista} onClose={() => setLista(null)} title={lista?.titulo || ''} maxWidth="max-w-5xl">
         {lista && (
           <div className="space-y-3">

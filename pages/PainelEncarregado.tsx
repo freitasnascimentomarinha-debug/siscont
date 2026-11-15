@@ -10,6 +10,9 @@ import { ContestacoesTab } from '../components/painel/ContestacoesTab';
 import { EquipeTab } from '../components/painel/EquipeTab';
 import { EncerramentoTab } from '../components/faturamento/EncerramentoTab';
 import { PlanilhaCongestionamento } from '../components/painel/PlanilhaCongestionamento';
+import { ResumoAberto, ResumoGrupoModal } from '../components/painel/ResumoGrupoModal';
+import { FaturadoDividaPanel } from '../components/painel/FaturadoDivida';
+import { Dimensao } from '../utils/painelAgrupar';
 import { AbaPainel, CtxPainel } from '../components/painel/tipos';
 import { adiantamentosComSaldo, carregarBase, listarCobrancas, saldosParados } from '../services/relatoriosService';
 import { listarContestacoes } from '../services/fase4Service';
@@ -45,6 +48,7 @@ export const PainelEncarregado: React.FC = () => {
   const [atualizadoEm, setAtualizadoEm] = useState('');
   const [aba, setAba] = useState<AbaPainel>('geral');
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaGer[] } | null>(null);
+  const [resumo, setResumo] = useState<(ResumoAberto & { faturas: FaturaGer[] }) | null>(null);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
 
   const hoje = hojeISO();
@@ -140,9 +144,14 @@ export const PainelEncarregado: React.FC = () => {
 
   const ctx: CtxPainel = {
     hoje, criterios, periodo, fs, bs, idx, recebimentos, linhas, contest, alertas, parados, adiantamentos, cobrancas,
-    abrirLista: (titulo, faturas) => setLista({ titulo, faturas }), irPara: setAba,
+    // clique num cartão/barra: RESUMO por setor, comando ou OM (as canceladas não têm saldo: vão direto para a lista)
+    abrirLista: (titulo, faturas) => (/^Canceladas/.test(titulo) ? setLista({ titulo, faturas }) : setResumo({ titulo, faturas, metrica: /^(Faturado|Faturas com ponto)/.test(titulo) ? 'total' : 'saldo' })), irPara: setAba,
   };
 
+  const verFaturas = (dim: Dimensao | null, nome: string | null) => {
+    if (!resumo) return;
+    setLista({ titulo: nome ? `${resumo.titulo} — ${nome}` : resumo.titulo, faturas: (resumo.faturas as FaturaGer[]).filter(f => !dim || (f[dim] || '(sem informação)') === nome) });
+  };
   const mudarAno = (a: number) => { setAno(a); setDe(`${a}-01`); setAte(a === anoAtual ? mesDe(hoje) : `${a}-12`); };
   const resumoEx = (ex: Set<string>, opcoes: string[]) => { const e = opcoes.filter(v => ex.has(v)); return !e.length ? '' : e.length <= 2 ? `todos exceto ${e.join(', ')}` : opcoes.length - e.length <= 2 ? opcoes.filter(v => !ex.has(v)).join(', ') : `${opcoes.length - e.length} de ${opcoes.length}`; };
   const filtrosAtivos: [string, string, () => void][] = ([
@@ -229,7 +238,7 @@ export const PainelEncarregado: React.FC = () => {
               {a.rotulo}{a.id === 'contestacoes' && contest.filter(x => x.aberta).length > 0 && <span className="ml-1.5 text-[11px] bg-amber-100 text-amber-800 rounded-full px-1.5">{contest.filter(x => x.aberta).length}</span>}</button>)}
           </nav>
           <div role="tabpanel">
-            {aba === 'geral' && <VisaoGeral ctx={ctx} />}
+            {aba === 'geral' && <><VisaoGeral ctx={ctx} /><div className="mt-4"><FaturadoDividaPanel faturas={fs} hoje={hoje} ano={ano} /></div></>}
             {aba === 'oms' && <OMsTab ctx={ctx} />}
             {aba === 'contestacoes' && <ContestacoesTab ctx={ctx} />}
             {aba === 'equipe' && <EquipeTab ctx={ctx} />}
@@ -237,6 +246,7 @@ export const PainelEncarregado: React.FC = () => {
           </div>
         </>
       )}
+      <ResumoGrupoModal resumo={lista ? null : resumo} hoje={hoje} onClose={() => setResumo(null)} onVerFaturas={verFaturas} />
       {lista && <ListaFaturas titulo={lista.titulo} faturas={lista.faturas} hoje={hoje} onClose={() => setLista(null)} />}
     </div>
   );

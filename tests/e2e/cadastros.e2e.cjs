@@ -1172,18 +1172,29 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await kpi('Inadimplência')).includes('47,3%'), 'inadimplência = vencido ÷ em aberto = 47,3%');
     ok((await kpi('Total faturado')).includes('R$ 90.996,18') && (await kpi('Valor contestado')).includes('R$ 45.207,21'), 'faturado do período (competência 2026) e valor contestado');
     ok(await page.getByText('Faturas vencidas há mais de 365 dias').isVisible() && await page.getByText('Contestações em tramitação há mais de 60 dias').isVisible(), 'alertas: dívida de mais de 365 dias (crítico) e contestação em tramitação longa');
+    // clicar num alerta/indicador abre o RESUMO (por comando/setor/OM); "Ver todas as faturas" abre a lista
+    const verListaEnc = async () => { await page.getByTestId('resumo-grupo').waitFor(); await page.getByRole('button', { name: 'Ver todas as faturas' }).click(); };
+    const fecharEnc = async () => { await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); };
     await page.getByRole('button', { name: 'Ver detalhes: Faturas vencidas há mais de 365 dias' }).click();
+    await verListaEnc();
     await page.getByRole('dialog').getByText('40030-TC-09-2025-014-0').waitFor();
     ok(await page.getByRole('dialog').locator('tbody tr').count() === 1, 'alerta abre só a fatura vencida há mais de 365 dias');
-    await page.keyboard.press('Escape');
+    await fecharEnc();
     // indicador abre a lista de faturas; a busca filtra
     await page.getByRole('button', { name: /^Total vencido/ }).click();
+    await page.getByTestId('resumo-grupo').waitFor();
+    ok((await page.getByTestId('resumo-grupo').locator('tfoot').innerText()).includes('R$ 21.674,37'), 'resumo do "Total vencido" soma R$ 21.674,37 (igual ao indicador)');
+    await verListaEnc();
     await page.getByRole('dialog').getByText('Faturas vencidas').first().waitFor();
     const nVenc = await page.getByRole('dialog').locator('tbody tr').count();
     ok(nVenc === 2, `indicador "Total vencido" abre a lista de faturas (${nVenc})`);
     await page.getByLabel('Buscar na lista').fill('zzzz-nada');
     ok(await page.getByRole('dialog').getByText('Nenhuma fatura.').isVisible(), 'busca dentro da lista filtra as faturas');
-    await page.keyboard.press('Escape');
+    await fecharEnc();
+    // gráfico Faturado × dívida no Painel do Encarregado (visão geral)
+    const fdE = page.getByTestId('faturado-divida'); await fdE.scrollIntoViewIfNeeded();
+    ok(await fdE.isVisible() && (await fdE.getByTestId('tipo-divida').count()) >= 1, 'Painel do Encarregado: gráfico faturado × dívida com a composição por tipo de fatura');
+    if (SHOTS) await fdE.screenshot({ path: path.join(SHOTS, 'encarregado-faturado-divida.png') });
     ok(await page.getByText('Idade da dívida', { exact: true }).isVisible() && await page.getByText('Faturamento × recebimentos').isVisible() && await page.getByText('Evolução da inadimplência').isVisible() && await page.getByText('ALTCRED/GRU com saldo parado').isVisible(), 'gráficos: idade da dívida, faturado × recebido, evolução da inadimplência e saldos parados');
     ok((await page.getByRole('list', { name: 'Valor por faixa de atraso' }).innerText()).includes('R$ 24.114,60'), 'faixas de atraso: a vencer R$ 24.114,60');
     // planilha do gráfico CONGEST (Conselho de Gestão): baixa o .xlsx e registra o fechamento do mês na série
@@ -1665,22 +1676,56 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const [dp] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDF completo/ }).click()]);
     const arqP = path.join(os.tmpdir(), `pi-${Date.now()}.pdf`); await dp.saveAs(arqP);
     ok(/painel_inicial_2026_.*\.pdf$/.test(dp.suggestedFilename()) && fs.readFileSync(arqP).subarray(0, 4).toString() === '%PDF' && fs.statSync(arqP).size > 20000, 'PDF do painel baixado (com gráficos)');
+    // clicar num cartão abre o RESUMO por comando/setor/OM; "Ver todas as faturas" abre a lista
+    const verTodas = async titulo => { await page.getByRole('heading', { name: titulo, exact: true }).first().waitFor(); await page.getByTestId('resumo-grupo').waitFor(); await page.getByRole('button', { name: 'Ver todas as faturas' }).click(); await page.getByRole('heading', { name: titulo, exact: true }).first().waitFor(); };
+    const fecharTudo = async () => { await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); };   // 1º Esc fecha a lista, 2º o resumo
     await page.getByRole('button', { name: /^Em contestação:/ }).click();
-    await page.getByRole('heading', { name: 'Faturas em contestação' }).waitFor();
+    await verTodas('Faturas em contestação');
     ok((await page.locator('table').last().innerText()).includes('81100-TC-10-2026-001-0'), 'clicar em "Em contestação" lista a contestada');
-    await page.keyboard.press('Escape');
+    await fecharTudo();
     await page.getByRole('button', { name: /^Total em aberto:/ }).click();
-    await page.getByRole('heading', { name: 'Faturas em aberto', exact: true }).waitFor();
+    await verTodas('Faturas em aberto');
     ok(!(await page.locator('table').last().innerText()).includes('81100-TC-10-2026-001-0'), 'a lista do em aberto não traz a contestada');
-    await page.keyboard.press('Escape');
+    await fecharTudo();
     await page.getByRole('button', { name: /^Total vencidas:/ }).click();
-    await page.getByRole('heading', { name: 'Faturas vencidas' }).waitFor();
+    await page.getByTestId('resumo-grupo').waitFor();
+    const totalCartao = (await valorDe('Total vencidas')).match(/R\$ [\d.]+,\d{2}/)[0];
+    ok((await page.getByTestId('resumo-grupo').locator('tfoot').innerText()).includes(totalCartao), `o resumo do cartão "Total vencidas" soma ${totalCartao} (igual ao cartão)`);
+    ok(await page.getByRole('radio', { name: 'Comando', exact: true }).first().getAttribute('aria-checked') === 'true', 'o resumo abre agrupado por Comando');
+    await page.getByTestId('resumo-grupo').getByRole('radio', { name: 'Setor' }).click();
+    await page.getByTestId('resumo-grupo').getByRole('radio', { name: 'OM (cliente)' }).click();
+    ok((await page.getByTestId('resumo-grupo').locator('tfoot').innerText()).includes(totalCartao), 'trocar o agrupamento (Setor, OM) mantém o mesmo total');
+    ok(await page.getByTestId('resumo-grupo').getByRole('button', { name: 'Excel' }).isVisible() && await page.getByTestId('resumo-grupo').getByRole('button', { name: 'PDF' }).isVisible(), 'resumo com Excel e PDF');
+    const [dr] = await Promise.all([page.waitForEvent('download'), page.getByTestId('resumo-grupo').getByRole('button', { name: 'Excel' }).click()]);
+    ok(/\.xlsx$/.test(dr.suggestedFilename()), 'Excel do resumo baixa');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'resumo-por-comando.png') });
+    // clicar numa linha mostra só as faturas daquele grupo
+    const nomeLinha = (await page.getByTestId('resumo-grupo').locator('tbody tr').first().locator('button').innerText()).trim();
+    await page.getByTestId('resumo-grupo').locator('tbody tr').first().locator('button').click();
+    await page.getByRole('heading', { name: new RegExp(`Faturas vencidas — ${nomeLinha.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }).waitFor();
+    ok((await page.locator('table').last().locator('tbody tr').count()) >= 1, `clicar na linha "${nomeLinha}" mostra as faturas daquele grupo`);
+    await fecharTudo();
+    await page.getByRole('button', { name: /^Total vencidas:/ }).click();
+    await verTodas('Faturas vencidas');
     ok((await page.locator('table').last().innerText()).includes('40030-TC-05-2024-001-0'), 'clicar no cartão abre a lista das faturas vencidas');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'painel-lista.png') });
     ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'lista começa pela de maior valor em aberto');
     const cab = page.locator('th button', { hasText: 'Em aberto' }); await cab.click(); if (!(await cab.innerText()).includes('▼')) await cab.click();
     ok((await page.locator('table').last().locator('tbody tr').first().innerText()).includes('40030-TC-05-2024-001-0'), 'ordenar por valor em aberto ao clicar no cabeçalho (maior primeiro)');
-    await page.keyboard.press('Escape');
+    await fecharTudo();
+    // gráfico Faturado × dívida (por comando/setor/OM) e de que tipos a dívida é feita
+    const fd = page.getByTestId('faturado-divida');
+    await fd.scrollIntoViewIfNeeded();
+    ok(await fd.getByRole('radio', { name: 'Comando', exact: true }).getAttribute('aria-checked') === 'true', 'faturado × dívida abre agrupado por Comando');
+    await fd.getByRole('radio', { name: 'Todos os anos' }).click();
+    ok((await fd.innerText()).replace(/\s+/g, ' ').includes('dívida em aberto R$ 950,00'), 'faturado × dívida (todos os anos): a dívida em aberto soma R$ 950,00, igual ao cartão');
+    ok((await fd.getByTestId('tipo-divida').count()) >= 1 && (await fd.innerText()).includes('Taxa Condominial'), 'mostra de que tipos de fatura a dívida é feita');
+    await fd.getByRole('radio', { name: 'OM (cliente)' }).click();
+    const primeiraOM = fd.getByLabel('Faturado e dívida por grupo').getByRole('button').first();
+    const nomeOM = (await primeiraOM.locator('span').first().innerText()).trim();
+    await primeiraOM.click();
+    ok((await fd.getByRole('heading', { name: /De que é feita a dívida de/ }).innerText()).includes(nomeOM), `ao clicar em "${nomeOM}" mostra de que é feita a dívida dessa OM`);
+    if (SHOTS) await fd.screenshot({ path: path.join(SHOTS, 'faturado-divida.png') });
     // filtro múltiplo: todos os clientes exceto a DIM
     await page.getByRole('button', { name: /^Cliente \(OM\): Todos/ }).click();
     await page.getByRole('option', { name: 'Diretoria Industrial da Marinha' }).click();
