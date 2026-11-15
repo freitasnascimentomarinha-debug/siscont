@@ -139,7 +139,7 @@ export const Disponivel: React.FC = () => {
     if (!base) return null;
     const docs = base.docs.filter(d => d.documentType !== DocumentType.GRU).filter(d => (d.exercicio ?? Number(d.date.slice(0, 4))) === ano).map(d => ({ id: d.id, valor: d.totalValue }));
     const ent = entradasPorCategoria(docs, baixasComSigla(base));
-    const sai: Record<Categoria, number> = { ENERGIA: 0, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, SEM_INDICACAO: 0 };
+    const sai: Record<Categoria, number> = { ENERGIA: 0, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, EXPEDIENTE: 0, SEM_INDICACAO: 0 };
     saidas.filter(s => ativa(s) && s.date.startsWith(String(ano))).forEach(s => { const c = categoriaDaSaida(s); sai[c] = Math.round((sai[c] + s.value) * 100) / 100; });
     return { ent, sai };
   }, [base, saidas, ano]);

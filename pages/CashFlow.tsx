@@ -48,7 +48,7 @@ const Lancamentos: React.FC = () => {
     listarSaidas().then(ss => setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || ''])))).catch(() => {});
   }, []);
   const classeDe = (item: CashFlowItem) => classes.get(item.id) || '';
-  const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
+  const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', EXPEDIENTE: 'Material de expediente e limpeza', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
   const neInvalida = formData.documentType !== 'ALTCRED' && !!formData.documentNumber && !lerNE(formData.documentNumber);
   // NE já lançadas (para reconhecer o REFORÇO: aumento do valor da mesma NE, sem empenho novo)
   const nesLancadas: NEExistente[] = items.filter(i => i.type === 'EXIT').map(i => ({ numero: i.documentNumber, data: i.date, valor: i.value, client: i.client, rubric: i.rubric }));
@@ -431,7 +431,7 @@ const Lancamentos: React.FC = () => {
               ...rubricasAno.map(r => ({ label: `${r.numero} — ${r.descricao}`, value: `R${r.numero}` })),
               ...(!rubricasAno.length ? Array.from({ length: 33 }, (_, i) => ({ label: `Rubrica ${i + 1} (condomínio)`, value: `R${i + 1}` })) : []),
               { label: 'Energia', value: 'ENERGIA' }, { label: 'Água e esgoto', value: 'AGUA' }, { label: 'Telefonia', value: 'TELEFONIA' },
-              { label: 'Condomínio/diária/viatura (sem rubrica)', value: 'CONDOMINIO' }, { label: 'Outros', value: 'OUTROS' },
+              { label: 'Condomínio/diária/viatura (sem rubrica)', value: 'CONDOMINIO' }, { label: 'Material de expediente e limpeza', value: 'EXPEDIENTE' }, { label: 'Outros', value: 'OUTROS' },
             ]} />
           {originalDoForm && (
             <div className="md:col-span-2 p-2 rounded border border-sky-200 bg-sky-50 text-xs text-sky-900" role="note">

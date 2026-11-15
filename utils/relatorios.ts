@@ -87,18 +87,18 @@ export function condominioPorRubrica(rs: Rubrica[], tcRecebidaTotal: number, emp
 }
 
 // ------------------------------------------------------------------ 5A.5 disponível R.901.16
-export type Categoria = 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'SEM_INDICACAO';
+export type Categoria = 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'EXPEDIENTE' | 'SEM_INDICACAO';
 export const CATEGORIAS: { id: Categoria; rotulo: string }[] = [
   { id: 'ENERGIA', rotulo: 'Energia' }, { id: 'AGUA', rotulo: 'Água e esgoto' }, { id: 'TELEFONIA', rotulo: 'Telefonia' },
-  { id: 'CONDOMINIO', rotulo: 'Condomínio/diária/viatura' }, { id: 'SEM_INDICACAO', rotulo: 'Sem indicação' },
+  { id: 'CONDOMINIO', rotulo: 'Condomínio/diária/viatura' }, { id: 'EXPEDIENTE', rotulo: 'Material de expediente e limpeza' }, { id: 'SEM_INDICACAO', rotulo: 'Sem indicação' },
 ];
 export const categoriaDoServico = (sigla: string): Categoria => (sigla === 'EL' ? 'ENERGIA' : sigla === 'AE' ? 'AGUA' : sigla === 'TL' ? 'TELEFONIA' : 'CONDOMINIO');
 export const categoriaDaSaida = (s: { categoria?: string | null; rubricaNumero?: number | null }): Categoria =>
-  s.rubricaNumero ? 'CONDOMINIO' : s.categoria === 'ENERGIA' || s.categoria === 'AGUA' || s.categoria === 'TELEFONIA' || s.categoria === 'CONDOMINIO' ? s.categoria : 'SEM_INDICACAO';
+  s.rubricaNumero ? 'CONDOMINIO' : s.categoria === 'ENERGIA' || s.categoria === 'AGUA' || s.categoria === 'TELEFONIA' || s.categoria === 'CONDOMINIO' || s.categoria === 'EXPEDIENTE' ? s.categoria : 'SEM_INDICACAO';
 
 /** Entradas (ALTCRED/GRU) por categoria, pelas faturas que pagaram; o que não foi usado fica "sem indicação". */
 export function entradasPorCategoria(docs: { id: string; valor: number }[], baixas: { documentId: string; amount: number; sigla: string }[]) {
-  const out: Record<Categoria, number> = { ENERGIA: 0, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, SEM_INDICACAO: 0 };
+  const out: Record<Categoria, number> = { ENERGIA: 0, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, EXPEDIENTE: 0, SEM_INDICACAO: 0 };
   const usado = new Map<string, number>();
   const ids = new Set(docs.map(d => d.id));
   baixas.filter(b => ids.has(b.documentId)).forEach(b => {
@@ -147,7 +147,7 @@ export function lerNE(numero: string) {
 }
 
 /** Classifica a rubrica digitada na planilha ("14", "Água e Esgoto"...). */
-export function classificarRubrica(texto: string): { rubricaNumero: number | null; categoria: 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'OUTROS' | null } {
+export function classificarRubrica(texto: string): { rubricaNumero: number | null; categoria: 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'EXPEDIENTE' | 'OUTROS' | null } {
   const t = (texto || '').trim();
   if (!t) return { rubricaNumero: null, categoria: null };
   if (/^\d{1,2}$/.test(t)) return { rubricaNumero: Number(t), categoria: 'CONDOMINIO' };
@@ -156,6 +156,7 @@ export function classificarRubrica(texto: string): { rubricaNumero: number | nul
   if (/energia|eletric/.test(k)) return { rubricaNumero: null, categoria: 'ENERGIA' };
   if (/telef/.test(k)) return { rubricaNumero: null, categoria: 'TELEFONIA' };
   if (/condom|diaria|viatura|rebocador/.test(k)) return { rubricaNumero: null, categoria: 'CONDOMINIO' };
+  if (/expediente|material de limpeza/.test(k)) return { rubricaNumero: null, categoria: 'EXPEDIENTE' };
   return { rubricaNumero: null, categoria: 'OUTROS' };
 }
 

@@ -65,7 +65,7 @@ describe('disponível R.901.16 e saldo mensal (5A)', () => {
     const e = entradasPorCategoria([{ id: 'd1', valor: 1000 }, { id: 'd2', valor: 300 }], [
       { documentId: 'd1', amount: 600, sigla: 'EL' }, { documentId: 'd1', amount: 100, sigla: 'TC' }, { documentId: 'd2', amount: 300, sigla: 'AE' }, { documentId: 'outro', amount: 999, sigla: 'EL' },
     ]);
-    expect(e).toEqual({ ENERGIA: 600, AGUA: 300, TELEFONIA: 0, CONDOMINIO: 100, SEM_INDICACAO: 300 });
+    expect(e).toEqual({ ENERGIA: 600, AGUA: 300, TELEFONIA: 0, CONDOMINIO: 100, EXPEDIENTE: 0, SEM_INDICACAO: 300 });
     expect([categoriaDaSaida({ rubricaNumero: 14 }), categoriaDaSaida({ categoria: 'AGUA' }), categoriaDaSaida({ categoria: 'OUTROS' })]).toEqual(['CONDOMINIO', 'AGUA', 'SEM_INDICACAO']);
   });
   it('saldo mensal: transporta entre os meses e zera na virada do ano (janeiro começa do zero)', () => {
@@ -85,5 +85,16 @@ describe('notas de empenho', () => {
     expect(classificarRubrica('14')).toEqual({ rubricaNumero: 14, categoria: 'CONDOMINIO' });
     expect(classificarRubrica('Água e Esgoto')).toEqual({ rubricaNumero: null, categoria: 'AGUA' });
     expect(classificarRubrica('Energia Elétrica').categoria).toBe('ENERGIA');
+  });
+});
+
+describe('categoria "Material de expediente e limpeza"', () => {
+  it('classifica a rubrica digitada e a saída', async () => {
+    const { classificarRubrica, categoriaDaSaida } = await import('../utils/relatorios');
+    expect(classificarRubrica('MATERIAL DE EXPEDIENTE E LIMPEZA')).toEqual({ rubricaNumero: null, categoria: 'EXPEDIENTE' });
+    expect(classificarRubrica('Material de limpeza')).toEqual({ rubricaNumero: null, categoria: 'EXPEDIENTE' });
+    expect(classificarRubrica('12')).toEqual({ rubricaNumero: 12, categoria: 'CONDOMINIO' });   // rubrica numérica 12 (limpeza do condomínio) continua condomínio
+    expect(classificarRubrica('OUTROS').categoria).toBe('OUTROS');
+    expect(categoriaDaSaida({ categoria: 'EXPEDIENTE' })).toBe('EXPEDIENTE');
   });
 });
