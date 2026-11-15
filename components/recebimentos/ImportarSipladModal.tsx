@@ -111,12 +111,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         })()}
         {itens.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <span>ALTCRED recebida na R.901.16 para outros serviços (não paga fatura)? Escolha <b>"Cadastrar como Outros"</b> na linha: ela entra só no fluxo de caixa.</span>
-            <button type="button" className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 font-semibold"
-              onClick={() => {
-                const idx = itens.map((i, k) => (i.acao === 'NOVA' && !(i.doc.destinacao || []).length ? k : -1)).filter(k => k >= 0);
-                setOutros(new Set(idx)); setIgnorados(prev => { const s2 = new Set(prev); idx.forEach(k => s2.delete(k)); return s2; });
-              }}>Marcar como Outros as que não citam fatura</button>
+            <span>ALTCRED recebida na R.901.16 para outros serviços (não paga fatura)? Escolha <b>"Cadastrar como Outros"</b> na linha: ela entra só no fluxo de caixa. ALTCRED sem fatura citada <b>não</b> é "Outros": a OM pode ter deixado as faturas a critério da BNIC.</span>
           </div>
         )}
         {itens.length > 0 && (
