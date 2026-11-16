@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Invoice, ServicoCatalogo, podeEditarDados } from '../types';
 import { db } from '../services/db';
 import { cadastroService } from '../services/cadastroService';
-import { Fase4NaoInstaladaError, anotar, decidir, encaminhar, listarContestacoes, reabrir, responder } from '../services/fase4Service';
+import { Fase4NaoInstaladaError, LIMITE_ANEXO_MB, anotar, decidir, encaminhar, listarContestacoes, reabrir, responder, anexarArquivos, linkAnexoContestacao } from '../services/fase4Service';
 import { Contestacao, Decisao, situacaoContestacao } from '../utils/fase4';
 import { somarDiasUteis } from '../utils/diasUteis';
 import { lerFatura } from '../utils/cadastroImport';
@@ -143,6 +143,8 @@ const DetalheContestacao: React.FC<{
   const [texto, setTexto] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [motivoReabrir, setMotivoReabrir] = useState('');
+  const [arqs, setArqs] = useState<File[]>([]);
+  const [chaveArq, setChaveArq] = useState(0);
   const fazer = async (fn: () => Promise<void>, ok: string) => {
     setOcupado(true);
     try { await fn(); notify.success(ok); await onAtualizar(); setNota(''); setAnexo(''); setResposta(''); } catch (e) { notify.fail('Não foi possível gravar', e); } finally { setOcupado(false); }
@@ -161,7 +163,10 @@ const DetalheContestacao: React.FC<{
           <div className="p-3 rounded bg-amber-50 border border-amber-200">
             <div className="text-[11px] uppercase text-amber-700 font-semibold">Justificativa da OM ({c.origem}, {br(c.abertaEm)})</div>
             <div>{c.justificativa}</div>
-            {c.anexos.length > 0 && <div className="text-xs mt-1 text-slate-600">Documentos: {c.anexos.map(a => a.nome + (a.referencia ? ` (${a.referencia})` : '')).join('; ')}</div>}
+            {c.anexos.length > 0 && <div className="text-xs mt-1 text-slate-600">Documentos: {c.anexos.map((a, i) => (
+              <span key={i}>{i > 0 && '; '}{a.caminho
+                ? <button type="button" className="text-primary-700 underline" title="Abrir o arquivo" onClick={async () => { try { window.open(await linkAnexoContestacao(a.caminho!), '_blank', 'noopener'); } catch (e) { notify.fail('Não foi possível abrir o arquivo', e); } }}>📎 {a.nome}</button>
+                : a.nome + (a.referencia ? ` (${a.referencia})` : '')}</span>))}</div>}
           </div>
         </div>
 
@@ -216,6 +221,16 @@ const DetalheContestacao: React.FC<{
               <label className="text-slate-700">Nota<input className={entrada} value={nota} onChange={e => setNota(e.target.value)} placeholder="Ex.: cobrada a resposta por telefone" /></label>
               <label className="text-slate-700">Documento (referência)<input className={entrada} value={anexo} onChange={e => setAnexo(e.target.value)} placeholder="Ex.: OMS nº 02126; e-mail de 21/09" /></label>
               <Button variant="ghost" disabled={(!nota.trim() && !anexo.trim()) || ocupado} onClick={() => fazer(() => anotar(c, nota, usuario, anexo.trim() ? { nome: anexo.trim() } : undefined), 'Registrado no histórico.')}>Registrar</Button>
+            </div>
+          </div>
+        )}
+
+        {podeEditar && (
+          <div className="p-3 rounded-lg border border-slate-200 space-y-2">
+            <div className="text-xs font-semibold text-slate-600">Anexar arquivos à contestação (PDF, imagem, e-mail; até {LIMITE_ANEXO_MB} MB cada)</div>
+            <div className="flex flex-wrap gap-2 items-center">
+              <input type="file" multiple aria-label="Anexar arquivos" className="text-xs" key={chaveArq} onChange={e => setArqs(Array.from(e.target.files || []))} />
+              <Button variant="secondary" disabled={!arqs.length || ocupado} onClick={() => fazer(async () => { await anexarArquivos(c, arqs, usuario); setArqs([]); setChaveArq(k => k + 1); }, 'Arquivo(s) anexado(s).')}>Anexar{arqs.length > 1 ? ` (${arqs.length})` : ''}</Button>
             </div>
           </div>
         )}

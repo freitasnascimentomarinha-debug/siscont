@@ -22,13 +22,14 @@ export const AcoesFaturaModais: React.FC<{
   const [origem, setOrigem] = useState('SIPLAD');
   const [abertaEm, setAbertaEm] = useState(hoje());
   const [anexo, setAnexo] = useState('');
+  const [arquivos, setArquivos] = useState<File[]>([]);
   const [alt, setAlt] = useState({ value: 0, adjustmentAddition: 0, adjustmentDeduction: 0, consumption: '', issueDate: '', dueDate: '', observation: '' });
   const [gravando, setGravando] = useState(false);
 
   useEffect(() => {
     if (!acao) return;
     const f = acao.fatura;
-    setMotivo(''); setDevolver(true); setOrigem('SIPLAD'); setAbertaEm(hoje()); setAnexo('');
+    setMotivo(''); setDevolver(true); setOrigem('SIPLAD'); setAbertaEm(hoje()); setAnexo(''); setArquivos([]);
     setAlt({ value: f.value, adjustmentAddition: f.adjustmentAddition || 0, adjustmentDeduction: f.adjustmentDeduction || 0, consumption: f.consumption || '', issueDate: f.issueDate, dueDate: f.dueDate, observation: f.observation || '' });
   }, [acao]);
   if (!acao) return null;
@@ -45,7 +46,7 @@ export const AcoesFaturaModais: React.FC<{
         const r = await substituirFatura(f, alt, motivo, usuario, numeros);
         notify.success(`Fatura ${r.numero} emitida: cancela e substitui a ${f.invoiceNumber}.`);
       } else {
-        await abrirContestacao(f, { origem, justificativa: motivo, abertaEm, anexos: anexo.trim() ? [{ nome: anexo.trim() }] : [] }, usuario);
+        await abrirContestacao(f, { origem, justificativa: motivo, abertaEm, anexos: anexo.trim() ? [{ nome: anexo.trim() }] : [], arquivos }, usuario);
         notify.success(`Contestação da fatura ${f.invoiceNumber} aberta. Acompanhe em Contestações.`);
       }
       await onFeito();
@@ -78,6 +79,12 @@ export const AcoesFaturaModais: React.FC<{
             </label>
             <label className="text-slate-700">Em<input type="date" className={entrada} value={abertaEm} onChange={e => setAbertaEm(e.target.value)} /></label>
             <label className="text-slate-700 col-span-2">Documento de apoio (opcional)<input className={entrada} value={anexo} onChange={e => setAnexo(e.target.value)} placeholder="Ex.: OMS nº 02126 do ComGptPatNavS; e-mail de 21/09/26" /></label>
+            <div className="col-span-2">
+              <label className="text-slate-700 block">Anexar arquivos (opcional — PDF, imagem, e-mail; até 20 MB cada)
+                <input type="file" multiple aria-label="Anexar arquivos à contestação" className="block w-full text-xs mt-1" onChange={e => setArquivos(prev => [...prev, ...Array.from(e.target.files || [])])} />
+              </label>
+              {arquivos.length > 0 && <ul className="mt-1 text-xs text-slate-600 space-y-0.5">{arquivos.map((a, i) => <li key={i}>📎 {a.name} ({Math.max(1, Math.round(a.size / 1024))} KB) <button type="button" className="text-red-700 underline ml-1" onClick={() => setArquivos(arquivos.filter((_, j) => j !== i))}>tirar</button></li>)}</ul>}
+            </div>
           </div>
         )}
 

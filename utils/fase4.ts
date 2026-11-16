@@ -20,11 +20,13 @@ export function proximaVersao(numero: string, existentes: Iterable<string> = [])
 export type StatusContestacao = 'ABERTA' | 'ENCAMINHADA' | 'RESPONDIDA' | 'ENCERRADA';
 export type Decisao = 'RATIFICADA' | 'RETIFICADA' | 'CANCELADA';
 export interface EventoContestacao { em: string; por: string; acao: string; texto?: string }
+/** Documento de apoio: só a referência (ofício, e-mail) ou também o arquivo enviado (caminho no armazenamento). */
+export interface AnexoContestacao { nome: string; referencia?: string; caminho?: string; tamanho?: number; tipo?: string }
 export interface Contestacao {
   id: string; invoiceId: string; numeroFatura: string; abertaEm: string; origem: string; justificativa: string;
   setorMedidor?: string | null; encaminhadaEm?: string | null; prazo?: string | null; resposta?: string | null; respondidaEm?: string | null;
   decisao?: Decisao | null; decididaEm?: string | null; novaFatura?: string | null; status: StatusContestacao;
-  anexos: { nome: string; referencia?: string }[]; historico: EventoContestacao[]; abertaPor?: string | null;
+  anexos: AnexoContestacao[]; historico: EventoContestacao[]; abertaPor?: string | null;
 }
 
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(b.slice(0, 10)) - Date.parse(a.slice(0, 10))) / 86400000);

@@ -1053,8 +1053,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // 2) contestar a EL
     await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle('Abrir contestação').click();
     await page.getByLabel('Motivo').fill('Navio docado em Niterói no período; não consumiu energia da BNIC');
+    await page.getByLabel('Anexar arquivos à contestação').setInputFiles({ name: 'oficio_navio.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 teste') });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'contestacao-anexo.png') });
     await page.getByRole('button', { name: 'Abrir contestação', exact: true }).last().click();
     await page.getByText(/Contestação da fatura 40032-EL-08-2026-039-0 aberta/).waitFor();
+    ok(db.contestacoes[0].anexos.length === 1 && db.contestacoes[0].anexos[0].nome === 'oficio_navio.pdf' && /^[0-9a-f-]{36}\/.+oficio_navio\.pdf$/.test(db.contestacoes[0].anexos[0].caminho) && db.storage.some(x => x.includes('/anexos-contestacao/')), 'contestação aberta com o arquivo anexado (enviado ao armazenamento)');
     ok(el.contestada === true && db.contestacoes.length === 1, 'contestação aberta e fatura marcada como contestada');
     await page.getByRole('button', { name: 'Contestações' }).first().click();
     await page.getByRole('heading', { name: 'Contestações' }).waitFor();
@@ -1062,6 +1065,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByPlaceholder(/Divisão de Eletricidade/).fill('Divisão de Eletricidade (BNIC-34)');
     await page.getByRole('button', { name: 'Encaminhar' }).click();
     await page.getByText('Encaminhada ao setor.').waitFor();
+    await page.getByLabel('Anexar arquivos', { exact: true }).setInputFiles({ name: 'leitura_medidor.png', mimeType: 'image/png', buffer: Buffer.from('png') });
+    await page.getByRole('button', { name: 'Anexar', exact: true }).click();
+    await page.getByText('Arquivo(s) anexado(s).').waitFor();
+    await page.waitForTimeout(500);
+    ok(db.contestacoes[0].anexos.length === 2 && db.contestacoes[0].historico.some(h => h.acao === 'ANEXO' && /leitura_medidor/.test(h.texto)) && await page.getByRole('button', { name: /leitura_medidor\.png/ }).isVisible(), `arquivo anexado depois, pela janela da contestação (${db.contestacoes[0].anexos.length} anexos; ${db.contestacoes[0].historico.map(h => h.acao).join(',')})`);
     await page.getByPlaceholder(/leitura conferida/).fill('Medidor do cais registrou consumo: navio esteve atracado até dia 20');
     await page.getByRole('button', { name: 'Registrar', exact: true }).first().click();
     await page.getByText('Resposta registrada.').waitFor();
@@ -1069,7 +1077,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Ratificar (mantém)' }).click();
     await page.getByText(/fatura ratificada/).waitFor();
     const c = db.contestacoes[0];
-    ok(c.status === 'ENCERRADA' && c.decisao === 'RATIFICADA' && c.historico.length === 4 && el.contestada === false, 'contestação: encaminhada → respondida → ratificada, histórico com 4 eventos');
+    ok(c.status === 'ENCERRADA' && c.decisao === 'RATIFICADA' && c.historico.length === 5 && el.contestada === false, 'contestação: encaminhada → respondida → ratificada (+ arquivo anexado), histórico com 5 eventos');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-contestacao.png') });
     // alterar contestação já encerrada: reabrir exige motivo, volta ao estágio anterior e a fatura volta a ser contestada
     await page.getByRole('button', { name: 'Reabrir contestação' }).waitFor();
@@ -1077,13 +1085,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Motivo da reabertura').fill('Chegou nova leitura do medidor');
     await page.getByRole('button', { name: 'Reabrir contestação' }).click();
     await page.getByText(/Contestação reaberta/).waitFor();
-    ok(c.status === 'RESPONDIDA' && !c.decisao && el.contestada === true && c.historico.length === 5 && c.historico[4].acao === 'REABERTA', 'contestação reaberta: volta a RESPONDIDA, sem decisão, fatura contestada de novo, evento REABERTA no histórico');
+    ok(c.status === 'RESPONDIDA' && !c.decisao && el.contestada === true && c.historico.length === 6 && c.historico[5].acao === 'REABERTA', 'contestação reaberta: volta a RESPONDIDA, sem decisão, fatura contestada de novo, evento REABERTA no histórico');
     await page.getByRole('button', { name: 'abrir' }).click();
     await page.getByLabel('Fundamento da decisão').fill('Nova leitura confirma o consumo');
     await page.getByRole('button', { name: 'Ratificar (mantém)' }).click();
     await page.getByText(/fatura ratificada/).waitFor();
     await page.waitForTimeout(500);
-    ok(db.contestacoes[0].status === 'ENCERRADA' && db.contestacoes[0].historico.length === 6 && el.contestada === false, `decisão refeita após a reabertura (${db.contestacoes[0].status}, ${db.contestacoes[0].historico.length}, ${el.contestada})`);
+    ok(db.contestacoes[0].status === 'ENCERRADA' && db.contestacoes[0].historico.length === 7 && el.contestada === false, `decisão refeita após a reabertura (${db.contestacoes[0].status}, ${db.contestacoes[0].historico.length}, ${el.contestada})`);
     await page.keyboard.press('Escape'); // Esc fecha a janela
     // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();

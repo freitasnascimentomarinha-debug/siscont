@@ -3,7 +3,7 @@ import { citarCorrecao } from '../utils/normas';
 import { supabase } from './supabase';
 import { db } from './db';
 import { Invoice, PaymentAllocation, ReceivedDocument } from '../types';
-import { Contestacao, Decisao, calcularCorrecao, evento, proximaVersao, Correcao } from '../utils/fase4';
+import { AnexoContestacao, Contestacao, Decisao, calcularCorrecao, evento, proximaVersao, Correcao } from '../utils/fase4';
 import { ehAdiantamento } from '../utils/baixas';
 import { ContextoFaturamento, emitirLote } from './faturamentoService';
 import { ItemLote, OMFat, numerar } from '../utils/faturamento';
@@ -55,11 +55,40 @@ async function marcarContestada(invoiceId: string, valor: boolean) {
   db.invalidateCache();
 }
 
-export async function abrirContestacao(inv: Invoice, d: { origem: string; justificativa: string; abertaEm: string; anexos?: { nome: string; referencia?: string }[] }, usuario: string) {
+const BUCKET_CONTESTACAO = 'anexos-contestacao';
+const nomeSeguro = (n: string) => n.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_').slice(-120);
+export const LIMITE_ANEXO_MB = 20;
+class Falta042Error extends Error { constructor() { super('Falta executar o script supabase/migrations/042_anexos_contestacao.sql no Supabase para guardar arquivos.'); } }
+/** Envia os arquivos ao armazenamento privado e devolve os anexos a gravar na contestação. */
+export async function enviarArquivos(contestacaoId: string, arquivos: File[]): Promise<AnexoContestacao[]> {
+  const out: AnexoContestacao[] = [];
+  for (const a of arquivos) {
+    if (a.size > LIMITE_ANEXO_MB * 1024 * 1024) throw new Error(`"${a.name}" passa de ${LIMITE_ANEXO_MB} MB.`);
+    const caminho = `${contestacaoId}/${uuidv4()}-${nomeSeguro(a.name)}`;
+    const up = await supabase.storage.from(BUCKET_CONTESTACAO).upload(caminho, a, { contentType: a.type || undefined, upsert: false });
+    if (up.error) { if (/bucket|not found/i.test(up.error.message || '')) throw new Falta042Error(); throw new Error(up.error.message); }
+    out.push({ nome: a.name, caminho, tamanho: a.size, tipo: a.type || undefined });
+  }
+  return out;
+}
+/** Anexa arquivos (com nota opcional) a uma contestação, aberta ou encerrada. */
+export async function anexarArquivos(c: Contestacao, arquivos: File[], usuario: string, texto?: string) {
+  const enviados = await enviarArquivos(c.id, arquivos);
+  await gravar({ ...c, anexos: [...c.anexos, ...enviados], historico: [...c.historico, ...enviados.map((a, i) => evento(usuario, 'ANEXO', `${a.nome}${i === 0 && texto ? `. ${texto}` : ''}`))] });
+}
+export async function linkAnexoContestacao(caminho: string) {
+  const { data, error } = await supabase.storage.from(BUCKET_CONTESTACAO).createSignedUrl(caminho, 300);
+  if (error) throw new Error(error.message);
+  return data!.signedUrl;
+}
+
+export async function abrirContestacao(inv: Invoice, d: { origem: string; justificativa: string; abertaEm: string; anexos?: AnexoContestacao[]; arquivos?: File[] }, usuario: string) {
   if (!d.justificativa.trim()) throw new Error('Informe a justificativa da OM.');
+  const id = uuidv4();
+  const enviados = await enviarArquivos(id, d.arquivos || []);
   const c: Contestacao = {
-    id: uuidv4(), invoiceId: inv.id, numeroFatura: inv.invoiceNumber, abertaEm: d.abertaEm, origem: d.origem, justificativa: d.justificativa.trim(),
-    status: 'ABERTA', anexos: d.anexos || [], abertaPor: usuario, historico: [evento(usuario, 'ABERTA', `Origem: ${d.origem}. ${d.justificativa.trim()}`, d.abertaEm)],
+    id, invoiceId: inv.id, numeroFatura: inv.invoiceNumber, abertaEm: d.abertaEm, origem: d.origem, justificativa: d.justificativa.trim(),
+    status: 'ABERTA', anexos: [...(d.anexos || []), ...enviados], abertaPor: usuario, historico: [evento(usuario, 'ABERTA', `Origem: ${d.origem}. ${d.justificativa.trim()}`, d.abertaEm)],
   };
   await gravar(c);
   await marcarContestada(inv.id, true);
