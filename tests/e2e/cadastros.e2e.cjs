@@ -1071,6 +1071,19 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const c = db.contestacoes[0];
     ok(c.status === 'ENCERRADA' && c.decisao === 'RATIFICADA' && c.historico.length === 4 && el.contestada === false, 'contestação: encaminhada → respondida → ratificada, histórico com 4 eventos');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase4-contestacao.png') });
+    // alterar contestação já encerrada: reabrir exige motivo, volta ao estágio anterior e a fatura volta a ser contestada
+    await page.getByRole('button', { name: 'Reabrir contestação' }).waitFor();
+    ok(await page.getByRole('button', { name: 'Reabrir contestação' }).isDisabled(), 'reabrir exige motivo');
+    await page.getByLabel('Motivo da reabertura').fill('Chegou nova leitura do medidor');
+    await page.getByRole('button', { name: 'Reabrir contestação' }).click();
+    await page.getByText(/Contestação reaberta/).waitFor();
+    ok(c.status === 'RESPONDIDA' && !c.decisao && el.contestada === true && c.historico.length === 5 && c.historico[4].acao === 'REABERTA', 'contestação reaberta: volta a RESPONDIDA, sem decisão, fatura contestada de novo, evento REABERTA no histórico');
+    await page.getByRole('button', { name: 'abrir' }).click();
+    await page.getByLabel('Fundamento da decisão').fill('Nova leitura confirma o consumo');
+    await page.getByRole('button', { name: 'Ratificar (mantém)' }).click();
+    await page.getByText(/fatura ratificada/).waitFor();
+    await page.waitForTimeout(500);
+    ok(db.contestacoes[0].status === 'ENCERRADA' && db.contestacoes[0].historico.length === 6 && el.contestada === false, `decisão refeita após a reabertura (${db.contestacoes[0].status}, ${db.contestacoes[0].historico.length}, ${el.contestada})`);
     await page.keyboard.press('Escape'); // Esc fecha a janela
     // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();

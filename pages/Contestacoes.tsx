@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Invoice, ServicoCatalogo, podeEditarDados } from '../types';
 import { db } from '../services/db';
 import { cadastroService } from '../services/cadastroService';
-import { Fase4NaoInstaladaError, anotar, decidir, encaminhar, listarContestacoes, responder } from '../services/fase4Service';
+import { Fase4NaoInstaladaError, anotar, decidir, encaminhar, listarContestacoes, reabrir, responder } from '../services/fase4Service';
 import { Contestacao, Decisao, situacaoContestacao } from '../utils/fase4';
 import { somarDiasUteis } from '../utils/diasUteis';
 import { lerFatura } from '../utils/cadastroImport';
@@ -142,6 +142,7 @@ const DetalheContestacao: React.FC<{
   const [anexo, setAnexo] = useState('');
   const [texto, setTexto] = useState('');
   const [ocupado, setOcupado] = useState(false);
+  const [motivoReabrir, setMotivoReabrir] = useState('');
   const fazer = async (fn: () => Promise<void>, ok: string) => {
     setOcupado(true);
     try { await fn(); notify.success(ok); await onAtualizar(); setNota(''); setAnexo(''); setResposta(''); } catch (e) { notify.fail('Não foi possível gravar', e); } finally { setOcupado(false); }
@@ -163,6 +164,26 @@ const DetalheContestacao: React.FC<{
             {c.anexos.length > 0 && <div className="text-xs mt-1 text-slate-600">Documentos: {c.anexos.map(a => a.nome + (a.referencia ? ` (${a.referencia})` : '')).join('; ')}</div>}
           </div>
         </div>
+
+        {podeEditar && !aberta && (
+          <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 space-y-2">
+            <div className="text-xs font-semibold text-slate-600">Contestação encerrada{c.decisao ? ` (${c.decisao})` : ''} — para alterar a decisão, reabra</div>
+            <div className="flex flex-wrap gap-2 items-center">
+              <input className={`${entrada} md:w-96`} value={motivoReabrir} onChange={e => setMotivoReabrir(e.target.value)} placeholder="Motivo da reabertura" aria-label="Motivo da reabertura" />
+              <Button variant="secondary" disabled={!motivoReabrir.trim() || ocupado} onClick={async () => {
+                setOcupado(true);
+                try { const r = await reabrir(c, usuario, motivoReabrir); notify.success('Contestação reaberta.' + (r.aviso ? ' ' + r.aviso : '')); setMotivoReabrir(''); await onAtualizar(); onClose(); }
+                catch (e) { notify.fail('Não foi possível reabrir', e); } finally { setOcupado(false); }
+              }}>Reabrir contestação</Button>
+            </div>
+            <p className="text-xs text-slate-500">Ao reabrir, a fatura volta a constar como contestada e a decisão pode ser refeita. Retificação ou cancelamento já feitos na fatura não são desfeitos.</p>
+            <div className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+              <label className="text-slate-700">Nota<input className={entrada} value={nota} onChange={e => setNota(e.target.value)} placeholder="Ex.: decisão confirmada pelo Encarregado" /></label>
+              <label className="text-slate-700">Documento (referência)<input className={entrada} value={anexo} onChange={e => setAnexo(e.target.value)} placeholder="Ex.: OMS nº 02126" /></label>
+              <Button variant="ghost" disabled={(!nota.trim() && !anexo.trim()) || ocupado} onClick={() => fazer(() => anotar(c, nota, usuario, anexo.trim() ? { nome: anexo.trim() } : undefined), 'Registrado no histórico.')}>Registrar</Button>
+            </div>
+          </div>
+        )}
 
         {podeEditar && aberta && (
           <div className="p-3 rounded-lg border border-primary-200 bg-primary-50/40 space-y-3">

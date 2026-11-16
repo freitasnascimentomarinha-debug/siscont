@@ -87,6 +87,26 @@ export async function decidir(c: Contestacao, decisao: Decisao, usuario: string,
   if (!outras.length) await marcarContestada(c.invoiceId, false);
 }
 
+/** Reabre uma contestação já encerrada (para corrigir a decisão). Volta ao último estágio anterior à decisão e a fatura volta a constar como contestada.
+ *  Não desfaz retificação/cancelamento já feitos na fatura: devolve um aviso nesse caso. */
+export async function reabrir(c: Contestacao, usuario: string, motivo: string): Promise<{ aviso?: string }> {
+  if (c.status !== 'ENCERRADA') throw new Error('A contestação não está encerrada.');
+  if (!motivo.trim()) throw new Error('Informe o motivo da reabertura.');
+  const status = c.resposta ? 'RESPONDIDA' : c.encaminhadaEm ? 'ENCAMINHADA' : 'ABERTA';
+  const anterior = [c.decisao, c.decididaEm ? `em ${c.decididaEm.split('-').reverse().join('/')}` : ''].filter(Boolean).join(' ');
+  await gravar({
+    ...c, status, decisao: null, decididaEm: null, novaFatura: null,
+    historico: [...c.historico, evento(usuario, 'REABERTA', `Decisão anterior: ${anterior || '—'}. Motivo: ${motivo.trim()}`)],
+  });
+  const { data, error } = await supabase.from('invoices').select('is_canceled, substituida_por').eq('id', c.invoiceId).maybeSingle();
+  checar(error);
+  if (data?.is_canceled || data?.substituida_por) {
+    return { aviso: data.is_canceled ? 'A fatura continua cancelada (o cancelamento não é desfeito aqui).' : `A fatura continua substituída por ${data.substituida_por} (a retificação não é desfeita aqui).` };
+  }
+  await marcarContestada(c.invoiceId, true);
+  return {};
+}
+
 // ------------------------------------------------------------------ cancelamento e substituição
 export async function cancelarFatura(inv: Invoice, motivo: string, devolverBaixas: boolean, usuario: string) {
   if (!motivo.trim()) throw new Error('O motivo do cancelamento é obrigatório.');
