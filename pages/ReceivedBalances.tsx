@@ -602,7 +602,7 @@ export const ReceivedBalances: React.FC = () => {
                                   <p className="font-semibold text-slate-700">R$ {doc.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                 </div>
                                 {doc.operation === OperationType.OUTROS ? (
-                                  <div className="text-right" title="Crédito recebido na R.901.16 para outros serviços: não paga fatura; aparece só no Fluxo de caixa">
+                                  <div className="text-right" title="Crédito recebido na R.901.16 para outros serviços: não paga fatura; fica fora das baixas e do saldo a destinar">
                                     <p className="text-xs text-slate-400 uppercase">Destino</p>
                                     <p className="font-bold text-slate-600">Outros serviços</p>
                                     <p className="text-xs text-slate-500">{doc.finalidade ? (CATEGORIAS.find(c => c.id === doc.finalidade)?.rotulo || doc.finalidade) : 'sem finalidade indicada'}</p>
@@ -785,7 +785,7 @@ export const ReceivedBalances: React.FC = () => {
         </div>
         {activeTab === OperationType.OUTROS ? (
           <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-            <p className="text-xs text-slate-500 uppercase font-semibold">Só no Fluxo de caixa</p>
+            <p className="text-xs text-slate-500 uppercase font-semibold">Não paga fatura</p>
             <p className="text-xl font-bold text-slate-600">R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
           </div>
         ) : (
@@ -806,7 +806,7 @@ export const ReceivedBalances: React.FC = () => {
             { op: '+' },
             { t: 'A destinar', v: conciliacao.aDestinar, cor: 'text-emerald-700', dica: 'Ainda disponível para baixar faturas ou ficar como adiantamento' },
             { op: '+' },
-            { t: 'Outros serviços', v: conciliacao.outros, cor: 'text-slate-600', dica: 'Não paga fatura: aparece só no Fluxo de caixa' },
+            { t: 'Outros serviços', v: conciliacao.outros, cor: 'text-slate-600', dica: 'Não paga fatura: fica fora das baixas e do saldo a destinar' },
           ] as any[]).map((x, i) => x.op
             ? <span key={i} className="self-center text-lg font-bold text-slate-400" aria-hidden>{x.op}</span>
             : <div key={i} className="flex-1 min-w-[9rem] rounded-md bg-slate-50 border border-slate-200 px-3 py-2" title={x.dica}>
@@ -960,7 +960,7 @@ export const ReceivedBalances: React.FC = () => {
             options={[
               { label: 'Pagamento', value: OperationType.PAGAMENTO },
               { label: 'Adiantamento', value: OperationType.ADIANTAMENTO },
-              { label: 'Outros serviços (só fluxo de caixa)', value: OperationType.OUTROS }
+              { label: 'Outros serviços (não paga fatura)', value: OperationType.OUTROS }
             ]}
             value={docFormData.operation || ''}
             onChange={e => setDocFormData({ ...docFormData, operation: e.target.value as any })}

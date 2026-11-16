@@ -2412,7 +2412,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Z999.2026.AC.00010').first().waitFor({ timeout: 20000 });
     ok(await page.getByLabel('Ação para Z999.2026.AC.00011').inputValue() === 'IGNORAR', 'a devolvida continua vindo como "Não importar"');
     const opcoes = await page.getByLabel('Ação para Z999.2026.AC.00010').locator('option').allInnerTexts();
-    ok(opcoes.some(o => /pagar faturas/.test(o)) && opcoes.some(o => /adiantamento/.test(o)) && opcoes.some(o => /outros serviços \(só fluxo de caixa\)/.test(o)), 'cada linha oferece: pagar faturas, adiantamento e outros serviços (só fluxo de caixa)');
+    ok(opcoes.some(o => /pagar faturas/.test(o)) && opcoes.some(o => /adiantamento/.test(o)) && opcoes.some(o => /outros serviços \(não paga fatura\)/.test(o)), 'cada linha oferece: pagar faturas, adiantamento e outros serviços (não paga fatura)');
     // uma "Não importar" também pode virar Outros (o usuário sabe que o crédito entrou), com aviso de conferência
     await page.getByLabel('Ação para Z999.2026.AC.00011').selectOption('OUTROS');
     ok(await page.getByText(/Confira se o crédito realmente entrou na R\.901\.16/).isVisible(), 'avisa para conferir quando a situação no SIPLAD não é de crédito entrado');
@@ -2429,7 +2429,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // Créditos recebidos: aba "Outros serviços" e a conciliação fecha
     await page.getByRole('button', { name: 'Outros serviços', exact: true }).click();
     await page.getByText('Z999.2026.AC.00010').first().waitFor();
-    ok(await page.getByText('Só no Fluxo de caixa').isVisible() && (await page.getByText('Material de expediente e limpeza').count()) >= 1, 'aba "Outros serviços" mostra o destino e a finalidade, sem R$ 0,00 de "disponível"');
+    ok(await page.getByText('Não paga fatura', { exact: true }).first().isVisible() && (await page.getByText('Material de expediente e limpeza').count()) >= 1, 'aba "Outros serviços" mostra o destino e a finalidade, sem R$ 0,00 de "disponível"');
     const conc = (await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ');
     ok(/Recebido R\$ 3\.000,00 = Aplicado em faturas R\$ 0,00 \+ A destinar R\$ 1\.000,00 \+ Outros serviços R\$ 2\.000,00/.test(conc), `a conferência fecha: ${conc}`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-outros-servicos.png') });

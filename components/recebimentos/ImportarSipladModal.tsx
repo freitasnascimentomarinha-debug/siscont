@@ -32,7 +32,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   const [semSolicitacao, setSemSolicitacao] = useState<string[]>([]);
   const [descartadas, setDescartadas] = useState<SolicitacaoAltcred[]>([]);
   const [ignorados, setIgnorados] = useState<Set<number>>(new Set());
-  // destino escolhido por linha: o padrão (pagar faturas) não precisa de escolha; adiantamento ou outros serviços (só fluxo de caixa, com finalidade opcional)
+  // destino escolhido por linha: o padrão (pagar faturas) não precisa de escolha; adiantamento ou outros serviços (não paga fatura, com finalidade opcional)
   const [destino, setDestino] = useState<Record<number, 'ADIANTAMENTO' | 'OUTROS'>>({});
   const [finalidade, setFinalidade] = useState<Record<number, string>>({});
 
@@ -115,7 +115,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         {itens.length > 0 && (
           <p className="text-xs text-slate-600" role="note">
             <b>O que fazer com cada ALTCRED:</b> "Cadastrar nova" deixa o crédito para pagar faturas (se a OM não citou fatura, ele fica aguardando e vocês escolhem as faturas depois).
-            Escolha <b>"Adiantamento"</b> se o valor fica guardado para faturas futuras, ou <b>"Outros serviços"</b> se o crédito foi recebido na R.901.16 para outro fim e não paga fatura: ele entra só no Fluxo de caixa.
+            Escolha <b>"Adiantamento"</b> se o valor fica guardado para faturas futuras, ou <b>"Outros serviços"</b> se o crédito foi recebido na R.901.16 para outro fim e não paga fatura: ele fica fora das baixas e do saldo a destinar (e continua no Fluxo de caixa, como toda ALTCRED).
           </p>
         )}
         {itens.length > 0 && (
@@ -155,7 +155,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                         className="border border-slate-300 rounded px-1 py-1 bg-white">
                         <option value={i.acao}>{i.acao === 'NOVA' ? 'Cadastrar nova (pagar faturas)' : ROTULO[i.acao]}</option>
                         {i.acao !== 'ESTORNO' && <option value="ADIANTAMENTO">Cadastrar como adiantamento</option>}
-                        {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como outros serviços (só fluxo de caixa)</option>}
+                        {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como outros serviços (não paga fatura)</option>}
                         <option value="IGNORAR">{ROTULO.IGNORAR}</option>
                       </select>
                       {!ignorados.has(n) && destino[n] === 'OUTROS' && (
