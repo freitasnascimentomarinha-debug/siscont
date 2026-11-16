@@ -1733,6 +1733,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       await page.getByRole('button', { name: 'Limpar seleção' }).click();
       await page.locator('tbody').getByRole('button', { name: /^Editar / }).first().click(); await page.waitForTimeout(600);
       await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-edicao.png') });
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'Disponível R.901.16' }).click(); await page.waitForTimeout(1200);
+      await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-disponivel.png') });
     }
   });
 

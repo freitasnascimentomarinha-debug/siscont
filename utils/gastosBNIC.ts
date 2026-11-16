@@ -51,7 +51,7 @@ export interface SaidaGasto { id: string; date: string; value: number; client: s
 export interface MedicaoGasto { competencia: string; sigla: string; omId: string; quantidade: number | null; valor: number | null; estimada?: boolean; origem?: string | null }
 
 export const CATEGORIAS_SEM_RUBRICA: Record<string, string> = {
-  ENERGIA: 'Energia elétrica', AGUA: 'Água e esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura (sem rubrica)', EXPEDIENTE: 'Material de expediente e limpeza', SEM_INDICACAO: 'Sem indicação de rubrica ou categoria',
+  ENERGIA: 'Energia elétrica', AGUA: 'Água e esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura (sem rubrica)', EXPEDIENTE: 'Material de expediente e limpeza', OUTROS: 'Outros', SEM_INDICACAO: 'Sem indicação de rubrica ou categoria',
 };
 const categoriaDe = (s: SaidaGasto) => (s.categoria && CATEGORIAS_SEM_RUBRICA[s.categoria] ? s.categoria : 'SEM_INDICACAO');
 

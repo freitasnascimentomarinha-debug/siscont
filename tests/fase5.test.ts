@@ -65,8 +65,8 @@ describe('disponível R.901.16 e saldo mensal (5A)', () => {
     const e = entradasPorCategoria([{ id: 'd1', valor: 1000 }, { id: 'd2', valor: 300 }], [
       { documentId: 'd1', amount: 600, sigla: 'EL' }, { documentId: 'd1', amount: 100, sigla: 'TC' }, { documentId: 'd2', amount: 300, sigla: 'AE' }, { documentId: 'outro', amount: 999, sigla: 'EL' },
     ]);
-    expect(e).toEqual({ ENERGIA: 600, AGUA: 300, TELEFONIA: 0, CONDOMINIO: 100, EXPEDIENTE: 0, SEM_INDICACAO: 300 });
-    expect([categoriaDaSaida({ rubricaNumero: 14 }), categoriaDaSaida({ categoria: 'AGUA' }), categoriaDaSaida({ categoria: 'OUTROS' })]).toEqual(['CONDOMINIO', 'AGUA', 'SEM_INDICACAO']);
+    expect(e).toEqual({ ENERGIA: 600, AGUA: 300, TELEFONIA: 0, CONDOMINIO: 100, EXPEDIENTE: 0, OUTROS: 0, SEM_INDICACAO: 300 });
+    expect([categoriaDaSaida({ rubricaNumero: 14 }), categoriaDaSaida({ categoria: 'AGUA' }), categoriaDaSaida({ categoria: 'OUTROS' }), categoriaDaSaida({})]).toEqual(['CONDOMINIO', 'AGUA', 'OUTROS', 'SEM_INDICACAO']);
   });
   it('saldo mensal: transporta entre os meses e zera na virada do ano (janeiro começa do zero)', () => {
     const movs = [{ data: '2025-12-10', tipo: 'ENTRADA' as const, valor: 1000 }, { data: '2026-01-05', tipo: 'SAIDA' as const, valor: 300 }, { data: '2026-03-01', tipo: 'ENTRADA' as const, valor: 50 }];
@@ -107,6 +107,6 @@ describe('entradas por categoria com ALTCRED de outros serviços', () => {
       { id: 'c', valor: 300 },
     ];
     const e = entradasPorCategoria(docs, [{ documentId: 'c', amount: 200, sigla: 'EL' }, { documentId: 'a', amount: 999, sigla: 'EL' }]);
-    expect(e).toEqual({ ENERGIA: 200, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, EXPEDIENTE: 1000, SEM_INDICACAO: 500 + 100 });
+    expect(e).toEqual({ ENERGIA: 200, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, EXPEDIENTE: 1000, OUTROS: 0, SEM_INDICACAO: 500 + 100 });
   });
 });
