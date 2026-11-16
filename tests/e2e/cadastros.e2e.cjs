@@ -1649,6 +1649,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'lembrete leva à Administração');
   });
 
+  // Só com FLUXO_SEED=arquivo.json (NE e ALTCRED reais exportados da planilha): tira prints do Fluxo de caixa com dados parecidos com os de produção
+  if (process.env.FLUXO_SEED) await cenario('Fluxo de caixa: prints com dados reais (FLUXO_SEED)', [], async (page, db) => {
+    const seed = JSON.parse(fs.readFileSync(process.env.FLUXO_SEED, 'utf8'));
+    seed.exits.forEach(e => db.cash_flow_exits.push({ id: uid(), document_type: 'EMPENHO', observation: '', is_canceled: false, ...e }));
+    seed.docs.forEach(d => db.received_documents.push({ id: uid(), ug: '', sector: 'DGMM', command: '40030', document_type: 'ALTCRED', operation: 'PAGAMENTO', observation: '', ...d }));
+    await page.reload();
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
+    await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
+    await page.waitForTimeout(1500);
+    if (SHOTS) { await page.screenshot({ path: path.join(SHOTS, 'fluxo-real.png') }); for (const [k, y] of [[2, 650], [3, 6000]]) { await page.locator('main .overflow-y-auto').first().evaluate((el, yy) => el.scrollTo(0, yy), y); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `fluxo-real-${k}.png`) }); } }
+  });
+
   await cenario('Janela de exercícios: carrega só os anos recentes e o que ainda importa, sem mudar nenhum valor', [], async (page, db) => {
     const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
     db.oms.push(amrj);
