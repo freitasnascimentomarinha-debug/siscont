@@ -98,3 +98,15 @@ describe('categoria "Material de expediente e limpeza"', () => {
     expect(categoriaDaSaida({ categoria: 'EXPEDIENTE' })).toBe('EXPEDIENTE');
   });
 });
+
+describe('entradas por categoria com ALTCRED de outros serviços', () => {
+  it('a ALTCRED "Outros" entra inteira na categoria da finalidade (ou em "sem indicação") e não conta nas baixas', () => {
+    const docs = [
+      { id: 'a', valor: 1000, outros: true, finalidade: 'EXPEDIENTE' },
+      { id: 'b', valor: 500, outros: true, finalidade: null },
+      { id: 'c', valor: 300 },
+    ];
+    const e = entradasPorCategoria(docs, [{ documentId: 'c', amount: 200, sigla: 'EL' }, { documentId: 'a', amount: 999, sigla: 'EL' }]);
+    expect(e).toEqual({ ENERGIA: 200, AGUA: 0, TELEFONIA: 0, CONDOMINIO: 0, EXPEDIENTE: 1000, SEM_INDICACAO: 500 + 100 });
+  });
+});

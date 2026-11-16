@@ -6,11 +6,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { notify } from '../utils/notify';
-import { CashFlowItem, CashFlowExit, DocumentType, podeEditarDados } from '../types';
+import { CashFlowItem, CashFlowExit, DocumentType, ReceivedDocument, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError } from '../services/relatoriosService';
+import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
+import { CATEGORIAS } from '../utils/relatorios';
 import { PreviaNE, NEExistente, entraNaGravacao, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
 import * as XLSX from 'xlsx';
 import { Rubrica, lerNE } from '../utils/relatorios';
@@ -25,6 +27,8 @@ const Lancamentos: React.FC = () => {
   const isReadOnly = !podeEditarDados(user?.role);
 
   const [items, setItems] = useState<CashFlowItem[]>([]);
+  const [sipladAberto, setSipladAberto] = useState(false);
+  const [docsCredito, setDocsCredito] = useState<ReceivedDocument[]>([]);
 
   // Filters
   const [filterText, setFilterText] = useState('');
@@ -88,6 +92,7 @@ const Lancamentos: React.FC = () => {
   const refresh = async () => {
     try {
       setItems(await db.getCashFlow());
+      setDocsCredito(await db.getDocuments());
     } catch (err) {
       notify.fail('Erro ao carregar fluxo de caixa', err);
     }
@@ -266,14 +271,17 @@ const Lancamentos: React.FC = () => {
       {/* ... (Keep existing header and charts) ... */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <p className="text-slate-500 text-sm">Entradas: ALTCRED recebidas (automáticas); as GRU não entram aqui (ficam na página Extra-Marinha). Saídas: notas de empenho por rubrica ou categoria.</p>
+          <p className="text-slate-500 text-sm">Entradas: as ALTCRED de Créditos recebidos (automáticas); a etiqueta mostra o destino de cada uma (pagar faturas, adiantamento ou outros serviços). As GRU não entram aqui (ficam na página Extra-Marinha). Saídas: notas de empenho por rubrica ou categoria.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 [&_button]:whitespace-nowrap">
           {!isReadOnly && (
             <>
               <input type="file" ref={neRef} onChange={e => importarPlanilhaNE(e.target.files)} accept=".xlsx,.xls,.ods" className="hidden" />
               <Button variant="secondary" size="sm" onClick={() => neRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" /> Importar NE (planilha)
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} aria-label="Importar ALTCRED do PDF do SIPLAD" title="Cadastra as ALTCRED recebidas na R.901.16 (as mesmas de Créditos recebidos). Escolha o destino de cada uma: pagar faturas, adiantamento ou outros serviços.">
+                <Upload className="w-4 h-4 mr-2" /> Importar ALTCRED (SIPLAD)
               </Button>
               <BaixarModelo rotulo="Modelo NE" modelo={() => { const d = new Date(); return modeloNotasEmpenho(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }} />
             </>
@@ -377,6 +385,9 @@ const Lancamentos: React.FC = () => {
                     {item.type === 'EXIT' && item.value < 0 ? <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800" title="Anulação parcial: diminui o valor desta NE">ANULAÇÃO</span>
                       : ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
                     {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}
+                    {item.type === 'ENTRY' && item.destino === 'OUTROS' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700" title="Crédito recebido para outros serviços: não paga fatura">OUTROS SERVIÇOS{item.finalidade ? ` · ${CATEGORIAS.find(c => c.id === item.finalidade)?.rotulo || item.finalidade}` : ''}</span>}
+                    {item.type === 'ENTRY' && item.destino === 'ADIANTAMENTO' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800" title="Valor guardado para faturas futuras">ADIANTAMENTO</span>}
+                    {item.type === 'ENTRY' && item.destino === 'PAGAMENTO' && item.aguardando && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="A OM ainda não indicou as faturas: o acompanhamento contábil escolhe em Créditos recebidos">A DESTINAR</span>}
                   </td>
                   <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>{item.client}</td>
                   <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>
@@ -461,6 +472,7 @@ const Lancamentos: React.FC = () => {
         </div>
       </Modal>
 
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} />
       <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
         footer={<div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setPreviaNE(null)}>Cancelar</Button>

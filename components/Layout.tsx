@@ -62,7 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
       { id: 'contestacoes', label: 'Contestações', icon: MessageSquareWarning, dica: 'Contestações abertas pelas OM e respostas' },
     ] },
     { titulo: 'Acompanhamento contábil', itens: [
-      { id: 'received', label: 'Recebimentos', icon: Wallet, dica: 'Importar ALTCRED do SIPLAD, GRU, baixas e adiantamentos' },
+      { id: 'received', label: 'Créditos recebidos', icon: Wallet, dica: 'ALTCRED recebidas na R.901.16: importar do SIPLAD, baixar faturas, adiantamentos e outros serviços' },
       { id: 'conciliacao', label: 'Extrato de conciliação', icon: Scale, dica: 'Conferência faturado × recebido por OM' },
       { id: 'cobranca', label: 'Cobrança', icon: Megaphone, dica: 'Faturas em aberto e mensagens de cobrança' },
       { id: 'extramb', label: 'Extra-Marinha', icon: Briefcase, dica: 'Clientes de fora da Marinha: faturas, GRU, extrato por cliente e e-mail de envio' },

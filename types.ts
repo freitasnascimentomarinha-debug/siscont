@@ -222,6 +222,8 @@ export interface ReceivedDocument {
   sobraAdiantamento?: boolean; // sobra da ALTCRED de pagamento vira adiantamento
   gruAutenticacao?: string | null;
   gruDataPagamento?: string | null;
+  /** ALTCRED de "outros serviços" (operação Outros): categoria do gasto a que se destina (script 041); nula = sem indicação */
+  finalidade?: 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'EXPEDIENTE' | null;
 }
 
 /** Linha da Célula de Débito (CDD) ou de Crédito (CDC) da ALTCRED. */
@@ -239,7 +241,7 @@ export const CAMPOS_DOC_FASE2: [keyof ReceivedDocument, string][] = [
   ['situacaoSiplad', 'situacao_siplad'], ['ugCliente', 'ug_cliente'], ['altcredOrigem', 'altcred_origem'],
   ['observacaoSolicitante', 'observacao_solicitante'], ['celulas', 'celulas'], ['valorOriginal', 'valor_original'],
   ['valorEstornado', 'valor_estornado'], ['destinacao', 'destinacao'], ['aguardando', 'aguardando'],
-  ['sobraAdiantamento', 'sobra_adiantamento'], ['gruAutenticacao', 'gru_autenticacao'], ['gruDataPagamento', 'gru_data_pagamento'],
+  ['sobraAdiantamento', 'sobra_adiantamento'], ['gruAutenticacao', 'gru_autenticacao'], ['gruDataPagamento', 'gru_data_pagamento'], ['finalidade', 'finalidade'],
 ]
 
 // This represents a link between a Document and an Invoice (Payment)
@@ -284,6 +286,10 @@ export interface CashFlowItem {
   observation?: string;
   isCanceled?: boolean;
   documentType?: DocumentType;
+  /** só nas entradas (ALTCRED): o que foi feito com o crédito */
+  destino?: 'PAGAMENTO' | 'ADIANTAMENTO' | 'OUTROS';
+  finalidade?: string | null;
+  aguardando?: boolean;
   balanceAfter: number;
 }
 

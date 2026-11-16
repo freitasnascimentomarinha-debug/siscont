@@ -115,11 +115,17 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
  * ALTCRED recebida na R.901.16 que NÃO é para pagar fatura (outros serviços): cadastrada na operação "Outros".
  * Entra só no fluxo de caixa; não fica "aguardando destinação" e não oferece saldo para baixa nem adiantamento.
  */
-export function comoRecebimentoOutros(i: ItemImportacao): ItemImportacao {
+export function comoRecebimentoOutros(i: ItemImportacao, finalidade?: ReceivedDocument['finalidade']): ItemImportacao {
   if (i.acao === 'ESTORNO' || i.acao === 'IGNORAR') return i;
   const nota = 'Recebida na R.901.16 para outros serviços (sem fatura): só fluxo de caixa.';
-  return { ...i, doc: { ...i.doc, operation: OperationType.OUTROS, aguardando: false, informedAdvance: false, sobraAdiantamento: false, destinacao: [],
+  return { ...i, doc: { ...i.doc, operation: OperationType.OUTROS, aguardando: false, informedAdvance: false, sobraAdiantamento: false, destinacao: [], finalidade: finalidade ?? null,
     observation: [i.doc.observation, nota].filter(Boolean).join(' | ') } };
+}
+
+/** ALTCRED que o cliente mandou como adiantamento (valor guardado para faturas futuras): operação Adiantamento. */
+export function comoAdiantamentoImportado(i: ItemImportacao): ItemImportacao {
+  if (i.acao === 'ESTORNO' || i.acao === 'IGNORAR') return i;
+  return { ...i, doc: { ...i.doc, operation: OperationType.ADIANTAMENTO, aguardando: false, informedAdvance: true, finalidade: null } };
 }
 
 export async function gravarImportacaoSiplad(itens: ItemImportacao[]) {

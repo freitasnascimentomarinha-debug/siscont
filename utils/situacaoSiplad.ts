@@ -41,7 +41,7 @@ export const motivoBloqueio = (situacaoSiplad?: string | null) => {
   return s.recebido ? '' : `ALTCRED ${s.rotulo.toLowerCase()} no SIPLAD: só dá para dar baixa nas faturas depois que for processada. Importe o PDF de novo quando o SIPLAD processar.`;
 };
 
-/** Texto dos filtros da tela de Recebimentos. */
+/** Texto dos filtros da tela de Créditos recebidos. */
 export const FILTRO_SITUACAO: { value: string; label: string }[] = [
   { value: 'todas', label: 'Todas' }, { value: 'PROCESSADA', label: 'Processada' }, { value: 'AGUARDANDO', label: 'Aguardando processamento' },
   { value: 'EM_ANALISE', label: 'Em análise / tramitação' }, { value: 'NAO_RECEBIDA', label: 'Devolvida / cancelada / não processada' }, { value: 'SEM_INFO', label: 'Sem situação (migrada da planilha)' },

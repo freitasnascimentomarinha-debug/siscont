@@ -30,7 +30,7 @@ export const saldoDaFatura = (f: { saldoAPagar?: number; value: number; adjustme
   r2(f.saldoAPagar ?? Math.max(0, f.value + (f.adjustmentAddition || 0) - (f.adjustmentDeduction || 0) - jaBaixado));
 
 /**
- * Ordem das faturas a pagar (Recebimentos): competência (a mais antiga primeiro), data de vencimento e, por último,
+ * Ordem das faturas a pagar (Créditos recebidos): competência (a mais antiga primeiro), data de vencimento e, por último,
  * em ordem alfabética de comando / UG / cliente.
  */
 export interface FaturaOrdenavel { yearCompetence?: number; monthCompetence?: number; dueDate?: string; command?: string; ug?: string; client?: string; invoiceNumber?: string }

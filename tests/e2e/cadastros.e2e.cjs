@@ -506,7 +506,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29'), nova('12346-TL-07-2026-001-0', 90, '2026-08-31'),
       { ...nova('99999-AE-08-2026-001-0', 120, '2026-09-29'), ug: '99999', client: 'Outra OM Teste', command: '99999 - Outro Comando', om_id: null }];
     await page.reload();
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
@@ -923,10 +923,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.payment_allocations.push({ id: uid(), document_id: docAmrj.id, invoice_id: fat.id, amount: 1000, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docAmrj.id, invoice_id: fatOutra.id, amount: 20, date: '2026-10-01', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: docRt.id, invoice_id: fat.id, amount: 2000, date: '2026-10-05', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
     // Recebimentos: documento do dia 1º não cai no mês anterior; agrupado pelo cadastro
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
-    await page.getByRole('heading', { name: 'Recebimentos', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'Créditos recebidos', exact: true }).waitFor();
     await page.getByLabel('Mês').selectOption('10');
-    await page.getByLabel('Ano').selectOption('2026');
+    await page.getByLabel('Ano', { exact: true }).selectOption('2026');
     await page.getByText('AMRJ.2026.AC.00001').waitFor();
     ok(true, 'filtro de mês: a ALTCRED de 01/10/2026 aparece em outubro (antes caía em setembro)');
     // padrão: pela data do documento (mais recente primeiro), com setor › comando › cliente em cada cartão
@@ -1899,7 +1899,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Sem taxa condominial publicada para esta OM em 2027/).waitFor();
     ok(true, 'sem taxa publicada no ano: avisa para publicar na Taxa condominial');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Novo Documento' }).click();
     await page.getByRole('dialog').getByLabel('Cliente', { exact: true }).fill('banco');
     ok(await page.getByText('Cadastrar novo cliente').isVisible(), 'documento: busca no cadastro com opção de cadastrar cliente novo');
@@ -2394,7 +2394,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     db.comandos.push(cmd); db.oms.push(dgepm, cpn);
     db.received_documents.push({ id: uid(), document_number: 'G424.2026.AC.00511', document_type: 'ALTCRED', total_value: 10.13, date: '2026-11-09', operation: 'PAGAMENTO', client: dgepm.nome, sector: 'DGMM', command: '40005 - ' + dgepm.nome, ug: '40005', observation: '' });
     await page.reload();
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('heading', { name: 'G424.2026.AC.00511' }).waitFor();
     await page.getByTitle('Editar', { exact: true }).first().click();
     await page.getByRole('heading', { name: 'Editar Documento' }).waitFor();
@@ -2404,32 +2404,47 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await page.getByText('Não está ligado ao cadastro').isVisible(), 'texto que não é de nenhuma OM continua avisando');
   });
 
-  await cenario('SIPLAD: ALTCRED de outros serviços (R.901.16, sem fatura) cadastrada como "Outros": só no fluxo de caixa', [pdfSiplad('Processada', 'Z999.2026.AC.00010'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00011')], async (page, db, arquivos) => {
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+  await cenario('SIPLAD: destino de cada ALTCRED (pagar faturas, adiantamento ou outros serviços) e o que cada setor vê', [pdfSiplad('Processada', 'Z999.2026.AC.00010'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00011'), pdfSiplad('Processada', 'Z999.2026.AC.00012')], async (page, db, arquivos) => {
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('heading', { name: 'Créditos recebidos', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00010').first().waitFor({ timeout: 20000 });
     ok(await page.getByLabel('Ação para Z999.2026.AC.00011').inputValue() === 'IGNORAR', 'a devolvida continua vindo como "Não importar"');
     const opcoes = await page.getByLabel('Ação para Z999.2026.AC.00010').locator('option').allInnerTexts();
-    ok(opcoes.some(o => /Outros \(só fluxo de caixa\)/.test(o)), 'cada linha oferece "Cadastrar como Outros (só fluxo de caixa)"');
-    // a "Não importar" também pode virar Outros (o usuário sabe que o crédito entrou), com aviso de conferência
+    ok(opcoes.some(o => /pagar faturas/.test(o)) && opcoes.some(o => /adiantamento/.test(o)) && opcoes.some(o => /outros serviços \(só fluxo de caixa\)/.test(o)), 'cada linha oferece: pagar faturas, adiantamento e outros serviços (só fluxo de caixa)');
+    // uma "Não importar" também pode virar Outros (o usuário sabe que o crédito entrou), com aviso de conferência
     await page.getByLabel('Ação para Z999.2026.AC.00011').selectOption('OUTROS');
     ok(await page.getByText(/Confira se o crédito realmente entrou na R\.901\.16/).isVisible(), 'avisa para conferir quando a situação no SIPLAD não é de crédito entrado');
     await page.getByLabel('Ação para Z999.2026.AC.00010').selectOption('OUTROS');
+    await page.getByLabel('Finalidade de Z999.2026.AC.00010').selectOption('EXPEDIENTE');
+    await page.getByLabel('Ação para Z999.2026.AC.00012').selectOption('ADIANTAMENTO');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-outros.png') });
     await page.getByRole('button', { name: 'Gravar', exact: true }).click();
     await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
-    const d10 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00010'), d11 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00011');
-    ok(d10 && d10.operation === 'OUTROS' && d10.aguardando === false && /outros serviços/.test(d10.observation || ''), 'gravada como operação "Outros", sem "aguardando" e com a nota');
-    ok(d11 && d11.operation === 'OUTROS', 'a que estava em "Não importar" também foi gravada quando o usuário escolheu Outros');
-    // aparece como entrada no Fluxo de caixa e não oferece saldo para baixa
+    const d10 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00010'), d11 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00011'), d12 = db.received_documents.find(d => d.document_number === 'Z999.2026.AC.00012');
+    ok(d10 && d10.operation === 'OUTROS' && d10.aguardando === false && d10.finalidade === 'EXPEDIENTE' && /outros serviços/.test(d10.observation || ''), 'gravada como "outros serviços", com a finalidade (material de expediente e limpeza) e a nota');
+    ok(d11 && d11.operation === 'OUTROS' && !d11.finalidade, 'a que estava em "Não importar" também foi gravada quando o usuário escolheu outros serviços (sem finalidade)');
+    ok(d12 && d12.operation === 'ADIANTAMENTO' && d12.aguardando === false, 'a escolhida como adiantamento foi gravada como adiantamento');
+    // Créditos recebidos: aba "Outros serviços" e a conciliação fecha
+    await page.getByRole('button', { name: 'Outros serviços', exact: true }).click();
+    await page.getByText('Z999.2026.AC.00010').first().waitFor();
+    ok(await page.getByText('Só no Fluxo de caixa').isVisible() && (await page.getByText('Material de expediente e limpeza').count()) >= 1, 'aba "Outros serviços" mostra o destino e a finalidade, sem R$ 0,00 de "disponível"');
+    const conc = (await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ');
+    ok(/recebido R\$ 3\.000,00 = aplicado em faturas R\$ 0,00 \+ a destinar R\$ 1\.000,00 \+ outros serviços R\$ 2\.000,00/.test(conc), `a conciliação fecha: ${conc}`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-outros-servicos.png') });
+    // Fluxo de caixa: mesmas ALTCRED, com a etiqueta do destino, e o botão para importar
     await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
     await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
-    ok(await page.getByText('Z999.2026.AC.00010').first().isVisible(), 'a ALTCRED de outros serviços aparece como entrada no Fluxo de caixa');
+    ok(await page.getByText('Z999.2026.AC.00010').first().isVisible() && await page.getByText(/OUTROS SERVIÇOS · Material de expediente e limpeza/).isVisible() && await page.getByText('ADIANTAMENTO', { exact: true }).first().isVisible(), 'Fluxo de caixa mostra as entradas com a etiqueta do destino');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-caixa-entradas.png') });
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.getByRole('heading', { name: 'Importar ALTCRED do SIPLAD (PDF)' }).waitFor();
+    ok(true, 'o Fluxo de caixa também abre a importação de ALTCRED (mesma janela e mesmos dados)');
   });
 
   await cenario('SIPLAD: situação da ALTCRED (processada, aguardando, devolvida) identificada na importação, na lista e no filtro', [pdfSiplad('Aguardando processamento', 'Z999.2026.AC.00002'), pdfSiplad('Devolvido à origem', 'Z999.2026.AC.00003'), pdfSiplad('Processada', 'Z999.2026.AC.00004')], async (page, db, arquivos) => {
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00004').first().waitFor({ timeout: 20000 });
@@ -2499,7 +2514,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Desde 15\/09\/2026 · Portaria nº 29\/2026 · Reestruturação/.test(tempo) && /Nome: Centro Antigo → Centro Moderno/.test(tempo) && /UG: 90010 → 90020/.test(tempo), 'linha do tempo da OM mostra a mudança');
     await page.getByRole('button', { name: 'Cancelar' }).click();
     // a ALTCRED que ainda diz "Centro Antigo" continua ligada à OM (agora Centro Moderno)
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('heading', { name: 'G1.2026.AC.29001' }).waitFor();
     await page.getByText(/90002 - Comando Novo/).first().waitFor();
     ok(true, 'ALTCRED com o nome antigo passa a aparecer no comando novo (ligada pelo nome alternativo)');
@@ -2518,7 +2533,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Modo treinamento/i.test(await page.getByTestId('faixa-treinamento').innerText()) && /nada é gravado no sistema/.test(await page.getByTestId('faixa-treinamento').innerText()), 'faixa fixa "Modo treinamento — nada é gravado no sistema"');
     // vê todas as páginas, menos a Administração
     const menu = (await page.locator('aside').innerText());
-    ok(/Cadastros/.test(menu) && /Recebimentos/.test(menu) && /Emitir faturas do mês/.test(menu) && /Gastos da BNIC/.test(menu) && !/Administração/.test(menu), 'menu mostra todas as páginas, menos Administração');
+    ok(/Cadastros/.test(menu) && /Créditos recebidos/.test(menu) && /Emitir faturas do mês/.test(menu) && /Gastos da BNIC/.test(menu) && !/Administração/.test(menu), 'menu mostra todas as páginas, menos Administração');
     await page.getByRole('button', { name: 'Cadastros' }).click();
     await page.getByRole('button', { name: 'Duplicidades' }).waitFor();
     ok(true, 'abas só de administrador (Duplicidades, Importar...) aparecem para visualizar');
@@ -2726,7 +2741,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/^mapa_analitico_extra_mb_/.test(pdf.suggestedFilename()), `PDF do mapa marcado como Extra-MB (${pdf.suggestedFilename()})`);
 
     // Recebimentos
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await radio('Extra-MB').click();
     await page.getByText('GRU ABC123').first().waitFor();
     ok(await page.getByText('G1.2026.AC.00001').count() === 0, 'recebimentos: Extra-MB mostra só a GRU do Itaú');
@@ -2914,7 +2929,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const doc = { id: uid(), document_number: 'G1.2026.AC.00500', document_type: 'ALTCRED', total_value: 1000, date: '2026-09-10', operation: 'PAGAMENTO', client: 'Diretoria Industrial da Marinha', sector: 'DGMM', command: '40030', ug: '40030', observation: '' };
     db.received_documents.push(doc, { id: uid(), document_number: 'G1.2026.AC.00400', document_type: 'ALTCRED', total_value: 50, date: '2026-05-02', operation: 'PAGAMENTO', client: 'Arsenal de Marinha do Rio de Janeiro', sector: 'DGMM', command: '41000', ug: '41000', observation: '' });
     await page.reload();
-    await page.getByRole('button', { name: 'Recebimentos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByLabel('Documentos por data').getByText('G1.2026.AC.00400').waitFor();
     const txt = await page.getByLabel('Documentos por data').innerText();
     ok(txt.indexOf('G1.2026.AC.00500') < txt.indexOf('G1.2026.AC.00400'), 'documentos pela data do documento: o mais recente primeiro (DIM 10/09 antes do Arsenal 02/05, mesmo fora da ordem alfabética)');

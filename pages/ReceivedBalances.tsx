@@ -23,6 +23,7 @@ import { carregarCadastro, Cadastro } from '../services/recebimentosService';
 import { notify, friendlyError } from '../utils/notify';
 import { ReceivedDocument, Invoice, PaymentAllocation, DocumentType, OperationType, InvoiceStatus, UserRole, OM, CAMPOS_DOC_FASE2, podeEditarDados, veComoAdmin } from '../types';
 import { Button } from '../components/ui/Button';
+import { FINALIDADES, CATEGORIAS } from '../utils/relatorios';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Plus, Trash2, DollarSign, FileCheck, ChevronDown, ChevronUp, CheckCircle, Search, Edit2, FileSpreadsheet, FileText, Filter, X, Layers, Save, AlertOctagon, CheckSquare, Square } from 'lucide-react';
@@ -53,7 +54,7 @@ export const ReceivedBalances: React.FC = () => {
   const [filterSector, setFilterSector] = useState('');
   const [filterCommand, setFilterCommand] = useState('');
   const [filterBusca, setFilterBusca] = useState('');   // um só campo: nº do documento, cliente ou UG
-  // os Recebimentos mostram só as ALTCRED; as GRU ficam na página Extra-Marinha (aqui só aparecem se escolher "GRU" ou "Todos")
+  // os Créditos recebidos mostram só as ALTCRED; as GRU ficam na página Extra-Marinha (aqui só aparecem se escolher "GRU" ou "Todos")
   const [filterTipoDoc, setFilterTipoDoc] = useState<'auto' | 'ALTCRED' | 'GRU' | 'todos'>('auto');
   const [filterPontos, setFilterPontos] = useState('');
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
@@ -244,6 +245,15 @@ export const ReceivedBalances: React.FC = () => {
   });
 
   // --- Header Stats Calculations ---
+  // conciliação (todas as abas, só com o Público e o tipo de documento): Recebido = aplicado em faturas + a destinar + outros serviços
+  const conciliacao = (() => {
+    const tipoDoc = filterTipoDoc === 'auto' ? (publico === 'EXTRA' ? 'todos' : 'ALTCRED') : filterTipoDoc;
+    const base = documents.filter(d => (tipoDoc === 'todos' || d.documentType === tipoDoc) && passaPublico(publico, docExtra(d)));
+    const recebido = r2(base.reduce((s, d) => s + d.totalValue, 0));
+    const outros = r2(base.filter(d => d.operation === OperationType.OUTROS).reduce((s, d) => s + d.totalValue, 0));
+    const aDestinar = r2(base.filter(d => d.operation !== OperationType.OUTROS).reduce((s, d) => s + Math.max(0, d.availableValue), 0));
+    return { recebido, outros, aDestinar, aplicado: r2(recebido - outros - aDestinar) };
+  })();
   const stats = {
     count: filteredDocs.length,
     countWithBalance: filteredDocs.filter(d => d.availableValue > 0).length,
@@ -345,6 +355,7 @@ export const ReceivedBalances: React.FC = () => {
       // campos da Fase 2 (ALTCRED do SIPLAD, destinação, GRU): só os que existem no formulário/registro
       ...Object.fromEntries(CAMPOS_DOC_FASE2.map(([k]) => [k, docFormData[k]]).filter(([, v]) => v !== undefined)),
     };
+    if (payload.operation !== OperationType.OUTROS && payload.finalidade !== undefined) payload.finalidade = null;   // a finalidade só vale para "outros serviços"
 
     // faturas escolhidas para pagar já na inclusão (só documento novo; não vale para "Outros")
     const escolhidas = !editingId && payload.operation !== OperationType.OUTROS
@@ -555,7 +566,7 @@ export const ReceivedBalances: React.FC = () => {
     linhas.push(['TOTAL', '', '', '', '', '', '', '', stats.totalValue, stats.totalAvailable]);
     const ws = XLSX.utils.aoa_to_sheet(linhas);
     ws['!cols'] = [11, 10, 34, 34, 7, 22, 8, 13, 14, 14, 26, 11, 13, 12, 9].map(w => ({ wch: w }));
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Recebimentos');
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Créditos recebidos');
     XLSX.writeFile(wb, `saldos_recebidos_detalhado${arquivoPublico(publico)}.xlsx`);
   };
 
@@ -590,12 +601,20 @@ export const ReceivedBalances: React.FC = () => {
                                   <p className="text-xs text-slate-400 uppercase">Valor Total</p>
                                   <p className="font-semibold text-slate-700">R$ {doc.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="text-xs text-slate-400 uppercase">Disponível</p>
-                                  <p className={`font-bold ${doc.availableValue > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                    R$ {doc.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                  </p>
-                                </div>
+                                {doc.operation === OperationType.OUTROS ? (
+                                  <div className="text-right" title="Crédito recebido na R.901.16 para outros serviços: não paga fatura; aparece só no Fluxo de caixa">
+                                    <p className="text-xs text-slate-400 uppercase">Destino</p>
+                                    <p className="font-bold text-slate-600">Outros serviços</p>
+                                    <p className="text-xs text-slate-500">{doc.finalidade ? (CATEGORIAS.find(c => c.id === doc.finalidade)?.rotulo || doc.finalidade) : 'sem finalidade indicada'}</p>
+                                  </div>
+                                ) : (
+                                  <div className="text-right">
+                                    <p className="text-xs text-slate-400 uppercase">Disponível</p>
+                                    <p className={`font-bold ${doc.availableValue > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                      R$ {doc.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
 
                               {/* Actions */}
@@ -710,7 +729,7 @@ export const ReceivedBalances: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">Recebimentos</h2>
+          <h2 className="text-2xl font-bold text-slate-800">Créditos recebidos</h2>
           <p className="text-slate-500">ALTCRED, GRU, baixas nas faturas e adiantamentos · pela data do documento (ou agrupados por setor, comando e OM do cadastro)</p>
         </div>
         <div className="flex flex-wrap items-end gap-2 shrink-0 [&_button]:whitespace-nowrap">
@@ -748,19 +767,38 @@ export const ReceivedBalances: React.FC = () => {
           <p className="text-xs text-slate-500 uppercase font-semibold">Total Documentos</p>
           <p className="text-xl font-bold text-slate-800">{stats.count}</p>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Com Saldo Disponível</p>
-          <p className="text-xl font-bold text-green-600">{stats.countWithBalance}</p>
-        </div>
+        {activeTab === OperationType.OUTROS ? (
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            <p className="text-xs text-slate-500 uppercase font-semibold">Destino</p>
+            <p className="text-sm font-bold text-slate-700 mt-1">Outros serviços</p>
+            <p className="text-xs text-slate-500">não pagam fatura</p>
+          </div>
+        ) : (
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            <p className="text-xs text-slate-500 uppercase font-semibold">Com Saldo a Destinar</p>
+            <p className="text-xl font-bold text-green-600">{stats.countWithBalance}</p>
+          </div>
+        )}
         <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
           <p className="text-xs text-slate-500 uppercase font-semibold">Valor Total Recebido</p>
           <p className="text-xl font-bold text-blue-600">R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
-          <p className="text-xs text-slate-500 uppercase font-semibold">Valor Disponível</p>
-          <p className="text-xl font-bold text-emerald-600">R$ {stats.totalAvailable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-        </div>
+        {activeTab === OperationType.OUTROS ? (
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            <p className="text-xs text-slate-500 uppercase font-semibold">Só no Fluxo de caixa</p>
+            <p className="text-xl font-bold text-slate-600">R$ {stats.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          </div>
+        ) : (
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+            <p className="text-xs text-slate-500 uppercase font-semibold">A Destinar (disponível p/ baixa)</p>
+            <p className="text-xl font-bold text-emerald-600">R$ {stats.totalAvailable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          </div>
+        )}
       </div>
+      <p className="text-xs text-slate-600" data-testid="conciliacao-creditos">
+        <b>Todas as abas:</b> recebido R$ {conciliacao.recebido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} = aplicado em faturas R$ {conciliacao.aplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+        {' '}+ a destinar R$ {conciliacao.aDestinar.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} + outros serviços R$ {conciliacao.outros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
+      </p>
 
       {/* Filtros: uma barra só, em grupos (o Público fica no alto da página) */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3" data-testid="filtros-recebimentos">
@@ -805,7 +843,7 @@ export const ReceivedBalances: React.FC = () => {
               : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
           >
-            {op === OperationType.OUTROS ? 'Outros' : op.charAt(0) + op.slice(1).toLowerCase() + 's'}
+            {op === OperationType.OUTROS ? 'Outros serviços' : op.charAt(0) + op.slice(1).toLowerCase() + 's'}
           </button>
         ))}
       </div>
@@ -906,11 +944,15 @@ export const ReceivedBalances: React.FC = () => {
             options={[
               { label: 'Pagamento', value: OperationType.PAGAMENTO },
               { label: 'Adiantamento', value: OperationType.ADIANTAMENTO },
-              { label: 'Outros', value: OperationType.OUTROS }
+              { label: 'Outros serviços (só fluxo de caixa)', value: OperationType.OUTROS }
             ]}
             value={docFormData.operation || ''}
             onChange={e => setDocFormData({ ...docFormData, operation: e.target.value as any })}
           />
+          {docFormData.operation === OperationType.OUTROS && (
+            <Select label="Finalidade (outros serviços)" options={[{ label: 'Sem indicação', value: '' }, ...FINALIDADES.map(f => ({ label: f.rotulo, value: f.id }))]}
+              value={docFormData.finalidade || ''} onChange={e => setDocFormData({ ...docFormData, finalidade: (e.target.value || null) as any })} />
+          )}
           <Select label="Tipo Documento" required options={[{ label: 'ALTCRED', value: 'ALTCRED' }, { label: 'GRU', value: 'GRU' }]} value={docFormData.documentType || ''} onChange={e => setDocFormData({ ...docFormData, documentType: e.target.value as any })} />
 
           <Input label="Número Documento" required value={docFormData.documentNumber || ''} onChange={e => setDocFormData({ ...docFormData, documentNumber: e.target.value })} />

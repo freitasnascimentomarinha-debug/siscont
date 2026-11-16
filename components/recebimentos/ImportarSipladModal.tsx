@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { ReceivedDocument } from '../../types';
+import { FINALIDADES } from '../../utils/relatorios';
 import { itensDoPdf, lerSolicitacoesDetalhado, SolicitacaoAltcred } from '../../utils/altcredSiplad';
-import { AcaoImportacao, carregarCadastro, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
+import { AcaoImportacao, carregarCadastro, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao } from '../../utils/situacaoSiplad';
 import { Modal } from '../ui/Modal';
@@ -31,7 +32,9 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   const [semSolicitacao, setSemSolicitacao] = useState<string[]>([]);
   const [descartadas, setDescartadas] = useState<SolicitacaoAltcred[]>([]);
   const [ignorados, setIgnorados] = useState<Set<number>>(new Set());
-  const [outros, setOutros] = useState<Set<number>>(new Set());   // ALTCRED de outros serviços: entram só no fluxo de caixa
+  // destino escolhido por linha: o padrão (pagar faturas) não precisa de escolha; adiantamento ou outros serviços (só fluxo de caixa, com finalidade opcional)
+  const [destino, setDestino] = useState<Record<number, 'ADIANTAMENTO' | 'OUTROS'>>({});
+  const [finalidade, setFinalidade] = useState<Record<number, string>>({});
 
   const ler = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -47,7 +50,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
       }
       setSemSolicitacao(vazios); setDescartadas(fora);
       const plano = planejarImportacaoSiplad(sols, documentos, await carregarCadastro());
-      setItens(plano); setOutros(new Set());
+      setItens(plano); setDestino({}); setFinalidade({});
       // devolvida, cancelada e não processada não são recebimento: já vêm como "Não importar" (dá para trocar)
       setIgnorados(new Set(plano.map((p, k) => (classificarSituacao(p.sol.situacao).importarPadrao ? -1 : k)).filter(k => k >= 0)));
     } catch (e) {
@@ -61,7 +64,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   const gravar = async () => {
     setGravando(true);
     try {
-      const n = await gravarImportacaoSiplad(itens.map((i, k) => (ignorados.has(k) ? { ...i, acao: 'IGNORAR' as const } : outros.has(k) ? comoRecebimentoOutros(i) : i)));
+      const n = await gravarImportacaoSiplad(itens.map((i, k) => (ignorados.has(k) ? { ...i, acao: 'IGNORAR' as const } : destino[k] === 'OUTROS' ? comoRecebimentoOutros(i, (finalidade[k] || null) as any) : destino[k] === 'ADIANTAMENTO' ? comoAdiantamentoImportado(i) : i)));
       notify.success(`${n} ALTCRED gravada(s) a partir do SIPLAD.`);
       setItens([]); setDescartadas([]);
       await onGravado();
@@ -71,7 +74,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
     } finally { setGravando(false); }
   };
 
-  const fechar = () => { setItens([]); setSemSolicitacao([]); setDescartadas([]); setIgnorados(new Set()); setOutros(new Set()); onClose(); };
+  const fechar = () => { setItens([]); setSemSolicitacao([]); setDescartadas([]); setIgnorados(new Set()); setDestino({}); setFinalidade({}); onClose(); };
 
   return (
     <Modal isOpen={aberto} onClose={fechar} title="Importar ALTCRED do SIPLAD (PDF)" maxWidth="max-w-5xl"
@@ -110,9 +113,10 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
           return <p className="text-sm text-slate-700" data-testid="resumo-situacoes"><b>{itens.length}</b> solicitação(ões) no PDF: {[...cont.entries()].map(([r, n]) => `${n} ${r.toLowerCase()}`).join(' · ')}. Só as <b>processadas</b> já são crédito recebido; devolvidas, canceladas e não processadas vêm marcadas como "Não importar".</p>;
         })()}
         {itens.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <span>ALTCRED recebida na R.901.16 para outros serviços (não paga fatura)? Escolha <b>"Cadastrar como Outros"</b> na linha: ela entra só no fluxo de caixa. ALTCRED sem fatura citada <b>não</b> é "Outros": a OM pode ter deixado as faturas a critério da BNIC.</span>
-          </div>
+          <p className="text-xs text-slate-600" role="note">
+            <b>O que fazer com cada ALTCRED:</b> "Cadastrar nova" deixa o crédito para pagar faturas (se a OM não citou fatura, ele fica aguardando e vocês escolhem as faturas depois).
+            Escolha <b>"Adiantamento"</b> se o valor fica guardado para faturas futuras, ou <b>"Outros serviços"</b> se o crédito foi recebido na R.901.16 para outro fim e não paga fatura: ele entra só no Fluxo de caixa.
+          </p>
         )}
         {itens.length > 0 && (
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
@@ -142,18 +146,27 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                       <div className="text-slate-500 mt-1 line-clamp-3" title={i.sol.observacao}>{i.sol.observacao}</div>
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      <select aria-label={`Ação para ${i.sol.numero}`} value={ignorados.has(n) ? 'IGNORAR' : outros.has(n) ? 'OUTROS' : i.acao}
+                      <select aria-label={`Ação para ${i.sol.numero}`} value={ignorados.has(n) ? 'IGNORAR' : destino[n] ?? i.acao}
                         onChange={e => {
                           const v = e.target.value;
                           setIgnorados(prev => { const s2 = new Set(prev); if (v === 'IGNORAR') s2.add(n); else s2.delete(n); return s2; });
-                          setOutros(prev => { const s2 = new Set(prev); if (v === 'OUTROS') s2.add(n); else s2.delete(n); return s2; });
+                          setDestino(prev => { const d2 = { ...prev }; if (v === 'ADIANTAMENTO' || v === 'OUTROS') d2[n] = v; else delete d2[n]; return d2; });
                         }}
                         className="border border-slate-300 rounded px-1 py-1 bg-white">
-                        <option value={i.acao}>{ROTULO[i.acao]}</option>
-                        {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como Outros (só fluxo de caixa)</option>}
+                        <option value={i.acao}>{i.acao === 'NOVA' ? 'Cadastrar nova (pagar faturas)' : ROTULO[i.acao]}</option>
+                        {i.acao !== 'ESTORNO' && <option value="ADIANTAMENTO">Cadastrar como adiantamento</option>}
+                        {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como outros serviços (só fluxo de caixa)</option>}
                         <option value="IGNORAR">{ROTULO.IGNORAR}</option>
                       </select>
-                      {outros.has(n) && !classificarSituacao(i.sol.situacao).recebido && classificarSituacao(i.sol.situacao).codigo !== 'AGUARDANDO' && classificarSituacao(i.sol.situacao).codigo !== 'EM_ANALISE' && (
+                      {!ignorados.has(n) && destino[n] === 'OUTROS' && (
+                        <label className="mt-1 block text-slate-600">Finalidade
+                          <select aria-label={`Finalidade de ${i.sol.numero}`} value={finalidade[n] || ''} onChange={e => setFinalidade(prev => ({ ...prev, [n]: e.target.value }))} className="ml-1 border border-slate-300 rounded px-1 py-1 bg-white">
+                            <option value="">Sem indicação</option>
+                            {FINALIDADES.map(f => <option key={f.id} value={f.id}>{f.rotulo}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      {!ignorados.has(n) && destino[n] === 'OUTROS' && !classificarSituacao(i.sol.situacao).recebido && classificarSituacao(i.sol.situacao).codigo !== 'AGUARDANDO' && classificarSituacao(i.sol.situacao).codigo !== 'EM_ANALISE' && (
                         <div className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />Situação no SIPLAD: {classificarSituacao(i.sol.situacao).rotulo.toLowerCase()}. Confira se o crédito realmente entrou na R.901.16.</div>
                       )}
                       {i.acao === 'ESTORNO' && i.existente && <div className="mt-1 text-slate-600">{i.existente.documentNumber}: {brl(i.existente.totalValue)} → {brl(i.doc.totalValue)}</div>}

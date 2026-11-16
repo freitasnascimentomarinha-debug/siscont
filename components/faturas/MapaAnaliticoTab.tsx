@@ -207,7 +207,7 @@ export const MapaAnaliticoTab: React.FC<{ invoices: Invoice[]; docs: ReceivedDoc
 
       <div className="p-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 space-y-1" data-testid="como-ler-mapa">
         <p><b>Como ler:</b> a <b>dívida</b> é a soma das faturas em aberto, e é o que as OM realmente devem. O <b>crédito</b> é o saldo de uma ALTCRED/GRU que <b>ainda não foi lançado em nenhuma fatura</b> (a "sobra" do documento) e reduz só a dívida da própria OM. <b>A pagar (líquido) = dívida − esse crédito.</b></p>
-        <p>Se esse saldo já pagou alguma fatura, falta lançar a baixa: em <b>Recebimentos</b>, abra o documento e use <b>Baixa assistida</b> ou <b>Pagar Faturas</b>; o crédito sai daqui e a fatura sai da dívida.</p>
+        <p>Se esse saldo já pagou alguma fatura, falta lançar a baixa: em <b>Créditos recebidos</b>, abra o documento e use <b>Baixa assistida</b> ou <b>Pagar Faturas</b>; o crédito sai daqui e a fatura sai da dívida.</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">

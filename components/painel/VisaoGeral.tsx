@@ -112,7 +112,7 @@ export const VisaoGeral: React.FC<{ ctx: CtxPainel }> = ({ ctx }) => {
         </div>
       </section>
 
-      <Grupo titulo={`Recebimentos · ${rotuloPeriodo}`} cols="grid-cols-2 lg:grid-cols-4">
+      <Grupo titulo={`Créditos recebidos · ${rotuloPeriodo}`} cols="grid-cols-2 lg:grid-cols-4">
         <Kpi rotulo="Total recebido" destaque cor={COR.recebido} valor={brl(ind.recebimentos.recebido.valor)} detalhe={`${qtdBR(ind.recebimentos.recebido.qtd)} ALTCRED/GRU recebido(s)`} dica="Dinheiro que entrou no período, pela data do ALTCRED/GRU: inclui pagamentos de faturas de meses anteriores, adiantamentos e saldos ainda não atribuídos a faturas." />
         <Kpi rotulo="Faturado já quitado" cor={COR.recebido} valor={ind.recebimentos.pctDoFaturado === null ? '—' : `${ind.recebimentos.pctDoFaturado.toLocaleString('pt-BR')}%`} detalhe="das faturas do período" dica="Quanto do valor faturado no período já foi pago ou abatido por adiantamento até hoje (o Painel inicial mostra só o pago em dinheiro, por isso o número dele é menor)." />
         <Kpi rotulo="Vencido recuperado" cor={COR.recebido} valor={brl(ind.recebimentos.recuperacao.recuperado)} detalhe={ind.recebimentos.recuperacao.pct === null ? 'sem dívida vencida no início' : `${ind.recebimentos.recuperacao.pct.toLocaleString('pt-BR')}% de ${compacto(ind.recebimentos.recuperacao.elegivel)} vencidos no início`} dica="Baixas do período (pagamento ou adiantamento) em faturas que já estavam vencidas no começo do período, em relação ao saldo vencido naquele dia." />

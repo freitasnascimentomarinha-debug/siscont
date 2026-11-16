@@ -16,7 +16,7 @@ const VAZIO = { omId: '', numero: '', valor: undefined as number | undefined, da
 
 /**
  * Registrar uma GRU (pagamento de cliente Extra-Marinha) já pela página Extra-Marinha: cliente, número, valor, data e
- * autenticação do pagamento, e as faturas que ela paga. É o mesmo documento (tipo GRU) e as mesmas baixas dos Recebimentos.
+ * autenticação do pagamento, e as faturas que ela paga. É o mesmo documento (tipo GRU) e as mesmas baixas dos Créditos recebidos.
  */
 export const RegistrarGruModal: React.FC<{ aberto: boolean; onClose: () => void; clientes: OM[]; onSalvo: () => void }> = ({ aberto, onClose, clientes, onSalvo }) => {
   const [f, setF] = useState(VAZIO);
@@ -57,7 +57,7 @@ export const RegistrarGruModal: React.FC<{ aberto: boolean; onClose: () => void;
           await db.saveAllocation({ id: uuidv4(), documentId: doc.id, invoiceId: it.id, amount: it.valor, date: f.data, siscontSettled: false, siscontDueDate: '', observation: '', serviceType: faturas.find(i => i.id === it.id)?.type || '', tipoBaixa: 'PAGAMENTO' });
           baixas++;
         }
-      } catch (e) { notify.fail(`GRU salva, mas houve erro depois de ${baixas} baixa(s); complete pela página Recebimentos (Pagar faturas)`, e); }
+      } catch (e) { notify.fail(`GRU salva, mas houve erro depois de ${baixas} baixa(s); complete pela página Créditos recebidos (Pagar faturas)`, e); }
       notify.success(baixas ? `GRU ${doc.documentNumber} registrada e ${baixas} fatura(s) baixada(s).` : `GRU ${doc.documentNumber} registrada. Sem fatura escolhida: o valor fica como crédito do cliente.`);
       onClose(); onSalvo();
     } catch (e) { setErro(`Erro ao salvar: ${e instanceof Error ? e.message : String(e)}`); } finally { setSalvando(false); }
@@ -75,7 +75,7 @@ export const RegistrarGruModal: React.FC<{ aberto: boolean; onClose: () => void;
         <Input label="Autenticação bancária" value={f.autenticacao} onChange={e => setF({ ...f, autenticacao: e.target.value })} />
         <Input label="Observação" value={f.obs} onChange={e => setF({ ...f, obs: e.target.value })} />
       </div>
-      <p className="text-xs text-slate-500 mt-2">A GRU não entra no Fluxo de Caixa nem na lista de Recebimentos (só ALTCRED). Ela baixa as faturas do cliente; se não escolher nenhuma, o valor fica como crédito de GRU do cliente.</p>
+      <p className="text-xs text-slate-500 mt-2">A GRU não entra no Fluxo de Caixa nem na lista de Créditos recebidos (só ALTCRED). Ela baixa as faturas do cliente; se não escolher nenhuma, o valor fica como crédito de GRU do cliente.</p>
       {om && <FaturasParaPagar faturas={abertas} omId={om.id} nomeOM={om.nome} valorDoc={valor} selecao={selecao} onChange={setSelecao} />}
     </Modal>
   );
