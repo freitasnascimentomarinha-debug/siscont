@@ -167,6 +167,8 @@ export interface Invoice {
   contestada?: boolean;
   // Pontos de atenção (script 005): registrados (migração/ciente) e calculados
   pontosRegistro?: RegistroPonto[];
+  /** arquivos anexados à fatura (script 043) */
+  anexos?: { nome: string; referencia?: string; caminho?: string; tamanho?: number; tipo?: string }[];
   pontos?: PontoAtencao[];
   // Fase 3 (script 007)
   loteId?: string | null;

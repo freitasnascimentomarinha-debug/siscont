@@ -4,6 +4,8 @@ import { cadastroService } from './cadastroService';
 import { ehAdiantamento } from '../utils/baixas';
 import { lerFatura } from '../utils/cadastroImport';
 import { DadosFr172, pdfFr172, zipFr172 } from '../utils/fr172';
+import { acrescentarAnexos } from '../utils/anexosNaFatura';
+import { baixarArquivos, faturasComArquivos } from './fase4Service';
 
 export interface ContextoFr172 { servicos: ServicoCatalogo[]; params: Record<string, string>; docs: Map<string, ReceivedDocument>; baixas: Map<string, PaymentAllocation[]> }
 
@@ -39,13 +41,22 @@ export function dadosFr172(inv: Invoice, ctx: ContextoFr172): DadosFr172 {
 
 export async function baixarPdfFr172(inv: Invoice, ctx?: ContextoFr172) {
   const c = ctx ?? await carregarContextoFr172();
-  pdfFr172(dadosFr172(inv, c)).save(`${inv.invoiceNumber}.pdf`);
+  const doc = pdfFr172(dadosFr172(inv, c));
+  // os arquivos anexados à contestação da fatura saem junto, nas páginas seguintes
+  const anexos = await baixarArquivos([...(inv.anexos || []).filter(a => a.caminho), ...((await faturasComArquivos()).get(inv.id) || [])]);
+  const fora = anexos.length ? await acrescentarAnexos(doc, anexos) : [];
+  doc.save(`${inv.invoiceNumber}.pdf`);
+  return { anexos: anexos.length, fora };
 }
 
 /** `unico`: um ZIP só, sem pastas (usado no OND). Sem isso: pastas por comando. Sempre em ordem de tipo e numeração. */
 export async function baixarZipFr172(invs: Invoice[], nome: string, ctx?: ContextoFr172, opcoes: { unico?: boolean } = {}) {
   const c = ctx ?? await carregarContextoFr172();
-  const blob = await zipFr172(invs.map(i => ({ ...dadosFr172(i, c), pasta: i.command || 'Sem comando' })), opcoes);
+  const comArquivos = await faturasComArquivos();
+  const blob = await zipFr172(invs.map(i => ({ ...dadosFr172(i, c), pasta: i.command || 'Sem comando', id: i.id, proprios: (i.anexos || []).filter(a => a.caminho) })), {
+    ...opcoes,
+    complemento: async (d, doc) => { const ax = await baixarArquivos([...((d as any).proprios || []), ...(comArquivos.get((d as any).id) || [])]); if (ax.length) await acrescentarAnexos(doc, ax); },
+  });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `${nome}.zip`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);

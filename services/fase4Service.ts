@@ -76,6 +76,45 @@ export async function anexarArquivos(c: Contestacao, arquivos: File[], usuario: 
   const enviados = await enviarArquivos(c.id, arquivos);
   await gravar({ ...c, anexos: [...c.anexos, ...enviados], historico: [...c.historico, ...enviados.map((a, i) => evento(usuario, 'ANEXO', `${a.nome}${i === 0 && texto ? `. ${texto}` : ''}`))] });
 }
+/** Uma consulta só: faturas que têm arquivos anexados em alguma contestação (aberta ou encerrada). */
+export async function faturasComArquivos(): Promise<Map<string, AnexoContestacao[]>> {
+  const m = new Map<string, AnexoContestacao[]>();
+  const { data, error } = await supabase.from('contestacoes').select('invoice_id, anexos');
+  if (error) return m; // script 008 ainda não executado: sem contestações
+  (data || []).forEach((l: any) => {
+    const com = ((l.anexos || []) as AnexoContestacao[]).filter(x => x.caminho);
+    if (com.length) m.set(l.invoice_id, [...(m.get(l.invoice_id) || []), ...com]);
+  });
+  return m;
+}
+/** Baixa os arquivos (para juntar ao PDF da fatura na impressão). */
+export async function baixarArquivos(anexos: AnexoContestacao[]): Promise<{ nome: string; tipo?: string; bytes: ArrayBuffer }[]> {
+  const out: { nome: string; tipo?: string; bytes: ArrayBuffer }[] = [];
+  for (const a of anexos) {
+    const r = await supabase.storage.from(BUCKET_CONTESTACAO).download(a.caminho!);
+    if (r.error || !r.data) throw new Error(`Não foi possível baixar o anexo "${a.nome}" da contestação.`);
+    out.push({ nome: a.nome, tipo: a.tipo, bytes: await r.data.arrayBuffer() });
+  }
+  return out;
+}
+// ------------------------------------------------------------------ arquivos anexados direto à fatura (script 043)
+const checar043 = (error: any) => {
+  if (!error) return;
+  if (/anexos/.test(error.message || '')) throw new Error('Falta executar o script supabase/migrations/043_anexos_fatura.sql no Supabase.');
+  throw new Error(error.message);
+};
+export async function anexarArquivosFatura(inv: Invoice, arquivos: File[]) {
+  const enviados = await enviarArquivos(`fatura-${inv.id}`, arquivos);
+  const { error } = await supabase.from('invoices').update({ anexos: [...(inv.anexos || []), ...enviados] }).eq('id', inv.id);
+  if (error) { await supabase.storage.from(BUCKET_CONTESTACAO).remove(enviados.map(a => a.caminho!)); checar043(error); }
+  db.invalidateCache();
+}
+export async function removerAnexoFatura(inv: Invoice, a: AnexoContestacao) {
+  const { error } = await supabase.from('invoices').update({ anexos: (inv.anexos || []).filter(x => x.caminho !== a.caminho) }).eq('id', inv.id);
+  checar043(error);
+  if (a.caminho) await supabase.storage.from(BUCKET_CONTESTACAO).remove([a.caminho]);
+  db.invalidateCache();
+}
 export async function linkAnexoContestacao(caminho: string) {
   const { data, error } = await supabase.storage.from(BUCKET_CONTESTACAO).createSignedUrl(caminho, 300);
   if (error) throw new Error(error.message);
@@ -163,7 +202,7 @@ export async function substituirFatura(inv: Invoice, alt: AlteracoesVersao, moti
   const { data: orig, error: e0 } = await supabase.from('invoices').select('*').eq('id', inv.id).single();
   checar(e0);
   const novoId = uuidv4();
-  const { pontos_atencao, enviada_em, certificada_em, siafi_em, cancelamento_motivo, cancelada_em, cancelada_por, substituida_por, ...copia } = orig as any;
+  const { anexos: _anexos, pontos_atencao, enviada_em, certificada_em, siafi_em, cancelamento_motivo, cancelada_em, cancelada_por, substituida_por, ...copia } = orig as any;
   const { error: e1 } = await supabase.from('invoices').insert({
     ...copia, id: novoId, invoice_number: numero, value: alt.value, adjustment_addition: alt.adjustmentAddition, adjustment_deduction: alt.adjustmentDeduction,
     consumption: alt.consumption, issue_date: alt.issueDate, due_date: alt.dueDate, observation: alt.observation, is_canceled: false, contestada: false,

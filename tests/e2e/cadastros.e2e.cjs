@@ -42,6 +42,7 @@ function handler(db, log) {
     }
     if (url.pathname.startsWith('/auth/v1/')) return json(200, {});
     if (url.pathname.startsWith('/storage/v1/object/sign/')) return json(200, { signedURL: '/object/sign/arquivo?token=t' });
+    if (req.method() === 'GET' && url.pathname.startsWith('/storage/v1/object/') && db.arquivoMock) return route.fulfill({ status: 200, contentType: 'application/pdf', body: db.arquivoMock });
     if (url.pathname.startsWith('/storage/v1/')) { (db.storage = db.storage || []).push(`${req.method()} ${url.pathname}`); return json(200, { Key: url.pathname, Id: 'x' }); }
     if (url.pathname === '/rest/v1/rpc/atividade_usuarios') {   // script 025: atividade por usuário, somada da trilha de auditoria
       const { p_de, p_ate } = JSON.parse(req.postData() || '{}');
@@ -1082,7 +1083,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // 2) contestar a EL
     await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle('Abrir contestação').click();
     await page.getByLabel('Motivo').fill('Navio docado em Niterói no período; não consumiu energia da BNIC');
-    await page.getByLabel('Anexar arquivos à contestação').setInputFiles({ name: 'oficio_navio.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 teste') });
+    const { jsPDF } = require('jspdf');
+    const dOf = new jsPDF(); dOf.text('OFICIO DO NAVIO - ANEXO DA CONTESTACAO', 20, 30); dOf.addPage(); dOf.text('PAGINA 2 DO OFICIO', 20, 30);
+    const pdfOficio = Buffer.from(dOf.output('arraybuffer')); db.arquivoMock = pdfOficio;
+    await page.getByLabel('Anexar arquivos à contestação').setInputFiles({ name: 'oficio_navio.pdf', mimeType: 'application/pdf', buffer: pdfOficio });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'contestacao-anexo.png') });
     await page.getByRole('button', { name: 'Abrir contestação', exact: true }).last().click();
     await page.getByText(/Contestação da fatura 40032-EL-08-2026-039-0 aberta/).waitFor();
@@ -1122,6 +1126,25 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.waitForTimeout(500);
     ok(db.contestacoes[0].status === 'ENCERRADA' && db.contestacoes[0].historico.length === 7 && el.contestada === false, `decisão refeita após a reabertura (${db.contestacoes[0].status}, ${db.contestacoes[0].historico.length}, ${el.contestada})`);
     await page.keyboard.press('Escape'); // Esc fecha a janela
+    // impressão da fatura: o arquivo anexado à contestação sai junto, nas páginas seguintes
+    await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
+    const [dlPdf] = await Promise.all([page.waitForEvent('download'), page.getByText(/1 anexo\(s\) da contestação não cabem no PDF \(leitura_medidor\.png\)/).waitFor(), page.getByRole('button', { name: 'PDF da fatura 40032-EL-08-2026-039-0' }).click()]);
+    const pdfFat = fs.readFileSync(await dlPdf.path());
+    const nPag = (pdfFat.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) || []).length;
+    if (SHOTS) fs.copyFileSync(await dlPdf.path(), path.join(SHOTS, 'fatura-com-anexo.pdf'));
+    ok(nPag >= 3, `PDF da fatura com o anexo da contestação (ofício de 2 páginas após a fatura, mais a página dos anexos que não cabem no PDF): ${nPag} páginas`);
+    // anexos direto na fatura: anexar, listar e sair junto na impressão
+    await page.getByRole('button', { name: 'Anexos da fatura 40032-EL-08-2026-039-0' }).click();
+    await page.getByLabel('Anexar arquivos à fatura').setInputFiles({ name: 'leitura_medidor_fatura.pdf', mimeType: 'application/pdf', buffer: pdfOficio });
+    await page.getByRole('button', { name: 'Anexar', exact: true }).click();
+    await page.getByText('Arquivo(s) anexado(s) à fatura.').waitFor();
+    await page.getByRole('button', { name: /leitura_medidor_fatura\.pdf/ }).waitFor();
+    ok(db.invoices.find(i => i.invoice_number === '40032-EL-08-2026-039-0').anexos.length === 1 && db.storage.some(x => x.includes('/anexos-contestacao/fatura-')), 'arquivo anexado direto na fatura (enviado ao armazenamento e listado na fatura)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fatura-anexos.png') });
+    await page.keyboard.press('Escape');
+    const [dlPdf2] = await Promise.all([page.waitForEvent('download'), page.getByText(/PDF gerado com 3 anexo\(s\)|3 anexo\(s\)/).first().waitFor().catch(() => {}), page.getByRole('button', { name: 'PDF da fatura 40032-EL-08-2026-039-0' }).click()]);
+    const nPag2 = ((fs.readFileSync(await dlPdf2.path()).toString('latin1')).match(/\/Type\s*\/Page(?!s)/g) || []).length;
+    ok(nPag2 >= nPag + 2, `PDF da fatura também leva o anexo da própria fatura (${nPag} → ${nPag2} páginas)`);
     // 3) cancelar a EL com motivo e devolução da baixa (sem baixa aqui) — motivo obrigatório
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('row').filter({ hasText: '40032-EL-08-2026-039-0' }).getByTitle(/Cancelar fatura/).click();

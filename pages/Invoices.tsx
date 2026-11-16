@@ -10,12 +10,13 @@ import { pendentes } from '../utils/pontosAtencao';
 import { aceitaAdiantamento, ehAdiantamento } from '../utils/baixas';
 import { baixarPdfFr172 } from '../services/fr172Service';
 import { AcaoFatura, AcoesFaturaModais } from '../components/fase4/AcoesFaturaModais';
+import { AnexosFaturaModal } from '../components/fase4/AnexosFaturaModal';
 import { notify } from '../utils/notify';
 import { Invoice, InvoiceStatus, OperationType, ReceivedDocument, PaymentAllocation, UserRole, podeEditarDados, veComoAdmin } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
+import { Paperclip, Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
 import { HistoricoModal } from '../components/auditoria/Historico';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
 import { MultiEscolha } from '../components/ui/MultiEscolha';
@@ -91,6 +92,7 @@ export const Invoices: React.FC = () => {
   const [pontosAlvo, setPontosAlvo] = useState<AlvoPontos | null>(null);
   const [acaoFatura, setAcaoFatura] = useState<AcaoFatura>(null);
   const [historicoDe, setHistoricoDe] = useState<Invoice | null>(null);
+  const [anexosDe, setAnexosDe] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [pagina, setPagina] = useState(0);
   const [ordem, setOrdem] = useState<Ordem>(ORDEM_PADRAO);
@@ -908,7 +910,10 @@ export const Invoices: React.FC = () => {
                           <td className="px-2 py-2 text-sm font-bold text-slate-800 text-right whitespace-nowrap tabular-nums">R$ {calc.finalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-2 py-2 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)]">
                             <div className="flex flex-wrap justify-end gap-1.5 w-[96px] ml-auto">
-                              <button onClick={() => baixarPdfFr172(inv).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)" aria-label={`PDF da fatura ${inv.invoiceNumber}`}><Printer size={16} /></button>
+                              <button onClick={() => baixarPdfFr172(inv).then(r => { if (r.fora.length) notify.info(`PDF gerado. ${r.fora.length} anexo(s) da contestação não cabem no PDF (${r.fora.join(', ')}); imprima à parte.`); else if (r.anexos) notify.info(`PDF gerado com ${r.anexos} anexo(s) da contestação nas últimas páginas.`); }).catch(e => notify.fail('Erro ao gerar o PDF', e))} className="text-slate-500 hover:text-slate-800" title="PDF da fatura (FR-172)" aria-label={`PDF da fatura ${inv.invoiceNumber}`}><Printer size={16} /></button>
+                              <button onClick={() => setAnexosDe(inv.id)} className={`relative ${(inv.anexos || []).length ? 'text-primary-700' : 'text-slate-400'} hover:text-slate-800`} title={(inv.anexos || []).length ? `${(inv.anexos || []).length} arquivo(s) anexado(s) à fatura` : 'Anexar arquivos à fatura'} aria-label={`Anexos da fatura ${inv.invoiceNumber}`}>
+                                <Paperclip size={16} />{(inv.anexos || []).length > 0 && <span className="absolute -top-1.5 -right-2 text-[9px] font-bold bg-primary-600 text-white rounded-full px-1">{(inv.anexos || []).length}</span>}
+                              </button>
                               <button onClick={() => setHistoricoDe(inv)} className="text-slate-400 hover:text-slate-800" title="Histórico: quem alterou e quando" aria-label={`Histórico da fatura ${inv.invoiceNumber}`}><History size={16} /></button>
                               {!inv.isCanceled && !isReadOnly && (
                                 <>
@@ -1276,6 +1281,7 @@ export const Invoices: React.FC = () => {
         title="Cancelar Fatura"
         message="Tem certeza que deseja cancelar esta fatura? Ela será marcada como CANCELADA e qualquer saldo de adiantamento utilizado será devolvido ao documento de origem."
       />
+      <AnexosFaturaModal fatura={invoices.find(i => i.id === anexosDe) || null} onClose={() => setAnexosDe(null)} onMudou={refresh} podeEditar={!isReadOnly} />
       <AcoesFaturaModais acao={acaoFatura} onClose={() => setAcaoFatura(null)} onFeito={refresh} usuario={user?.name || user?.email || ''}
         numeros={invoices.map(i => i.invoiceNumber)} baixado={id => (allocsByInvoice.get(id) || []).reduce((s, a) => s + a.amount, 0)} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
