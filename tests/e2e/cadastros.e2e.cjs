@@ -1649,6 +1649,65 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'lembrete leva à Administração');
   });
 
+  await cenario('Fluxo de caixa: lançamentos por mês, rubrica separada da observação, edição rápida e em lote', [], async (page, db) => {
+    const ne = (n, data, valor, cat, obs, desc = 'SERVICO CONTINUADO DE TESTE COM DESCRICAO BEM LONGA PARA OCUPAR VARIAS LINHAS NA TELA DE LANCAMENTOS DO FLUXO DE CAIXA E PROVAR QUE O TEXTO FICA RECOLHIDO ATE CLICAR') => ({
+      id: uid(), date: data, document_number: `7400150000120${'26'}NE${n}`, document_type: 'EMPENHO', client: 'FORNECEDOR ' + n, value: valor, rubric: cat || '', description: desc, observation: obs, is_canceled: false, rubrica_numero: null, categoria: cat });
+    db.cash_flow_exits.push(ne('000001', '2026-02-10', 1000, 'ENERGIA', 'Importada de planilha.xlsx › Página1'), ne('000002', '2026-02-12', 2000, 'OUTROS', 'Importada de planilha.xlsx › Página1'),
+      ne('000003', '2026-03-05', 3000, 'OUTROS', 'Conferir com o fornecedor'), ne('000004', '2026-03-06', 4000, null, ''));
+    db.received_documents.push({ id: uid(), ug: '', sector: 'DGMM', command: '40030', document_type: 'ALTCRED', operation: 'PAGAMENTO', observation: '', document_number: 'G1.2026.AC.00001', client: 'DIM', total_value: 50000, date: '2026-02-01' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
+    await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
+    await page.getByRole('button', { name: /Fevereiro\/2026/ }).waitFor();
+    // por mês, com subtotais e saldo no fim do mês
+    ok(await page.getByRole('button', { name: /Fevereiro\/2026/ }).isVisible() && await page.getByRole('button', { name: /Março\/2026/ }).isVisible(), 'lançamentos agrupados por mês');
+    const cabFev = (await page.locator('tr').filter({ has: page.getByRole('button', { name: /Fevereiro\/2026/ }) }).innerText()).replace(/\s+/g, ' ');
+    ok(/Entradas R\$ 50\.000,00/.test(cabFev) && /Saídas R\$ 3\.000,00/.test(cabFev) && /Saldo no fim do mês R\$ 47\.000,00/.test(cabFev), `cabeçalho do mês com entradas, saídas e saldo no fim do mês (${cabFev})`);
+    // a observação do usuário fica; a anotação do sistema vira "origem"
+    const corpo = (await page.locator('tbody').innerText()).replace(/\s+/g, ' ');
+    ok(!/Importada de/.test(corpo) && /origem: planilha/.test(corpo) && /Obs\.: Conferir com o fornecedor/.test(corpo), 'a observação não traz mais "Importada de…" (vira a etiqueta "origem: planilha") e a observação do usuário continua');
+    // rubrica/categoria em coluna própria, pela classificação gravada
+    ok(await page.getByLabel('Rubrica ou categoria de 740015000012026NE000001').inputValue() === 'ENERGIA', 'coluna "Rubrica / categoria" mostra a classificação gravada');
+    // descrição longa fica recolhida e abre ao clicar
+    const desc = page.locator('tbody button', { hasText: 'SERVICO CONTINUADO DE TESTE' }).first();
+    ok((await desc.getAttribute('class')).includes('line-clamp-2') && await desc.getAttribute('aria-expanded') === 'false', 'descrição longa fica em 2 linhas');
+    await desc.click();
+    ok(!(await desc.getAttribute('class')).includes('line-clamp-2'), 'clicar na descrição abre o texto inteiro');
+    // precisa de atenção: Outros ou sem classificação
+    const aviso = page.getByRole('button', { name: /3 saída\(s\) precisam de classificação/ });
+    ok(await aviso.isVisible(), 'avisa quantas saídas precisam de classificação (2 em Outros + 1 sem classificação)');
+    await aviso.click();
+    ok(await page.locator('tbody input[type=checkbox]').count() === 3, 'o filtro mostra só as 3 saídas que precisam de classificação');
+    // edição rápida na própria linha
+    await page.getByLabel('Rubrica ou categoria de 740015000012026NE000002').selectOption('AGUA');
+    await page.getByText(/classificada\(s\) como Água e esgoto/).waitFor();
+    ok(db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000002').categoria === 'AGUA', 'edição rápida: a categoria foi gravada');
+    // edição em lote: seleciona as 2 que restam e classifica; valor e descrição não mudam
+    await page.getByLabel('Selecionar 740015000012026NE000003').check();
+    await page.getByLabel('Selecionar 740015000012026NE000004').check();
+    await page.getByLabel('Classificar as selecionadas como').selectOption('EXPEDIENTE');
+    await page.getByRole('button', { name: 'Aplicar', exact: true }).click();
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText(/2 saída\(s\) classificada\(s\) como Expediente e limpeza/).waitFor();
+    const e3 = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000003'), e4 = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000004');
+    ok(e3.categoria === 'EXPEDIENTE' && e4.categoria === 'EXPEDIENTE' && e3.value === 3000 && e4.value === 4000 && /LANCAMENTOS/.test(e3.description), 'edição em lote: classificou as duas e não mexeu em valor nem descrição');
+    // edição por painel lateral
+    await page.getByRole('button', { name: 'Limpar filtros' }).click();
+    await page.getByLabel('Editar 740015000012026NE000001').click();
+    await page.getByRole('dialog', { name: /Editar saída financeira/ }).waitFor();
+    ok(await page.getByLabel('Rubrica / categoria').inputValue() === 'ENERGIA', 'o painel lateral de edição abre com a rubrica/categoria da NE');
+    await page.keyboard.press('Escape');
+    // recolher o mês esconde as linhas
+    await page.getByRole('button', { name: /Março\/2026/ }).click();
+    ok(await page.locator('tbody tr').filter({ hasText: '740015000012026NE000003' }).count() === 0, 'recolher o mês esconde os lançamentos dele');
+    // exportação traz rubrica/categoria e origem em colunas próprias
+    await page.getByRole('button', { name: 'Exportar' }).click();
+    const [dlx] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Excel' }).click()]);
+    const arqx = path.join(os.tmpdir(), `fluxo-${Date.now()}.xlsx`); await dlx.saveAs(arqx);
+    const linhasx = XLSX.utils.sheet_to_json(XLSX.readFile(arqx).Sheets['Fluxo de caixa'], { header: 1 });
+    ok(linhasx[0].includes('Rubrica / categoria') && linhasx[0].includes('Origem') && linhasx.some(l => l.includes('planilha.xlsx › Página1')), 'Excel com colunas "Rubrica / categoria" e "Origem" separadas da observação');
+  });
+
   // Só com FLUXO_SEED=arquivo.json (NE e ALTCRED reais exportados da planilha): tira prints do Fluxo de caixa com dados parecidos com os de produção
   if (process.env.FLUXO_SEED) await cenario('Fluxo de caixa: prints com dados reais (FLUXO_SEED)', [], async (page, db) => {
     const seed = JSON.parse(fs.readFileSync(process.env.FLUXO_SEED, 'utf8'));
@@ -1658,7 +1717,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
     await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
     await page.waitForTimeout(1500);
-    if (SHOTS) { await page.screenshot({ path: path.join(SHOTS, 'fluxo-real.png') }); for (const [k, y] of [[2, 650], [3, 6000]]) { await page.locator('main .overflow-y-auto').first().evaluate((el, yy) => el.scrollTo(0, yy), y); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS, `fluxo-real-${k}.png`) }); } }
+    if (SHOTS) {
+      await page.screenshot({ path: path.join(SHOTS, 'fluxo-real.png') });
+      await page.getByRole('button', { name: 'Ver gráfico mensal' }).click(); await page.waitForTimeout(800);
+      await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-grafico.png') });
+      await page.getByRole('button', { name: 'Esconder gráfico mensal' }).click();
+      await page.getByRole('button', { name: /40 saída\(s\) precisam de classificação/ }).click();
+      const caixas = page.locator('tbody input[type=checkbox]'); for (let i = 0; i < 3; i++) await caixas.nth(i).check();
+      await page.getByLabel('Classificar as selecionadas como').selectOption('EXPEDIENTE');
+      await page.locator('main .overflow-y-auto').first().evaluate(el => el.scrollTo(0, 620)); await page.waitForTimeout(400);
+      await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-lote.png') });
+      await page.getByRole('button', { name: 'Limpar seleção' }).click();
+      await page.locator('tbody').getByRole('button', { name: /^Editar / }).first().click(); await page.waitForTimeout(600);
+      await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-edicao.png') });
+    }
   });
 
   await cenario('Janela de exercícios: carrega só os anos recentes e o que ainda importa, sem mudar nenhum valor', [], async (page, db) => {
@@ -2450,7 +2522,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
     ok(await page.getByText('Z999.2026.AC.00010').first().isVisible() && await page.getByText(/OUTROS SERVIÇOS · Material de expediente e limpeza/).isVisible() && await page.getByText('ADIANTAMENTO', { exact: true }).first().isVisible(), 'Fluxo de caixa mostra as entradas com a etiqueta do destino');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-caixa-entradas.png') });
-    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.getByRole('button', { name: 'Importar', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'ALTCRED (PDF do SIPLAD)' }).click();
     await page.getByRole('heading', { name: 'Importar ALTCRED do SIPLAD (PDF)' }).waitFor();
     ok(true, 'o Fluxo de caixa também abre a importação de ALTCRED (mesma janela e mesmos dados)');
   });

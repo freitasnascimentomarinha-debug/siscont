@@ -10,13 +10,18 @@ import { CashFlowItem, CashFlowExit, DocumentType, ReceivedDocument, podeEditarD
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError } from '../services/relatoriosService';
+import { Gaveta } from '../components/ui/Gaveta';
+import { MenuAcoes } from '../components/ui/MenuAcoes';
+import { baixarModelo } from '../components/ui/BaixarModelo';
+import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { CLASSES_CATEGORIA, Etiqueta, agruparPorMes, etiquetaDaClasse, precisaAtencao, separarOrigem } from '../utils/fluxoCaixa';
+import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError, Saida } from '../services/relatoriosService';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
 import { CATEGORIAS } from '../utils/relatorios';
 import { PreviaNE, NEExistente, entraNaGravacao, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
 import * as XLSX from 'xlsx';
 import { Rubrica, lerNE } from '../utils/relatorios';
-import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash2, Search, X, Ban } from 'lucide-react';
+import { Plus, Download, Upload, Filter, FileText, FileSpreadsheet, Edit2, Trash2, Search, X, Ban, ChevronDown, ChevronRight, BarChart3, AlertTriangle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -46,10 +51,19 @@ const Lancamentos: React.FC = () => {
   const [anulacao, setAnulacao] = useState(false);
   const [rubricasAno, setRubricasAno] = useState<Rubrica[]>([]);
   const [classes, setClasses] = useState<Map<string, string>>(new Map());
+  const [saidasFull, setSaidasFull] = useState<Saida[]>([]);
+  const [filterClasse, setFilterClasse] = useState('');          // '' | 'ATENCAO' | 'R7' | 'ENERGIA'...
+  const [filterDestino, setFilterDestino] = useState('');       // '' | 'PAGAMENTO' | 'ADIANTAMENTO' | 'OUTROS' (só entradas)
+  const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set());
+  const [descAberta, setDescAberta] = useState<Set<string>>(new Set());
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [classeLote, setClasseLote] = useState('');
+  const [confirmaLote, setConfirmaLote] = useState(false);
+  const [mostrarGrafico, setMostrarGrafico] = useState(false);
   const neRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     listarRubricas(new Date().getFullYear()).then(setRubricasAno).catch(() => setRubricasAno([]));
-    listarSaidas().then(ss => setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || ''])))).catch(() => {});
+    listarSaidas().then(ss => { setSaidasFull(ss); setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || '']))); }).catch(() => {});
   }, []);
   const classeDe = (item: CashFlowItem) => classes.get(item.id) || '';
   const rotuloClasse = (c: string) => (c.startsWith('R') ? c.slice(1) : ({ ENERGIA: 'Energia', AGUA: 'Água e Esgoto', TELEFONIA: 'Telefonia', CONDOMINIO: 'Condomínio/diária/viatura', EXPEDIENTE: 'Material de expediente e limpeza', OUTROS: 'Outros' } as Record<string, string>)[c] || '');
@@ -93,6 +107,7 @@ const Lancamentos: React.FC = () => {
     try {
       setItems(await db.getCashFlow());
       setDocsCredito(await db.getDocuments());
+      listarSaidas().then(ss => { setSaidasFull(ss); setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || '']))); }).catch(() => {});
     } catch (err) {
       notify.fail('Erro ao carregar fluxo de caixa', err);
     }
@@ -121,9 +136,14 @@ const Lancamentos: React.FC = () => {
       (item.rubric?.toLowerCase().includes(search) ?? false) ||
       (item.client?.toLowerCase().includes(search) ?? false) ||
       (item.documentNumber?.toLowerCase().includes(search) ?? false) ||
-      (item.observation?.toLowerCase().includes(search) ?? false);
+      (item.observation?.toLowerCase().includes(search) ?? false) ||
+      (etiquetaDaClasse(classeDe(item), rubricasAno).completo.toLowerCase().includes(search));
 
-    return matchesMonth && matchesYear && matchesType && matchesText;
+    const classe = classeDe(item);
+    const matchesClasse = !filterClasse || (filterClasse === 'ATENCAO' ? precisaAtencao(item, classe) : item.type === 'EXIT' && classe === filterClasse);
+    const matchesDestino = !filterDestino || (item.type === 'ENTRY' && item.destino === filterDestino);
+
+    return matchesMonth && matchesYear && matchesType && matchesText && matchesClasse && matchesDestino;
   });
 
   // --- Header Stats Calculation (Reactive) ---
@@ -205,6 +225,21 @@ const Lancamentos: React.FC = () => {
     }
   };
 
+  /** Muda a rubrica/categoria de uma ou mais saídas (edição rápida e em lote). */
+  const aplicarClasse = async (ids: string[], nova: string) => {
+    if (isReadOnly || !ids.length) return;
+    const cls = nova ? (nova.startsWith('R') ? { rubricaNumero: Number(nova.slice(1)), categoria: 'CONDOMINIO' } : { rubricaNumero: null, categoria: nova }) : { rubricaNumero: null, categoria: null };
+    const alvo = saidasFull.filter(x => ids.includes(x.id)).map(x => ({ ...x, ...cls, rubric: rotuloClasse(nova) || x.rubric }));
+    if (!alvo.length) { notify.error('Não achei essas saídas para alterar. Atualize a página.'); return; }
+    try {
+      await salvarSaidas(alvo as Saida[]);
+      notify.success(`${alvo.length} saída(s) ${nova ? `classificada(s) como ${etiquetaDaClasse(nova, rubricasAno).completo}` : 'sem classificação'}.`);
+      setSelecionados(new Set()); setClasseLote(''); setConfirmaLote(false);
+      await refresh();
+    } catch (e) { notify.fail('Não foi possível alterar a classificação', e); }
+  };
+  const alternar = (set: Set<string>, id: string) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); return n; };
+
   const closeModal = () => {
     setIsModalOpen(false);
     setFormData({});
@@ -223,8 +258,8 @@ const Lancamentos: React.FC = () => {
       dataBR(item.date),
       item.documentNumber + (item.isCanceled ? ' (CANCELADO)' : ''),
       item.client,
-      item.description + (item.rubric ? ` (${item.rubric})` : ''),
-      item.observation || '',
+      item.description + (item.type === 'EXIT' && classeDe(item) ? ` (${etiquetaDaClasse(classeDe(item), rubricasAno).completo})` : (item.rubric ? ` (${item.rubric})` : '')),
+      separarOrigem(item.observation).texto,
       item.type === 'ENTRY' ? `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
       item.type === 'EXIT'
         ? (item.isCanceled ? '(R$ 0,00)' : `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`)
@@ -249,13 +284,13 @@ const Lancamentos: React.FC = () => {
 
   /** Excel (.xlsx) de verdade, com valores numéricos. */
   const exportExcel = () => {
-    const linhas: (string | number)[][] = [['Data', 'Documento', 'Cliente', 'Descrição', 'Rubrica', 'Observação', 'Entrada', 'Saída', 'Saldo acumulado', 'Situação']];
+    const linhas: (string | number)[][] = [['Data', 'Documento', 'Cliente', 'Descrição', 'Rubrica / categoria', 'Observação', 'Origem', 'Entrada', 'Saída', 'Saldo acumulado', 'Situação']];
     filteredItems.forEach(item => linhas.push([
-      dataBR(item.date), item.documentNumber, item.client, item.description, item.rubric || '', item.observation || '',
+      dataBR(item.date), item.documentNumber, item.client, item.description, item.type === 'EXIT' ? etiquetaDaClasse(classeDe(item), rubricasAno).completo : '', separarOrigem(item.observation).texto, separarOrigem(item.observation).origem,
       item.type === 'ENTRY' ? item.value : 0, item.type === 'EXIT' && !item.isCanceled ? item.value : 0, item.balanceAfter, item.isCanceled ? 'Anulado' : 'Ativo',
     ]));
     const ws = XLSX.utils.aoa_to_sheet(linhas);
-    ws['!cols'] = [11, 26, 32, 40, 14, 30, 14, 14, 16, 10].map(w => ({ wch: w }));
+    ws['!cols'] = [11, 26, 32, 40, 26, 24, 30, 14, 14, 16, 10].map(w => ({ wch: w }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Fluxo de caixa');
     XLSX.writeFile(wb, 'fluxo_caixa.xlsx');
   };
@@ -266,32 +301,40 @@ const Lancamentos: React.FC = () => {
     { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }
   ];
 
+  const opcoesClasse = [
+    ...(rubricasAno.length ? rubricasAno.map(r => ({ numero: r.numero, descricao: r.descricao })) : Array.from({ length: 33 }, (_, i) => ({ numero: i + 1, descricao: '(condomínio)' })))
+      .map(r => ({ label: `${r.numero} — ${r.descricao}`, value: `R${r.numero}` })),
+    ...CLASSES_CATEGORIA.map(c => ({ label: etiquetaDaClasse(c).texto, value: c })),
+  ];
+  const grupos = agruparPorMes(filteredItems, items);
+  const atencaoQtd = items.filter(i => precisaAtencao(i, classeDe(i))).length;
+  const saidasDaLista = filteredItems.filter(i => i.type === 'EXIT' && !isReadOnly);
+  const filtrosLigados = [filterText && `Busca “${filterText}”`, filterType && (filterType === 'ENTRY' ? 'Só entradas' : 'Só saídas'), filterMonth && `Mês ${filterMonth}`, filterYear && `Ano ${filterYear}`,
+    filterClasse && (filterClasse === 'ATENCAO' ? 'Precisa de atenção' : etiquetaDaClasse(filterClasse, rubricasAno).completo), filterDestino && ({ PAGAMENTO: 'Pagar faturas', ADIANTAMENTO: 'Adiantamento', OUTROS: 'Outros serviços' } as Record<string, string>)[filterDestino]].filter(Boolean) as string[];
+  const limparFiltros = () => { setFilterText(''); setFilterMonth(''); setFilterYear(''); setFilterType(''); setFilterClasse(''); setFilterDestino(''); };
+  const corEtiqueta: Record<Etiqueta['cor'], string> = { verde: 'bg-emerald-100 text-emerald-800 border-emerald-200', ambar: 'bg-amber-100 text-amber-800 border-amber-200', azul: 'bg-sky-100 text-sky-800 border-sky-200', violeta: 'bg-violet-100 text-violet-800 border-violet-200', teal: 'bg-teal-100 text-teal-800 border-teal-200', cinza: 'bg-slate-100 text-slate-700 border-slate-200', vermelho: 'bg-red-100 text-red-800 border-red-200' };
+  const brl = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+  const dadosGrafico = agruparPorMes(filteredItems, items).map(g => ({ mes: g.rotulo.replace(/^(\w{3})\w*\//, '$1/'), Entradas: g.entradas, Saídas: g.saidas, 'Saldo no fim do mês': g.saldoFim }));
+
   return (
-    <div className="space-y-6">
-      {/* ... (Keep existing header and charts) ... */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <p className="text-slate-500 text-sm">Entradas: as ALTCRED de Créditos recebidos (automáticas); a etiqueta mostra o destino de cada uma (pagar faturas, adiantamento ou outros serviços). As GRU não entram aqui (ficam na página Extra-Marinha). Saídas: notas de empenho por rubrica ou categoria.</p>
-        </div>
-        <div className="flex flex-wrap gap-2 [&_button]:whitespace-nowrap">
+    <div className="space-y-5">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+        <p className="text-slate-500 text-sm max-w-3xl">Entradas: as ALTCRED de Créditos recebidos (automáticas); a etiqueta mostra o destino de cada uma. As GRU ficam na página Extra-Marinha. Saídas: notas de empenho, cada uma com a sua rubrica ou categoria.</p>
+        <div className="flex flex-wrap items-center gap-2">
           {!isReadOnly && (
             <>
               <input type="file" ref={neRef} onChange={e => importarPlanilhaNE(e.target.files)} accept=".xlsx,.xls,.ods" className="hidden" />
-              <Button variant="secondary" size="sm" onClick={() => neRef.current?.click()}>
-                <Upload className="w-4 h-4 mr-2" /> Importar NE (planilha)
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} aria-label="Importar ALTCRED do PDF do SIPLAD" title="Cadastra as ALTCRED recebidas na R.901.16 (as mesmas de Créditos recebidos). Escolha o destino de cada uma: pagar faturas, adiantamento ou outros serviços.">
-                <Upload className="w-4 h-4 mr-2" /> Importar ALTCRED (SIPLAD)
-              </Button>
-              <BaixarModelo rotulo="Modelo NE" modelo={() => { const d = new Date(); return modeloNotasEmpenho(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }} />
+              <MenuAcoes rotulo="Importar" icone={<Upload size={14} />} itens={[
+                { rotulo: 'NE (planilha)', onClick: () => neRef.current?.click(), dica: 'Notas de empenho de uma planilha; mostra a prévia antes de gravar' },
+                { rotulo: 'ALTCRED (PDF do SIPLAD)', onClick: () => setSipladAberto(true), dica: 'As mesmas ALTCRED de Créditos recebidos; escolha o destino de cada uma' },
+                { rotulo: 'Baixar planilha modelo de NE', onClick: () => { const d = new Date(); baixarModelo(modeloNotasEmpenho(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)); } },
+              ]} />
             </>
           )}
-          <Button variant="secondary" size="sm" onClick={exportExcel}>
-            <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
-          </Button>
-          <Button variant="secondary" size="sm" onClick={exportPDF}>
-            <FileText className="w-4 h-4 mr-2" /> PDF
-          </Button>
+          <MenuAcoes rotulo="Exportar" icone={<Download size={14} />} itens={[
+            { rotulo: 'Excel', onClick: exportExcel, icone: <FileSpreadsheet size={14} /> },
+            { rotulo: 'PDF', onClick: exportPDF, icone: <FileText size={14} /> },
+          ]} />
           {!isReadOnly && (
             <Button onClick={() => { setEditingId(null); setFormData({}); setIsModalOpen(true); }}>
               <Plus className="w-4 h-4 mr-2" /> Nova Saída
@@ -300,135 +343,199 @@ const Lancamentos: React.FC = () => {
         </div>
       </div>
 
-      {/* Header Stats (Reactive) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
-          <p className="text-sm font-medium text-slate-500">Total Entradas (Período)</p>
-          <h3 className="text-2xl font-bold text-green-700">R$ {totalEntries.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+      {/* Cartões do período filtrado + saldo corrido */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="cartoes-fluxo">
+        <div className="bg-white p-4 rounded-lg shadow-sm border-l-4 border-green-500">
+          <p className="text-xs font-medium text-slate-500">Entradas do período</p>
+          <h3 className="text-xl font-bold text-green-700 tabular-nums">{brl(totalEntries)}</h3>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-red-500">
-          <p className="text-sm font-medium text-slate-500">Total Saídas (Período)</p>
-          <h3 className="text-2xl font-bold text-red-700">R$ {totalExits.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+        <div className="bg-white p-4 rounded-lg shadow-sm border-l-4 border-red-500">
+          <p className="text-xs font-medium text-slate-500">Saídas do período</p>
+          <h3 className="text-xl font-bold text-red-700 tabular-nums">{brl(totalExits)}</h3>
         </div>
-        <div className={`bg-white p-6 rounded-lg shadow-sm border-l-4 ${accumulatedBalance >= 0 ? 'border-blue-500' : 'border-orange-500'}`}>
-          <p className="text-sm font-medium text-slate-500">Saldo Atual (Acumulado no Ano)</p>
-          <h3 className={`text-2xl font-bold ${accumulatedBalance >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>R$ {accumulatedBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+        <div className="bg-white p-4 rounded-lg shadow-sm border-l-4 border-slate-400">
+          <p className="text-xs font-medium text-slate-500">Resultado do período (entradas − saídas)</p>
+          <h3 className={`text-xl font-bold tabular-nums ${totalEntries - totalExits >= 0 ? 'text-slate-700' : 'text-orange-700'}`}>{brl(totalEntries - totalExits)}</h3>
+        </div>
+        <div className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${accumulatedBalance >= 0 ? 'border-blue-500' : 'border-orange-500'}`}>
+          <p className="text-xs font-medium text-slate-500">Saldo corrido do ano até o último lançamento listado</p>
+          <h3 className={`text-xl font-bold tabular-nums ${accumulatedBalance >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>{brl(accumulatedBalance)}</h3>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-end">
-        <div className="w-full md:w-1/3">
-          <Input
-            label="Descrição / Rubrica / Cliente / Obs"
-            placeholder="Buscar..."
-            value={filterText}
-            onChange={e => setFilterText(e.target.value)}
-          />
+      {/* Filtros */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3" data-testid="filtros-fluxo">
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <div className="w-64"><Input label="Busca" placeholder="Descrição, fornecedor, NE, rubrica…" value={filterText} onChange={e => setFilterText(e.target.value)} /></div>
+          <div className="w-32"><Select label="Mês" options={months.map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} /></div>
+          <div className="w-28"><Select label="Ano" options={availableYears.map(y => ({ label: y, value: y }))} value={filterYear} onChange={e => setFilterYear(e.target.value)} /></div>
+          <div className="w-36"><Select label="Tipo" options={[{ label: 'Entradas', value: 'ENTRY' }, { label: 'Saídas', value: 'EXIT' }]} value={filterType} onChange={e => setFilterType(e.target.value)} /></div>
+          <label className="text-sm font-medium text-slate-700 block">Rubrica / categoria
+            <select aria-label="Filtrar por rubrica ou categoria" value={filterClasse} onChange={e => setFilterClasse(e.target.value)} className="mt-1 block w-60 rounded-md border border-slate-300 px-3 py-2 text-sm bg-white">
+              <option value="">Todas</option>
+              <option value="ATENCAO">Precisa de atenção (Outros ou sem classificação)</option>
+              {opcoesClasse.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <div className="w-48"><Select label="Destino da ALTCRED" options={[{ label: 'Pagar faturas', value: 'PAGAMENTO' }, { label: 'Adiantamento', value: 'ADIANTAMENTO' }, { label: 'Outros serviços', value: 'OUTROS' }]} value={filterDestino} onChange={e => setFilterDestino(e.target.value)} /></div>
         </div>
-        <div className="w-full md:w-1/6">
-          <Select
-            label="Tipo"
-            options={[{ label: 'Entrada', value: 'ENTRY' }, { label: 'Saída', value: 'EXIT' }]}
-            value={filterType}
-            onChange={e => setFilterType(e.target.value)}
-          />
-        </div>
-        <div className="w-full md:w-1/4">
-          <Select
-            label="Mês"
-            options={months.map(m => ({ label: m.l, value: m.v }))}
-            value={filterMonth}
-            onChange={e => setFilterMonth(e.target.value)}
-          />
-        </div>
-        <div className="w-full md:w-1/4">
-          <Select
-            label="Ano"
-            options={availableYears.map(y => ({ label: y, value: y }))}
-            value={filterYear}
-            onChange={e => setFilterYear(e.target.value)}
-          />
-        </div>
-        <div className="flex items-center pb-2 text-slate-400">
-          {(filterText || filterMonth || filterYear || filterType) && (
-            <Button variant="ghost" size="sm" onClick={() => { setFilterText(''); setFilterMonth(''); setFilterYear(''); setFilterType(''); }}>
-              <X className="w-4 h-4 mr-1" /> Limpar
-            </Button>
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 text-sm" aria-live="polite">
+          <span className="text-slate-600"><b>{filteredItems.length}</b> de {items.length} lançamentos{filtrosLigados.length ? ' atendem aos filtros:' : ' (nenhum filtro ligado)'}</span>
+          {filtrosLigados.map(f => <span key={f} className="inline-flex items-center rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">{f}</span>)}
+          {atencaoQtd > 0 && filterClasse !== 'ATENCAO' && (
+            <button type="button" onClick={() => setFilterClasse('ATENCAO')} className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 text-xs font-semibold" title="Saídas sem rubrica ou em Outros: classifique para o painel Disponível ficar certo">
+              <AlertTriangle size={12} />{atencaoQtd} saída(s) precisam de classificação
+            </button>
           )}
+          <button type="button" onClick={() => setMostrarGrafico(!mostrarGrafico)} aria-expanded={mostrarGrafico} className="ml-auto inline-flex items-center gap-1 text-primary-700 font-semibold"><BarChart3 size={14} />{mostrarGrafico ? 'Esconder gráfico mensal' : 'Ver gráfico mensal'}</button>
+          {filtrosLigados.length > 0 && <button type="button" className="text-primary-700 underline" onClick={limparFiltros}>Limpar filtros</button>}
         </div>
+        {mostrarGrafico && (
+          <div className="h-64" role="img" aria-label="Entradas e saídas por mês e saldo no fim do mês">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={dadosGrafico} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} /><YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${(v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mi`} />
+                <Tooltip formatter={(v: number) => brl(v)} /><Legend />
+                <Bar dataKey="Entradas" fill="#0ca30c" /><Bar dataKey="Saídas" fill="#d03b3b" />
+                <Line type="monotone" dataKey="Saldo no fim do mês" stroke="#2a78d6" strokeWidth={2} dot />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
-      {/* Table */}
+      {/* Edição em lote */}
+      {selecionados.size > 0 && !isReadOnly && (
+        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 rounded-lg border border-primary-300 bg-primary-50 px-4 py-2 text-sm" role="region" aria-label="Edição em lote">
+          <b>{selecionados.size} saída(s) selecionada(s)</b>
+          <label className="flex items-center gap-2">Classificar como
+            <select aria-label="Classificar as selecionadas como" value={classeLote} onChange={e => setClasseLote(e.target.value)} className="rounded-md border border-slate-300 px-2 py-1 bg-white">
+              <option value="">Escolha…</option>
+              {opcoesClasse.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <Button size="sm" onClick={() => setConfirmaLote(true)} disabled={!classeLote}>Aplicar</Button>
+          <button type="button" className="text-slate-600 underline" onClick={() => setSelecionados(new Set())}>Limpar seleção</button>
+        </div>
+      )}
+
+      {/* Tabela por mês */}
       <div className="bg-white rounded-lg shadow border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50">
+          <table className="w-full text-sm table-fixed" aria-label="Lançamentos do fluxo de caixa">
+            <colgroup><col style={{ width: 28 }} /><col style={{ width: 88 }} /><col style={{ width: 196 }} /><col /><col style={{ width: 140 }} /><col style={{ width: 108 }} /><col style={{ width: 108 }} /><col style={{ width: 140 }} /><col style={{ width: 56 }} /></colgroup>
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Data</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Doc</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Cliente</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Descrição/Rubrica</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Observação</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Entrada</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Saída</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Saldo</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase">Ações</th>
+                <th className="pl-3 pr-1 py-2 w-8">
+                  {!isReadOnly && saidasDaLista.length > 0 && (
+                    <input type="checkbox" aria-label="Selecionar todas as saídas da lista" checked={saidasDaLista.length > 0 && saidasDaLista.every(i => selecionados.has(i.id))}
+                      onChange={e => setSelecionados(e.target.checked ? new Set(saidasDaLista.map(i => i.id)) : new Set())} />
+                  )}
+                </th>
+                <th className="px-2 py-2 text-left">Data</th>
+                <th className="px-2 py-2 text-left">Documento / fornecedor</th>
+                <th className="px-2 py-2 text-left">Descrição</th>
+                <th className="px-2 py-2 text-left">Rubrica / categoria</th>
+                <th className="px-2 py-2 text-right">Entrada</th>
+                <th className="px-2 py-2 text-right">Saída</th>
+                <th className="px-2 py-2 text-right">Saldo</th>
+                <th className="px-2 py-2 text-right">Ações</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {filteredItems.map((item, idx) => (
-                <tr key={`${item.id}-${idx}`} className={`hover:bg-slate-50 ${item.isCanceled ? 'bg-slate-100' : ''}`}>
-                  <td className="px-6 py-4 text-sm text-slate-500 whitespace-nowrap">{dataBR(item.date)}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                    {item.documentNumber}
-                    {item.type === 'EXIT' && item.value < 0 ? <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800" title="Anulação parcial: diminui o valor desta NE">ANULAÇÃO</span>
-                      : ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
-                    {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}
-                    {item.type === 'ENTRY' && item.destino === 'OUTROS' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700" title="Crédito recebido para outros serviços: não paga fatura">OUTROS SERVIÇOS{item.finalidade ? ` · ${CATEGORIAS.find(c => c.id === item.finalidade)?.rotulo || item.finalidade}` : ''}</span>}
-                    {item.type === 'ENTRY' && item.destino === 'ADIANTAMENTO' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800" title="Valor guardado para faturas futuras">ADIANTAMENTO</span>}
-                    {item.type === 'ENTRY' && item.destino === 'PAGAMENTO' && item.aguardando && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="A OM ainda não indicou as faturas: o acompanhamento contábil escolhe em Créditos recebidos">A DESTINAR</span>}
-                  </td>
-                  <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>{item.client}</td>
-                  <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>
-                    {item.description}
-                    {item.rubric && <span className="block text-xs text-slate-400 font-mono">Rubrica: {item.rubric}</span>}
-                  </td>
-                  <td className={`px-6 py-4 text-sm text-slate-500 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>{item.observation || '-'}</td>
-
-                  <td className="px-6 py-4 text-sm text-right font-medium text-green-600">
-                    {item.type === 'ENTRY' ? `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                  </td>
-                  <td className={`px-6 py-4 text-sm text-right font-medium ${item.isCanceled ? 'text-slate-400 line-through' : 'text-red-600'}`}>
-                    {item.type === 'EXIT' ? (item.value < 0 ? `− R$ ${(-item.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : `R$ ${item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right font-bold text-slate-700">R$ {item.balanceAfter.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-6 py-4 text-sm text-right">
-                    {item.type === 'EXIT' && !isReadOnly && (
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => handleEdit(item)} className="text-indigo-600 hover:text-indigo-900"><Edit2 size={16} /></button>
-                        <button onClick={() => setDeleteId(item.id)} className="text-red-600 hover:text-red-900"><Trash2 size={16} /></button>
+            <tbody>
+              {grupos.map(g => (
+                <React.Fragment key={g.chave}>
+                  <tr className="bg-slate-100 border-y border-slate-200">
+                    <td colSpan={9} className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                        <button type="button" onClick={() => setRecolhidos(alternar(recolhidos, g.chave))} aria-expanded={!recolhidos.has(g.chave)} className="font-bold text-slate-800 flex items-center gap-1">
+                          {recolhidos.has(g.chave) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}{g.rotulo}
+                        </button>
+                        <span className="text-slate-500">{g.itens.length} lançamento(s)</span>
+                        <span className="text-green-700">Entradas <b className="tabular-nums">{brl(g.entradas)}</b></span>
+                        <span className="text-red-700">Saídas <b className="tabular-nums">{brl(g.saidas)}</b></span>
+                        <span className="text-slate-700">Saldo no fim do mês <b className={`tabular-nums ${g.saldoFim < 0 ? 'text-orange-700' : ''}`}>{brl(g.saldoFim)}</b></span>
                       </div>
-                    )}
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {!recolhidos.has(g.chave) && g.itens.map((item, idx) => {
+                    const classe = classeDe(item);
+                    const et = etiquetaDaClasse(classe, rubricasAno);
+                    const { origem, texto: obsUsuario } = separarOrigem(item.observation);
+                    const aberta = descAberta.has(item.id);
+                    return (
+                      <tr key={`${item.id}-${idx}`} className={`border-b border-slate-100 hover:bg-slate-50 align-top ${item.isCanceled ? 'bg-slate-100' : ''}`}>
+                        <td className="pl-3 pr-1 py-2">
+                          {item.type === 'EXIT' && !isReadOnly && <input type="checkbox" aria-label={`Selecionar ${item.documentNumber}`} checked={selecionados.has(item.id)} onChange={() => setSelecionados(alternar(selecionados, item.id))} />}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-slate-500 whitespace-nowrap">{dataBR(item.date)}</td>
+                        <td className="px-2 py-2">
+                          <div className="font-medium text-slate-900">
+                            <span className="text-[13px] whitespace-nowrap">{item.documentNumber}</span>
+                            {item.type === 'EXIT' && item.value < 0 ? <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-800" title="Anulação parcial: diminui o valor desta NE">ANULAÇÃO</span>
+                              : ehReforco(item) && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-800" title="Aumento do valor desta NE (mesmo empenho)">REFORÇO</span>}
+                            {item.isCanceled && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">CANCELADO</span>}
+                            {item.type === 'ENTRY' && item.destino === 'OUTROS' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700" title="Crédito recebido para outros serviços: não paga fatura">OUTROS SERVIÇOS{item.finalidade ? ` · ${CATEGORIAS.find(c => c.id === item.finalidade)?.rotulo || item.finalidade}` : ''}</span>}
+                            {item.type === 'ENTRY' && item.destino === 'ADIANTAMENTO' && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800" title="Valor guardado para faturas futuras">ADIANTAMENTO</span>}
+                            {item.type === 'ENTRY' && item.destino === 'PAGAMENTO' && item.aguardando && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800" title="A OM ainda não indicou as faturas: o acompanhamento contábil escolhe em Créditos recebidos">A DESTINAR</span>}
+                          </div>
+                          <div className={`text-xs text-slate-500 truncate ${item.isCanceled ? 'line-through opacity-60' : ''}`} title={item.client}>{item.client}</div>
+                        </td>
+                        <td className={`px-2 py-2 text-slate-600 ${item.isCanceled ? 'line-through opacity-60' : ''}`}>
+                          {item.description && (
+                            <button type="button" onClick={() => setDescAberta(alternar(descAberta, item.id))} aria-expanded={aberta} title={aberta ? 'Recolher o texto' : 'Clique para ler o texto inteiro'}
+                              className={`text-left text-xs leading-snug ${aberta ? '' : 'line-clamp-2'}`}>{item.description}</button>
+                          )}
+                          {obsUsuario && <div className="text-xs italic text-slate-500 mt-0.5">Obs.: {obsUsuario}</div>}
+                          {origem && <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500" title={`Importada de ${origem}`}>origem: planilha</span>}
+                        </td>
+                        <td className="px-2 py-2">
+                          {item.type === 'EXIT' ? (
+                            isReadOnly
+                              ? <span className={`inline-block px-2 py-0.5 rounded border text-xs font-medium ${corEtiqueta[et.cor]}`} title={et.completo}>{et.texto}</span>
+                              : (
+                                <select aria-label={`Rubrica ou categoria de ${item.documentNumber}`} value={classe} onChange={e => aplicarClasse([item.id], e.target.value)} title={et.completo}
+                                  className={`w-full rounded border text-xs font-medium px-1 py-1 ${corEtiqueta[et.cor]}`}>
+                                  <option value="">Sem classificação</option>
+                                  {opcoesClasse.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              )
+                          ) : (item.destino === 'OUTROS' && item.finalidade
+                            ? <span className={`inline-block px-2 py-0.5 rounded border text-xs font-medium ${corEtiqueta[etiquetaDaClasse(item.finalidade).cor]}`}>{etiquetaDaClasse(item.finalidade).texto}</span>
+                            : <span className="text-slate-300">—</span>)}
+                        </td>
+                        <td className="px-2 py-2 text-right text-[13px] font-medium text-green-600 tabular-nums whitespace-nowrap">{item.type === 'ENTRY' ? brl(item.value) : ''}</td>
+                        <td className={`px-2 py-2 text-right text-[13px] font-medium tabular-nums whitespace-nowrap ${item.isCanceled ? 'text-slate-400 line-through' : 'text-red-600'}`}>
+                          {item.type === 'EXIT' ? (item.value < 0 ? `− ${brl(-item.value)}` : brl(item.value)) : ''}
+                        </td>
+                        <td className={`px-2 py-2 text-right text-[13px] font-bold tabular-nums whitespace-nowrap ${item.balanceAfter < 0 ? 'text-orange-700' : 'text-slate-700'}`}>{brl(item.balanceAfter)}</td>
+                        <td className="px-2 py-2 text-right">
+                          {item.type === 'EXIT' && !isReadOnly && (
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => handleEdit(item)} className="text-indigo-600 hover:text-indigo-900" aria-label={`Editar ${item.documentNumber}`} title="Editar"><Edit2 size={16} /></button>
+                              <button onClick={() => setDeleteId(item.id)} className="text-red-600 hover:text-red-900" aria-label={`Excluir ${item.documentNumber}`} title="Excluir"><Trash2 size={16} /></button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
               ))}
               {filteredItems.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-slate-500">Nenhum lançamento encontrado para os filtros selecionados.</td>
-                </tr>
+                <tr><td colSpan={9} className="px-6 py-8 text-center text-slate-500">Nenhum lançamento encontrado para os filtros selecionados.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <Modal
-        isOpen={isModalOpen}
-        onClose={closeModal}
-        title={editingId ? "Editar Saída Financeira" : "Nova Saída Financeira (Empenho/ALTCRED)"}
-        footer={<div className="flex justify-end gap-2"><Button onClick={handleSaveExit}>Salvar Lançamento</Button></div>}
-      >
+      <ConfirmModal isOpen={confirmaLote} onClose={() => setConfirmaLote(false)} onConfirm={() => aplicarClasse([...selecionados], classeLote)}
+        title="Classificar saídas em lote" message={`Vai classificar ${selecionados.size} saída(s) como “${classeLote ? etiquetaDaClasse(classeLote, rubricasAno).completo : ''}”. Nada mais é alterado (valor, data e descrição continuam iguais). Confirmar?`} />
+
+      <Gaveta aberta={isModalOpen} onClose={closeModal} titulo={editingId ? 'Editar saída financeira' : 'Nova saída financeira (empenho/ALTCRED)'}
+        rodape={<div className="flex justify-end gap-2"><Button variant="secondary" onClick={closeModal}>Cancelar</Button><Button onClick={handleSaveExit}>Salvar Lançamento</Button></div>}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input label="Data" type="date" required value={formData.date || ''} onChange={e => setFormData({ ...formData, date: e.target.value })} disabled={isReadOnly} />
           <Input label="Número Documento" required value={formData.documentNumber || ''} onChange={e => setFormData({ ...formData, documentNumber: e.target.value })} disabled={isReadOnly} />
@@ -452,8 +559,8 @@ const Lancamentos: React.FC = () => {
             </div>
           )}
           {neInvalida && <p className="md:col-span-2 text-xs text-amber-700">Número fora do padrão da NE: UG (6) + gestão (5) + ano (4) + "NE" + número (6), ex.: 740015000012026NE000122.</p>}
-          <Input label="Observação" className="md:col-span-2" value={formData.observation || ''} onChange={e => setFormData({ ...formData, observation: e.target.value })} disabled={isReadOnly} />
-          <Input label="Descrição" className="md:col-span-2" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} disabled={isReadOnly} />
+          <div className="md:col-span-2"><Input label="Observação" value={formData.observation || ''} onChange={e => setFormData({ ...formData, observation: e.target.value })} disabled={isReadOnly} /></div>
+          <div className="md:col-span-2"><Input label="Descrição" value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} disabled={isReadOnly} /></div>
 
           {formData.documentType === 'EMPENHO' && (
             <div className="md:col-span-2 p-3 bg-red-50 border border-red-100 rounded">
@@ -470,7 +577,8 @@ const Lancamentos: React.FC = () => {
             </div>
           )}
         </div>
-      </Modal>
+      </Gaveta>
+
 
       <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} />
       <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
