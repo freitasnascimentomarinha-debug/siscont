@@ -2431,7 +2431,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Z999.2026.AC.00010').first().waitFor();
     ok(await page.getByText('Só no Fluxo de caixa').isVisible() && (await page.getByText('Material de expediente e limpeza').count()) >= 1, 'aba "Outros serviços" mostra o destino e a finalidade, sem R$ 0,00 de "disponível"');
     const conc = (await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ');
-    ok(/recebido R\$ 3\.000,00 = aplicado em faturas R\$ 0,00 \+ a destinar R\$ 1\.000,00 \+ outros serviços R\$ 2\.000,00/.test(conc), `a conciliação fecha: ${conc}`);
+    ok(/Recebido R\$ 3\.000,00 = Aplicado em faturas R\$ 0,00 \+ A destinar R\$ 1\.000,00 \+ Outros serviços R\$ 2\.000,00/.test(conc), `a conferência fecha: ${conc}`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-outros-servicos.png') });
     // Fluxo de caixa: mesmas ALTCRED, com a etiqueta do destino, e o botão para importar
     await page.getByRole('button', { name: 'Fluxo de caixa' }).click();

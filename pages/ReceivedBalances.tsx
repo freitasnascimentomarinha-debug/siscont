@@ -795,10 +795,26 @@ export const ReceivedBalances: React.FC = () => {
           </div>
         )}
       </div>
-      <p className="text-xs text-slate-600" data-testid="conciliacao-creditos">
-        <b>Todas as abas:</b> recebido R$ {conciliacao.recebido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} = aplicado em faturas R$ {conciliacao.aplicado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-        {' '}+ a destinar R$ {conciliacao.aDestinar.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} + outros serviços R$ {conciliacao.outros.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
-      </p>
+      {/* Conferência: tudo o que entrou = o que já pagou fatura + o que espera destino + o que foi para outros serviços (todas as abas) */}
+      <section aria-label="Conferência dos créditos recebidos" data-testid="conciliacao-creditos" className="bg-white rounded-lg border border-slate-200 p-3">
+        <p className="text-[11px] uppercase font-semibold text-slate-400 mb-2">Conferência de todos os créditos (todas as abas)</p>
+        <div className="flex flex-wrap items-stretch gap-2 text-sm">
+          {([
+            { t: 'Recebido', v: conciliacao.recebido, cor: 'text-blue-700', dica: 'Soma de todas as ALTCRED (todas as abas)' },
+            { op: '=' },
+            { t: 'Aplicado em faturas', v: conciliacao.aplicado, cor: 'text-slate-800', dica: 'Já usado para baixar faturas' },
+            { op: '+' },
+            { t: 'A destinar', v: conciliacao.aDestinar, cor: 'text-emerald-700', dica: 'Ainda disponível para baixar faturas ou ficar como adiantamento' },
+            { op: '+' },
+            { t: 'Outros serviços', v: conciliacao.outros, cor: 'text-slate-600', dica: 'Não paga fatura: aparece só no Fluxo de caixa' },
+          ] as any[]).map((x, i) => x.op
+            ? <span key={i} className="self-center text-lg font-bold text-slate-400" aria-hidden>{x.op}</span>
+            : <div key={i} className="flex-1 min-w-[9rem] rounded-md bg-slate-50 border border-slate-200 px-3 py-2" title={x.dica}>
+                <p className="text-xs text-slate-500">{x.t}</p>
+                <p className={`font-bold tabular-nums ${x.cor}`}>R$ {x.v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              </div>)}
+        </div>
+      </section>
 
       {/* Filtros: uma barra só, em grupos (o Público fica no alto da página) */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-3" data-testid="filtros-recebimentos">
