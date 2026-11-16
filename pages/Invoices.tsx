@@ -18,6 +18,7 @@ import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Plus, Edit2, Trash2, AlertTriangle, CheckCircle, Clock, Filter, X, Ban, FileText, Printer, RefreshCcw, MessageSquareWarning, FileSpreadsheet, ChevronDown, ChevronUp, Search, AlertOctagon, Calculator, LayoutList, Network, FileCheck, History } from 'lucide-react';
 import { HistoricoModal } from '../components/auditoria/Historico';
 import { MultiFiltro } from '../components/ui/MultiFiltro';
+import { MultiEscolha } from '../components/ui/MultiEscolha';
 import { AcompanhamentoFatura } from '../components/faturas/AcompanhamentoFatura';
 import { BarraLoteFaturas } from '../components/faturas/BarraLoteFaturas';
 import { MapaAnaliticoTab } from '../components/faturas/MapaAnaliticoTab';
@@ -77,11 +78,11 @@ export const Invoices: React.FC = () => {
   const [advanceSearchText, setAdvanceSearchText] = useState('');
 
   // Filters
-  const [filterType, setFilterType] = useState('');
+  const [filterType, setFilterType] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState('');
-  const [filterMonth, setFilterMonth] = useState('');
-  const [filterYear, setFilterYear] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterMonth, setFilterMonth] = useState<Set<string>>(new Set());
+  const [filterYear, setFilterYear] = useState<Set<string>>(new Set());
+  const [filterStatus, setFilterStatus] = useState<Set<string>>(new Set());
   const [filterSiplad, setFilterSiplad] = useState('');
   const [filterPontos, setFilterPontos] = useState('');
   const [extras, setExtras] = useState<FiltrosExtras>(SEM_FILTROS);
@@ -486,16 +487,16 @@ export const Invoices: React.FC = () => {
         inv.client.toLowerCase().includes(search) || 
         inv.invoiceNumber.toLowerCase().includes(search) || 
         (inv.ug || '').toLowerCase().includes(search);
-      const matchesMonth = !filterMonth || inv.monthCompetence.toString() === filterMonth;
-      const matchesYear = !filterYear || inv.yearCompetence.toString() === filterYear;
-      const matchesStatus = !filterStatus || inv.status === filterStatus;
-      const matchesType = !filterType || inv.type === filterType;
+      const matchesMonth = !filterMonth.size || filterMonth.has(inv.monthCompetence.toString());
+      const matchesYear = !filterYear.size || filterYear.has((inv.yearCompetence || 0).toString());
+      const matchesStatus = !filterStatus.size || filterStatus.has(inv.status);
+      const matchesType = !filterType.size || filterType.has(inv.type);
       const matchesSiplad = !filterSiplad || (filterSiplad === 'yes' ? inv.sipladSettled : !inv.sipladSettled);
       const abertos = pendentes(inv.pontos);
       const matchesPontos = !filterPontos || (filterPontos === 'any' ? abertos.length > 0 : abertos.some(p => p.gravidade === filterPontos));
       return matchesSearch && matchesMonth && matchesYear && matchesStatus && matchesType && matchesSiplad && matchesPontos && passaFiltrosExtras(inv, extras) && passaPublico(publico, cls.faturaExtra(inv));
-    }), ordem);
-  }, [invoices, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem, extras, publico, cls]);
+    }), ordem, f => { const c = getInvoiceCalculations(f); return { valor: c.valInvoice, saldo: c.finalBalance }; });
+  }, [invoices, calcPorFatura, searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, ordem, extras, publico, cls]);
 
   const totalCount = filteredInvoices.length;
   
@@ -517,6 +518,8 @@ export const Invoices: React.FC = () => {
   // volta para a 1ª página quando os filtros mudam
   useEffect(() => { setPagina(0); setSelecionadas(new Set()); }, [searchText, filterMonth, filterYear, filterStatus, filterType, filterSiplad, filterPontos, porPagina, ordem, extras]);
   const cabecalho = useMemo(() => resumoCabecalho(filteredInvoices), [filteredInvoices]);
+  // serviços do cadastro + os que já aparecem nas faturas (tipos antigos também podem ser filtrados)
+  const opServicos = useMemo(() => [...new Set([...services.map(x => x.label), ...invoices.map(i => i.type)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [services, invoices]);
   const opSetores = useMemo(() => [...new Set(invoices.map(setorDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
   const opComandos = useMemo(() => [...new Set(invoices.map(comandoDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
   const opClientes = useMemo(() => [...new Set(invoices.map(clienteDe))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [invoices]);
@@ -526,10 +529,10 @@ export const Invoices: React.FC = () => {
     const l: { rotulo: string; limpar: () => void }[] = [];
     const MESES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
     if (searchText) l.push({ rotulo: `Procurando “${searchText}”`, limpar: () => setSearchText('') });
-    if (filterMonth) l.push({ rotulo: `Mês: ${MESES[Number(filterMonth)] || filterMonth}`, limpar: () => setFilterMonth('') });
-    if (filterYear !== '') l.push({ rotulo: `Ano: ${Number(filterYear) === 0 ? 'sem competência' : filterYear}`, limpar: () => setFilterYear('') });
-    if (filterType) l.push({ rotulo: `Serviço: ${filterType}`, limpar: () => setFilterType('') });
-    if (filterStatus) l.push({ rotulo: `Status: ${translateStatus(filterStatus)}`, limpar: () => setFilterStatus('') });
+    if (filterMonth.size) l.push({ rotulo: `Mês: ${[...filterMonth].sort((a, b) => Number(a) - Number(b)).map(m => MESES[Number(m)] || m).join(' + ')}`, limpar: () => setFilterMonth(new Set()) });
+    if (filterYear.size) l.push({ rotulo: `Ano: ${[...filterYear].sort().map(y => (Number(y) === 0 ? 'sem competência' : y)).join(' + ')}`, limpar: () => setFilterYear(new Set()) });
+    if (filterType.size) l.push({ rotulo: `Serviço: ${[...filterType].sort().join(' + ')}`, limpar: () => setFilterType(new Set()) });
+    if (filterStatus.size) l.push({ rotulo: `Status: ${[...filterStatus].map(translateStatus).join(' + ')}`, limpar: () => setFilterStatus(new Set()) });
     if (filterSiplad) l.push({ rotulo: `SIPLAD: ${filterSiplad === 'yes' ? 'lançada' : 'pendente'}`, limpar: () => setFilterSiplad('') });
     if (filterPontos) l.push({ rotulo: `Pontos: ${filterPontos === 'any' ? 'com algum' : `gravidade ${filterPontos}`}`, limpar: () => setFilterPontos('') });
     if (extras.setoresExcluidos.size) l.push({ rotulo: `Setor: ${extras.setoresExcluidos.size} tirado(s)`, limpar: () => setExtra({ setoresExcluidos: new Set() }) });
@@ -539,7 +542,7 @@ export const Invoices: React.FC = () => {
     if (extras.andamento) l.push({ rotulo: `Andamento: ${({ naoEnviada: 'não enviadas', naoCertificada: 'não certificadas', semSiafi: 'sem SIAFI' } as Record<string, string>)[extras.andamento] || extras.andamento}`, limpar: () => setExtra({ andamento: '' }) });
     return l;
   }, [searchText, filterMonth, filterYear, filterType, filterStatus, filterSiplad, filterPontos, extras]);
-  const limparFiltros = () => { setSearchText(''); setFilterMonth(''); setFilterYear(''); setFilterType(''); setFilterStatus(''); setFilterSiplad(''); setFilterPontos(''); setExtras(SEM_FILTROS); };
+  const limparFiltros = () => { setSearchText(''); setFilterMonth(new Set()); setFilterYear(new Set()); setFilterType(new Set()); setFilterStatus(new Set()); setFilterSiplad(''); setFilterPontos(''); setExtras(SEM_FILTROS); };
   const semCompetencia = useMemo(() => invoices.filter(i => !i.yearCompetence).length, [invoices]);
   const totalPaginas = Math.max(1, Math.ceil(filteredInvoices.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas - 1);
@@ -790,10 +793,10 @@ export const Invoices: React.FC = () => {
             <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
               <fieldset className="w-full md:w-52"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Procurar</legend><Input label="Busca" placeholder="UG, cliente ou nº da fatura" value={searchText} onChange={e => setSearchText(e.target.value)} /></fieldset>
               <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Período</legend>
-                <div className="w-28"><Select label="Mês" options={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} /></div><div className="w-24"><Select label="Ano" options={Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y })).concat(semCompetencia ? [{ label: 'Sem competência', value: 0 }] : [])} value={filterYear} onChange={e => setFilterYear(e.target.value)} /></div></fieldset>
-              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">O quê</legend><div className="w-40"><Select label="Serviço" options={services} value={filterType} onChange={e => setFilterType(e.target.value)} /></div></fieldset>
+                <MultiEscolha rotulo="Mês" opcoes={[{ v: '1', l: 'Janeiro' }, { v: '2', l: 'Fevereiro' }, { v: '3', l: 'Março' }, { v: '4', l: 'Abril' }, { v: '5', l: 'Maio' }, { v: '6', l: 'Junho' }, { v: '7', l: 'Julho' }, { v: '8', l: 'Agosto' }, { v: '9', l: 'Setembro' }, { v: '10', l: 'Outubro' }, { v: '11', l: 'Novembro' }, { v: '12', l: 'Dezembro' }].map(m => ({ label: m.l, value: m.v }))} escolhidos={filterMonth} onChange={setFilterMonth} /><MultiEscolha rotulo="Ano" opcoes={(Array.from(new Set(invoices.map(i => i.yearCompetence || 0))).filter((y: any) => y > 0).sort((a: number, b: number) => b - a).map(y => ({ label: y.toString(), value: y })).concat(semCompetencia ? [{ label: 'Sem competência', value: 0 }] : [])).map(o => ({ label: o.label, value: String(o.value) }))} escolhidos={filterYear} onChange={setFilterYear} /></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">O quê</legend><MultiEscolha rotulo="Serviço" opcoes={opServicos.map(t => ({ label: t, value: t }))} escolhidos={filterType} onChange={setFilterType} largura="w-64" /></fieldset>
               <fieldset className="flex items-end gap-2"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend>
-                <div className="w-28"><Select label="Status" options={[{ label: 'Em Aberto', value: InvoiceStatus.OPEN }, { label: 'Quitada', value: InvoiceStatus.PAID }, { label: 'Vencida', value: InvoiceStatus.OVERDUE }, { label: 'Cancelada', value: InvoiceStatus.CANCELLED }]} value={filterStatus} onChange={e => setFilterStatus(e.target.value)} /></div><div className="w-28"><Select label="SIPLAD" options={[{ label: 'Todos', value: '' }, { label: 'Lançado', value: 'yes' }, { label: 'Pendente', value: 'no' }]} value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} /></div><div className="w-32"><Select label="Pontos" options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} value={filterPontos} onChange={e => setFilterPontos(e.target.value)} /></div></fieldset>
+                <MultiEscolha rotulo="Status" opcoes={[{ label: 'Em Aberto', value: InvoiceStatus.OPEN }, { label: 'Quitada', value: InvoiceStatus.PAID }, { label: 'Vencida', value: InvoiceStatus.OVERDUE }, { label: 'Cancelada', value: InvoiceStatus.CANCELLED }].map(o => ({ label: o.label, value: String(o.value) }))} escolhidos={filterStatus} onChange={setFilterStatus} /><div className="w-28"><Select label="SIPLAD" options={[{ label: 'Todos', value: '' }, { label: 'Lançado', value: 'yes' }, { label: 'Pendente', value: 'no' }]} value={filterSiplad} onChange={e => setFilterSiplad(e.target.value)} /></div><div className="w-32"><Select label="Pontos" options={[{ label: 'Com algum ponto', value: 'any' }, { label: 'Gravidade alta', value: 'alta' }, { label: 'Gravidade média', value: 'media' }, { label: 'Gravidade baixa', value: 'baixa' }]} value={filterPontos} onChange={e => setFilterPontos(e.target.value)} /></div></fieldset>
             </div>
             <div className="flex flex-wrap items-end gap-x-6 gap-y-3 pt-3 border-t border-slate-100">
               <fieldset className="flex flex-wrap items-end gap-3"><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Quem</legend>
@@ -838,14 +841,14 @@ export const Invoices: React.FC = () => {
                     <th className="px-2 py-2 text-left w-16"><div className="flex items-center gap-1">{!isReadOnly && <input type="checkbox" aria-label="Selecionar as faturas desta página" className="h-4 w-4 accent-primary-600"
                       checked={faturasDaPagina.length > 0 && faturasDaPagina.every(i => selecionadas.has(i.id))}
                       onChange={e => setSelecionadas(prev => { const n = new Set(prev); faturasDaPagina.forEach(i => (e.target.checked ? n.add(i.id) : n.delete(i.id))); return n; })} />}</div></th>
-                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Status</th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'status' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'status', asc: o.campo === 'status' ? !o.asc : true }))}>Status{ordem.campo === 'status' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'competencia' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'competencia', asc: o.campo === 'competencia' ? !o.asc : false }))}>Comp.{ordem.campo === 'competencia' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'cliente' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'cliente', asc: o.campo === 'cliente' ? !o.asc : true }))}>Cliente{ordem.campo === 'cliente' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'numero' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'numero', asc: o.campo === 'numero' ? !o.asc : true }))}>Fatura{ordem.campo === 'numero' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'vencimento' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'vencimento', asc: o.campo === 'vencimento' ? !o.asc : true }))}>Vencimento{ordem.campo === 'vencimento' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
-                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Serviço prestado</th>
-                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" title="Valor da fatura: serviço + acréscimo − débito − adiantamento">Vl fatura</th>
-                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase">Saldo</th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'servico' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'servico', asc: o.campo === 'servico' ? !o.asc : true }))}>Serviço prestado{ordem.campo === 'servico' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'valor' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar. Valor da fatura: serviço + acréscimo − débito − adiantamento" onClick={() => setOrdem(o => ({ campo: 'valor', asc: o.campo === 'valor' ? !o.asc : false }))}>Vl fatura{ordem.campo === 'valor' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-slate-500 uppercase" aria-sort={ordem.campo === 'saldo' ? (ordem.asc ? 'ascending' : 'descending') : undefined}><button type="button" className="uppercase hover:text-primary-700" title="Clique para ordenar" onClick={() => setOrdem(o => ({ campo: 'saldo', asc: o.campo === 'saldo' ? !o.asc : false }))}>Saldo{ordem.campo === 'saldo' ? (ordem.asc ? ' ▲' : ' ▼') : ''}</button></th>
                     <th className="px-2 py-2 text-right text-[11px] font-medium text-slate-500 uppercase sticky right-0 bg-slate-50">Ações</th>
                   </tr>
                 </thead>

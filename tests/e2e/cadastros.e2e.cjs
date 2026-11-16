@@ -733,9 +733,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // 5. sem OM ligada
     ok(await page.getByRole('button', { name: /1 sem OM ligada/ }).isVisible(), 'aponta a fatura sem OM ligada ao cadastro');
     await page.getByLabel('Filtrar por cadastro').selectOption('sem');
-    await page.getByLabel('Ano', { exact: true }).selectOption({ index: 1 });
+    await page.getByRole('button', { name: /^Ano:/ }).click();
+    await page.getByRole('listbox', { name: 'Ano' }).getByRole('option').first().click();
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/faturas-filtros-nova-barra.png` });
-    await page.getByLabel('Ano', { exact: true }).selectOption('');
+    await page.getByRole('listbox', { name: 'Ano' }).getByRole('button', { name: 'Limpar' }).click();
+    await page.keyboard.press('Escape');
     ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro "só sem OM ligada" mostra só a fatura sem cadastro');
     await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
     // 2. filtro de várias escolhas: só o setor COMOPNAV
@@ -743,6 +745,33 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByTitle('Mostrar só COMOPNAV').click({ force: true });
     await page.keyboard.press('Escape');
     ok(await page.getByRole('row', { name: /51209-DA-01-2023-047-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 0, 'filtro de setor (várias escolhas): só COMOPNAV');
+    await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
+    // filtros de escolha múltipla: serviço TC + EL; status em aberto + cancelada
+    await page.getByRole('button', { name: /^Serviço:/ }).click();
+    const lbSrv = page.getByRole('listbox', { name: 'Serviço' });
+    await lbSrv.getByRole('option', { name: /Eletricidade/ }).click();
+    await lbSrv.getByRole('option', { name: /Taxa Condominial/ }).click();
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/faturas-multi-filtro.png` });
+    await page.keyboard.press('Escape');
+    await page.mouse.click(5, 5);
+    ok(await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-EL-08-2026-001-0/ }).count() === 1, 'serviço com duas escolhas (Taxa Condominial + Eletricidade) mostra as faturas dos dois');
+    ok(await page.getByText(/Serviço: .* \+ /).isVisible(), 'etiqueta do filtro mostra as duas escolhas');
+    await page.getByRole('button', { name: /^Status:/ }).click();
+    const lbSt = page.getByRole('listbox', { name: 'Status' });
+    await lbSt.getByRole('option', { name: 'Cancelada' }).click();
+    await page.mouse.click(5, 5);
+    ok(await page.getByRole('row', { name: /40030-TC-07-2026-001-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-EL-08-2026-001-0/ }).count() === 0, 'status Cancelada isolado, depois soma com Vencida');
+    await page.getByRole('button', { name: /^Status:/ }).click();
+    await lbSt.getByRole('option', { name: 'Vencida' }).click();
+    await page.mouse.click(5, 5);
+    ok(await page.getByRole('row', { name: /40030-TC-07-2026-001-0/ }).count() === 1 && await page.getByRole('row', { name: /40030-EL-08-2026-001-0/ }).count() === 1, 'status Vencida + Cancelada juntos mostram as duas situações');
+    // ordenar pela coluna Vl fatura (maior primeiro ao clicar duas vezes) e Serviço
+    await page.getByRole('button', { name: /^Vl fatura/ }).click();
+    await page.getByRole('button', { name: /^Vl fatura/ }).click();
+    const primeira = await page.locator('tbody tr').first().innerText();
+    ok(/40030-EL-08-2026-001-0/.test(primeira), `ordenar por Vl fatura: maior valor primeiro [${primeira.replace(/\s+/g, ' ').slice(0, 120)}]`);
+    await page.getByRole('button', { name: /^Serviço prestado/ }).click();
+    ok(await page.locator('th[aria-sort]').filter({ hasText: /Serviço prestado/ }).getAttribute('aria-sort') === 'ascending', 'ordenar por Serviço prestado A–Z');
     await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
     // acompanhamento e lote
     await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).getByRole('button').first().waitFor();

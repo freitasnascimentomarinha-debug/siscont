@@ -18,3 +18,19 @@ describe('ordem das faturas', () => {
     expect(ordenarFaturas(lista, { campo: 'cliente', asc: true }).map(x => x.client)).toEqual(['amazul', 'AMRJ', 'BNIC', 'CPMM', 'Diretoria Industrial da Marinha']);
   });
 });
+
+describe('ordenarFaturas: colunas de status, serviço, valor e saldo', () => {
+  const base = { yearCompetence: 2026, monthCompetence: 10, dueDate: '2026-11-18', client: 'X' };
+  const l = [
+    { ...base, invoiceNumber: 'A', status: 'Vencida', type: 'Eletricidade' },
+    { ...base, invoiceNumber: 'B', status: 'Em Aberto', type: 'Água e Esgoto' },
+    { ...base, invoiceNumber: 'C', status: 'Quitada', type: 'Taxa Condominial' },
+  ];
+  const valores = (f: { invoiceNumber: string }) => ({ A: { valor: 300, saldo: 0 }, B: { valor: 100, saldo: 100 }, C: { valor: 200, saldo: 50 } } as any)[f.invoiceNumber];
+  it('ordena por serviço, status, valor e saldo nos dois sentidos', () => {
+    expect(ordenarFaturas(l, { campo: 'servico', asc: true }).map(x => x.invoiceNumber)).toEqual(['B', 'A', 'C']);
+    expect(ordenarFaturas(l, { campo: 'status', asc: true }).map(x => x.invoiceNumber)).toEqual(['B', 'C', 'A']);
+    expect(ordenarFaturas(l, { campo: 'valor', asc: false }, valores).map(x => x.invoiceNumber)).toEqual(['A', 'C', 'B']);
+    expect(ordenarFaturas(l, { campo: 'saldo', asc: true }, valores).map(x => x.invoiceNumber)).toEqual(['A', 'C', 'B']);
+  });
+});
