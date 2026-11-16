@@ -37,9 +37,9 @@ export function etiquetaDaClasse(classe: string, rubricas: { numero: number; des
   return { classe, texto: t, completo: t, cor: cores[classe] || 'cinza' };
 }
 
-/** Saída que ainda pede classificação: sem rubrica/categoria ou em "Outros". */
+/** Saída que ainda pede classificação: sem rubrica nem categoria. "Outros" é uma categoria como as demais (o que não cabe nos serviços listados): não é ponto de atenção. */
 export const precisaAtencao = (item: Pick<CashFlowItem, 'type' | 'isCanceled'>, classe: string) =>
-  item.type === 'EXIT' && !item.isCanceled && (!classe || classe === 'OUTROS');
+  item.type === 'EXIT' && !item.isCanceled && !classe;
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const r2 = (n: number) => Math.round(n * 100) / 100;

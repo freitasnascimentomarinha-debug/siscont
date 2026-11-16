@@ -22,9 +22,9 @@ describe('etiquetaDaClasse', () => {
     expect(etiquetaDaClasse('EXPEDIENTE').texto).toBe('Expediente e limpeza');
     expect(etiquetaDaClasse('')).toMatchObject({ texto: 'Sem classificação', cor: 'vermelho' });
   });
-  it('só pede atenção a saída ativa sem classificação ou em Outros', () => {
+  it('só pede atenção a saída ativa sem classificação; "Outros" é categoria como as demais', () => {
     expect(precisaAtencao(it_({}), '')).toBe(true);
-    expect(precisaAtencao(it_({}), 'OUTROS')).toBe(true);
+    expect(precisaAtencao(it_({}), 'OUTROS')).toBe(false);
     expect(precisaAtencao(it_({}), 'ENERGIA')).toBe(false);
     expect(precisaAtencao(it_({ isCanceled: true }), 'OUTROS')).toBe(false);
     expect(precisaAtencao(it_({ type: 'ENTRY' }), '')).toBe(false);

@@ -1674,10 +1674,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await desc.click();
     ok(!(await desc.getAttribute('class')).includes('line-clamp-2'), 'clicar na descrição abre o texto inteiro');
     // precisa de atenção: Outros ou sem classificação
-    const aviso = page.getByRole('button', { name: /3 saída\(s\) precisam de classificação/ });
-    ok(await aviso.isVisible(), 'avisa quantas saídas precisam de classificação (2 em Outros + 1 sem classificação)');
+    const aviso = page.getByRole('button', { name: /1 saída\(s\) precisam de classificação/ });
+    ok(await aviso.isVisible(), 'avisa só a saída SEM classificação (as 2 em "Outros" são categoria como as demais e não entram no alerta)');
     await aviso.click();
-    ok(await page.locator('tbody input[type=checkbox]').count() === 3, 'o filtro mostra só as 3 saídas que precisam de classificação');
+    ok(await page.locator('tbody input[type=checkbox]').count() === 1, 'o filtro mostra só a saída sem classificação');
+    await page.getByRole('button', { name: 'Limpar filtros' }).click();
+    await page.getByLabel('Filtrar por rubrica ou categoria').selectOption('OUTROS');
+    ok(await page.locator('tbody input[type=checkbox]').count() === 2, 'filtrar pela categoria "Outros" mostra as 2 NE dela');
+    await page.getByLabel('Filtrar por rubrica ou categoria').selectOption('');
     // edição rápida na própria linha
     await page.getByLabel('Rubrica ou categoria de 740015000012026NE000002').selectOption('AGUA');
     await page.getByText(/classificada\(s\) como Água e esgoto/).waitFor();
@@ -1692,7 +1696,6 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const e3 = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000003'), e4 = db.cash_flow_exits.find(e => e.document_number === '740015000012026NE000004');
     ok(e3.categoria === 'EXPEDIENTE' && e4.categoria === 'EXPEDIENTE' && e3.value === 3000 && e4.value === 4000 && /LANCAMENTOS/.test(e3.description), 'edição em lote: classificou as duas e não mexeu em valor nem descrição');
     // edição por painel lateral
-    await page.getByRole('button', { name: 'Limpar filtros' }).click();
     await page.getByLabel('Editar 740015000012026NE000001').click();
     await page.getByRole('dialog', { name: /Editar saída financeira/ }).waitFor();
     ok(await page.getByLabel('Rubrica / categoria').inputValue() === 'ENERGIA', 'o painel lateral de edição abre com a rubrica/categoria da NE');
@@ -1722,7 +1725,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       await page.getByRole('button', { name: 'Ver gráfico mensal' }).click(); await page.waitForTimeout(800);
       await page.screenshot({ path: path.join(SHOTS, 'fluxo-real-grafico.png') });
       await page.getByRole('button', { name: 'Esconder gráfico mensal' }).click();
-      await page.getByRole('button', { name: /40 saída\(s\) precisam de classificação/ }).click();
+      await page.getByLabel('Filtrar por rubrica ou categoria').selectOption('OUTROS');
       const caixas = page.locator('tbody input[type=checkbox]'); for (let i = 0; i < 3; i++) await caixas.nth(i).check();
       await page.getByLabel('Classificar as selecionadas como').selectOption('EXPEDIENTE');
       await page.locator('main .overflow-y-auto').first().evaluate(el => el.scrollTo(0, 620)); await page.waitForTimeout(400);

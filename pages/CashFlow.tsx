@@ -310,7 +310,7 @@ const Lancamentos: React.FC = () => {
   const atencaoQtd = items.filter(i => precisaAtencao(i, classeDe(i))).length;
   const saidasDaLista = filteredItems.filter(i => i.type === 'EXIT' && !isReadOnly);
   const filtrosLigados = [filterText && `Busca “${filterText}”`, filterType && (filterType === 'ENTRY' ? 'Só entradas' : 'Só saídas'), filterMonth && `Mês ${filterMonth}`, filterYear && `Ano ${filterYear}`,
-    filterClasse && (filterClasse === 'ATENCAO' ? 'Precisa de atenção' : etiquetaDaClasse(filterClasse, rubricasAno).completo), filterDestino && ({ PAGAMENTO: 'Pagar faturas', ADIANTAMENTO: 'Adiantamento', OUTROS: 'Outros serviços' } as Record<string, string>)[filterDestino]].filter(Boolean) as string[];
+    filterClasse && (filterClasse === 'ATENCAO' ? 'Sem classificação' : etiquetaDaClasse(filterClasse, rubricasAno).completo), filterDestino && ({ PAGAMENTO: 'Pagar faturas', ADIANTAMENTO: 'Adiantamento', OUTROS: 'Outros serviços' } as Record<string, string>)[filterDestino]].filter(Boolean) as string[];
   const limparFiltros = () => { setFilterText(''); setFilterMonth(''); setFilterYear(''); setFilterType(''); setFilterClasse(''); setFilterDestino(''); };
   const corEtiqueta: Record<Etiqueta['cor'], string> = { verde: 'bg-emerald-100 text-emerald-800 border-emerald-200', ambar: 'bg-amber-100 text-amber-800 border-amber-200', azul: 'bg-sky-100 text-sky-800 border-sky-200', violeta: 'bg-violet-100 text-violet-800 border-violet-200', teal: 'bg-teal-100 text-teal-800 border-teal-200', cinza: 'bg-slate-100 text-slate-700 border-slate-200', vermelho: 'bg-red-100 text-red-800 border-red-200' };
   const brl = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -373,7 +373,7 @@ const Lancamentos: React.FC = () => {
           <label className="text-sm font-medium text-slate-700 block">Rubrica / categoria
             <select aria-label="Filtrar por rubrica ou categoria" value={filterClasse} onChange={e => setFilterClasse(e.target.value)} className="mt-1 block w-60 rounded-md border border-slate-300 px-3 py-2 text-sm bg-white">
               <option value="">Todas</option>
-              <option value="ATENCAO">Precisa de atenção (Outros ou sem classificação)</option>
+              <option value="ATENCAO">Sem classificação (precisa de atenção)</option>
               {opcoesClasse.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
@@ -383,7 +383,7 @@ const Lancamentos: React.FC = () => {
           <span className="text-slate-600"><b>{filteredItems.length}</b> de {items.length} lançamentos{filtrosLigados.length ? ' atendem aos filtros:' : ' (nenhum filtro ligado)'}</span>
           {filtrosLigados.map(f => <span key={f} className="inline-flex items-center rounded-full bg-primary-50 text-primary-800 border border-primary-200 px-2 py-0.5 text-xs">{f}</span>)}
           {atencaoQtd > 0 && filterClasse !== 'ATENCAO' && (
-            <button type="button" onClick={() => setFilterClasse('ATENCAO')} className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 text-xs font-semibold" title="Saídas sem rubrica ou em Outros: classifique para o painel Disponível ficar certo">
+            <button type="button" onClick={() => setFilterClasse('ATENCAO')} className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 text-xs font-semibold" title="Saídas sem rubrica nem categoria: classifique para os painéis ficarem certos (Outros também vale como categoria)">
               <AlertTriangle size={12} />{atencaoQtd} saída(s) precisam de classificação
             </button>
           )}
