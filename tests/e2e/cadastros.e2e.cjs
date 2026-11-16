@@ -1173,6 +1173,21 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const z3 = await require('jszip').loadAsync(fs.readFileSync(await zip3.path()));
     const pdfsSet = Object.keys(z3.files).filter(n => n.endsWith('.pdf'));
     ok(/por_setor/.test(zip3.suggestedFilename()) && pdfsSet.length === 1 && /^cobranca_SETOR_DGMM_/.test(pdfsSet[0]), `lote por setor: um PDF por setor (${pdfsSet.join(', ')})`);
+    // opcional: incluir as faturas em aberto (a vencer) no PDF/lote
+    await page.getByLabel('Um PDF por').selectOption('comando');
+    await page.getByLabel('Incluir faturas a vencer (em aberto)').check();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'cobranca-a-vencer.png'), fullPage: true });
+    const [zip4] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDFs em lote/ }).click()]);
+    const z4 = await require('jszip').loadAsync(fs.readFileSync(await zip4.path()));
+    const pdf4 = Object.keys(z4.files).filter(n => n.endsWith('.pdf'));
+    const txt4 = (await z4.file(pdf4[0]).async('nodebuffer')).toString('latin1');
+    if (SHOTS) fs.copyFileSync(await zip4.path(), path.join(SHOTS, 'cobranca-lote-a-vencer.zip'));
+    ok(txt4.includes('40030-AE-10-2026-004-0') && txt4.includes('40030-TC-09-2025-014-0') && txt4.includes('a vencer'), 'com "incluir a vencer": o PDF traz também a fatura a vencer, além das vencidas');
+    await page.getByLabel('Incluir faturas a vencer (em aberto)').uncheck();
+    const [zip5] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /PDFs em lote/ }).click()]);
+    const z5 = await require('jszip').loadAsync(fs.readFileSync(await zip5.path()));
+    const txt5 = (await z5.file(Object.keys(z5.files).find(n => n.endsWith('.pdf'))).async('nodebuffer')).toString('latin1');
+    ok(!txt5.includes('40030-AE-10-2026-004-0'), 'sem a opção (padrão): só as vencidas, a fatura a vencer fica de fora');
     await page.getByLabel('Um PDF por').selectOption('cliente');
     await page.getByLabel('Última cobrança').selectOption('nunca');
     const tabMsg = await page.locator('table').last().innerText();

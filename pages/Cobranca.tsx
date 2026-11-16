@@ -66,6 +66,7 @@ export const Cobranca: React.FC = () => {
   const [indicativos, setIndicativos] = useState<Record<string, string>>({});
   const [editarGrupo, setEditarGrupo] = useState<{ nome: string; setores: Set<string> } | null>(null);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
+  const [incluirAVencer, setIncluirAVencer] = useState(false); // opcional: além das vencidas, também as em aberto (a vencer)
   // filtros das mensagens de cobrança (a tabela, a mensagem e o PDF seguem o filtro)
   const [exComandos, setExComandos] = useExcluidosLembrados('siscont.cobranca.comandos');
   const [exClientes, setExClientes] = useExcluidosLembrados('siscont.cobranca.clientes');
@@ -148,10 +149,10 @@ export const Cobranca: React.FC = () => {
   // ------------- mensagens de cobrança
   const vencidasFiltradas = useMemo(() => {
     const b = semAcento(buscaMsg.trim());
-    return q.vencidas.filter(f => (incluirContestadas || !f.contestada) && !exComandos.has(f.comando)
+    return (incluirAVencer ? q.todas : q.vencidas).filter(f => (incluirContestadas || !f.contestada) && !exComandos.has(f.comando)
       && (!faixaMsg || faixaDe(Math.max(0, diasAtraso(f.vencimento, h))) === faixaMsg)
       && (!b || semAcento(`${f.numero} ${f.cliente} ${f.comando} ${f.setor} ${f.tipo}`).includes(b)));
-  }, [q, incluirContestadas, exComandos, faixaMsg, buscaMsg, h]);
+  }, [q, incluirContestadas, incluirAVencer, exComandos, faixaMsg, buscaMsg, h]);
   const vencidasPorComando = useMemo(() => {
     const m = new Map<string, FaturaAberta[]>();
     vencidasFiltradas.forEach(f => m.set(f.comando, [...(m.get(f.comando) || []), f]));
@@ -165,8 +166,8 @@ export const Cobranca: React.FC = () => {
       })
       .sort((a, b) => b.total - a.total);
   }, [vencidasFiltradas, cobrancas, ultimaMsg, h]);
-  const filtrosMsgLigados = !!(exSetores.size || exComandos.size || exClientes.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas);
-  const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setExClientes(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); };
+  const filtrosMsgLigados = !!(exSetores.size || exComandos.size || exClientes.size || faixaMsg || buscaMsg.trim() || ultimaMsg || incluirContestadas || incluirAVencer);
+  const limparFiltrosMsg = () => { setExSetores(new Set()); setExComandos(new Set()); setExClientes(new Set()); setFaixaMsg(''); setBuscaMsg(''); setUltimaMsg(''); setIncluirContestadas(false); setIncluirAVencer(false); };
 
   /** Comando do cadastro pelo texto "40030 - Nome" (código) ou pelo nome. */
   const comandoDe = (texto: string) => {
@@ -200,8 +201,8 @@ export const Cobranca: React.FC = () => {
   const mapaDasFaturas = (lista: FaturaAberta[]) => montarMapa(
     lista.map(f => ({ id: f.id, omId: f.omId ?? null, client: f.cliente, sector: f.setor, command: f.comando, numero: f.numero, tipo: f.tipo, vencimento: f.vencimento, saldo: f.saldo, contestada: f.contestada }) as FaturaMapa),
     // só as OM das faturas cobradas (o filtro 'vencidas' tira as OM que só têm crédito)
-    creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: 'vencidas' });
-  const REGRA_CREDITO = 'Valor a pagar = soma das faturas vencidas. Crédito da OM (ALTCRED/GRU com saldo) não é abatido enquanto não for atribuído às faturas.';
+    creditosMapa, omsMapa, { hoje: h, ordem: 'nome', faturas: incluirAVencer ? 'abertas' : 'vencidas' });
+  const REGRA_CREDITO = `Valor a pagar = soma das faturas ${incluirAVencer ? 'em aberto (vencidas e a vencer)' : 'vencidas'}. Crédito da OM (ALTCRED/GRU com saldo) não é abatido enquanto não for atribuído às faturas.`;
   const nomeArquivo = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
   const docCobranca = (m: { comando: string; indicativo: string | null; faturas: FaturaAberta[]; cliente?: string; setor?: string; posicao?: string }) => {
     const contest = m.faturas.filter(f => f.contestada).length;
@@ -212,7 +213,7 @@ export const Cobranca: React.FC = () => {
       linhas: [
         ...(m.setor ? [`Comandos devedores do setor (${lista('comando').length}): ${lista('comando').join('; ')}`, `OM devedoras: ${lista('cliente').length}`]
           : m.cliente ? [`Comando: ${m.comando}`] : [`OM devedoras do comando (${lista('cliente').length}): ${lista('cliente').join('; ')}`]),
-        `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(m.posicao || h)} · ${m.faturas.length} fatura(s) vencida(s)${contest ? ` (${contest} em contestação)` : ''}`,
+        `${m.setor ? '' : `Para: ${m.indicativo || '(sem indicativo naval)'} · `}posição em ${br(m.posicao || h)} · ${m.faturas.length} fatura(s) ${incluirAVencer ? `em aberto (${m.faturas.filter(f => f.vencimento < h).length} vencida(s), ${m.faturas.filter(f => f.vencimento >= h).length} a vencer)` : 'vencida(s)'}${contest ? ` (${contest} em contestação)` : ''}`,
       ],
       nota: REGRA_CREDITO,
       rotuloTotal: m.setor ? 'VALOR A PAGAR PELO SETOR' : m.cliente ? 'VALOR A PAGAR PELA OM' : 'VALOR A PAGAR PELO COMANDO',
@@ -246,7 +247,7 @@ export const Cobranca: React.FC = () => {
         g.fs.push(f); grupos.set(k, g);
       });
       const usados = new Set<string>();
-      const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : lotePor === 'setor' ? 'Setor' : 'Comando', 'Comando(s)', 'Indicativo', 'Faturas', 'Total em atraso']];
+      const indice: (string | number)[][] = [['Arquivo', lotePor === 'cliente' ? 'OM cliente' : lotePor === 'setor' ? 'Setor' : 'Comando', 'Comando(s)', 'Indicativo', 'Faturas', 'Total (valor a pagar)']];
       [...grupos.values()].sort((x, y) => x.titulo.localeCompare(y.titulo, 'pt-BR')).forEach(g => {
         const indicativo = g.setor ? null : comandoDoTexto(g.comando, base.comandos).indicativo || null;
         const base0 = lotePor === 'setor' ? `cobranca_SETOR_${nomeArquivo(g.titulo)}` : lotePor === 'comando' ? arquivoComando(g.comando) : `cobranca_OM_${nomeArquivo(g.titulo)}`;
@@ -356,7 +357,8 @@ export const Cobranca: React.FC = () => {
               <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Procurar</legend><label className="text-xs text-slate-600">Buscar
               <input className={`${sel} block mt-1 w-56`} placeholder="OM, fatura, comando, tipo" value={buscaMsg} onChange={e => setBuscaMsg(e.target.value)} aria-label="Buscar nas faturas vencidas" />
             </label></fieldset>
-              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend><label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label></fieldset>
+              <fieldset><legend className="text-[10px] uppercase font-semibold text-slate-400 mb-0.5">Situação</legend><label className="text-sm flex items-center gap-2 pb-2"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirContestadas} onChange={e => setIncluirContestadas(e.target.checked)} /> Incluir faturas em contestação</label>
+                <label className="text-sm flex items-center gap-2 pb-2" title="Por padrão só as vencidas entram na mensagem, no PDF e no lote. Marque para incluir também as faturas em aberto que ainda não venceram."><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={incluirAVencer} onChange={e => setIncluirAVencer(e.target.checked)} /> Incluir faturas a vencer (em aberto)</label></fieldset>
             </div>
             <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100">
               <span className="text-sm text-slate-600">{vencidasPorComando.length} comando(s) · {vencidasPorComando.reduce((s, v) => s + v.fs.length, 0)} fatura(s) · <b className="tabular-nums">{brl(vencidasPorComando.reduce((s, v) => s + v.total, 0))}</b></span>
@@ -373,7 +375,7 @@ export const Cobranca: React.FC = () => {
           </div>
           <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Comando', 'Indicativo', 'Faturas vencidas', 'Total', 'Mais antiga', 'Última cobrança', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Comando', 'Indicativo', incluirAVencer ? 'Faturas em aberto' : 'Faturas vencidas', 'Total', 'Mais antiga', 'Última cobrança', ''].map(x => <th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {vencidasPorComando.map(v => {
                   const c = comandoDoTexto(v.comando, base.comandos);
@@ -394,7 +396,7 @@ export const Cobranca: React.FC = () => {
                     </tr>
                   );
                 })}
-                {!vencidasPorComando.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">{filtrosMsgLigados ? 'Nenhuma fatura vencida no filtro.' : 'Nenhuma fatura vencida.'}</td></tr>}
+                {!vencidasPorComando.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">{filtrosMsgLigados ? 'Nenhuma fatura no filtro.' : (incluirAVencer ? 'Nenhuma fatura em aberto.' : 'Nenhuma fatura vencida.')}</td></tr>}
               </tbody>
             </table>
           </div>

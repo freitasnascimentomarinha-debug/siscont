@@ -38,7 +38,7 @@ export interface OpcoesMapa {
   /** várias OM escolhidas à mão (nomes exatos); vazio = todas */
   oms?: string[];
   /** filtro das FATURAS na árvore: só vencidas, só a vencer, ou uma faixa de atraso ("31–90 dias"...) */
-  faturas?: 'vencidas' | 'aVencer' | string;
+  faturas?: 'vencidas' | 'aVencer' | 'abertas' | string;
   /** tira as faturas em contestação (não entram na dívida nem aparecem na árvore) */
   semContestadas?: boolean;
   /** 'separar': as faturas contestadas saem da dívida e do a pagar e vão para a coluna "Contestado" (aparecem marcadas dentro da OM) */
@@ -75,6 +75,7 @@ export function montarMapa(faturas: FaturaMapa[], creditos: CreditoMapa[], oms: 
       if (o.soContestadas && !f.contestada) return false;
     }
     if (!o.faturas) return true;
+    if (o.faturas === 'abertas') return true;
     if (o.faturas === 'vencidas') return f.vencimento < o.hoje;
     if (o.faturas === 'aVencer') return f.vencimento >= o.hoje;
     return faixaDe(Math.max(0, diasEntre(f.vencimento, o.hoje))) === o.faturas;
