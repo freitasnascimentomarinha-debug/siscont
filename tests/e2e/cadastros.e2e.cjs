@@ -1173,6 +1173,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  â
     const z3 = await require('jszip').loadAsync(fs.readFileSync(await zip3.path()));
     const pdfsSet = Object.keys(z3.files).filter(n => n.endsWith('.pdf'));
     ok(/por_setor/.test(zip3.suggestedFilename()) && pdfsSet.length === 1 && /^cobranca_SETOR_DGMM_/.test(pdfsSet[0]), `lote por setor: um PDF por setor (${pdfsSet.join(', ')})`);
+    // ordenar por UG
+    await page.getByLabel('Ordenar por').selectOption('ug');
+    const ugs = await page.locator('table').last().locator('tbody tr td:first-child').allInnerTexts();
+    ok(ugs.length >= 1 && ugs[0].startsWith('4003') && [...ugs].sort((x, y) => x.localeCompare(y, 'pt-BR', { numeric: true })).join('|') === ugs.join('|'), `ordenar por UG: coluna UG em ordem crescente (${ugs.join(', ')})`);
+    await page.getByLabel('Ordenar por').selectOption('valor');
     // opcional: incluir as faturas em aberto (a vencer) no PDF/lote
     await page.getByLabel('Um PDF por').selectOption('comando');
     await page.getByLabel('Incluir faturas a vencer (em aberto)').check();
