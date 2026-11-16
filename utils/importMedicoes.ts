@@ -42,6 +42,17 @@ export function lerRateio(m: Matriz): LinhaRateio[] {
   return out;
 }
 
+/**
+ * Qual aba do rateio de energia/telefonia ler: a "DADOS BNIC-41" (a que o BNIC-41 usa) tem prioridade; depois qualquer aba "DADOS…" que tenha
+ * linhas de rateio (a aba "DADOS DA LIGHT", com a conta da distribuidora, não tem); por fim qualquer aba com linhas de rateio.
+ */
+export function escolherAbaRateio(nomes: string[], linhasDaAba: (nome: string) => number): string {
+  return nomes.find(n => /bnic-?41/i.test(n))
+    ?? nomes.find(n => /dados/i.test(n) && linhasDaAba(n) > 0)
+    ?? nomes.find(n => linhasDaAba(n) > 0)
+    ?? nomes[0];
+}
+
 /** Soma as linhas por código (vários prédios da mesma OM). */
 export function agruparRateio(linhas: LinhaRateio[]) {
   const m = new Map<string, { codigo: string; consumo: number; demanda: number; valor: number | null; linhas: LinhaRateio[] }>();

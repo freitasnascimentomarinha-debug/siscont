@@ -5,7 +5,7 @@ import { FileUp, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ContextoFaturamento, listarMedicoes, salvarMedicoes } from '../../services/faturamentoService';
 import { MedicaoFat, pad, partes, referencia } from '../../utils/faturamento';
-import { agruparRateio, lerRateio } from '../../utils/importMedicoes';
+import { agruparRateio, escolherAbaRateio, lerRateio } from '../../utils/importMedicoes';
 import { AvisoAgua, PlanilhaAgua, RegraObservacao, avisosAgua, conferirObservacoes, ehPlanilhaAgua, lerPlanilhaAgua } from '../../utils/importAgua';
 import { cadastroService } from '../../services/cadastroService';
 import { ImportarAguaModal, ResultadoAgua } from './ImportarAguaModal';
@@ -120,7 +120,7 @@ export const MedicoesTab: React.FC<{ ctx: ContextoFaturamento; podeEditar: boole
         setAgua({ planilha, regras: conferirObservacoes(mat, planilha), avisos: avisosAgua(planilha), arquivo: `${files[0].name} (aba ${n})` });
         return;
       }
-      const aba = wb.SheetNames.find(n => /bnic-?41|dados/i.test(n)) ?? wb.SheetNames.find(n => lerRateio(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any).length) ?? wb.SheetNames[0];
+      const aba = escolherAbaRateio(wb.SheetNames, n => lerRateio(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as any).length);
       const grupos = agruparRateio(lerRateio(XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null }) as any));
       if (!grupos.length) throw new Error('Não achei as colunas CÓDIGO e CONSUMO/VALOR TOTAL na planilha.');
       const rel: string[] = [`Aba lida: ${aba} · ${grupos.length} código(s).`];
