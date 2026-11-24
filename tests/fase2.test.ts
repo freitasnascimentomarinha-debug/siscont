@@ -371,6 +371,7 @@ describe('fatura citada pela OM que não existe no sistema', () => {
   it('a baixa na parecida (mesmo cliente, serviço e mês) vira aviso de número inexistente, não "fora da destinação"', () => {
     const r = avaliarPontos([f('f1', '71000-TC-09-2026-010-0')], [doc], [{ documentId: 'd1', invoiceId: 'f1', amount: 55882.83 }]).documentos.get('d1')!;
     expect(r.map(p => p.tipo)).toEqual(['FATURA_CITADA_INEXISTENTE']);
+    expect(r[0].gravidade).toBe('media');   // triângulo amarelo, como os demais avisos de baixa
     const det = r[0].detalhe as any;
     expect(det.itens[0].citada).toBe('71000-TC-09-2026-008-0');
     expect(det.itens[0].parecidas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', baixadoAqui: 55882.83 });
