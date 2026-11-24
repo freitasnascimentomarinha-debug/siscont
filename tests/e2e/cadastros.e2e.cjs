@@ -543,8 +543,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await det2.waitFor();
     const t2 = (await det2.innerText()).replace(/\s+/g, ' ');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ponto-citada-inexistente.png') });
-    ok(/não existe no sistema/i.test(t2) && t2.includes('71000-EL-09-2026-001-0') && t2.includes('71000-EL-09-2026-002-0') && /recebeu R\$ 1\.500,00 deste crédito/.test(t2), 'fatura citada inexistente: mostra o número citado, a parecida do sistema e o que ela recebeu deste crédito');
-    ok(/o que fazer/i.test(t2) && /confirme com a OM/i.test(t2), 'explica o que fazer quando a fatura citada não existe');
+    ok(/não existe no sistema/i.test(t2) && t2.includes('71000-EL-09-2026-001-0') && t2.includes('71000-EL-09-2026-002-0') && /este crédito já foi aplicado em/i.test(t2) && /baixa de R\$ 1\.500,00 já dada/.test(t2) && /não é uma indicação nova/i.test(t2), 'fatura citada inexistente: mostra que o crédito JÁ foi aplicado na parecida (não é indicação nova) e pede só a confirmação');
+    ok(/o que fazer/i.test(t2) && /nada mais a fazer/i.test(t2) && /confirme com a OM/i.test(t2), 'explica o que fazer: se a fatura onde já demos baixa é a certa, só informar o motivo');
   });
 
   await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {

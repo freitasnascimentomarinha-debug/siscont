@@ -65,7 +65,7 @@ const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
 /** "A OM citou uma fatura que não existe no sistema": mostra a citada, as parecidas e o que fazer. */
 const DetalheCitadaInexistenteView: React.FC<{ d: DetalheCitadaInexistente }> = ({ d }) => (
   <div className="space-y-3 text-sm" data-testid="detalhe-citada-inexistente">
-    <p className="text-slate-800">A OM escreveu o número de uma fatura que <b>não existe no sistema</b>. Pode ser <b>erro de digitação da OM</b> ou uma fatura que ainda não foi lançada.</p>
+    <p className="text-slate-800">A OM escreveu o número de uma fatura que <b>não existe no sistema</b>. Pode ser <b>erro de digitação da OM</b> ou uma fatura que ainda não foi lançada.{d.itens.some(i => i.parecidas.some(p => p.baixadoAqui > 0.005)) && <> Mesmo assim, <b>a baixa já foi dada</b> na fatura mais parecida; falta só confirmar.</>}</p>
     {d.itens.map(it => (
       <div key={it.citada} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -73,21 +73,41 @@ const DetalheCitadaInexistenteView: React.FC<{ d: DetalheCitadaInexistente }> = 
           <span className="font-mono text-xs text-slate-900">{it.citada}</span>
           <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">∅ não existe no sistema</span>
         </div>
-        {it.parecidas.length > 0 ? (
-          <div className="rounded-md border border-sky-200 bg-sky-50 p-2">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800 mb-1">Fatura parecida no sistema (mesmo cliente, serviço e mês)</div>
-            <ul className="space-y-1">
-              {it.parecidas.map(p => (
-                <li key={p.numero} className="flex flex-wrap items-center justify-between gap-1">
-                  <span><span className="font-mono text-xs text-slate-900">{p.numero}</span> <span className="text-xs text-slate-600">valor {brlP(p.valor)}</span></span>
-                  {p.baixadoAqui > 0.005
-                    ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ recebeu {brlP(p.baixadoAqui)} deste crédito</span>
-                    : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ não recebeu baixa deste crédito</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : <p className="text-xs text-slate-600">Não há fatura parecida (mesmo cliente, serviço e mês) no sistema.</p>}
+        {(() => {
+          const aplicadas = it.parecidas.filter(p => p.baixadoAqui > 0.005), livres = it.parecidas.filter(p => p.baixadoAqui <= 0.005);
+          if (!it.parecidas.length) return <p className="text-xs text-slate-600">Não há fatura parecida (mesmo cliente, serviço e mês) no sistema.</p>;
+          return (
+            <div className="space-y-2">
+              {aplicadas.length > 0 && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-800 mb-1">Este crédito já foi aplicado em (mesmo cliente, serviço e mês)</div>
+                  <ul className="space-y-1">
+                    {aplicadas.map(p => (
+                      <li key={p.numero} className="flex flex-wrap items-center justify-between gap-1">
+                        <span><span className="font-mono text-xs text-slate-900">{p.numero}</span> <span className="text-xs text-slate-600">valor {brlP(p.valor)}</span></span>
+                        <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ baixa de {brlP(p.baixadoAqui)} já dada</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-slate-700 mt-1.5">Não é uma indicação nova: o sistema já deu a baixa nessa fatura por ser a mais parecida. <b>Confirme se foi essa que a OM quis pagar.</b></p>
+                </div>
+              )}
+              {livres.length > 0 && (
+                <div className="rounded-md border border-sky-200 bg-sky-50 p-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800 mb-1">Outras faturas parecidas, sem baixa deste crédito</div>
+                  <ul className="space-y-1">
+                    {livres.map(p => (
+                      <li key={p.numero} className="flex flex-wrap items-center justify-between gap-1">
+                        <span><span className="font-mono text-xs text-slate-900">{p.numero}</span> <span className="text-xs text-slate-600">valor {brlP(p.valor)}</span></span>
+                        <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ sem baixa deste crédito</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     ))}
     {d.observacao && (
@@ -99,8 +119,17 @@ const DetalheCitadaInexistenteView: React.FC<{ d: DetalheCitadaInexistente }> = 
     <div className="rounded-lg border border-amber-200 bg-white p-3">
       <div className="text-[11px] font-bold uppercase tracking-wide text-amber-800 mb-1">O que fazer</div>
       <ol className="list-decimal pl-5 space-y-1 text-xs text-slate-800">
-        <li><b>Se a fatura parecida é a certa</b> (a OM só errou o número): clique em <b>“Informar o motivo (manter assim)”</b> e anote, por exemplo, “OM citou 008; a fatura correta é a 010”.</li>
-        <li><b>Se a fatura citada existe de verdade</b> e ainda não foi lançada: lance em <i>Emitir faturas do mês</i> ou <i>Faturas emitidas</i> e depois ajuste a baixa.</li>
+        {d.itens.some(i => i.parecidas.some(p => p.baixadoAqui > 0.005)) ? (
+          <>
+            <li><b>Se a fatura onde já demos baixa é a que a OM quis pagar</b> (ela só errou o número): clique em <b>“Informar o motivo (manter assim)”</b> e anote, por exemplo, “OM citou 008; a fatura correta é a 010”. Nada mais a fazer.</li>
+            <li><b>Se a OM quis pagar outra fatura:</b> remova a baixa errada (em “Corrigir agora”) e dê a baixa na fatura certa, em <i>Créditos recebidos › Pagar faturas</i>.</li>
+          </>
+        ) : (
+          <>
+            <li><b>Se uma fatura parecida é a certa</b> (a OM só errou o número): dê a baixa nela em <i>Créditos recebidos › Pagar faturas</i> e anote o motivo em <b>“Informar o motivo (manter assim)”</b>.</li>
+            <li><b>Se a fatura citada existe de verdade</b> e ainda não foi lançada: lance em <i>Emitir faturas do mês</i> ou <i>Faturas emitidas</i> e depois dê a baixa.</li>
+          </>
+        )}
         <li>Na dúvida, <b>confirme com a OM</b> qual fatura ela quis pagar.</li>
       </ol>
     </div>
