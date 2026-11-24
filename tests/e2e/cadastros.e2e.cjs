@@ -38,6 +38,19 @@ async function ligarEdicaoMatriz(page) {
   if (await b.count()) await b.click();
 }
 
+/** Simula arrastar e soltar de arquivos (dragover + drop) sobre um elemento da página. */
+async function soltarArquivos(page, seletor, arquivos, { soDragover = false } = {}) {
+  const dados = arquivos.map(a => ({ nome: a.nome, mime: a.mime || '', b64: a.caminho ? fs.readFileSync(a.caminho).toString('base64') : Buffer.from(a.texto || '').toString('base64') }));
+  await page.evaluate(({ seletor, dados, soDragover }) => {
+    const alvo = document.querySelector(seletor); if (!alvo) throw new Error('alvo do arraste não encontrado: ' + seletor);
+    const dt = new DataTransfer();
+    dados.forEach(d => { const bin = atob(d.b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); dt.items.add(new File([u], d.nome, { type: d.mime })); });
+    const ev = (tipo) => alvo.dispatchEvent(new DragEvent(tipo, { bubbles: true, cancelable: true, dataTransfer: dt }));
+    ev('dragenter'); ev('dragover');
+    if (!soDragover) ev('drop');
+  }, { seletor, dados, soDragover });
+}
+
 function handler(db, log) {
   return async route => {
     const req = route.request();
@@ -568,8 +581,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.reload();
     await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
-    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    // arrastar e soltar: a área de importação é destacada e o arquivo solto entra como se tivesse sido escolhido
+    await soltarArquivos(page, '[role=dialog]', [{ nome: 'leitura.txt', texto: 'nao e pdf', mime: 'text/plain' }]);
+    await page.getByText(/tipo de arquivo não é aceito|Não há onde importar/).first().waitFor({ timeout: 5000 });
+    ok(true, 'arquivo de tipo não aceito solto na janela: avisa e não importa');
+    await soltarArquivos(page, '[role=dialog]', [{ nome: 'x.pdf', texto: '%PDF', mime: 'application/pdf' }], { soDragover: true });
+    ok(await page.locator('[data-soltar]').count() === 1 && await page.getByTestId('dica-soltar').isVisible(), 'ao arrastar um arquivo por cima da janela de importação, a área fica destacada com "Solte aqui para importar"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'arrastar-soltar-destaque.png') });
+    await page.evaluate(() => window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })));
+    await soltarArquivos(page, '[role=dialog]', [{ caminho: Array.isArray(arquivos) ? arquivos[0] : arquivos, nome: 'altcred_teste.pdf', mime: 'application/pdf' }]);
     await page.getByText('Z999.2026.AC.00007').first().waitFor({ timeout: 20000 });
+    ok(true, 'PDF arrastado e solto na janela do SIPLAD foi lido (sem usar o botão de escolher arquivo)');
     const ug = await page.getByLabel('UGR, UGE e Plano Interno de Z999.2026.AC.00007').innerText();
     ok(/CDD \(débito\)/.test(ug) && /CDC \(crédito\)/.test(ug) && /UGR .+· UGE .+/s.test(ug) && ug.includes("12345 - ComTeste") && ug.includes("40015 - BNIC") && ug.includes("PI X.1.TESTE.0") && ug.includes("PI R.TESTE.0"), `importação mostra UGR, UGE e Plano Interno do CDD e do CDC (${ug.replace(/\s+/g, ' ').slice(0, 90)})`);
     // pendência exige o texto e aparece como alerta; fica fora do saldo e do fluxo

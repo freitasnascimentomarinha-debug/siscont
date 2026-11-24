@@ -166,7 +166,7 @@ export const Admin: React.FC = () => {
               <div>
                 <h3 className="text-lg font-bold text-red-900">Restaurar Backup</h3>
                 <p className="text-sm text-red-700 mb-4">Carrega uma planilha de backup do SISCONT e grava no servidor. Registros com o mesmo ID são sobrescritos; os demais são mantidos. Usuários não são alterados.</p>
-                <input type="file" ref={backupInputRef} onChange={handleSystemRestore} accept=".xlsx" className="hidden" />
+                <input type="file" ref={backupInputRef} onChange={handleSystemRestore} accept=".xlsx" className="hidden" data-sem-soltar />
                 <Button variant="danger" onClick={() => backupInputRef.current?.click()} disabled={isSystemBusy} className="shadow-red-200"><Shield className="mr-2 h-4 w-4" /> Importar do Excel</Button>
               </div>
             </div>

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { SoltarArquivos } from './components/ui/SoltarArquivos';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
@@ -100,6 +101,7 @@ const AuthenticatedApp = () => {
 
   return (
     <Layout currentPage={currentPage} onPageChange={setCurrentPage}>
+      <SoltarArquivos />
       <Suspense key={String(janela)} fallback={<div role="status" className="flex items-center justify-center py-24"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" /><span className="sr-only">Carregando…</span></div>}>
         {renderPage()}
       </Suspense>

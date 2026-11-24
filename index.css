@@ -30,3 +30,5 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+/* área de importação destacada enquanto se arrasta um arquivo por cima (componente SoltarArquivos) */
+[data-soltar] { outline: 3px dashed #2563eb; outline-offset: 3px; background-color: rgba(37, 99, 235, 0.06); border-radius: 8px; }
