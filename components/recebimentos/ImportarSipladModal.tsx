@@ -143,13 +143,13 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                     <td className="px-3 py-2">
                       <div>{i.doc.client}</div>
                       <div className="text-[11px] text-slate-500">{i.doc.command}</div>
-                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-600" aria-label={`UGR e UGE de ${i.sol.numero}`}>
+                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-600" aria-label={`UGR, UGE e Plano Interno de ${i.sol.numero}`}>
                         {(['DEBITO', 'CREDITO'] as const).map(t => {
                           const cs = (i.sol.celulas || []).filter(c => c.tipo === t);
                           return (
                             <div key={t}>
                               <span className="font-semibold text-slate-500">{t === 'DEBITO' ? 'CDD (débito)' : 'CDC (crédito)'}:</span>{' '}
-                              {cs.length ? cs.map((c, j) => <span key={j} className="mr-2 whitespace-nowrap">UGR <b>{c.ugr || '—'}</b> · UGE <b>{c.uge || '—'}</b></span>) : <span className="text-slate-400">não lida</span>}
+                              {cs.length ? cs.map((c, j) => <span key={j} className="mr-2 whitespace-nowrap">UGR <b>{c.ugr || '—'}</b> · UGE <b>{c.uge || '—'}</b> · PI <b>{c.pi || '—'}</b></span>) : <span className="text-slate-400">não lida</span>}
                             </div>
                           );
                         })}

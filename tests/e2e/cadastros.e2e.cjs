@@ -514,8 +514,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00007').first().waitFor({ timeout: 20000 });
-    const ug = await page.getByLabel('UGR e UGE de Z999.2026.AC.00007').innerText();
-    ok(/CDD \(débito\)/.test(ug) && /CDC \(crédito\)/.test(ug) && /UGR .+· UGE .+/s.test(ug) && ug.includes("12345 - ComTeste") && ug.includes("40015 - BNIC"), `importação mostra UGR e UGE do CDD e do CDC (${ug.replace(/\s+/g, ' ').slice(0, 90)})`);
+    const ug = await page.getByLabel('UGR, UGE e Plano Interno de Z999.2026.AC.00007').innerText();
+    ok(/CDD \(débito\)/.test(ug) && /CDC \(crédito\)/.test(ug) && /UGR .+· UGE .+/s.test(ug) && ug.includes("12345 - ComTeste") && ug.includes("40015 - BNIC") && ug.includes("PI X.1.TESTE.0") && ug.includes("PI R.TESTE.0"), `importação mostra UGR, UGE e Plano Interno do CDD e do CDC (${ug.replace(/\s+/g, ' ').slice(0, 90)})`);
     // pendência exige o texto e aparece como alerta; fica fora do saldo e do fluxo
     await page.getByLabel('Com pendência: Z999.2026.AC.00007').check();
     await page.getByRole('button', { name: 'Gravar', exact: true }).click();
