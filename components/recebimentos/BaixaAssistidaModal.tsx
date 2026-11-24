@@ -28,7 +28,7 @@ export const BaixaAssistidaModal: React.FC<{
 
   const candidatas = useMemo(() => (doc ? faturasCandidatas(invoices, documentos, baixas, oms) : []), [doc, invoices, documentos, baixas, oms]);
   const citadas = useMemo(() => extrairFaturas(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`), [doc]);
-  const existentes = useMemo(() => new Set(invoices.map(i => i.invoiceNumber.trim().toUpperCase())), [invoices]);
+  const existentes = useMemo(() => new Set(invoices.map(i => (i.invoiceNumber || '').trim().toUpperCase())), [invoices]);
   const citadasInexistentes = useMemo(() => [...new Set([...citadas, ...(doc?.destinacao || []).filter(d => d.tipo === 'FATURA').map(d => d.valor.trim().toUpperCase())])].filter(n => !existentes.has(n)), [citadas, doc, existentes]);
 
   useEffect(() => {
