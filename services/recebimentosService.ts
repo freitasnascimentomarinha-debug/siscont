@@ -122,6 +122,13 @@ export function comoRecebimentoOutros(i: ItemImportacao, finalidade?: ReceivedDo
     observation: [i.doc.observation, nota].filter(Boolean).join(' | ') } };
 }
 
+/** ALTCRED com pendência (algo a verificar): fica registrada e visível, mas FORA do saldo, das baixas e do fluxo de caixa até a pendência ser resolvida. */
+export function comPendencia(i: ItemImportacao, texto: string): ItemImportacao {
+  if (i.acao === 'IGNORAR' || !texto.trim()) return i;
+  return { ...i, doc: { ...i.doc, pendencia: texto.trim(), aguardando: false,
+    observation: [i.doc.observation, `PENDÊNCIA: ${texto.trim()}`].filter(Boolean).join(' | ') } };
+}
+
 /** ALTCRED que o cliente mandou como adiantamento (valor guardado para faturas futuras): operação Adiantamento. */
 export function comoAdiantamentoImportado(i: ItemImportacao): ItemImportacao {
   if (i.acao === 'ESTORNO' || i.acao === 'IGNORAR') return i;

@@ -59,7 +59,7 @@ const entrada = 'w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-
 
 /** Campos da Fase 2 no formulário do documento (seção recolhível). */
 export const CamposFase2: React.FC<{ dados: Partial<ReceivedDocument>; onChange: (d: Partial<ReceivedDocument>) => void }> = ({ dados, onChange }) => {
-  const [aberto, setAberto] = useState(!!(dados.destinacao?.length || dados.gruAutenticacao || dados.aguardando));
+  const [aberto, setAberto] = useState(!!(dados.destinacao?.length || dados.gruAutenticacao || dados.aguardando || dados.pendencia));
   const gru = dados.documentType === 'GRU';
   const destTexto = (dados.destinacao || []).filter(d => d.tipo === 'FATURA').map(d => d.valor).join(', ');
   const [textoDest, setTextoDest] = useState(destTexto);
@@ -92,6 +92,10 @@ export const CamposFase2: React.FC<{ dados: Partial<ReceivedDocument>; onChange:
               {dados.operation !== 'ADIANTAMENTO' && (
                 <label className="flex items-center gap-2 text-slate-700"><input type="checkbox" className="h-4 w-4 accent-primary-600" checked={!!dados.sobraAdiantamento} onChange={e => onChange({ sobraAdiantamento: e.target.checked })} /> Sobra enviada para adiantamento</label>
               )}
+              <label className="text-slate-700 md:col-span-2">Pendência (algo a verificar)
+                <input className={entrada} value={dados.pendencia || ''} placeholder="Em branco = sem pendência. Com texto, o crédito fica fora do saldo, das baixas e do fluxo de caixa até ser resolvida"
+                  onChange={e => onChange({ pendencia: e.target.value || null })} aria-label="Pendência da ALTCRED" />
+              </label>
               <label className="text-slate-700">Exercício<input type="number" className={entrada} value={dados.exercicio ?? ''} onChange={e => onChange({ exercicio: e.target.value ? Number(e.target.value) : null })} /></label>
               <label className="text-slate-700">Tipo de alteração (SIPLAD)<input className={entrada} value={dados.tipoAlteracao || ''} onChange={e => onChange({ tipoAlteracao: e.target.value })} /></label>
               <label className="text-slate-700">UG cliente<input className={entrada} value={dados.ugCliente || ''} placeholder="91600 - ComForSup" onChange={e => onChange({ ugCliente: e.target.value })} /></label>

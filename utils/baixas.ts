@@ -14,7 +14,7 @@ export const ehAdiantamento = (b: BaixaTipada, doc?: DocOperacao | null): boolea
  * Saldo que o documento ainda oferece para baixar faturas. Documento da operação "Outros" (ALTCRED recebida na R.901.16 para outros
  * serviços, sem fatura) não paga fatura nenhuma: não tem saldo para baixa (continua listada no Fluxo de caixa como toda ALTCRED).
  */
-export const saldoDisponivelDoc = (d: { operation: string; totalValue: number }, usado: number): number =>
-  d.operation === 'OUTROS' ? 0 : Math.round((d.totalValue - usado) * 100) / 100;
+export const saldoDisponivelDoc = (d: { operation: string; totalValue: number; pendencia?: string | null }, usado: number): number =>
+  d.operation === 'OUTROS' || !!d.pendencia?.trim() ? 0 : Math.round((d.totalValue - usado) * 100) / 100;
 
 export const aceitaAdiantamento = (d: DocOperacao) => d.operation === 'ADIANTAMENTO' || !!d.sobraAdiantamento;

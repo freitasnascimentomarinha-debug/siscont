@@ -226,6 +226,8 @@ export interface ReceivedDocument {
   gruDataPagamento?: string | null;
   /** ALTCRED de "outros serviços" (operação Outros): categoria do gasto a que se destina (script 041); nula = sem indicação */
   finalidade?: 'ENERGIA' | 'AGUA' | 'TELEFONIA' | 'CONDOMINIO' | 'EXPEDIENTE' | null;
+  /** ALTCRED em verificação (script 044): o que falta conferir. Enquanto houver texto, o crédito fica FORA do saldo, das baixas e do fluxo de caixa; resolvida = campo vazio. */
+  pendencia?: string | null;
 }
 
 /** Linha da Célula de Débito (CDD) ou de Crédito (CDC) da ALTCRED. */
@@ -243,7 +245,7 @@ export const CAMPOS_DOC_FASE2: [keyof ReceivedDocument, string][] = [
   ['situacaoSiplad', 'situacao_siplad'], ['ugCliente', 'ug_cliente'], ['altcredOrigem', 'altcred_origem'],
   ['observacaoSolicitante', 'observacao_solicitante'], ['celulas', 'celulas'], ['valorOriginal', 'valor_original'],
   ['valorEstornado', 'valor_estornado'], ['destinacao', 'destinacao'], ['aguardando', 'aguardando'],
-  ['sobraAdiantamento', 'sobra_adiantamento'], ['gruAutenticacao', 'gru_autenticacao'], ['gruDataPagamento', 'gru_data_pagamento'], ['finalidade', 'finalidade'],
+  ['sobraAdiantamento', 'sobra_adiantamento'], ['gruAutenticacao', 'gru_autenticacao'], ['gruDataPagamento', 'gru_data_pagamento'], ['finalidade', 'finalidade'], ['pendencia', 'pendencia'],
 ]
 
 // This represents a link between a Document and an Invoice (Payment)

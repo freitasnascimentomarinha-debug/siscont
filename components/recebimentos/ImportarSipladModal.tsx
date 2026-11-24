@@ -3,7 +3,7 @@ import { AlertTriangle, FileUp } from 'lucide-react';
 import { ReceivedDocument } from '../../types';
 import { FINALIDADES } from '../../utils/relatorios';
 import { itensDoPdf, lerSolicitacoesDetalhado, SolicitacaoAltcred } from '../../utils/altcredSiplad';
-import { AcaoImportacao, carregarCadastro, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
+import { AcaoImportacao, carregarCadastro, comPendencia, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao } from '../../utils/situacaoSiplad';
 import { Modal } from '../ui/Modal';
@@ -35,6 +35,8 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   // destino escolhido por linha: o padrão (pagar faturas) não precisa de escolha; adiantamento ou outros serviços (não paga fatura, com finalidade opcional)
   const [destino, setDestino] = useState<Record<number, 'ADIANTAMENTO' | 'OUTROS'>>({});
   const [finalidade, setFinalidade] = useState<Record<number, string>>({});
+  // pendência por linha (algo a verificar): a ALTCRED é registrada, mas só entra no saldo e no fluxo depois de resolvida
+  const [pendencia, setPendencia] = useState<Record<number, string | undefined>>({});
 
   const ler = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -50,7 +52,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
       }
       setSemSolicitacao(vazios); setDescartadas(fora);
       const plano = planejarImportacaoSiplad(sols, documentos, await carregarCadastro());
-      setItens(plano); setDestino({}); setFinalidade({});
+      setItens(plano); setDestino({}); setFinalidade({}); setPendencia({});
       // devolvida, cancelada e não processada não são recebimento: já vêm como "Não importar" (dá para trocar)
       setIgnorados(new Set(plano.map((p, k) => (classificarSituacao(p.sol.situacao).importarPadrao ? -1 : k)).filter(k => k >= 0)));
     } catch (e) {
@@ -64,7 +66,13 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
   const gravar = async () => {
     setGravando(true);
     try {
-      const n = await gravarImportacaoSiplad(itens.map((i, k) => (ignorados.has(k) ? { ...i, acao: 'IGNORAR' as const } : destino[k] === 'OUTROS' ? comoRecebimentoOutros(i, (finalidade[k] || null) as any) : destino[k] === 'ADIANTAMENTO' ? comoAdiantamentoImportado(i) : i)));
+      const semTexto = itens.findIndex((_, k) => !ignorados.has(k) && pendencia[k] !== undefined && !pendencia[k]!.trim());
+      if (semTexto >= 0) { notify.error(`Informe o que verificar na pendência da ${itens[semTexto].sol.numero}.`); setGravando(false); return; }
+      const n = await gravarImportacaoSiplad(itens.map((i, k) => {
+        if (ignorados.has(k)) return { ...i, acao: 'IGNORAR' as const };
+        const base = destino[k] === 'OUTROS' ? comoRecebimentoOutros(i, (finalidade[k] || null) as any) : destino[k] === 'ADIANTAMENTO' ? comoAdiantamentoImportado(i) : i;
+        return pendencia[k] !== undefined ? comPendencia(base, pendencia[k]!) : base;
+      }));
       notify.success(`${n} ALTCRED gravada(s) a partir do SIPLAD.`);
       setItens([]); setDescartadas([]);
       await onGravado();
@@ -74,7 +82,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
     } finally { setGravando(false); }
   };
 
-  const fechar = () => { setItens([]); setSemSolicitacao([]); setDescartadas([]); setIgnorados(new Set()); setDestino({}); setFinalidade({}); onClose(); };
+  const fechar = () => { setItens([]); setSemSolicitacao([]); setDescartadas([]); setIgnorados(new Set()); setDestino({}); setFinalidade({}); setPendencia({}); onClose(); };
 
   return (
     <Modal isOpen={aberto} onClose={fechar} title="Importar ALTCRED do SIPLAD (PDF)" maxWidth="max-w-5xl"
@@ -135,6 +143,17 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                     <td className="px-3 py-2">
                       <div>{i.doc.client}</div>
                       <div className="text-[11px] text-slate-500">{i.doc.command}</div>
+                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-600" aria-label={`UGR e UGE de ${i.sol.numero}`}>
+                        {(['DEBITO', 'CREDITO'] as const).map(t => {
+                          const cs = (i.sol.celulas || []).filter(c => c.tipo === t);
+                          return (
+                            <div key={t}>
+                              <span className="font-semibold text-slate-500">{t === 'DEBITO' ? 'CDD (débito)' : 'CDC (crédito)'}:</span>{' '}
+                              {cs.length ? cs.map((c, j) => <span key={j} className="mr-2 whitespace-nowrap">UGR <b>{c.ugr || '—'}</b> · UGE <b>{c.uge || '—'}</b></span>) : <span className="text-slate-400">não lida</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{brl(i.sol.valor)}</td>
                     <td className="px-3 py-2 text-xs">
@@ -168,6 +187,22 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                       )}
                       {!ignorados.has(n) && destino[n] === 'OUTROS' && !classificarSituacao(i.sol.situacao).recebido && classificarSituacao(i.sol.situacao).codigo !== 'AGUARDANDO' && classificarSituacao(i.sol.situacao).codigo !== 'EM_ANALISE' && (
                         <div className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />Situação no SIPLAD: {classificarSituacao(i.sol.situacao).rotulo.toLowerCase()}. Confira se o crédito realmente entrou na R.901.16.</div>
+                      )}
+                      {!ignorados.has(n) && i.acao !== 'ESTORNO' && (
+                        <div className="mt-2">
+                          <label className="flex items-center gap-1 text-slate-700">
+                            <input type="checkbox" className="h-3.5 w-3.5 accent-amber-600" checked={pendencia[n] !== undefined} aria-label={`Com pendência: ${i.sol.numero}`}
+                              onChange={e => setPendencia(p => { const x = { ...p }; if (e.target.checked) x[n] = ''; else delete x[n]; return x; })} />
+                            Registrar com pendência (verificar algo)
+                          </label>
+                          {pendencia[n] !== undefined && (
+                            <div className="mt-1">
+                              <input className="w-full border border-amber-300 rounded px-2 py-1 bg-amber-50" placeholder="O que falta verificar? (ex.: confirmar a OM com o cliente)" aria-label={`O que verificar na ${i.sol.numero}`}
+                                value={pendencia[n] || ''} onChange={e => setPendencia(p => ({ ...p, [n]: e.target.value }))} />
+                              <div className="text-amber-800 mt-0.5">Fica registrada com alerta e <b>fora do saldo, das baixas e do fluxo de caixa</b> até a pendência ser resolvida.</div>
+                            </div>
+                          )}
+                        </div>
                       )}
                       {i.acao === 'ESTORNO' && i.existente && <div className="mt-1 text-slate-600">{i.existente.documentNumber}: {brl(i.existente.totalValue)} → {brl(i.doc.totalValue)}</div>}
                       {i.avisos.map(a => <div key={a} className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />{a}</div>)}

@@ -505,6 +505,41 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-volume.png'), fullPage: false });
   });
 
+  await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd);
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00007').first().waitFor({ timeout: 20000 });
+    const ug = await page.getByLabel('UGR e UGE de Z999.2026.AC.00007').innerText();
+    ok(/CDD \(débito\)/.test(ug) && /CDC \(crédito\)/.test(ug) && /UGR .+· UGE .+/s.test(ug) && ug.includes("12345 - ComTeste") && ug.includes("40015 - BNIC"), `importação mostra UGR e UGE do CDD e do CDC (${ug.replace(/\s+/g, ' ').slice(0, 90)})`);
+    // pendência exige o texto e aparece como alerta; fica fora do saldo e do fluxo
+    await page.getByLabel('Com pendência: Z999.2026.AC.00007').check();
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText(/Informe o que verificar na pendência/).waitFor();
+    await page.getByLabel('O que verificar na Z999.2026.AC.00007').fill('Confirmar com a OM se o crédito é desta UG');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-ugr-uge-pendencia.png') });
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
+    const d = db.received_documents.find(x => x.document_number === 'Z999.2026.AC.00007');
+    ok(d && /Confirmar com a OM/.test(d.pendencia || '') && /PENDÊNCIA:/.test(d.observation || ''), 'ALTCRED gravada com a pendência registrada');
+    await page.getByTestId('alerta-pendencias').waitFor();
+    ok(/1 ALTCRED com pendência/.test(await page.getByTestId('alerta-pendencias').innerText()), 'alerta no topo dos Créditos recebidos');
+    ok((await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ').includes('Recebido R$ 0,00') || !(await page.getByTestId('conciliacao-creditos').innerText()).includes('1.000,00'), 'crédito com pendência não entra no "Recebido" nem no saldo a destinar');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-pendencia.png') });
+    page.once('dialog', dl => dl.accept());
+    await page.getByLabel('Pendência da Z999.2026.AC.00007').getByRole('button', { name: 'resolver' }).click();
+    await page.getByText('Pendência resolvida: o crédito foi incluído.').waitFor();
+    const d2 = db.received_documents.find(x => x.document_number === 'Z999.2026.AC.00007');
+    ok(!d2.pendencia && /Pendência resolvida em/.test(d2.observation), 'resolver a pendência libera o crédito e registra na observação');
+    await page.waitForFunction(() => /1\.000,00/.test(document.querySelector('[data-testid="conciliacao-creditos"]')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
+    const concl = (await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ');
+    ok(concl.includes('1.000,00'), `depois de resolvida, o crédito entra no recebido (${concl.slice(0, 120)})`);
+  });
+
   await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };

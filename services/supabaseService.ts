@@ -324,7 +324,7 @@ export const supabaseService = {
                 ...paraFase2(doc),
             });
             if (error && /column/i.test(error.message) && CAMPOS_DOC_FASE2.some(([, c]) => error.message.includes(c))) {
-                throw new Error('Falta executar o script supabase/migrations/006_recebimentos_fase2.sql no Supabase para gravar os dados do SIPLAD, destinação e GRU.');
+                throw new Error('Falta executar o script supabase/migrations/006_recebimentos_fase2.sql (ou o 044, para a pendência) no Supabase para gravar os dados do SIPLAD, destinação, GRU e pendência.');
             }
             if (error) throw error;
         }, 'saveDocument');

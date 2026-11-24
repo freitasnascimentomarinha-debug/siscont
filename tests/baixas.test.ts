@@ -18,3 +18,11 @@ describe('ALTCRED "Outros" (outros serviços: não paga fatura)', () => {
     expect(comoRecebimentoOutros(est)).toBe(est); expect(comoRecebimentoOutros(ign)).toBe(ign);
   });
 });
+
+describe('ALTCRED com pendência', () => {
+  it('fica fora do saldo disponível até a pendência ser resolvida', () => {
+    expect(saldoDisponivelDoc({ operation: 'PAGAMENTO', totalValue: 1000, pendencia: 'Confirmar a OM' }, 0)).toBe(0);
+    expect(saldoDisponivelDoc({ operation: 'PAGAMENTO', totalValue: 1000, pendencia: null }, 250)).toBe(750);
+    expect(saldoDisponivelDoc({ operation: 'PAGAMENTO', totalValue: 1000, pendencia: '  ' }, 0)).toBe(1000);
+  });
+});

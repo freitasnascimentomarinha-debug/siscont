@@ -254,7 +254,7 @@ export const db = {
 
     const items: CashFlowItem[] = [];
     // GRU não entram no fluxo de caixa (ficam na página Extra-Marinha); só as ALTCRED são entrada recebida
-    docs.filter(d => d.documentType !== DocumentType.GRU).forEach(d => {
+    docs.filter(d => d.documentType !== DocumentType.GRU && !d.pendencia?.trim()).forEach(d => {
       items.push({ id: d.id, date: d.date, documentNumber: d.documentNumber, client: d.client, type: 'ENTRY', value: d.totalValue, description: `Entrada via ${d.documentType} (${d.operation})`, observation: d.observation, destino: d.operation as any, finalidade: d.finalidade ?? null, aguardando: !!d.aguardando, balanceAfter: 0 });
     });
     exits.forEach(e => {

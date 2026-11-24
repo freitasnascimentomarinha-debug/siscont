@@ -248,7 +248,7 @@ export const ReceivedBalances: React.FC = () => {
   // conciliação (todas as abas, só com o Público e o tipo de documento): Recebido = aplicado em faturas + a destinar + outros serviços
   const conciliacao = (() => {
     const tipoDoc = filterTipoDoc === 'auto' ? (publico === 'EXTRA' ? 'todos' : 'ALTCRED') : filterTipoDoc;
-    const base = documents.filter(d => (tipoDoc === 'todos' || d.documentType === tipoDoc) && passaPublico(publico, docExtra(d)));
+    const base = documents.filter(d => !d.pendencia?.trim() && (tipoDoc === 'todos' || d.documentType === tipoDoc) && passaPublico(publico, docExtra(d)));
     const recebido = r2(base.reduce((s, d) => s + d.totalValue, 0));
     const outros = r2(base.filter(d => d.operation === OperationType.OUTROS).reduce((s, d) => s + d.totalValue, 0));
     const aDestinar = r2(base.filter(d => d.operation !== OperationType.OUTROS).reduce((s, d) => s + Math.max(0, d.availableValue), 0));
@@ -586,6 +586,9 @@ export const ReceivedBalances: React.FC = () => {
                                     <PontoIcone pontos={doc.pontos} onClick={() => setPontosAlvo({ alvo: 'documento', id: doc.id, titulo: doc.documentNumber, subtitulo: `${doc.documentType} · ${doc.client}`, pontos: doc.pontos || [] })} />
                                     <span className="text-xs px-2 py-0.5 rounded bg-slate-200 text-slate-600">{doc.documentType}</span>
                                     {doc.ug && <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-700">UG: {doc.ug}</span>}
+                                    {doc.pendencia?.trim() && <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-900 border border-orange-300 inline-flex items-center gap-1" title="Fora do saldo, das baixas e do fluxo de caixa até a pendência ser resolvida" aria-label={`Pendência da ${doc.documentNumber}`}>⚠ Pendência: {doc.pendencia}
+                                      {!isReadOnly && <button type="button" className="underline font-semibold ml-1" onClick={async () => { if (!window.confirm(`Resolver a pendência da ${doc.documentNumber}? O crédito entra no saldo e no fluxo de caixa.`)) return; try { await db.saveDocument({ ...doc, pendencia: null, observation: [doc.observation, `Pendência resolvida em ${new Date().toLocaleDateString('pt-BR')}: ${doc.pendencia}`].filter(Boolean).join(' | ') }); notify.success('Pendência resolvida: o crédito foi incluído.'); await refresh(); } catch (e) { notify.fail('Não foi possível resolver a pendência', e); } }}>resolver</button>}
+                                    </span>}
                                     {doc.aguardando && doc.availableValue > 0.005 && <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800" title="O cliente ainda não indicou as faturas">Aguardando destinação</span>}
                                     {doc.sobraAdiantamento && <span className="text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800" title="A sobra desta ALTCRED de pagamento é usada como adiantamento">Sobra em adiantamento</span>}
                                     {!!doc.valorEstornado && <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">Estorno R$ {doc.valorEstornado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}
@@ -796,6 +799,17 @@ export const ReceivedBalances: React.FC = () => {
         )}
       </div>
       {/* Conferência: tudo o que entrou = o que já pagou fatura + o que espera destino + o que foi para outros serviços (todas as abas) */}
+      {(() => {
+        const pend = documents.filter(d => d.pendencia?.trim());
+        if (!pend.length) return null;
+        const tot = pend.reduce((x, d) => x + d.totalValue, 0);
+        return (
+          <div role="alert" data-testid="alerta-pendencias" className="p-3 rounded-lg border border-orange-300 bg-orange-50 text-sm text-orange-900">
+            <b>⚠ {pend.length} ALTCRED com pendência (R$ {tot.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</b> — fora do saldo, das baixas e do fluxo de caixa até serem resolvidas:
+            <ul className="mt-1 list-disc pl-5 text-xs">{pend.map(d => <li key={d.id}><span className="font-mono font-semibold">{d.documentNumber}</span> · {d.client} · R$ {d.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — {d.pendencia}</li>)}</ul>
+          </div>
+        );
+      })()}
       <section aria-label="Conferência dos créditos recebidos" data-testid="conciliacao-creditos" className="bg-white rounded-lg border border-slate-200 p-3">
         <p className="text-[11px] uppercase font-semibold text-slate-400 mb-2">Conferência de todos os créditos (todas as abas)</p>
         <div className="flex flex-wrap items-stretch gap-2 text-sm">
