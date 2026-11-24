@@ -32,6 +32,12 @@ function novoBanco() {
   };
 }
 
+/** A matriz abre só para consulta: liga o modo edição (se ainda não estiver ligado). */
+async function ligarEdicaoMatriz(page) {
+  const b = page.getByRole('button', { name: 'Editar matriz' });
+  if (await b.count()) await b.click();
+}
+
 function handler(db, log) {
   return async route => {
     const req = route.request();
@@ -1567,12 +1573,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.locator('th button[title*="selecionar a coluna"]').first().click();
     const marcadas1 = await page.locator('table').last().locator('input[type=checkbox]:checked').count();
     ok(marcadas1 === marcadas0 && await page.getByText(/Coluna selecionada:/).isVisible() && await page.getByText('Alterações não gravadas.').count() === 0, `clicar no número da coluna só seleciona (marcadas ${marcadas0} → ${marcadas1}), sem alterar nem pedir para gravar`);
-    ok(await page.getByRole('button', { name: 'marcar toda a coluna', exact: true }).isVisible() && await page.getByRole('button', { name: 'desmarcar toda a coluna', exact: true }).isVisible(), 'a alteração da coluna toda fica na barra "Edição"');
+    ok(await page.getByRole('button', { name: 'marcar toda a coluna', exact: true }).count() === 0 && await page.getByText(/ative Editar matriz/).isVisible(), 'fora do modo edição não há como marcar a coluna toda');
+    ok(await page.locator('table').last().locator('input[type=checkbox]:not([disabled])').count() === 0, 'matriz em consulta: todas as caixas de rubrica ficam travadas');
+    await page.getByRole('button', { name: 'Editar matriz' }).click();
+    ok(await page.getByRole('button', { name: 'marcar toda a coluna', exact: true }).isVisible() && await page.getByRole('button', { name: 'desmarcar toda a coluna', exact: true }).isVisible() && await page.locator('table').last().locator('input[type=checkbox]:not([disabled])').count() > 0, 'no modo edição liberam as caixas e a barra "Edição" da coluna');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'matriz-modo-edicao.png') });
+    await page.getByRole('button', { name: 'Concluir edição' }).click();
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'matriz-coluna-selecionada.png') });
     await page.getByRole('button', { name: 'tirar seleção' }).click();
     // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo já escolhido é mantido
     // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo se ajusta na aba Navios
     ok(await page.getByLabel('Navios participam da linha 1').isChecked(), 'linha NAVIOS: linha 1 marcada (navios participam)');
+    await ligarEdicaoMatriz(page);
     await page.getByLabel('Navios participam da linha 1').uncheck();
     await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
     await page.getByText('Clientes e matriz gravados.').waitFor();
@@ -1581,6 +1593,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/Nenhuma linha marcada para os navios/).waitFor();
     ok(await page.getByLabel('Navios na linha 1', { exact: true }).count() === 0, 'aba Navios lista só as linhas marcadas na matriz');
     await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await ligarEdicaoMatriz(page);
     await page.getByLabel('Navios participam da linha 1').check();
     await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
     await page.getByText('Clientes e matriz gravados.').last().waitFor();
@@ -1619,6 +1632,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.lotacoes_tc.some(l => l.om_id === nova.id && Number(l.lotacao) === 50) && db.matriz_tc.some(m => m.om_id === nova.id && m.rubrica === 1), 'lotação e rubricas da linha da planilha passaram para o cliente');
     ok((nova.nomes_alternativos || []).includes('OM NOVA FORA DA ILHA'), 'nome da planilha guardado como nome alternativo (próxima importação reconhece)');
     // incluir cliente à mão
+    await ligarEdicaoMatriz(page);
     await page.getByRole('button', { name: 'Incluir cliente' }).click();
     ok(await page.getByLabel('Buscar cliente').isVisible() && await page.getByRole('button', { name: 'Criar novo cliente' }).count() === 0, 'incluir cliente: só busca no Cadastro de OM (sem criar cliente solto na matriz)');
     await page.getByLabel('Buscar cliente').fill('ZZZ inexistente');
@@ -1632,6 +1646,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
       await page.getByText('Clientes e matriz gravados.').last().waitFor();
+      await ligarEdicaoMatriz(page);
       await page.getByRole('button', { name: 'Incluir cliente' }).click();
     }
     await page.getByRole('button', { name: 'Ir para o Cadastro de OM' }).click();
@@ -1718,6 +1733,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase6-diarias.png'), fullPage: true });
     // dias com ponto decimal (como vêm do banco: "23.65"): antes viravam 2365 e o banco recusava ("rode o script 010")
     await page.getByRole('button', { name: '5. Navios' }).click();
+    await ligarEdicaoMatriz(page);
     await page.getByLabel('Dias de Corveta Barroso').fill('28.00');
     await page.getByRole('button', { name: 'Gravar navios' }).click();
     await page.getByText('Navios gravados.').waitFor();

@@ -2,7 +2,7 @@ import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloHistorico, modeloSubsidios } from '../../utils/modelos';
-import { Download, FileUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { Check, Download, FileUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
 // @ts-ignore - pacote xlsx sem tipos completos no build
 import * as XLSX from 'xlsx';
 import { FichaRubrica } from './FichaRubrica';
@@ -267,6 +267,9 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const usaArea = dados.rubricas.some(x => entraNaTaxa(x) && x.criterio === 'AREA'), usaPeso = dados.rubricas.some(x => entraNaTaxa(x) && x.criterio === 'PESO');
   const [matriz, setMatriz] = useState<Set<string>>(new Set(dados.matriz));
   const [sujo, setSujo] = useState(false);
+  // a matriz abre só para consulta; marcar rubricas, digitar lotação e incluir/retirar clientes exige o modo edição
+  const [editando, setEditando] = useState(false);
+  const editavel = podeEditar && editando;
   const [busca, setBusca] = useState('');
   const so = true; // a matriz mostra só as OM participantes; as demais entram por "Incluir cliente" (a partir do Cadastro de OM)
   const [gravando, setGravando] = useState(false);
@@ -419,17 +422,18 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
       )}
       <div className="flex flex-wrap gap-3 items-end">
         <Campo rotulo={navioModo ? 'Buscar navio' : 'Buscar OM'}><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
-        {podeEditar && <Button variant="secondary" onClick={() => setIncluir(true)}><Plus size={16} className="mr-1" />{navioModo ? 'Incluir navio' : 'Incluir cliente'}</Button>}
-        {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
+        {podeEditar && <Button variant={editando ? 'primary' : 'secondary'} onClick={() => setEditando(e => !e)} aria-pressed={editando} title={editando ? 'Sair do modo edição (o que não foi gravado continua pendente)' : 'Liberar a matriz para marcar rubricas e alterar lotações'}>{editando ? <><Check size={16} className="mr-1" />Concluir edição</> : <><Pencil size={16} className="mr-1" />Editar matriz</>}</Button>}
+        {editavel && <Button variant="secondary" onClick={() => setIncluir(true)}><Plus size={16} className="mr-1" />{navioModo ? 'Incluir navio' : 'Incluir cliente'}</Button>}
+        {podeEditar && (editando || sujo) && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
       </div>
         {!navioModo && <div className="px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg min-h-[26px] flex flex-wrap items-center gap-2" aria-label="Rubrica em foco">
           {colSel !== null
             ? <>
                 <span>Coluna selecionada: <b className="bg-yellow-200 px-1 rounded">{colSel}</b> {descR(colSel)} — {marcadasNaColuna(colSel)} de {linhas.length} marcada(s)</span>
-                {podeEditar && <span className="inline-flex items-center gap-1.5 pl-2 border-l border-slate-300"><span className="font-semibold text-slate-600">Edição:</span>
+                {editavel ? <span className="inline-flex items-center gap-1.5 pl-2 border-l border-slate-300"><span className="font-semibold text-slate-600">Edição:</span>
                   <button type="button" className="px-2 py-0.5 rounded border border-primary-300 text-primary-800 bg-white hover:bg-primary-50" onClick={() => colunaTodas(colSel, true)}>marcar toda a coluna</button>
-                  <button type="button" className="px-2 py-0.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-100" onClick={() => colunaTodas(colSel, false)}>desmarcar toda a coluna</button></span>}
+                  <button type="button" className="px-2 py-0.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-100" onClick={() => colunaTodas(colSel, false)}>desmarcar toda a coluna</button></span> : podeEditar && <span className="text-slate-500 pl-2 border-l border-slate-300">Para marcar ou desmarcar a coluna, ative <b>Editar matriz</b>.</span>}
                 <button type="button" className="ml-auto text-slate-500 underline" onClick={() => setColSel(null)}>tirar seleção</button>
               </>
             : colFoco !== null ? <>Rubrica em foco: <b className="bg-yellow-200 px-1 rounded">{colFoco}</b> {descR(colFoco)}</> : <span className="text-slate-400">Passe o mouse sobre uma coluna para ver a rubrica; clique no número para selecionar a coluna (sem alterar nada). As cores separam as colunas em blocos de 5 (1–5, 6–10…).</span>}
@@ -456,7 +460,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                   <td className="px-2 py-1 sticky left-0 bg-sky-50 font-semibold" title="Grupo de todos os navios: marque as linhas de que os navios participam">⚓ NAVIOS (grupo)</td>
                   <td className="px-1 text-[10px] text-slate-500" colSpan={2 + (usaArea ? 1 : 0) + (usaPeso ? 1 : 0)}>lotação e dias na aba Navios</td>
                   {rubs.map(r0 => (
-                    <td key={r0} className={`text-center ${corCol(r0)}`} onMouseEnter={() => setColFoco(r0)}><input type="checkbox" disabled={!podeEditar} checked={navMarcado.has(r0)} onChange={e => marcarNavios(r0, e.target.checked)}
+                    <td key={r0} className={`text-center ${corCol(r0)}`} onMouseEnter={() => setColFoco(r0)}><input type="checkbox" disabled={!editavel} checked={navMarcado.has(r0)} onChange={e => marcarNavios(r0, e.target.checked)}
                       title={navMarcado.has(r0) ? 'navios participam (como entra: aba Navios)' : 'navios não participam'} aria-label={`Navios participam da linha ${r0}`} /></td>
                   ))}
                   <td className="px-2 text-[10px] text-slate-500 whitespace-nowrap">como entra: aba Navios</td>
@@ -469,15 +473,15 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
                 <tr key={o.id} className={`border-t border-slate-100 ${extras.has(o.id) ? 'bg-primary-50/50' : ''}`}>
                   <td className="px-2 py-0.5 sticky left-0 bg-white truncate max-w-[260px]" title={`${o.nome}${o.edificio ? ` — ${o.edificio}` : ''}`}>{o.nome}{!navioModo && o.edificio && <span className="text-slate-400"> · {o.edificio}</span>}{!o.ativo && <span className="text-slate-400"> · desativada</span>}{o.foraDaIlha && <span className="text-slate-400"> · fora da Ilha</span>}
                     {navioModo && (o.classeId ? <span className="block text-[10px] text-slate-500">{dados.classes.find(c => c.id === o.classeId)?.nome}</span> : <span className="block text-[10px] text-amber-700" title="Sem classe não há média trienal: a diária sai pela lotação. Ajuste em Cadastros › Lista de navios ou OM / Clientes.">⚠ sem classe</span>)}</td>
-                  <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.lotacao} onChange={e => set(o.id, { lotacao: e.target.value })} aria-label={`Lotação de ${o.nome}`} /></td>
+                  <td className="px-1"><input disabled={!editavel} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.lotacao} onChange={e => set(o.id, { lotacao: e.target.value })} aria-label={`Lotação de ${o.nome}`} /></td>
                   <td className="px-1">{(() => { const ant = dados.lotacaoAnoAnterior?.get(o.id); return ant !== undefined
                     ? <input readOnly className={`${entrada} w-16 text-xs text-right bg-slate-100 text-slate-600`} value={String(ant)} title={`Lotação de ${ano - 1} (automática: a lotação anterior é sempre a do ano anterior)`} aria-label={`Lotação anterior de ${o.nome}`} />
-                    : <input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.anterior} onChange={e => set(o.id, { anterior: e.target.value })} title={`Sem lotação em ${ano - 1}: informe`} aria-label={`Lotação anterior de ${o.nome}`} />; })()}</td>
-                  {navioModo && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /></td>}
-                  {!navioModo && usaArea && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-20 text-xs text-right`} inputMode="decimal" value={v.area || ''} onChange={e => set(o.id, { area: e.target.value })} aria-label={`Área de ${o.nome}`} /></td>}
-                  {!navioModo && usaPeso && <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={v.peso || ''} onChange={e => set(o.id, { peso: e.target.value })} aria-label={`Peso de ${o.nome}`} /></td>}
-                  {!navioModo && rubs.map(r => <td key={r} className={`text-center ${corCol(r)}`} onMouseEnter={() => setColFoco(r)}><input type="checkbox" disabled={!podeEditar} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} title={`Linha ${r} – ${descR(r)} · ${o.nome}`} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
-                  <td className="px-2 whitespace-nowrap">{podeEditar && <>
+                    : <input disabled={!editavel} className={`${entrada} w-16 text-xs text-right`} inputMode="numeric" value={v.anterior} onChange={e => set(o.id, { anterior: e.target.value })} title={`Sem lotação em ${ano - 1}: informe`} aria-label={`Lotação anterior de ${o.nome}`} />; })()}</td>
+                  {navioModo && <td className="px-1"><input disabled={!editavel} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" placeholder={fmt(media)} value={v.dias} onChange={e => set(o.id, { dias: e.target.value })} aria-label={`Dias de ${o.nome}`} /></td>}
+                  {!navioModo && usaArea && <td className="px-1"><input disabled={!editavel} className={`${entrada} w-20 text-xs text-right`} inputMode="decimal" value={v.area || ''} onChange={e => set(o.id, { area: e.target.value })} aria-label={`Área de ${o.nome}`} /></td>}
+                  {!navioModo && usaPeso && <td className="px-1"><input disabled={!editavel} className={`${entrada} w-16 text-xs text-right`} inputMode="decimal" value={v.peso || ''} onChange={e => set(o.id, { peso: e.target.value })} aria-label={`Peso de ${o.nome}`} /></td>}
+                  {!navioModo && rubs.map(r => <td key={r} className={`text-center ${corCol(r)}`} onMouseEnter={() => setColFoco(r)}><input type="checkbox" disabled={!editavel} checked={matriz.has(`${r}|${o.id}`)} onChange={e => marcar(r, o.id, e.target.checked)} title={`Linha ${r} – ${descR(r)} · ${o.nome}`} aria-label={`${o.nome} participa da rubrica ${r}`} /></td>)}
+                  <td className="px-2 whitespace-nowrap">{editavel && <>
                     {!navioModo && <><button className="text-primary-700 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, true))}>todas</button> <button className="text-slate-500 underline" onClick={() => rubs.forEach(r => marcar(r, o.id, false))}>nenhuma</button> </>}
                     {participa(o.id) && <button className="text-red-600 underline ml-1" onClick={() => remover(o.id)}>retirar</button>}
                   </>}</td>
