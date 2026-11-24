@@ -248,13 +248,88 @@ export function lerProposta(abas: { nome: string; linhas: Linhas }[]) {
 // ------------------------------------------------------------------ Histórico trienal
 export interface HistoricoClasse { ano: number; classe: string; dias: number; navios: number | null; aba: string }
 
-export function lerHistorico(abas: { nome: string; linhas: Linhas }[]): HistoricoClasse[] {
+/** Ano que cada aba do histórico representa (o nome da aba nem sempre diz: "2023_2" pode ser o ano de 2024). */
+export interface AbaHistorico { aba: string; ano: number | null; sugerido: boolean; motivo: string }
+
+/** Totais de dias por classe de cada aba (mesma leitura do histórico), para comparar abas entre si. */
+function totaisPorClasse(a: { nome: string; linhas: Linhas }): Map<string, number> | null {
+  const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+  const h = a.linhas.findIndex(l => l.some(c => normalizar(c) === 'CLASSE NAVIO'));
+  if (h < 0) return null;
+  const cab = a.linhas[h].map(normalizar);
+  const cClasse = cab.indexOf('CLASSE NAVIO'), cTotal = cab.indexOf('TOTAL'), cMeses = MESES.map(x => cab.indexOf(x));
+  const out = new Map<string, number>();
+  let classe = '';
+  for (const l of a.linhas.slice(h + 1)) {
+    const c = String(l[cClasse] ?? '').trim();
+    if (/^TOTAL/.test(normalizar(c))) break;
+    if (c) classe = c;
+    if (!classe) continue;
+    const total = cTotal >= 0 && num(l[cTotal]) !== null ? num(l[cTotal])! : cMeses.reduce((t, j) => t + (j >= 0 ? num(l[j]) ?? 0 : 0), 0);
+    out.set(classe, (out.get(classe) || 0) + total);
+  }
+  return out;
+}
+
+/** Colunas "Nº DIAS 2023 / 2024 ..." da aba MEDIA TRIENAL: dias por classe em cada ano (serve para conferir qual aba é qual ano). */
+function diasDaMediaTrienal(abas: { nome: string; linhas: Linhas }[]): Map<number, Map<string, number>> {
+  const out = new Map<number, Map<string, number>>();
+  const a = abas.find(x => /^MEDIA TRIENAL/.test(normalizar(x.nome)));
+  if (!a) return out;
+  const h = a.linhas.findIndex(l => l.some(c => normalizar(c) === 'CLASSE NAVIO'));
+  if (h < 0) return out;
+  a.linhas[h].forEach((c, j) => {
+    const m = /^N[º°O]?\s*DIAS\s+(\d{4})$/.exec(normalizar(c).replace(/\s+/g, ' '));
+    if (!m) return;
+    const mapa = new Map<string, number>();
+    for (const l of a.linhas.slice(h + 1)) { const cl = String(l[0] ?? '').trim(); const v = num(l[j]); if (cl && v !== null && !/^TOTAL/.test(normalizar(cl))) mapa.set(normalizar(cl), v); }
+    out.set(Number(m[1]), mapa);
+  });
+  return out;
+}
+
+/**
+ * Sugere o ano de cada aba. Regra: o início do nome ("2025", "2023_2"). Quando duas abas começam com o mesmo ano, a aba MEDIA TRIENAL
+ * (colunas "Nº DIAS ano") mostra a qual ano cada uma pertence; sem ela, a segunda vira o ano seguinte, se este não existir.
+ */
+export function sugerirAnosDasAbas(abas: { nome: string; linhas: Linhas }[]): AbaHistorico[] {
+  const candidatas = abas.filter(a => /^\d{4}/.test(a.nome.trim()) && a.linhas.some(l => l.some(c => normalizar(c) === 'CLASSE NAVIO')));
+  const out: AbaHistorico[] = candidatas.map(a => ({ aba: a.nome, ano: Number(a.nome.trim().slice(0, 4)), sugerido: false, motivo: '' }));
+  const media = diasDaMediaTrienal(abas);
+  const comparar = (a: { nome: string; linhas: Linhas }, ano: number) => {
+    const ref = media.get(ano), tot = totaisPorClasse(a);
+    if (!ref || !tot) return 0;
+    let iguais = 0, n = 0;
+    tot.forEach((v, c) => { const r = ref.get(normalizar(c)); if (r === undefined || (v === 0 && r === 0)) return; n++; if (Math.abs(r - v) < 0.5) iguais++; });
+    return n ? iguais / n : 0;
+  };
+  const grupos = new Map<number, AbaHistorico[]>();
+  out.forEach(x => grupos.set(x.ano!, [...(grupos.get(x.ano!) || []), x]));
+  grupos.forEach((lista, ano) => {
+    if (lista.length < 2) return;
+    // qual aba do grupo bate com a MEDIA TRIENAL do próprio ano? as outras são de outro ano
+    const nota = (x: AbaHistorico) => comparar(abas.find(a => a.nome === x.aba)!, ano);
+    const melhor = [...lista].sort((a, b) => nota(b) - nota(a))[0];
+    lista.filter(x => x !== melhor).forEach(x => {
+      const a = abas.find(y => y.nome === x.aba)!;
+      const outroAno = [...media.keys()].filter(y => y !== ano).map(y => ({ y, nota: comparar(a, y) })).sort((p, q) => q.nota - p.nota)[0];
+      if (outroAno && outroAno.nota >= 0.8) { x.ano = outroAno.y; x.sugerido = true; x.motivo = `os dias de "${x.aba}" batem com a coluna ${outroAno.y} da aba MEDIA TRIENAL`; }
+      else if (!out.some(o => o.ano === ano + 1)) { x.ano = ano + 1; x.sugerido = true; x.motivo = `há duas abas "${ano}": a segunda foi considerada ${ano + 1} (confirme)`; }
+    });
+  });
+  return out;
+}
+
+export function lerHistorico(abas: { nome: string; linhas: Linhas }[], anos?: Record<string, number | null>): HistoricoClasse[] {
   const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
   const porAno = new Map<number, { aba: string; detalhada: boolean; dados: Map<string, { dias: number; navios: number }> }>();
   for (const a of abas) {
     const m = /^(\d{4})/.exec(a.nome.trim());
-    if (!m) continue;
-    const ano = Number(m[1]);
+    // com o mapa de anos (confirmado na tela) vale o ano escolhido; null = ignorar a aba
+    const escolhido = anos && a.nome in anos ? anos[a.nome] : undefined;
+    if (escolhido === null) continue;
+    if (!m && escolhido === undefined) continue;
+    const ano = escolhido ?? Number(m![1]);
     const h = a.linhas.findIndex(l => l.some(c => normalizar(c) === 'CLASSE NAVIO'));
     if (h < 0) continue;
     const cab = a.linhas[h].map(normalizar);

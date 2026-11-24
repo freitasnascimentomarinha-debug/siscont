@@ -16,7 +16,8 @@ import {
 import { AREAS_CNIC, OM } from '../../types';
 import { ClienteModal } from './ClienteModal';
 import { AnoClasse, BaseNavios, CRITERIOS, calcularTotalNavios, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
-import { acharPorNome, lerAbas, lerHistorico, lerSubsidios } from '../../utils/taxaCondominialImport';
+import { AbaHistorico, acharPorNome, lerAbas, lerHistorico, lerSubsidios, sugerirAnosDasAbas } from '../../utils/taxaCondominialImport';
+import { Modal } from '../ui/Modal';
 
 // lê "23,65", "23.65" (valor vindo do banco) e "1.234,56": antes "23.65" virava 2365
 const n2 = (v: string) => numeroDigitado(v);
@@ -42,10 +43,36 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const [gravando, setGravando] = useState(false);
   const [ficha, setFicha] = useState<number | null>(null);
   const [importando, setImportando] = useState(false);
+  // soma dos subsídios x valor da rubrica: janela para ATUALIZAR o valor das rubricas depois de importar (ou a qualquer momento)
+  const [somas, setSomas] = useState<{ numero: number; descricao: string; atual: number; soma: number; marcar: boolean; bloqueio: string | null }[] | null>(null);
+  const [pedirSomas, setPedirSomas] = useState(false);
   // parte dos navios: definida na aba 5. Navios (aqui só entra no total do resumo)
   const baseNavios: BaseNavios = dados.proposta.baseNavios || 'PREVISTO';
   const refSub = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!sujo) setLinhas(dados.rubricas); }, [dados]);
+  const montarSomas = () => {
+    const rs = dados.rubricas.filter(r => r.destino !== 'DA').map(r => {
+      const itens = dados.subsidios.filter(x => x.rubrica === r.numero);
+      if (!itens.length) return null;
+      const soma = Math.round(itens.reduce((t, x) => t + x.valor, 0) * 100) / 100;
+      const bloqueio = r.descontoGeral > soma ? `desconto geral (R$ ${r.descontoGeral.toLocaleString('pt-BR')}) maior que a soma: ajuste o desconto antes` : null;
+      return { numero: r.numero, descricao: r.descricao, atual: r.valorPrevisto, soma, marcar: !bloqueio && Math.abs(soma - r.valorPrevisto) > 0.005, bloqueio };
+    }).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => a.numero - b.numero);
+    setSomas(rs);
+  };
+  useEffect(() => { if (pedirSomas) { setPedirSomas(false); montarSomas(); } }, [dados.subsidios]);
+  const aplicarSomas = async () => {
+    if (!somas) return;
+    const mudar_ = somas.filter(x => x.marcar && !x.bloqueio);
+    if (!mudar_.length) { setSomas(null); return; }
+    setGravando(true);
+    try {
+      const novos = dados.rubricas.filter(r => mudar_.some(x => x.numero === r.numero)).map(r => ({ ...r, valorPrevisto: mudar_.find(x => x.numero === r.numero)!.soma }));
+      await salvarRubricasProposta(ano, novos);
+      notify.success(`Valor de ${novos.length} rubrica(s) atualizado pela soma dos subsídios.`);
+      setSomas(null); setSujo(false); recarregar();
+    } catch (e) { notify.fail('Erro ao atualizar as rubricas', e); } finally { setGravando(false); }
+  };
   const mudar = (i: number, p: Partial<RubricaProposta>) => { setSujo(true); setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...p } : l))); };
   const erros = useMemo(() => {
     const e: string[] = [];
@@ -108,9 +135,9 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         const j = new Map(r.justificativas.map(x => [x.rubrica, x.texto]));
         await salvarRubricasProposta(ano, linhas.filter(l => j.has(l.numero)).map(l => ({ ...l, justificativaValor: j.get(l.numero)! })));
       }
-      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados.${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''}`);
+      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados.${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''} Agora escolha se o valor das rubricas deve passar a ser a soma dos subsídios.`);
       r.avisos.forEach(a => notify.error(a));
-      setSujo(false); recarregar();
+      setSujo(false); setPedirSomas(true); recarregar();
     } catch (e) { notify.fail('Erro ao importar subsídios', e); } finally { setImportando(false); if (refSub.current) refSub.current.value = ''; }
   };
 
@@ -183,6 +210,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         {podeEditar && <>
           <input ref={refSub} type="file" accept=".xlsx,.xls,.ods" className="hidden" aria-label="Planilha de subsídios" onChange={e => importarSub(e.target.files?.[0])} />
           <Button size="sm" variant="secondary" isLoading={importando} onClick={() => refSub.current?.click()}><FileUp size={14} className="mr-1" />Importar subsídios</Button>
+          <Button size="sm" variant="secondary" onClick={montarSomas} title="Compara a soma dos subsídios de cada rubrica com o valor dela e deixa atualizar">Valor pelos subsídios</Button>
           <BaixarModelo modelo={() => modeloSubsidios(ano, linhas.filter(l => l.destino !== 'DA').map(l => ({ numero: l.numero, descricao: l.descricao })))} />
         </>}
         <Button size="sm" variant="secondary" onClick={() => exportarSubsidios(ano, linhas, dados, descontosPorOM).catch(e => notify.fail('Erro ao exportar', e))}><Download size={14} className="mr-1" />Pacote de subsídios (ZIP)</Button>
@@ -211,6 +239,37 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <Button onClick={() => gravar().catch(() => undefined)} isLoading={gravando} disabled={!sujo || erros.length > 0}><Save size={16} className="mr-1" />Gravar rubricas</Button>
         {sujo && <span className="text-xs text-amber-700 self-center">Alterações não gravadas.</span>}
       </div>}
+      <Modal isOpen={!!somas} onClose={() => setSomas(null)} title={`Valor das rubricas de ${ano} pela soma dos subsídios`} maxWidth="max-w-3xl">
+        {somas && (
+          <div className="space-y-3 text-sm" data-testid="somas-subsidios">
+            {somas.length === 0 ? <p className="text-slate-600">Nenhuma rubrica tem subsídio cadastrado em {ano}.</p> : <>
+              <p className="text-slate-600">Cada rubrica tem hoje um valor digitado; os subsídios importados formam a composição dele. Marque as rubricas que devem <b>passar a valer a soma dos subsídios</b>. <b>Nada muda até você clicar em "Atualizar valores".</b></p>
+              <div className="max-h-[50vh] overflow-y-auto border border-slate-200 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="px-2 py-1 w-8"></th><th className="px-2 py-1 text-left">Rubrica</th><th className="px-2 py-1 text-right">Valor hoje</th><th className="px-2 py-1 text-right">Soma dos subsídios</th><th className="px-2 py-1 text-right">Diferença</th></tr></thead>
+                  <tbody>
+                    {somas.map((x, k) => {
+                      const dif = Math.round((x.soma - x.atual) * 100) / 100;
+                      const grande = x.atual > 0 && (x.soma / x.atual > 3 || x.soma / x.atual < 0.33);
+                      return (
+                        <tr key={x.numero} className="border-t border-slate-100">
+                          <td className="px-2 py-1"><input type="checkbox" aria-label={`Atualizar a rubrica ${x.numero}`} disabled={!!x.bloqueio || dif === 0} checked={x.marcar && !x.bloqueio} onChange={e => setSomas(l => l && l.map((y, j) => (j === k ? { ...y, marcar: e.target.checked } : y)))} /></td>
+                          <td className="px-2 py-1"><b>{x.numero}</b> · {x.descricao}{x.bloqueio && <div className="text-red-700">{x.bloqueio}</div>}{grande && <div className="text-amber-800">variação grande: confira antes de atualizar</div>}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{brl(x.atual)}</td>
+                          <td className="px-2 py-1 text-right tabular-nums font-semibold">{brl(x.soma)}</td>
+                          <td className={`px-2 py-1 text-right tabular-nums ${dif === 0 ? 'text-slate-400' : 'text-amber-800 font-semibold'}`}>{dif === 0 ? 'igual' : (dif > 0 ? '+' : '') + brl(dif)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>}
+            <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setSomas(null)}>Não alterar os valores</Button>
+              {somas.length > 0 && <Button onClick={aplicarSomas} isLoading={gravando} disabled={!somas.some(x => x.marcar && !x.bloqueio)}>Atualizar valores ({somas.filter(x => x.marcar && !x.bloqueio).length})</Button>}</div>
+          </div>
+        )}
+      </Modal>
       <FichaRubrica ano={ano} rubrica={fi} subsidios={fi ? subDe(fi.numero) : []} anexos={fi ? anxDe(fi.numero) : []} usuario={usuario} podeEditar={podeEditar}
         onMudar={p => mudar(ficha!, p)} onGravar={gravar} onFechar={() => setFicha(null)} recarregar={recarregar} />
     </div>
@@ -519,6 +578,8 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
   const [pend, setPend] = useState<{ ano: number; classe: string; dias: number; navios: number | null }[]>([]);
   const [anoBnic, setAnoBnic] = useState(ano - 1);
   const [gravando, setGravando] = useState(false);
+  // arquivo do histórico lido, à espera da confirmação do ano de cada aba (nada é gravado antes)
+  const [lido, setLido] = useState<{ arquivo: string; abas: { nome: string; linhas: any[][] }[]; sug: AbaHistorico[]; mapa: Record<string, number | null> } | null>(null);
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!alterados.size) setCel(inicial()); }, [dados]);
   const classes = dados.classes.filter(c => c.ativo || anos.some(a => cel[`${a}|${c.id}`]));
@@ -534,21 +595,36 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
   const importar = async (f?: File) => {
     if (!f) return;
     try {
-      const h = lerHistorico(lerAbas(await lerArquivo(f)));
+      const abas = lerAbas(await lerArquivo(f));
+      const sug = sugerirAnosDasAbas(abas);
+      if (!sug.length) { notify.error('Não achei nenhuma aba de ano com a coluna "CLASSE NAVIO" (esperado: abas "2024", "2025"... como no modelo).'); return; }
+      const mapa: Record<string, number | null> = {}; sug.forEach(x => { mapa[x.aba] = x.ano; });
+      setLido({ arquivo: f.name, abas, sug, mapa });
+    } catch (e) { notify.fail('Erro ao ler o histórico', e); }
+    if (ref.current) ref.current.value = '';
+  };
+  /** Aplica o histórico com os anos confirmados e GRAVA na hora (antes só preenchia a tela e era preciso lembrar de gravar). */
+  const aplicarHistorico = async () => {
+    if (!lido) return;
+    setGravando(true);
+    try {
+      const h = lerHistorico(lido.abas, lido.mapa);
       const sem: typeof pend = [];
-      let n = 0;
+      const linhasSalvar: AnoClasse[] = [];
       h.forEach(x => {
         const c = acharPorNome(x.classe, dados.classes);
         if (!c) { if (x.dias > 0) sem.push(x); return; }
-        set(x.ano, c.id, { dias: String(x.dias), navios: String(x.navios ?? navAtivos(c.id, x.ano)) }); n++;
+        linhasSalvar.push({ ano: x.ano, classeId: c.id, dias: x.dias, navios: x.navios ?? navAtivos(c.id, x.ano) });
       });
+      if (linhasSalvar.length) await salvarAtracacaoAnual(linhasSalvar, 'planilha');
+      setCel(m => { const n = { ...m }; linhasSalvar.forEach(l => { n[`${l.ano}|${l.classeId}`] = { dias: String(l.dias), navios: String(l.navios) }; }); return n; });
       setPend(sem);
       const lidos = [...new Set(h.map(x => x.ano))].sort();
-      notify.success(`Histórico lido: anos ${lidos.join(', ')}; ${n} classe(s)/ano ligadas${sem.length ? `; ${sem.length} sem classe no cadastro` : ''}. Confira e grave.`);
       const faltam = anos.filter(a => !lidos.includes(a));
-      if (faltam.length) notify.error(`O arquivo não tem aba para ${faltam.join(', ')}. Informe esses anos à mão ou calcule pelos mapas de atracação.`);
-    } catch (e) { notify.fail('Erro ao ler o histórico', e); }
-    if (ref.current) ref.current.value = '';
+      notify.success(`Histórico gravado: anos ${lidos.join(', ')}; ${linhasSalvar.length} registro(s) classe/ano${sem.length ? `; ${sem.length} sem classe no cadastro (escolha a classe abaixo)` : ''}.`);
+      if (faltam.length) notify.error(`Ainda faltam os dias de ${faltam.join(', ')} (janela da média de ${ano}). Informe à mão ou use "Calcular pelos mapas de atracação".`);
+      setLido(null); recarregar();
+    } catch (e) { notify.fail('Erro ao gravar o histórico', e); } finally { setGravando(false); }
   };
   const puxarBnic = async () => {
     try {
@@ -591,6 +667,42 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
           </div>
         ))}
       </Aviso>}
+      <Modal isOpen={!!lido} onClose={() => setLido(null)} title={`Importar histórico trienal — média de ${ano}`} maxWidth="max-w-2xl">
+        {lido && (
+          <div className="space-y-3 text-sm" data-testid="importar-historico">
+            <p className="text-slate-600"><b>{lido.arquivo}</b>. Confirme a que ano pertence cada aba. <b>Nada é gravado até você clicar em "Importar e gravar".</b></p>
+            <table className="w-full text-xs border border-slate-200 rounded">
+              <thead className="bg-slate-50 text-slate-600"><tr><th className="px-2 py-1 text-left">Aba do arquivo</th><th className="px-2 py-1 text-left">Ano</th><th className="px-2 py-1 text-left">Observação</th></tr></thead>
+              <tbody>
+                {lido.sug.map(x => (
+                  <tr key={x.aba} className="border-t border-slate-100">
+                    <td className="px-2 py-1 font-mono">{x.aba}</td>
+                    <td className="px-2 py-1">
+                      <select className={`${entrada} text-xs`} aria-label={`Ano da aba ${x.aba}`} value={lido.mapa[x.aba] ?? ''} onChange={e => setLido(l => l && ({ ...l, mapa: { ...l.mapa, [x.aba]: e.target.value ? Number(e.target.value) : null } }))}>
+                        <option value="">ignorar esta aba</option>
+                        {Array.from({ length: 10 }, (_, i) => ano - 6 + i).map(a => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1 text-amber-800">{x.sugerido ? `Sugestão: ${x.motivo}` : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(() => {
+              const esc = Object.values(lido.mapa).filter((v): v is number => v !== null);
+              const dup = esc.filter((a, i) => esc.indexOf(a) !== i);
+              return (<>
+                <div className="flex flex-wrap gap-2">
+                  {anos.map(a => <span key={a} className={`px-2 py-0.5 rounded border text-xs font-semibold ${esc.includes(a) ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>{a}: {esc.includes(a) ? '✔ no arquivo' : '✘ falta'}</span>)}
+                </div>
+                <p className="text-xs text-slate-500">A média de {ano} usa {anos[0]}, {anos[1]} e {anos[2]}. Ano que falta: informe à mão ou use "Calcular pelos mapas de atracação".</p>
+                {dup.length > 0 && <p className="text-xs text-red-700">Duas abas estão no mesmo ano ({[...new Set(dup)].join(', ')}): vale a detalhada por navio. Confira os anos acima.</p>}
+              </>);
+            })()}
+            <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setLido(null)}>Cancelar</Button><Button onClick={aplicarHistorico} isLoading={gravando}>Importar e gravar</Button></div>
+          </div>
+        )}
+      </Modal>
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-slate-600">

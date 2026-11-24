@@ -1606,6 +1606,62 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(disp.includes('R$ 19.615,73') && disp.includes('R$ 10.384,27') && disp.includes('R$ 97.860,00'), 'disponível: entrada condomínio 19.615,73, sem indicação 10.384,27, saída água 97.860,00 (empenho 94.860 + reforço 5.000 − anulação 2.000)');
   });
 
+  await cenario('Importações da taxa: histórico trienal (confirma o ano de cada aba), subsídios (valor pela soma) e prévia da lotação', [], async (page, db) => {
+    const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true }; db.classes_navio.push(classe);
+    const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
+    db.oms.push(amrj);
+    db.rubricas.push({ ano: 2027, numero: 1, descricao: 'Telhados', destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }, { ano: 2027, numero: 2, descricao: 'Água', destino: 'TC', valor_previsto: 500, valor_anual: 500, desconto_geral: 0 });
+    db.lotacoes_tc.push({ id: uid(), ano: 2027, om_id: amrj.id, lotacao: 600, lotacao_anterior: 600 });
+    const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-imp-'));
+    // histórico: duas abas chamadas "2023" (a segunda é 2024) e uma "2025"
+    const cab = ['CLASSE NAVIO', 'JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ', 'TOTAL'];
+    const aba = t => [['TÍTULO'], cab, ['Corvetas Classe Barroso', t, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, t]];
+    const hist = path.join(pasta, 'historico.xlsx'); const wbh = XLSX.utils.book_new();
+    [['2023', 100], ['2023_2', 200], ['2025', 300]].forEach(([n, t]) => XLSX.utils.book_append_sheet(wbh, XLSX.utils.aoa_to_sheet(aba(t)), n));
+    XLSX.writeFile(wbh, hist);
+    const sub = path.join(pasta, 'subsidios.xlsx'); const wbs = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbs, XLSX.utils.aoa_to_sheet([['RUBRICA', 'DESCRIÇÃO DO SUBSÍDIO', 'DOCUMENTO', 'VALOR (R$)', 'OBSERVAÇÃO'], [1, 'Orçamento A', 'Contrato 1', 900], [1, 'Orçamento B', 'Contrato 2', 300], [2, 'Conta de água', 'Fatura', 500]]), 'SUBSIDIOS');
+    XLSX.writeFile(wbs, sub);
+    const lot = path.join(pasta, 'lotacao.xlsx'); const wbl = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbl, XLSX.utils.aoa_to_sheet([['', 'LOTAÇÃO', 'LOTAÇÃO ANTERIOR', 'DIAS'], ['OM DE TERRA'], ['Arsenal de Marinha do Rio de Janeiro', 714, 600, 365], ['TOTAL', 714]]), 'RATEIO MODELO TÉCNICO');
+    XLSX.writeFile(wbl, lot);
+    await page.reload();
+    await page.getByRole('button', { name: 'Taxa condominial e diárias' }).click();
+    await page.getByRole('heading', { name: 'Taxa condominial e diárias' }).waitFor();
+    await page.getByLabel('Exercício da proposta').selectOption('2027');
+    // 1) histórico: nada é gravado antes de confirmar; o ano de cada aba aparece para conferir
+    await page.getByRole('button', { name: '6. Média trienal' }).click();
+    await page.locator('input[type=file]').last().setInputFiles(hist);
+    await page.getByTestId('importar-historico').waitFor({ timeout: 10000 });
+    const txt = await page.getByTestId('importar-historico').innerText();
+    ok(/duas abas "2023"/.test(txt) && /2026: ✘ falta/.test(txt), 'histórico: avisa que a 2ª aba "2023" foi tratada como 2024 e que falta o ano 2026');
+    ok(db.atracacao_anual.length === 0, 'histórico: nada é gravado antes de "Importar e gravar"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-historico-anos.png') });
+    await page.getByRole('button', { name: 'Importar e gravar' }).click();
+    for (let i = 0; i < 40 && db.atracacao_anual.length < 3; i++) await page.waitForTimeout(250);
+    ok(db.atracacao_anual.length === 3 && [2023, 2024, 2025].every(a => db.atracacao_anual.some(r => r.ano === a)), 'histórico: gravou 2023, 2024 (aba "2023_2") e 2025');
+    // 2) subsídios: depois de importar, pergunta se o valor da rubrica passa a ser a soma
+    await page.getByRole('button', { name: '1. Rubricas' }).click();
+    await page.getByLabel('Planilha de subsídios').setInputFiles(sub);
+    await page.getByTestId('somas-subsidios').waitFor({ timeout: 10000 });
+    ok(db.rubricas.find(r => r.numero === 1).valor_previsto === 1000, 'subsídios: importar não muda o valor da rubrica sem confirmação');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-somas-subsidios.png') });
+    await page.getByRole('button', { name: /^Atualizar valores/ }).click();
+    for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1200; i++) await page.waitForTimeout(250);
+    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1200 && db.subsidios_tc.length === 3, 'subsídios: "Atualizar valores" grava a soma (900 + 300 = 1.200) na rubrica');
+    // 3) lotação: prévia com hoje × novo antes de gravar
+    await page.getByRole('button', { name: 'Importar proposta (planilha)' }).click();
+    await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(lot);
+    await page.getByTestId('previa-lotacao').waitFor({ timeout: 10000 });
+    const prev = (await page.getByTestId('previa-lotacao').innerText()).replace(/\s+/g, ' ');
+    ok(/600/.test(prev) && /714/.test(prev) && /só a LOTAÇÃO/i.test(await page.locator('body').innerText()), `lotação: prévia mostra 600 → 714 e avisa que rubricas/matriz não mudam (${prev.slice(0, 160)})`);
+    ok(db.lotacoes_tc[0].lotacao === 600, 'lotação: nada gravado antes de confirmar');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-lotacao-previa.png') });
+    await page.getByRole('button', { name: 'Gravar importação' }).click();
+    for (let i = 0; i < 40 && db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao !== 714; i++) await page.waitForTimeout(250);
+    ok(db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao === 714 && db.rubricas.length === 2, 'lotação: gravou 714 e não mexeu nas rubricas');
+  });
+
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
     db.classes_navio.push(classe);
@@ -1647,7 +1703,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/3 rubricas/).waitFor();
     ok(await page.getByText('1 nome(s) sem correspondente automático.').isVisible() && (await page.getByLabel('O que fazer com OM NOVA FORA DA ILHA').inputValue()) === 'DEPOIS', 'nome sem correspondente: padrão "decidir depois" (não é perdido)');
     await page.getByRole('button', { name: 'Gravar importação' }).click();
-    await page.getByText(/Proposta importada\. 1 nome\(s\) ficaram pendentes/).waitFor();
+    await page.getByText(/Importação gravada.*1 nome\(s\) ficaram pendentes/).waitFor();
     const r1 = db.rubricas.find(r => r.numero === 1), r2 = db.rubricas.find(r => r.numero === 2);
     ok(db.rubricas.length === 2 && !r2 && Number(r1.gasto_anterior) === 391421.64 && r1.destino === 'TC' && Number(db.propostas_tc[0].navios_planilha) === 100000, '"Navios" não vira rubrica: é o total do grupo (guardado para conferência)');
     ok(db.rubricas.find(r => r.numero === 3).destino === 'OG' && db.rubricas.find(r => r.numero === 3).rateio_todas === true, 'linha depois da última da matriz vira "outros gastos" (entra na taxa, rateada entre todas as OM)');

@@ -243,7 +243,7 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
         return { nome, tipo: navioDe.get(nome) ? 'NAVIO' as const : 'TERRA' as const, lotacao: l?.lotacao ?? null, lotacaoAnterior: l?.lotacaoAnterior ?? null, dias: l?.navio ? l.dias : null,
           rubricas: (lido.matriz.find(x => x.nome === nome)?.rubricas || []).filter(r => !rubDA.has(r)), descontos: lido.descontos.filter(d => d.nome === nome).map(d => ({ rubrica: d.rubrica, valor: d.valor })) };
       }));
-      notify.success(`Proposta importada.${nomesDepois.length ? ` ${nomesDepois.length} nome(s) ficaram pendentes para escolher o correspondente nas abas Clientes/Navios.` : ''}`);
+      notify.success(`Importação gravada${lido.lotacoes.length ? `: lotação de ${new Set(lido.lotacoes.map(l => idDe(l.nome)).filter(Boolean)).size} OM/navio(s)` : ''}${lido.rubricas.length ? `, ${lido.rubricas.length} rubrica(s)` : ''}.${nomesDepois.length ? ` ${nomesDepois.length} nome(s) ficaram pendentes para escolher o correspondente nas abas Clientes/Navios.` : ''}`);
       setLido(null); fechar(); gravado();
     } catch (e) { notify.fail('Erro ao gravar a importação', e); } finally { setGravando(false); }
   };
@@ -258,6 +258,35 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
             <b>{lido.arquivo}</b>: {lido.rubricas.length} rubricas ({brl(lido.rubricas.reduce((s, r) => s + r.valorPrevisto, 0))}; {lido.rubricas.filter(r => r.destino === 'DA').length} para diárias), {lido.lotacoes.filter(l => !l.navio).length} OM e {lido.lotacoes.filter(l => l.navio).length} navios com lotação, {lido.matriz.length} OM na matriz, {lido.descontos.length} desconto(s) por OM.
             {lido.avisos.map(a => <div key={a} className="text-amber-800">{a}</div>)}
           </Aviso>
+          {lido.rubricas.length === 0 && lido.matriz.length === 0 && lido.lotacoes.length > 0 && (
+            <Aviso tom="slate"><b>Este arquivo traz só a LOTAÇÃO</b> ({lido.lotacoes.length} linha(s)): as rubricas e a matriz <b>não serão alteradas</b>. Os avisos de "aba não encontrada" acima são normais neste caso.</Aviso>
+          )}
+          {lido.lotacoes.length > 0 && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden" data-testid="previa-lotacao">
+              <div className="px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-600">O que será gravado na lotação de {ano} (nada é gravado até clicar em "Gravar importação")</div>
+              <div className="max-h-56 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-slate-500"><tr><th className="px-2 py-1 text-left">Nome na planilha</th><th className="px-2 py-1 text-left">Cliente no cadastro</th><th className="px-2 py-1 text-right">Hoje</th><th className="px-2 py-1 text-right">Novo</th><th className="px-2 py-1 text-right">Diferença</th></tr></thead>
+                  <tbody>
+                    {lido.lotacoes.map(l => {
+                      const e = esc.get(l.nome); const id = e?.tipo === 'OM' ? e.omId : null;
+                      const hoje = id ? dados.lotacoes.find(x => x.omId === id)?.lotacao ?? null : null;
+                      const dif = hoje === null ? null : l.lotacao - hoje;
+                      return (
+                        <tr key={l.nome} className="border-t border-slate-100">
+                          <td className="px-2 py-1">{l.navio ? '⚓ ' : ''}{l.nome}</td>
+                          <td className="px-2 py-1">{id ? <span className="text-emerald-700">{nomeOM(id)}</span> : <span className="text-amber-700">sem correspondente (fica pendente)</span>}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{hoje === null ? '—' : hoje}</td>
+                          <td className="px-2 py-1 text-right tabular-nums font-semibold">{l.lotacao}</td>
+                          <td className={`px-2 py-1 text-right tabular-nums ${dif ? 'text-amber-800 font-semibold' : 'text-slate-400'}`}>{dif === null ? '' : dif > 0 ? `+${dif}` : dif}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {dados.rubricas.length > 0 && <Aviso>Já existem dados de {ano}: rubricas e lotações com o mesmo número/OM serão atualizadas, a matriz será substituída e os descontos importados antes serão trocados pelos novos (os lançados à mão ficam).</Aviso>}
           {naoLigados.length > 0 && <Aviso>
             <b>{naoLigados.length} nome(s) sem correspondente automático.</b> Para cada um: escolha o cliente do cadastro (ou crie um novo), deixe <b>para decidir depois</b> (fica guardado e aparece nas abas Clientes/Navios) ou ignore.

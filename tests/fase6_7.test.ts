@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { comparativo, mediaTrienal, montarParticipantes, naviosAtivos, ratear, valorVigente } from '../utils/taxaCondominial';
-import { acharPorNome, lerDespesas, lerHistorico, lerLotacoes, lerMatriz, lerProposta, ligarOMs } from '../utils/taxaCondominialImport';
+import { acharPorNome, lerDespesas, lerHistorico, sugerirAnosDasAbas, lerLotacoes, lerMatriz, lerProposta, ligarOMs } from '../utils/taxaCondominialImport';
 import { backupAtrasado, diasSemBackup, diferencas, resumo } from '../utils/auditoria';
 import { acharNavio } from '../utils/importMedicoes';
 
@@ -152,6 +152,20 @@ describe('Fase 6 — leitura das planilhas', () => {
       { nome: 'LISTA DE NAVIOS', linhas: [] },
     ]);
     expect(h).toEqual([{ ano: 2023, classe: 'Classe Marlim', dias: 20, navios: 2, aba: '2023_2' }]);
+  });
+  it('histórico: duas abas "2023" — a segunda é 2024 (pela MEDIA TRIENAL ou por ser a seguinte); o ano confirmado na tela vale; null ignora a aba', () => {
+    const cab = ['CLASSE NAVIO', 'JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ', 'TOTAL'];
+    const aba = (nome: string, total: number) => ({ nome, linhas: [['T'], cab, ['Classe Marlim', total, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, total]] });
+    const abas = [aba('2023', 100), aba('2023_2', 200), aba('LISTA DE NAVIOS', 0)];
+    const sug = sugerirAnosDasAbas(abas);
+    expect(sug.map(x => [x.aba, x.ano, x.sugerido])).toEqual([['2023', 2023, false], ['2023_2', 2024, true]]);
+    // com a aba MEDIA TRIENAL, o ano vem dos dias de cada coluna
+    const media = { nome: 'MEDIA TRIENAL', linhas: [['CLASSE', 'Nº DIAS 2023', 'Nº DIAS 2024', 'Nº DIAS 2025'], ['Classe Marlim', 100, 200, 0]] };
+    expect(sugerirAnosDasAbas([...abas, media]).map(x => [x.aba, x.ano])).toEqual([['2023', 2023], ['2023_2', 2024]]);
+    // sem o mapa, cada aba vale pelo próprio nome (comportamento antigo); com o mapa, vale o ano confirmado
+    expect(lerHistorico(abas).map(x => [x.ano, x.dias])).toEqual([[2023, 200]]);
+    expect(lerHistorico(abas, { '2023': 2023, '2023_2': 2024 }).map(x => [x.ano, x.dias])).toEqual([[2023, 100], [2024, 200]]);
+    expect(lerHistorico(abas, { '2023': 2023, '2023_2': null }).map(x => [x.ano, x.dias])).toEqual([[2023, 100]]);
   });
   it('liga nomes ao cadastro: exato, sem parênteses, sigla, prefixo (corte de 50 caracteres) e navio após o travessão', () => {
     const oms = [
