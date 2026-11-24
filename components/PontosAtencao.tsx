@@ -80,7 +80,7 @@ export const PontosModal: React.FC<{
                     <span className="text-[10px] uppercase font-bold tracking-wide text-slate-500">gravidade {COR_GRAVIDADE[p.gravidade].rotulo}</span>
                     <span className="text-[10px] text-slate-500">{p.automatico ? '· detectado automaticamente' : `· anotado na ${p.origem === 'migracao' ? 'migração' : 'gravação'}${p.em ? ` em ${dataBR(p.em)}` : ''}`}</span>
                   </div>
-                  <p className="text-sm text-slate-800">{p.mensagem}</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-line">{p.mensagem}</p>
                   <p className="text-xs text-slate-600"><b>Como corrigir:</b> {p.comoCorrigir}</p>
                   {podeEditar && !p.resolvido && <CorrigirAgora alvo={alvo.alvo} id={alvo.id} ponto={p} usuario={usuario} onFeito={onAlterado} />}
                   {p.automatico && !p.resolvido && <p className="text-[11px] text-slate-500">Some sozinho quando o dado for corrigido.</p>}
@@ -92,7 +92,7 @@ export const PontosModal: React.FC<{
                   )}
                   {podeEditar && !p.resolvido && resolvendo !== i && (
                     <button className="text-xs font-semibold text-primary-700 hover:underline" onClick={() => { setResolvendo(i); setJustificativa(''); }}>
-                      {p.automatico ? 'Estou ciente (manter assim)' : 'Marcar como resolvido'}
+                      {p.tipo === 'BAIXA_FORA_DESTINACAO' ? 'Informar o motivo (manter assim)' : p.automatico ? 'Estou ciente (manter assim)' : 'Marcar como resolvido'}
                     </button>
                   )}
                   {podeEditar && p.resolvido && (
@@ -104,10 +104,10 @@ export const PontosModal: React.FC<{
                     <div className="mt-2 space-y-2">
                       <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} rows={2} autoFocus
                         aria-label="Justificativa"
-                        placeholder={p.automatico ? 'Por que está correto assim? (ex.: excedente devolvido por GRU nº...)' : 'O que foi feito? (ex.: conferido no SIPLAD, vencimento correto)'}
+                        placeholder={p.tipo === 'BAIXA_FORA_DESTINACAO' ? 'Por que pagamos diferente do que a OM indicou? (ex.: a OM confirmou por telefone que a fatura paga é a correta)' : p.automatico ? 'Por que está correto assim? (ex.: excedente devolvido por GRU nº...)' : 'O que foi feito? (ex.: conferido no SIPLAD, vencimento correto)'}
                         className="w-full text-sm border border-slate-300 rounded-md p-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500" />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => resolver(p)} isLoading={gravando}>Confirmar</Button>
+                        <Button size="sm" onClick={() => resolver(p)} isLoading={gravando} disabled={p.tipo === 'BAIXA_FORA_DESTINACAO' && !justificativa.trim()}>Confirmar</Button>
                         <Button size="sm" variant="ghost" onClick={() => setResolvendo(null)} disabled={gravando}>Cancelar</Button>
                       </div>
                     </div>

@@ -583,6 +583,13 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Buscar fatura para adicionar').fill('99999');
     await page.getByRole('button', { name: 'Adicionar a fatura 99999-AE-08-2026-001-0' }).click();
     ok(await page.getByLabel('Valor para 99999-AE-08-2026-001-0').isVisible(), 'baixa assistida: fatura de outro cliente adicionada à mão');
+    // baixa fora do que a OM indicou: o motivo é obrigatório
+    await page.getByLabel('Valor para 99999-AE-08-2026-001-0').fill('50');
+    await page.getByLabel('Motivo da baixa fora da indicação').waitFor();
+    ok(await page.getByRole('button', { name: 'Gravar baixas' }).isDisabled(), 'baixa fora da indicação da OM: sem motivo, não grava');
+    await page.getByLabel('Motivo da baixa fora da indicação').fill('OM confirmou por telefone');
+    ok(await page.getByRole('button', { name: 'Gravar baixas' }).isEnabled(), 'com o motivo informado, libera gravar');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'baixa-motivo-fora.png') });
     await page.getByLabel('Valor para 99999-AE-08-2026-001-0').fill('0');   // só testei a escolha; não baixa
     await page.getByRole('button', { name: 'Gravar baixas' }).click();
     await page.getByText(/baixa\(s\) gravada\(s\); sobra de R\$ 250,00 enviada para adiantamento/).waitFor();

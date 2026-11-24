@@ -1108,7 +1108,7 @@ export const ReceivedBalances: React.FC = () => {
         message={mensagemExclusao()}
       />
       <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} />
-      <BaixaAssistidaModal doc={baixaDoc} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />
+      <BaixaAssistidaModal doc={baixaDoc} usuario={user?.name || user?.email || ''} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
         onAlterado={async () => {
           await refresh();

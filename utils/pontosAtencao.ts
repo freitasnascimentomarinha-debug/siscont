@@ -197,7 +197,16 @@ export function avaliarPontos(
       const destOm = new Set(d.destinacao.filter(x => x.tipo === 'OM').map(x => x.valor));
       const fora = [...new Set(faturasDoDoc.get(d.id) || [])].map(id => fatPorId.get(id)).filter(f => f
         && !destFat.has((f.invoiceNumber || '').trim().toUpperCase()) && !(f.omId && destOm.has(f.omId))) as FaturaParaPontos[];
-      if (fora.length) a.push(['BAIXA_FORA_DESTINACAO', `Baixa em ${fora.length} fatura(s) fora da destinação: ${fora.slice(0, 5).map(f => f.invoiceNumber).join(', ')}${fora.length > 5 ? '…' : ''}.`]);
+      if (fora.length) {
+        const lista = (xs: string[]) => `${xs.slice(0, 5).join(', ')}${xs.length > 5 ? '…' : ''}`;
+        const baixadas = new Set((faturasDoDoc.get(d.id) || []).map(id => (fatPorId.get(id)?.invoiceNumber || '').trim().toUpperCase()));
+        const indicadasSemBaixa = [...destFat].filter(n => !baixadas.has(n));
+        a.push(['BAIXA_FORA_DESTINACAO', [
+          `A OM indicou: ${destFat.size ? lista([...destFat]) : ''}${destFat.size && destOm.size ? ' e ' : ''}${destOm.size ? `${destOm.size} OM (todas as faturas dela)` : ''}.`,
+          `Demos baixa em: ${lista(fora.map(f => f.invoiceNumber))} — fora do que a OM indicou.`,
+          indicadasSemBaixa.length ? `Indicadas e ainda sem baixa deste crédito: ${lista(indicadasSemBaixa)}.` : '',
+        ].filter(Boolean).join('\n')]);
+      }
     }
     const pontos = combinar(a, d.pontosRegistro);
     if (pontos.length) pd.set(d.id, pontos);

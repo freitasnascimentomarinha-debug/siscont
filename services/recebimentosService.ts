@@ -162,7 +162,9 @@ export function faturasCandidatas(invoices: Invoice[], docs: ReceivedDocument[],
     .filter(f => f.saldo > 0.005);
 }
 
-export async function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string }) {
+export async function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string; motivoFora?: string; usuario?: string }) {
+  const motivoFora = (opcoes.motivoFora || '').trim();
+  if (itens.some(i => i.foraDestinacao && i.valor > 0.005) && doc.destinacao?.length && !motivoFora) throw new Error('Informe o motivo de a baixa sair fora do que a OM indicou.');
   if (motivoBloqueio(doc.situacaoSiplad)) throw new Error(motivoBloqueio(doc.situacaoSiplad));
   const tipo = doc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO';
   const tipoFatura = new Map(invoices.map(i => [i.id, i.type]));
@@ -171,8 +173,12 @@ export async function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemPro
     await db.saveAllocation({
       id: uuidv4(), documentId: doc.id, invoiceId: i.faturaId, amount: r2(i.valor), date: opcoes.data,
       serviceType: tipoFatura.get(i.faturaId), siscontSettled: false, tipoBaixa: tipo,
-      observation: `Baixa assistida${i.foraDestinacao ? ' (fora da destinação)' : ''}`,
+      observation: `Baixa assistida${i.foraDestinacao ? ` (fora da destinação${motivoFora ? `: ${motivoFora}` : ''})` : ''}`,
     });
+  }
+  // o motivo de pagar diferente do indicado já fica registrado no ponto de atenção (ciente), para não precisar informar de novo
+  if (motivoFora && usados.some(i => i.foraDestinacao)) {
+    await db.resolverPonto('documento', doc.id, { tipo: 'BAIXA_FORA_DESTINACAO', titulo: 'Baixa fora da destinação', gravidade: 'media', mensagem: '', comoCorrigir: '', automatico: true, origem: 'sistema' }, opcoes.usuario || '', motivoFora);
   }
   const sobra = r2(doc.availableValue - usados.reduce((s, i) => s + i.valor, 0));
   const precisaAtualizar = doc.aguardando || (opcoes.enviarSobra && sobra > 0.005 && tipo === 'PAGAMENTO');

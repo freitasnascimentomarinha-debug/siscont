@@ -16,11 +16,12 @@ const GRUPO = { CITADA: 'Indicada pelo cliente', OM_DESTINADA: 'OM indicada', CO
 /** Propõe e grava as baixas de uma ALTCRED/GRU nas faturas do cliente (mais antigas primeiro). */
 export const BaixaAssistidaModal: React.FC<{
   doc: ReceivedDocument | null; onClose: () => void; invoices: Invoice[]; documentos: ReceivedDocument[];
-  baixas: PaymentAllocation[]; oms: OM[]; onGravado: () => Promise<void>;
-}> = ({ doc, onClose, invoices, documentos, baixas, oms, onGravado }) => {
+  baixas: PaymentAllocation[]; oms: OM[]; onGravado: () => Promise<void>; usuario?: string;
+}> = ({ doc, onClose, invoices, documentos, baixas, oms, onGravado, usuario = '' }) => {
   const [itens, setItens] = useState<ItemProposta[]>([]);
   const [incluirContestadas, setIncluirContestadas] = useState(false);
   const [enviarSobra, setEnviarSobra] = useState(true);
+  const [motivoFora, setMotivoFora] = useState('');
   const [data, setData] = useState(new Date().toISOString().slice(0, 10));
   const [gravando, setGravando] = useState(false);
   const [busca, setBusca] = useState('');
@@ -66,7 +67,7 @@ export const BaixaAssistidaModal: React.FC<{
   const gravar = async () => {
     setGravando(true);
     try {
-      const r = await gravarBaixaAssistida(doc, itens, invoices, { enviarSobra: enviarSobra && ehPagamento, data });
+      const r = await gravarBaixaAssistida(doc, itens, invoices, { enviarSobra: enviarSobra && ehPagamento, data, motivoFora: foraUsadas.length ? motivoFora : '', usuario });
       notify.success(`${r.baixas} baixa(s) gravada(s)${r.sobra > 0.005 && enviarSobra && ehPagamento ? `; sobra de ${brl(r.sobra)} enviada para adiantamento` : ''}.`);
       await onGravado();
       onClose();
@@ -82,7 +83,7 @@ export const BaixaAssistidaModal: React.FC<{
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose} disabled={gravando}>Cancelar</Button>
-            <Button onClick={gravar} isLoading={gravando} disabled={!!bloqueio || erros.length > 0 || usado <= 0} title={bloqueio || undefined}>Gravar baixas</Button>
+            <Button onClick={gravar} isLoading={gravando} disabled={!!bloqueio || erros.length > 0 || usado <= 0 || (temDestinacao && foraUsadas.length > 0 && !motivoFora.trim())} title={bloqueio || (temDestinacao && foraUsadas.length > 0 && !motivoFora.trim() ? 'Informe o motivo de a baixa sair fora do que a OM indicou' : undefined)}>Gravar baixas</Button>
           </div>
         </div>
       }>
@@ -169,9 +170,16 @@ export const BaixaAssistidaModal: React.FC<{
 
         {erros.map(e => <p key={e} className="text-red-600 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />{e}</p>)}
         {temDestinacao && foraUsadas.length > 0 && (
-          <p className="text-amber-700 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />
-            {foraUsadas.length} fatura(s) fora da destinação indicada pelo cliente receberão baixa. Isso ficará marcado como ponto de atenção.
-          </p>
+          <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 space-y-2">
+            <p className="text-amber-800 flex gap-1"><AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              A OM indicou outras faturas. {foraUsadas.length} fatura(s) fora da indicação receberão baixa: <span className="font-mono">{foraUsadas.map(i => i.numero).join(', ')}</span>.
+              Isso ficará marcado como ponto de atenção, já com o motivo abaixo.
+            </p>
+            <label className="block text-slate-700 font-medium">Motivo de pagarmos diferente do que a OM indicou (obrigatório)
+              <textarea rows={2} className="mt-1 w-full border border-amber-300 rounded-md p-2 text-sm bg-white font-normal" aria-label="Motivo da baixa fora da indicação" value={motivoFora} onChange={e => setMotivoFora(e.target.value)}
+                placeholder="Ex.: a OM confirmou por telefone que o pagamento é da fatura 010; a 008 já estava quitada" />
+            </label>
+          </div>
         )}
         {sobra > 0.005 && ehPagamento && !enviarSobra && <p className="text-slate-600">A sobra de {brl(sobra)} continua disponível neste documento.</p>}
       </div>
