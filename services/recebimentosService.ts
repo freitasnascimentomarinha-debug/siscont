@@ -66,7 +66,9 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
       if (Math.abs(existente.totalValue - sol.valor) > 0.01 && !existente.valorEstornado) {
         avisos.push(`Valor no sistema R$ ${existente.totalValue.toFixed(2)} × no SIPLAD R$ ${sol.valor.toFixed(2)}; o valor do sistema foi mantido.`);
       }
-      const destinacao = existente.destinacao?.length ? existente.destinacao : sol.faturasCitadas.map(n => ({ tipo: 'FATURA' as const, valor: n }));
+      // mantém a destinação já gravada e acrescenta as faturas citadas na observação que ainda não constam (ex.: número digitado com espaço)
+      const jaTem = new Set((existente.destinacao || []).map(d => d.valor.toUpperCase()));
+      const destinacao = [...(existente.destinacao || []), ...sol.faturasCitadas.filter(n => !jaTem.has(n)).map(n => ({ tipo: 'FATURA' as const, valor: n }))];
       // situação que mudou desde a última importação (ex.: aguardando → processada): a data do documento passa a ser a do processamento
       const antes = classificarSituacao(existente.situacaoSiplad), agora = classificarSituacao(sol.situacao);
       const virouProcessada = !!existente.situacaoSiplad && !antes.recebido && agora.codigo === 'PROCESSADA' && !!sol.dataSituacao;

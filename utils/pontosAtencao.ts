@@ -12,6 +12,7 @@
  */
 import { citarPrazo, obterNormas } from './normas';
 import { lerFatura } from './cadastroImport';
+import { extrairFaturas } from './altcredSiplad';
 
 export type Gravidade = 'alta' | 'media' | 'baixa';
 export type Alvo = 'fatura' | 'documento';
@@ -92,6 +93,8 @@ export interface DocumentoParaPontos {
   id: string; documentNumber: string; documentType: string; totalValue: number; operation: string;
   comandoId?: string | null; pontosRegistro?: RegistroPonto[];
   destinacao?: { tipo: 'FATURA' | 'OM'; valor: string }[];
+  /** texto da OM no SIPLAD: as faturas citadas nele também contam como indicadas (mesmo que a destinação gravada tenha perdido alguma) */
+  observacaoSolicitante?: string | null;
 }
 export interface BaixaParaPontos { documentId: string; invoiceId: string; amount: number; tipoBaixa?: 'PAGAMENTO' | 'ADIANTAMENTO' | null }
 
@@ -193,7 +196,7 @@ export function avaliarPontos(
     if (num && (numDoc.get(num) || 0) > 1) a.push(['DOC_NUMERO_REPETIDO', `O número ${num} aparece em ${numDoc.get(num)} documentos.`]);
     if (!(d.totalValue > 0)) a.push(['DOC_VALOR_INVALIDO', `Valor do documento ${brl(d.totalValue || 0)}.`]);
     if (d.destinacao?.length) {
-      const destFat = new Set(d.destinacao.filter(x => x.tipo === 'FATURA').map(x => x.valor.trim().toUpperCase()));
+      const destFat = new Set([...d.destinacao.filter(x => x.tipo === 'FATURA').map(x => x.valor.trim().toUpperCase()), ...extrairFaturas(d.observacaoSolicitante)]);
       const destOm = new Set(d.destinacao.filter(x => x.tipo === 'OM').map(x => x.valor));
       const fora = [...new Set(faturasDoDoc.get(d.id) || [])].map(id => fatPorId.get(id)).filter(f => f
         && !destFat.has((f.invoiceNumber || '').trim().toUpperCase()) && !(f.omId && destOm.has(f.omId))) as FaturaParaPontos[];
@@ -205,6 +208,7 @@ export function avaliarPontos(
           `A OM indicou: ${destFat.size ? lista([...destFat]) : ''}${destFat.size && destOm.size ? ' e ' : ''}${destOm.size ? `${destOm.size} OM (todas as faturas dela)` : ''}.`,
           `Demos baixa em: ${lista(fora.map(f => f.invoiceNumber))} — fora do que a OM indicou.`,
           indicadasSemBaixa.length ? `Indicadas e ainda sem baixa deste crédito: ${lista(indicadasSemBaixa)}.` : '',
+          d.observacaoSolicitante?.trim() ? `Observação da OM no SIPLAD: “${d.observacaoSolicitante.trim()}”` : '',
         ].filter(Boolean).join('\n')]);
       }
     }

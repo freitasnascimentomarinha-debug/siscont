@@ -33,6 +33,15 @@ export interface SolicitacaoAltcred {
 export const RE_ALTCRED = /\b[A-Z][A-Z0-9]{0,4}\.\d{4}\.AC\.\d{5}\b/;
 export const RE_FATURA_TEXTO = /\b\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d\b/g;
 
+/**
+ * Números de fatura citados num texto livre (observação da OM). Tolera o que as OM digitam: espaços em volta dos hífens
+ * ("71000-AE-09-2026-008- 0"), minúsculas e sufixos colados ("...-008-0-DABM"). Devolve sem repetição, em maiúsculas.
+ */
+export function extrairFaturas(texto: string | null | undefined): string[] {
+  const t = (texto || '').toUpperCase().replace(/([0-9A-Z])\s*[-–—]\s*(?=[0-9A-Z])/g, '$1-');
+  return [...new Set(t.match(RE_FATURA_TEXTO) || [])];
+}
+
 const limpo = (s: string) => s.replace(/\s+/g, ' ').trim();
 const vazio = (s: string) => !s || /^-+$/.test(s.trim());
 const centro = (i: ItemPdf) => i.x + i.w / 2;
@@ -161,7 +170,7 @@ export function lerSolicitacao(itens: ItemPdf[], pagina = 1): SolicitacaoAltcred
     altcredOrigem: vazio(origem) ? null : (origem.match(RE_ALTCRED)?.[0] ?? origem), ugCliente: vazio(ugCliente) ? '' : ugCliente,
     ugClienteCodigo: ugCliente.match(/\b\d{5}\b/)?.[0] ?? null, situacao: vazio(situacao) ? '' : situacao,
     dataSituacao: dataSituacao ?? dataCriacao, observacao, celulas, valor: Math.round(valor * 100) / 100,
-    faturasCitadas: [...new Set(observacao.match(RE_FATURA_TEXTO) || [])], pagina, avisos,
+    faturasCitadas: extrairFaturas(observacao), pagina, avisos,
   };
 }
 

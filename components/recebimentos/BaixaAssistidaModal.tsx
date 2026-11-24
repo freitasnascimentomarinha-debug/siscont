@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Invoice, OM, PaymentAllocation, ReceivedDocument } from '../../types';
 import { ItemProposta, proporBaixa, validarBaixa } from '../../utils/baixaAssistida';
-import { RE_FATURA_TEXTO } from '../../utils/altcredSiplad';
+import { extrairFaturas } from '../../utils/altcredSiplad';
 import { faturasCandidatas, gravarBaixaAssistida } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao, motivoBloqueio } from '../../utils/situacaoSiplad';
@@ -27,7 +27,7 @@ export const BaixaAssistidaModal: React.FC<{
   const [busca, setBusca] = useState('');
 
   const candidatas = useMemo(() => (doc ? faturasCandidatas(invoices, documentos, baixas, oms) : []), [doc, invoices, documentos, baixas, oms]);
-  const citadas = useMemo(() => [...new Set(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`.match(RE_FATURA_TEXTO) || [])], [doc]);
+  const citadas = useMemo(() => extrairFaturas(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`), [doc]);
 
   useEffect(() => {
     if (!doc) return;

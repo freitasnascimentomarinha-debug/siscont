@@ -330,3 +330,22 @@ describe('baixa assistida: fatura citada com a sequência errada', () => {
     expect(p.itens.every(i => i.grupo === 'COMANDO' && i.valor === 0 && !i.citadaComo)).toBe(true);
   });
 });
+
+import { extrairFaturas } from '../utils/altcredSiplad';
+describe('faturas citadas no texto da OM', () => {
+  it('lê o número mesmo com espaço depois do hífen, sufixo colado e minúsculas', () => {
+    const obs = 'PAGAMENTO DA FATURA Nº 71000-TC-09-2026-008-0-DABM, REF A TAXA CONDOMINIAL E 71000-AE-09-2026-008- 0, REF A AGUA E ESGOTO DE SET2026 DO EAGM';
+    expect(extrairFaturas(obs)).toEqual(['71000-TC-09-2026-008-0', '71000-AE-09-2026-008-0']);
+    expect(extrairFaturas('fatura 71000-el-09-2026-001 - 0 e 71000-EL-09-2026-001-0')).toEqual(['71000-EL-09-2026-001-0']);
+    expect(extrairFaturas('sem fatura aqui, SET-2026')).toEqual([]);
+  });
+  it('a baixa na fatura citada com espaço não é "fora da destinação"', () => {
+    const f = (id: string, n: string) => ({ id, invoiceNumber: n, value: 100, issueDate: '2026-09-15', dueDate: '2026-09-29', monthCompetence: 9, yearCompetence: 2026, serviceAcronym: n.split('-')[1], type: 'x', client: 'DABM', ug: '71000', omId: 'om1', isCanceled: false, contestada: false } as any);
+    const r = avaliarPontos(
+      [f('f1', '71000-TC-09-2026-008-0'), f('f2', '71000-AE-09-2026-008-0')],
+      [{ id: 'd1', documentNumber: 'G1', documentType: 'ALTCRED', totalValue: 200, operation: 'PAGAMENTO', destinacao: [{ tipo: 'FATURA', valor: '71000-TC-09-2026-008-0' }], observacaoSolicitante: 'FATURA 71000-TC-09-2026-008-0 E 71000-AE-09-2026-008- 0' }],
+      [{ documentId: 'd1', invoiceId: 'f1', amount: 100 }, { documentId: 'd1', invoiceId: 'f2', amount: 100 }],
+    );
+    expect(r.documentos.get('d1')?.map(p => p.tipo) ?? []).not.toContain('BAIXA_FORA_DESTINACAO');
+  });
+});

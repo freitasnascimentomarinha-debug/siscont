@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Destinacao, ReceivedDocument } from '../../types';
-import { RE_FATURA_TEXTO } from '../../utils/altcredSiplad';
+import { extrairFaturas } from '../../utils/altcredSiplad';
 
 const brl = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const br = (iso?: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
@@ -34,7 +34,7 @@ export const DadosSiplad: React.FC<{ doc: ReceivedDocument }> = ({ doc }) => {
         {!!doc.valorEstornado && <Campo rotulo="Valor original / estornado" valor={`${brl(doc.valorOriginal ?? doc.totalValue + doc.valorEstornado)} / ${brl(doc.valorEstornado)}`} />}
       </div>
       {doc.observacaoSolicitante && <Campo rotulo="Observação do solicitante" valor={doc.observacaoSolicitante} />}
-      {!!doc.destinacao?.length && <Campo rotulo="Destinação indicada" valor={doc.destinacao.map(d => d.valor).join(', ')} />}
+      {!!doc.destinacao?.length && <Campo rotulo="Destinação indicada" valor={[...new Set([...doc.destinacao.map(d => d.valor), ...extrairFaturas(doc.observacaoSolicitante)])].join(', ')} />}
       {!!doc.celulas?.length && (
         <div className="overflow-x-auto">
           <table className="min-w-full text-xs">
@@ -65,7 +65,7 @@ export const CamposFase2: React.FC<{ dados: Partial<ReceivedDocument>; onChange:
   const [textoDest, setTextoDest] = useState(destTexto);
   const lerDestinacao = (t: string) => {
     setTextoDest(t);
-    const nums = [...new Set((t.toUpperCase().match(RE_FATURA_TEXTO) || []))];
+    const nums = extrairFaturas(t);
     const outras = (dados.destinacao || []).filter(d => d.tipo !== 'FATURA');
     onChange({ destinacao: [...outras, ...nums.map(valor => ({ tipo: 'FATURA', valor }) as Destinacao)] });
   };
