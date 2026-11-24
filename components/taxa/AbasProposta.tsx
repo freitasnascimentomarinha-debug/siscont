@@ -57,7 +57,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
       if (!itens.length) return null;
       const soma = Math.round(itens.reduce((t, x) => t + x.valor, 0) * 100) / 100;
       const bloqueio = r.descontoGeral > soma ? `desconto geral (R$ ${r.descontoGeral.toLocaleString('pt-BR')}) maior que a soma: ajuste o desconto antes` : null;
-      return { numero: r.numero, descricao: r.descricao, atual: r.valorPrevisto, soma, marcar: !bloqueio && Math.abs(soma - r.valorPrevisto) > 0.005, bloqueio };
+      return { numero: r.numero, descricao: r.descricao, atual: r.valorPrevisto, soma, marcar: !bloqueio && Math.abs(soma - r.valorPrevisto) > 0.005 && !(r.valorPrevisto > 0 && (soma / r.valorPrevisto > 3 || soma / r.valorPrevisto < 0.33)), bloqueio };
     }).filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => a.numero - b.numero);
     setSomas(rs);
   };
@@ -244,7 +244,8 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         {somas && (
           <div className="space-y-3 text-sm" data-testid="somas-subsidios">
             {somas.length === 0 ? <p className="text-slate-600">Nenhuma rubrica tem subsídio cadastrado em {ano}.</p> : <>
-              <p className="text-slate-600">Cada rubrica tem hoje um valor digitado; os subsídios importados formam a composição dele. Marque as rubricas que devem <b>passar a valer a soma dos subsídios</b>. <b>Nada muda até você clicar em "Atualizar valores".</b></p>
+              <p className="text-slate-600">Cada rubrica tem hoje um valor digitado; os subsídios importados formam a composição dele. Marque as rubricas que devem <b>passar a valer a soma dos subsídios</b>. As que ficarem <b>desmarcadas continuam com o valor digitado</b> (os subsídios ficam só como justificativa). Rubricas com diferença muito grande vêm desmarcadas: confira antes. <b>Nada muda até você clicar em "Atualizar valores".</b></p>
+              <div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => setSomas(l => l && l.map(y => ({ ...y, marcar: !y.bloqueio && Math.abs(y.soma - y.atual) > 0.005 })))}>Marcar todas</Button><Button size="sm" variant="secondary" onClick={() => setSomas(l => l && l.map(y => ({ ...y, marcar: false })))}>Desmarcar todas</Button></div>
               <div className="max-h-[50vh] overflow-y-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="px-2 py-1 w-8"></th><th className="px-2 py-1 text-left">Rubrica</th><th className="px-2 py-1 text-right">Valor hoje</th><th className="px-2 py-1 text-right">Soma dos subsídios</th><th className="px-2 py-1 text-right">Diferença</th></tr></thead>
