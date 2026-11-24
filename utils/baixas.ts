@@ -15,6 +15,6 @@ export const ehAdiantamento = (b: BaixaTipada, doc?: DocOperacao | null): boolea
  * serviços, sem fatura) não paga fatura nenhuma: não tem saldo para baixa (continua listada no Fluxo de caixa como toda ALTCRED).
  */
 export const saldoDisponivelDoc = (d: { operation: string; totalValue: number; pendencia?: string | null }, usado: number): number =>
-  d.operation === 'OUTROS' || !!d.pendencia?.trim() ? 0 : Math.round((d.totalValue - usado) * 100) / 100;
+  d.operation === 'OUTROS' || !!d.pendencia?.trim() ? 0 : Math.round((d.totalValue - usado) * 100) / 100 + 0;   // "+ 0": troca -0 por 0 (evita "R$ -0,00")
 
 export const aceitaAdiantamento = (d: DocOperacao) => d.operation === 'ADIANTAMENTO' || !!d.sobraAdiantamento;

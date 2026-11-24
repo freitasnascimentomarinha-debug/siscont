@@ -535,6 +535,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Pendência resolvida: o crédito foi incluído.').waitFor();
     const d2 = db.received_documents.find(x => x.document_number === 'Z999.2026.AC.00007');
     ok(!d2.pendencia && /Pendência resolvida em/.test(d2.observation), 'resolver a pendência libera o crédito e registra na observação');
+    // valor que arredonda para zero nunca aparece como "-0,00"
+    ok(await page.evaluate(() => (-0.0000000000036).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) === '0,00' && (-0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) === '0,00' && (-0.01).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) === '-0,01'), 'o aplicativo nunca mostra "-0,00" (zero negativo vira 0,00; -0,01 continua negativo)');
     await page.waitForFunction(() => /1\.000,00/.test(document.querySelector('[data-testid="conciliacao-creditos"]')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
     const concl = (await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ');
     ok(concl.includes('1.000,00'), `depois de resolvida, o crédito entra no recebido (${concl.slice(0, 120)})`);
