@@ -1562,6 +1562,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Área 1 – Parte baixa interna').first().waitFor();
     const txtMatriz = (await page.locator('table').last().innerText()).replace(/\s+/g, ' ');
     ok(txtMatriz.indexOf('Área 1 – Parte baixa interna') < txtMatriz.indexOf('AMRJ') && txtMatriz.indexOf('AMRJ') < txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('SecNSNQ') > txtMatriz.indexOf('Área 2 – Parte alta') && txtMatriz.indexOf('NAVIOS (grupo)') > txtMatriz.indexOf('Área 1 – Parte baixa interna') && txtMatriz.indexOf('NAVIOS (grupo)') < txtMatriz.indexOf('Área 2 – Parte alta'), 'matriz por área: AMRJ e a linha NAVIOS na parte baixa interna, SecNSNQ na parte alta');
+    // clicar no número da coluna só SELECIONA (não marca nada); a alteração é pelo botão de Edição da barra
+    const marcadas0 = await page.locator('table').last().locator('input[type=checkbox]:checked').count();
+    await page.locator('th button[title*="selecionar a coluna"]').first().click();
+    const marcadas1 = await page.locator('table').last().locator('input[type=checkbox]:checked').count();
+    ok(marcadas1 === marcadas0 && await page.getByText(/Coluna selecionada:/).isVisible() && await page.getByText('Alterações não gravadas.').count() === 0, `clicar no número da coluna só seleciona (marcadas ${marcadas0} → ${marcadas1}), sem alterar nem pedir para gravar`);
+    ok(await page.getByRole('button', { name: 'marcar toda a coluna', exact: true }).isVisible() && await page.getByRole('button', { name: 'desmarcar toda a coluna', exact: true }).isVisible(), 'a alteração da coluna toda fica na barra "Edição"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'matriz-coluna-selecionada.png') });
+    await page.getByRole('button', { name: 'tirar seleção' }).click();
     // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo já escolhido é mantido
     // linha NAVIOS: marca de quais linhas os navios participam; marcar = integral; o modo se ajusta na aba Navios
     ok(await page.getByLabel('Navios participam da linha 1').isChecked(), 'linha NAVIOS: linha 1 marcada (navios participam)');

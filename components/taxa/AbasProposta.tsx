@@ -289,14 +289,17 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const marcar = (r: number, id: string, v: boolean) => { setSujo(true); setMatriz(s => { const n = new Set(s); v ? n.add(`${r}|${id}`) : n.delete(`${r}|${id}`); return n; }); };
   // visual da matriz: blocos de 5 colunas com cor própria, separador entre blocos e destaque da coluna sob o mouse
   const [colFoco, setColFoco] = useState<number | null>(null);
+  // coluna selecionada pelo clique no número (só destaca; marcar/desmarcar a coluna toda é a ação "Edição" da barra)
+  const [colSel, setColSel] = useState<number | null>(null);
   const descR = (r: number) => dados.rubricas.find(x => x.numero === r)?.descricao || '';
   const corCol = (r: number, cab = false) => {
     const i = rubs.indexOf(r);
-    if (colFoco === r) return `${cab ? 'bg-yellow-300' : 'bg-yellow-200'}${i % 5 === 0 ? ' border-l-2 border-slate-400' : ''}`;
+    if (colFoco === r || colSel === r) return `${cab ? 'bg-yellow-300' : 'bg-yellow-200'}${i % 5 === 0 ? ' border-l-2 border-slate-400' : ''}`;
     const bloco = Math.floor(i / 5) % 5;
     return `${(cab ? COR_CAB : COR_COL)[bloco]}${i % 5 === 0 ? ' border-l-2 border-slate-400' : ''}`;
   };
-  const coluna = (r: number) => { const todos = linhas.every(o => matriz.has(`${r}|${o.id}`)); linhas.forEach(o => marcar(r, o.id, !todos)); };
+  const colunaTodas = (r: number, v: boolean) => { linhas.forEach(o => marcar(r, o.id, v)); };
+  const marcadasNaColuna = (r: number) => linhas.filter(o => matriz.has(`${r}|${o.id}`)).length;
   const remover = (id: string) => { setSujo(true); setLot(m => { const n = { ...m }; delete n[id]; return n; }); setMatriz(s => new Set([...s].filter(k => !k.endsWith(`|${id}`)))); setExtras(e => { const n = new Set(e); n.delete(id); return n; }); };
   const semLotacao = navioModo ? [] : [...new Set([...matriz].map(k => k.split('|')[1]))].filter(id => { const o = dados.oms.find(x => x.id === id); return o && doModo(o) && !(Number(lot[id]?.lotacao) > 0); });
   // com lotação mas sem nenhuma linha marcada: fora da matriz, não paga taxa condominial
@@ -414,7 +417,17 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
         {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
       </div>
-        {!navioModo && <div className="px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg min-h-[26px]" aria-label="Rubrica em foco">{colFoco !== null ? <>Rubrica em foco: <b className="bg-yellow-200 px-1 rounded">{colFoco}</b> {descR(colFoco)}</> : <span className="text-slate-400">Passe o mouse sobre uma coluna para ver a rubrica. As cores separam as colunas em blocos de 5 (1–5, 6–10…).</span>}</div>}
+        {!navioModo && <div className="px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg min-h-[26px] flex flex-wrap items-center gap-2" aria-label="Rubrica em foco">
+          {colSel !== null
+            ? <>
+                <span>Coluna selecionada: <b className="bg-yellow-200 px-1 rounded">{colSel}</b> {descR(colSel)} — {marcadasNaColuna(colSel)} de {linhas.length} marcada(s)</span>
+                {podeEditar && <span className="inline-flex items-center gap-1.5 pl-2 border-l border-slate-300"><span className="font-semibold text-slate-600">Edição:</span>
+                  <button type="button" className="px-2 py-0.5 rounded border border-primary-300 text-primary-800 bg-white hover:bg-primary-50" onClick={() => colunaTodas(colSel, true)}>marcar toda a coluna</button>
+                  <button type="button" className="px-2 py-0.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-100" onClick={() => colunaTodas(colSel, false)}>desmarcar toda a coluna</button></span>}
+                <button type="button" className="ml-auto text-slate-500 underline" onClick={() => setColSel(null)}>tirar seleção</button>
+              </>
+            : colFoco !== null ? <>Rubrica em foco: <b className="bg-yellow-200 px-1 rounded">{colFoco}</b> {descR(colFoco)}</> : <span className="text-slate-400">Passe o mouse sobre uma coluna para ver a rubrica; clique no número para selecionar a coluna (sem alterar nada). As cores separam as colunas em blocos de 5 (1–5, 6–10…).</span>}
+        </div>}
       <div className="overflow-auto border border-slate-200 rounded-lg max-h-[62vh]">
         <table className="text-xs" onMouseLeave={() => setColFoco(null)}>
           <thead className="bg-slate-50 sticky top-0 z-10"><tr>
@@ -422,7 +435,7 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
             {navioModo && <th className="px-1" title="Vazio = média trienal da classe">Dias/mês</th>}
             {!navioModo && usaArea && <th className="px-1" title="Área ocupada, para rubricas com critério por área">Área m²</th>}
             {!navioModo && usaPeso && <th className="px-1" title="Peso, para rubricas com critério por peso informado">Peso</th>}
-            {!navioModo && rubs.map(r => <th key={r} className={`min-w-[28px] px-0.5 py-1 text-center ${corCol(r, true)}`} onMouseEnter={() => setColFoco(r)}><button disabled={!podeEditar} onClick={() => coluna(r)} title={`Linha ${r} – ${descR(r)} (clique para marcar/desmarcar a coluna)`} className="w-full font-bold text-slate-800 hover:text-primary-700">{r}</button></th>)}
+            {!navioModo && rubs.map(r => <th key={r} className={`min-w-[28px] px-0.5 py-1 text-center ${corCol(r, true)}`} onMouseEnter={() => setColFoco(r)}><button type="button" aria-pressed={colSel === r} onClick={() => setColSel(c => (c === r ? null : r))} title={`Linha ${r} – ${descR(r)} (clique para selecionar a coluna, sem alterar nada)`} className="w-full font-bold text-slate-800 hover:text-primary-700">{r}</button></th>)}
             <th></th>
           </tr></thead>
           <tbody>
