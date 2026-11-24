@@ -2982,7 +2982,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
       issue_date: '2026-08-15', due_date: '2026-08-10', month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Energia Elétrica', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: om.id, lote_id: null, base_calculo: null, acerto_de: null, pontos_atencao: [], ...extra });
     const fVenc = fat('40030-EL-08-2026-010-0', 1000);                                   // vencimento antes da emissão
     const fOk = fat('40030-EL-08-2026-011-0', 400, { due_date: '2026-09-15' });
-    db.invoices = [fVenc, fOk];
+    // ponto anotado pela migração: valor da planilha diferente do livro de emissão (como a 41000-TC-09-2025-002-0)
+    const fLivro = fat('40030-TC-09-2025-002-0', 19707.4, { due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Taxa Condominial', service_acronym: 'TC',
+      pontos_atencao: [{ tipo: 'VALOR_DIVERGENTE_LIVRO', mensagem: 'Valor vigente na planilha R$ 19.707,40; no livro de emissão R$ 209.093,30 (serviço R$ 209.093,30 + acréscimo R$ 0,00 − débito R$ 0,00).', origem: 'migracao', em: '2026-11-07' }] });
+    db.invoices = [fVenc, fOk, fLivro];
     const alt = { id: uid(), document_number: 'G1.2026.AC.50001', document_type: 'ALTCRED', total_value: 100, date: '2026-09-01', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
     const zerado = { id: uid(), document_number: 'G1.2026.AC.50002', document_type: 'ALTCRED', total_value: 0, date: '2026-09-02', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
     db.received_documents.push(alt, zerado);
@@ -3015,6 +3018,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Gravar o valor' }).click();
     await page.getByText(/Corrigido: valor do documento R\$ 250,00/).waitFor();
     ok(Number(db.received_documents.find(d => d.id === zerado.id).total_value) === 250, 'o valor do documento foi gravado pela janela');
+    await page.keyboard.press('Escape');
+    // 4. valor da fatura diferente do livro de emissão: altera o valor ali mesmo (antes só dava para "marcar como resolvido")
+    await page.getByRole('row', { name: /40030-TC-09-2025-002-0/ }).getByRole('button', { name: 'Ver / resolver' }).first().click();
+    await page.getByTestId('editor-valores-fatura').waitFor();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-editar-valor-fatura.png') });
+    await page.getByRole('button', { name: /Usar os valores do livro de emissão/ }).click();
+    ok(await page.getByLabel('Valor do serviço da fatura').inputValue() === '209093.3', 'atalho preenche o valor do livro de emissão (R$ 209.093,30)');
+    await page.getByRole('button', { name: 'Gravar a alteração' }).click();
+    await page.getByText(/Corrigido: valores da fatura \(serviço R\$ 19\.707,40 → R\$ 209\.093,30\)/).waitFor();
+    const gl = db.invoices.find(i => i.id === fLivro.id);
+    ok(Number(gl.value) === 209093.3, 'o valor da fatura foi alterado pela própria janela do ponto');
+    ok((gl.pontos_atencao || []).some(p => p.tipo === 'VALOR_DIVERGENTE_LIVRO' && p.resolvido && /Corrigido na própria janela/.test(p.justificativa || '')), 'o ponto ficou resolvido com o que foi feito (valor alterado), sem escrever à mão');
   });
 
   if (extras.length) {
