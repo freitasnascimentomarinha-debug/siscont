@@ -830,6 +830,22 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('heading', { name: 'Faturas emitidas' }).waitFor();
     await page.getByRole('row', { name: /40030-TC-08-2026-001-0/ }).waitFor();
+    // histórico da fatura em linguagem simples
+    const idTc = db.invoices.find(x => x.invoice_number === '40030-TC-08-2026-001-0').id;
+    db.auditoria.push(
+      { id: 901, tabela: 'invoices', registro_id: idTc, acao: 'UPDATE', em: '2026-11-24T15:56:24Z', usuario_email: 'admin@siscont.com', antes: { value: 19707.4, due_date: '2025-11-15', cancelada_por: null }, depois: { value: 209093.3, due_date: '2025-11-30', cancelada_por: 'Administrador' } },
+      { id: 902, tabela: 'invoices', registro_id: idTc, acao: 'UPDATE', em: '2026-11-24T15:44:37Z', usuario_email: 'admin@siscont.com', antes: { pontos_atencao: [{ tipo: 'VALOR_DIVERGENTE_LIVRO', mensagem: 'm', origem: 'migracao', em: '2026-11-07' }] },
+        depois: { pontos_atencao: [{ tipo: 'VALOR_DIVERGENTE_LIVRO', mensagem: 'm', origem: 'migracao', em: '2026-11-07', resolvido: true, resolvidoPor: 'Administrador', resolvidoEm: '2026-11-24', justificativa: 'Valor original R$ 209.093,30' }] } },
+      { id: 903, tabela: 'invoices', registro_id: idTc, acao: 'UPDATE', em: '2026-11-24T15:40:00Z', usuario_email: 'admin@siscont.com', antes: { base_calculo: { a: 1 } }, depois: { base_calculo: { a: 2 } } });
+    await page.getByRole('button', { name: 'Histórico da fatura 40030-TC-08-2026-001-0' }).click();
+    const hl = page.getByTestId('alteracao');
+    await hl.first().waitFor();
+    const txtH = (await page.getByRole('dialog').innerText()).replace(/\s+/g, ' ');
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/historico-fatura-simples.png` });
+    ok(/Vencimento: era 15\/11\/2025 → agora 30\/11\/2025/.test(txtH) && /Valor do serviço \(01\): era R\$ 19\.707,40 → agora R\$ 209\.093,30/.test(txtH), 'histórico em português: "Vencimento: era 15/11/2025 → agora 30/11/2025", valores em R$');
+    ok(/Ponto “Valor diferente do livro de emissão” marcado como resolvido por Administrador em 24\/11\/2026 — motivo: “Valor original R\$ 209\.093,30”/.test(txtH), 'ponto de atenção resolvido aparece como frase (quem, quando e o motivo)');
+    ok(!/pontos_atencao|adjustment_addition|cancelada_por/.test(txtH.replace(/dados técnicos/g, '')) && /Cancelada por: era em branco/.test(txtH) && await hl.count() === 2 && /1 atualização\(ões\) interna\(s\)/.test(txtH), 'sem nomes técnicos de campo; atualização interna fica escondida atrás de um aviso');
+    await page.keyboard.press('Escape');
     // layout: a tabela cabe na largura da tela (sem arrastar para o lado) e a coluna de ações fica visível
     const sobra = await page.locator('table').first().evaluate(t => { const c = t.parentElement; return c.scrollWidth - c.clientWidth; });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-layout.png') });
