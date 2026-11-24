@@ -1199,6 +1199,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.reload();
     await page.getByRole('button', { name: 'Cobrança' }).first().click();
     await page.getByRole('heading', { name: 'Cobrança' }).waitFor();
+    // atualizar o navegador (F5) mantém a página aberta (o endereço guarda #/cobranca)
+    ok(/#\/cobranca$/.test(page.url()), `o endereço guarda a página (${page.url().split('#')[1]})`);
+    await page.reload();
+    await page.getByRole('heading', { name: 'Cobrança' }).waitFor();
+    ok(true, 'F5 na Cobrança: continua na Cobrança (não volta ao Painel inicial)');
     await page.getByText('Faturas vencidas 2025').waitFor();
     const bloco2025 = page.locator('section').filter({ hasText: 'Faturas vencidas 2025' });
     // filtros da aba Faturas em aberto: Comando e Cliente (OM), além de Setores

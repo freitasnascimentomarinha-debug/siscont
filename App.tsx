@@ -44,9 +44,23 @@ const ResetPassword = telaLazy(() => import('./pages/ResetPassword'), m => m.Res
 
 export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamento' | 'received' | 'cashflow' | 'cobranca' | 'conciliacao' | 'contestacoes' | 'pontos' | 'taxa' | 'auditoria' | 'cadastros' | 'admin' | 'extramb';
 
+const PAGINAS: PageID[] = ['dashboard', 'painel', 'gastos', 'invoices', 'faturamento', 'received', 'cashflow', 'cobranca', 'conciliacao', 'contestacoes', 'pontos', 'taxa', 'auditoria', 'cadastros', 'admin', 'extramb'];
+/** A página aberta fica no endereço (#/cobranca): atualizar o navegador (F5) ou voltar/avançar mantém a página. */
+const paginaDoEndereco = (): PageID => {
+  try { const p = window.location.hash.replace(/^#\/?/, '') as PageID; return PAGINAS.includes(p) ? p : 'dashboard'; } catch { return 'dashboard'; }
+};
+
 const AuthenticatedApp = () => {
   const { user } = useAuth();
-  const [currentPage, setCurrentPage] = useState<PageID>('dashboard');
+  const [currentPage, setCurrentPage] = useState<PageID>(paginaDoEndereco);
+  useEffect(() => {
+    try { if (paginaDoEndereco() !== currentPage || !window.location.hash) window.history.pushState(null, '', `#/${currentPage}`); } catch { /* sem histórico */ }
+  }, [currentPage]);
+  useEffect(() => {
+    const volta = () => setCurrentPage(paginaDoEndereco());
+    window.addEventListener('popstate', volta); window.addEventListener('hashchange', volta);
+    return () => { window.removeEventListener('popstate', volta); window.removeEventListener('hashchange', volta); };
+  }, []);
   const janela = useExercicio();   // trocou a janela de exercícios: a tela recarrega com os novos dados
   useEffect(() => { definirPaginaDoErro(currentPage); }, [currentPage]);
   // a norma (OI) citada nas telas e nas faturas vem dos parâmetros: carrega no início para valer em todas as páginas
