@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { Filter, RefreshCw, ShieldCheck, TriangleAlert, X } from 'lucide-react';
 import { MultiFiltro, useExcluidosLembrados } from '../components/ui/MultiFiltro';
 import { SeletorPublico, useClassificadorPublico, usePublico } from '../components/ui/SeletorPublico';
@@ -46,7 +47,7 @@ export const PainelEncarregado: React.FC = () => {
   const [cobrancas, setCobrancas] = useState<CtxPainel['cobrancas']>([]);
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');
-  const [aba, setAba] = useState<AbaPainel>('geral');
+  const [aba, setAba] = useAbaNoEndereco<AbaPainel>(['geral', 'oms', 'contestacoes', 'equipe', 'encerramento'], 'geral');
   const [lista, setLista] = useState<{ titulo: string; faturas: FaturaGer[] } | null>(null);
   const [resumo, setResumo] = useState<(ResumoAberto & { faturas: FaturaGer[] }) | null>(null);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);

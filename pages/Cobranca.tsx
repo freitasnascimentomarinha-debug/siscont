@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { MultiFiltro, useExcluidosLembrados } from '../components/ui/MultiFiltro';
 import { cadastroService } from '../services/cadastroService';
 import { Copy, FileSpreadsheet, FileText, Mail, RefreshCw } from 'lucide-react';
@@ -55,7 +56,7 @@ const TabelaPivo: React.FC<{ titulo: string; p: Pivo; rotuloLinha: string }> = (
 export const Cobranca: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
-  const [aba, setAba] = useState<Aba>('quadro');
+  const [aba, setAba] = useAbaNoEndereco<Aba>(['quadro', 'mensagens'], 'quadro');
   const [base, setBase] = useState<Base | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizadoEm, setAtualizadoEm] = useState('');

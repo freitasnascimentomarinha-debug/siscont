@@ -47,7 +47,7 @@ export type PageID = 'dashboard' | 'painel' | 'gastos' | 'invoices' | 'faturamen
 const PAGINAS: PageID[] = ['dashboard', 'painel', 'gastos', 'invoices', 'faturamento', 'received', 'cashflow', 'cobranca', 'conciliacao', 'contestacoes', 'pontos', 'taxa', 'auditoria', 'cadastros', 'admin', 'extramb'];
 /** A página aberta fica no endereço (#/cobranca): atualizar o navegador (F5) ou voltar/avançar mantém a página. */
 const paginaDoEndereco = (): PageID => {
-  try { const p = window.location.hash.replace(/^#\/?/, '') as PageID; return PAGINAS.includes(p) ? p : 'dashboard'; } catch { return 'dashboard'; }
+  try { const p = window.location.hash.replace(/^#\/?/, '').split('/')[0] as PageID; return PAGINAS.includes(p) ? p : 'dashboard'; } catch { return 'dashboard'; }
 };
 
 const AuthenticatedApp = () => {

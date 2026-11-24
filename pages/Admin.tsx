@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { db } from '../services/db';
 import { TABELAS_BACKUP_EXTRAS, exportarTabela, registrarBackup } from '../services/auditoriaService';
 import { Button } from '../components/ui/Button';
@@ -12,7 +13,7 @@ type AdminTab = 'users' | 'backup' | 'erros';
 
 /** Administração: usuários e rotinas do sistema. Clientes, serviços e parâmetros ficam em "Cadastros". */
 export const Admin: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<AdminTab>('users');
+  const [activeTab, setActiveTab] = useAbaNoEndereco<AdminTab>(['users', 'backup', 'erros'], 'users');
   const [systemMsg, setSystemMsg] = useState<{ type: 'ok' | 'error' | 'info'; text: string } | null>(null);
   const [isSystemBusy, setIsSystemBusy] = useState(false);
   const backupInputRef = useRef<HTMLInputElement>(null);

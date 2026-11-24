@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { podeEditarDados, veComoAdmin } from '../types';
@@ -33,9 +34,9 @@ const rotulosAbas = (n: { nome: string; itemCorrecao: string }): { id: Aba; labe
 export const Faturamento: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
-  const [aba, setAba] = useState<Aba>('resumo');
+  const [aba, setAba] = useAbaNoEndereco<Aba>(['resumo', 'precos', 'medicoes', 'atracacao', 'lote', 'creditos', 'encerramento', 'correcao'], 'resumo');
   // abas já abertas continuam montadas (escondidas): trocar de aba não apaga a prévia nem o que foi digitado
-  const [abertas, setAbertas] = useState<Set<Aba>>(new Set(['resumo']));
+  const [abertas, setAbertas] = useState<Set<Aba>>(() => new Set<Aba>(['resumo', aba]));
   const [comp, setComp] = useState(compAtual());
   const irPara = (a: Aba) => { setAba(a); setAbertas(p => new Set(p).add(a)); };
   const [ctx, setCtx] = useState<ContextoFaturamento | null>(null);

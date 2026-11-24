@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { obterNormas } from '../utils/normas';
 import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Undo2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -35,7 +36,7 @@ export const TaxaCondominial: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
   const [ano, setAno] = useState(new Date().getFullYear() + (new Date().getMonth() >= 6 ? 1 : 0));
-  const [aba, setAba] = useState<Aba>('rubricas');
+  const [aba, setAba] = useAbaNoEndereco<Aba>(['rubricas', 'clientes', 'descontos', 'resultado', 'navios', 'media', 'diarias'], 'rubricas');
   const [dados, setDados] = useState<DadosProposta | null>(null);
   const [anterior, setAnterior] = useState<Map<string, number>>(new Map());
   const [anteriorDA, setAnteriorDA] = useState<Map<string, number>>(new Map());

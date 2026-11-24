@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, veComoAdmin } from '../types';
@@ -35,11 +36,12 @@ export const Cadastros: React.FC = () => {
   const { user } = useAuth();
   const admin = veComoAdmin(user?.role);
   const gravador = admin || user?.role === UserRole.USER;   // operador também cadastra clientes e registra mudança de OM
-  const [aba, setAba] = useState<Aba>(() => {
-    // vindo de outra tela (ex.: Taxa condominial › Incluir cliente) abre direto na aba pedida
+  // vindo de outra tela (ex.: Taxa condominial › Incluir cliente) abre direto na aba pedida; senão, a do endereço (F5) ou a primeira
+  const [pedida] = useState<Aba>(() => {
     try { const a = sessionStorage.getItem('siscont:cadastros_aba'); if (a) { sessionStorage.removeItem('siscont:cadastros_aba'); if (ABAS.some(x => x.id === a)) return a as Aba; } } catch { /* sem armazenamento */ }
     return 'servicos';
   });
+  const [aba, setAba] = useAbaNoEndereco<Aba>(ABAS.map(x => x.id), pedida);
   const { dados, carregando, erro, naoInstalado, recarregar } = useCadastros();
 
   const ativas = dados.oms.filter(o => o.ativo).length;

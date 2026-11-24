@@ -1219,6 +1219,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((await totalAberto.innerText()).includes('R$ 45.788,97'), 'em aberto total sem contestadas: R$ 45.788,97');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase5-quadro.png'), fullPage: true });
     await page.getByRole('button', { name: 'Mensagens de cobrança' }).click();
+    // F5 volta na mesma aba (o endereço guarda #/cobranca/mensagens)
+    ok(/#\/cobranca\/mensagens$/.test(page.url()), `o endereço guarda a aba (${page.url().split('#')[1]})`);
+    await page.reload();
+    await page.getByLabel('Incluir faturas a vencer (em aberto)').waitFor();
+    ok(true, 'F5 na aba Mensagens de cobrança: continua nessa aba');
     await page.getByRole('button', { name: /gerar mensagem/ }).first().click();
     const texto = await page.getByLabel('Texto da cobrança').inputValue();
     ok(/^PARA: DIMRJ\nDE: BNIC\nBT\nA fim de auxiliar no controle das faturas em aberto das OM apoiadas por esta Base Naval, PTC:/.test(texto) && /ALFA\) Enviado, anexo a esta mensagem, extrato das dívidas em aberto até \d{2}[A-Z]{3}; e/.test(texto) && /CHARLIE\) A indicação dos respectivos créditos deverá ser realizada até \d{2}[A-Z]{3}\d{4}\./.test(texto) && /BRAVO\) Indicar recurso na AI R\.901\.16/.test(texto) && /Tel: 8110-4790/.test(texto) && !/40032-RB/.test(texto), 'mensagem de cobrança no padrão da Base Naval (ALFA, BRAVO, CHARLIE e contatos), com o PDF das faturas anexo');

@@ -3,6 +3,7 @@ import { dataBR, hojeISO } from '../utils/datas';
 import { SeletorCliente } from '../components/ui/SeletorCliente';
 import { ORDEM_PADRAO, Ordem, ordenarFaturas } from '../utils/ordenarFaturas';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
@@ -50,7 +51,7 @@ export const Invoices: React.FC = () => {
   const isAdmin = veComoAdmin(user?.role);
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<'list' | 'map'>('list');
+  const [activeTab, setActiveTab] = useAbaNoEndereco<'list' | 'map'>(['list', 'map'], 'list');
   // MB × Extra-MB (vale para a lista e para o Mapa analítico)
   const [publico, setPublico] = usePublico('faturas');
   const cls = useClassificadorPublico();

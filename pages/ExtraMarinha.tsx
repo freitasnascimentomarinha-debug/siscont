@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { AlertTriangle, Copy, FileSpreadsheet, FileText, Mail, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -40,7 +41,7 @@ export const ExtraMarinha: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
   const hoje = hojeISO();
-  const [aba, setAba] = useState<Aba>('resumo');
+  const [aba, setAba] = useAbaNoEndereco<Aba>(['resumo', 'faturas', 'gru', 'extrato', 'email', 'contratos'], 'resumo');
   const [carregando, setCarregando] = useState(true);
   const [fats, setFats] = useState<FaturaEx[]>([]);
   const [grus, setGrus] = useState<GruEx[]>([]);

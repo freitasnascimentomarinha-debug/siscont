@@ -3,6 +3,7 @@ import { dataBR } from '../utils/datas';
 import { BaixarModelo } from '../components/ui/BaixarModelo';
 import { modeloNotasEmpenho } from '../utils/modelos';
 import React, { useState, useEffect, useRef } from 'react';
+import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { notify } from '../utils/notify';
@@ -644,7 +645,7 @@ const Lancamentos: React.FC = () => {
 type AbaFluxo = 'lancamentos' | 'mensal' | 'condominio' | 'disponivel' | 'rubricas';
 export const CashFlow: React.FC = () => {
   const { user } = useAuth();
-  const [aba, setAba] = useState<AbaFluxo>('lancamentos');
+  const [aba, setAba] = useAbaNoEndereco<AbaFluxo>(['lancamentos', 'mensal', 'condominio', 'disponivel', 'rubricas'], 'lancamentos');
   return (
     <div className="space-y-4">
       <div>
