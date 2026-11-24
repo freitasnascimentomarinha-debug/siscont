@@ -2181,6 +2181,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('OM atualizada.').waitFor();
     ok(a.fora_da_ilha === true, 'OM marcada como fora da Ilha');
     await page.getByLabel('Localização').selectOption('FORA');
+    await page.getByText('fora da Ilha', { exact: true }).first().waitFor({ timeout: 10000 });
     ok(await page.getByText('fora da Ilha', { exact: true }).first().isVisible(), 'filtro "Fora da Ilha" com etiqueta na lista');
     // Cobrança: grupo de setores editável
     db.invoices.push({ id: uid(), ug: '40030', sector: 'DGMM', command: '40030 - DIM', client: 'Diretoria Industrial da Marinha', invoice_number: '40030-AE-09-2026-001-0', value: 100, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-10-15', month_competence: 9, year_competence: 2026, type: 'Água e Esgoto', is_canceled: false },
@@ -2761,6 +2762,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // Fluxo de caixa: mesmas ALTCRED, com a etiqueta do destino, e o botão para importar
     await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
     await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
+    await page.getByText('Z999.2026.AC.00010').first().waitFor({ timeout: 15000 });
     ok(await page.getByText('Z999.2026.AC.00010').first().isVisible() && await page.getByText(/OUTROS SERVIÇOS · Material de expediente e limpeza/).isVisible() && await page.getByText('ADIANTAMENTO', { exact: true }).first().isVisible(), 'Fluxo de caixa mostra as entradas com a etiqueta do destino');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fluxo-caixa-entradas.png') });
     await page.getByRole('button', { name: 'Importar', exact: true }).click();
