@@ -1,11 +1,64 @@
 import React, { useState } from 'react';
 import { AlertOctagon, AlertTriangle, CheckCircle2, Info, RotateCcw } from 'lucide-react';
-import { Gravidade, pendentes, PontoAtencao } from '../utils/pontosAtencao';
+import { DetalheBaixaFora, Gravidade, pendentes, PontoAtencao } from '../utils/pontosAtencao';
 import { db } from '../services/db';
 import { notify } from '../utils/notify';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { CorrigirAgora } from './pontos/CorrigirAgora';
+
+const brlP = (n: number) => `R$ ${(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** "Baixa fora da destinação" explicada passo a passo: o que a OM pediu × onde demos baixa, e o que fazer. */
+const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
+  <div className="space-y-3 text-sm" data-testid="detalhe-baixa-fora">
+    <p className="text-slate-800">O dinheiro desta ALTCRED foi usado para pagar faturas <b>diferentes das que a OM pediu</b>. Compare as duas listas:</p>
+    <div className="grid sm:grid-cols-2 gap-3">
+      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800 mb-1.5">1 · O que a OM pediu para pagar</div>
+        <ul className="space-y-1.5">
+          {d.indicadas.map(i => (
+            <li key={i.numero} className="flex flex-wrap items-center justify-between gap-1">
+              <span className="font-mono text-xs text-slate-900">{i.numero}</span>
+              {i.baixada
+                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ já recebeu baixa</span>
+                : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ ainda sem baixa</span>}
+            </li>
+          ))}
+          {d.omsIndicadas > 0 && <li className="text-xs text-slate-700">+ todas as faturas de {d.omsIndicadas} OM indicada(s)</li>}
+          {!d.indicadas.length && !d.omsIndicadas && <li className="text-xs text-slate-500">Nenhuma fatura citada.</li>}
+        </ul>
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-700 mb-1.5">2 · Onde nós demos baixa</div>
+        <ul className="space-y-1.5">
+          {d.baixas.map(b => (
+            <li key={b.numero} className="flex flex-wrap items-center justify-between gap-1">
+              <span><span className="font-mono text-xs text-slate-900">{b.numero}</span> <span className="text-xs text-slate-600">{brlP(b.valor)}</span></span>
+              {b.indicada
+                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ estava no pedido</span>
+                : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-800">✘ fora do pedido</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+    {d.observacao && (
+      <div className="rounded-lg border border-slate-200 bg-white p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">O que a OM escreveu no SIPLAD</div>
+        <p className="text-xs text-slate-700 italic">“{d.observacao}”</p>
+      </div>
+    )}
+    <div className="rounded-lg border border-amber-200 bg-white p-3">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-amber-800 mb-1">O que fazer</div>
+      <ol className="list-decimal pl-5 space-y-1 text-xs text-slate-800">
+        <li>Veja se a baixa marcada <b>✘ fora do pedido</b> está errada (ex.: engano de número da fatura).</li>
+        <li><b>Se está errada:</b> clique em <b>remover</b> nessa baixa (quadro abaixo) e depois dê a baixa na fatura certa, em <i>Créditos recebidos › Pagar faturas</i>.</li>
+        <li><b>Se está certa</b> (a OM confirmou, ou a fatura pedida já estava paga): clique em <b>“Informar o motivo (manter assim)”</b> e escreva por que pagamos diferente.</li>
+      </ol>
+    </div>
+  </div>
+);
 
 export const COR_GRAVIDADE: Record<Gravidade, { texto: string; fundo: string; rotulo: string }> = {
   alta: { texto: 'text-red-600', fundo: 'bg-red-50 border-red-200 text-red-700', rotulo: 'Alta' },
@@ -80,8 +133,10 @@ export const PontosModal: React.FC<{
                     <span className="text-[10px] uppercase font-bold tracking-wide text-slate-500">gravidade {COR_GRAVIDADE[p.gravidade].rotulo}</span>
                     <span className="text-[10px] text-slate-500">{p.automatico ? '· detectado automaticamente' : `· anotado na ${p.origem === 'migracao' ? 'migração' : 'gravação'}${p.em ? ` em ${dataBR(p.em)}` : ''}`}</span>
                   </div>
-                  <p className="text-sm text-slate-800 whitespace-pre-line">{p.mensagem}</p>
-                  <p className="text-xs text-slate-600"><b>Como corrigir:</b> {p.comoCorrigir}</p>
+                  {p.detalhe?.tipo === 'BAIXA_FORA' ? <DetalheBaixaForaView d={p.detalhe} /> : (<>
+                    <p className="text-sm text-slate-800 whitespace-pre-line">{p.mensagem}</p>
+                    <p className="text-xs text-slate-600"><b>Como corrigir:</b> {p.comoCorrigir}</p>
+                  </>)}
                   {podeEditar && !p.resolvido && <CorrigirAgora alvo={alvo.alvo} id={alvo.id} ponto={p} usuario={usuario} onFeito={onAlterado} />}
                   {p.automatico && !p.resolvido && <p className="text-[11px] text-slate-500">Some sozinho quando o dado for corrigido.</p>}
                   {p.resolvido && (

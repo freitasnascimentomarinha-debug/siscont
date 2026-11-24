@@ -505,6 +505,34 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'faturas-volume.png'), fullPage: false });
   });
 
+  await cenario('Pontos de atenção: baixa fora da destinação explicada passo a passo (comparação pedido × baixa)', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '71000', nome: 'Diretoria de Abastecimento da Marinha', sigla: 'DABM', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '71000', nome: 'Diretoria de Abastecimento da Marinha', tipo: 'TERRA', comando_id: cmd.id, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const f = (n, sig, tipo, valor) => ({ id: uid(), invoice_number: n, ug: '71000', sector: 'DGMM', command: '71000 - DABM', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-10-05', due_date: '2026-11-18', month_competence: 9, year_competence: 2026, competence: '09/2026', type: tipo, service_acronym: sig, is_canceled: false, siplad_settled: false, om_id: om.id });
+    const tc8 = f('71000-TC-09-2026-008-0', 'TC', 'Taxa Condominial', 55882.83), ae8 = f('71000-AE-09-2026-008-0', 'AE', 'Água e Esgoto', 34178.9), tc10 = f('71000-TC-09-2026-010-0', 'TC', 'Taxa Condominial', 55882.83);
+    db.invoices = [tc8, ae8, tc10];
+    const d = { id: uid(), document_number: 'G483.2026.AC.00754', document_type: 'ALTCRED', total_value: 90061.73, date: '2026-11-05', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '71000', ug: '71000', comando_id: cmd.id, om_id: om.id, observation: '',
+      destinacao: [{ tipo: 'FATURA', valor: '71000-TC-09-2026-008-0' }], observacao_solicitante: 'PAGAMENTO DA FATURA Nº 71000-TC-09-2026-008-0-DABM, REF A TAXA CONDOMINIAL E 71000-AE-09-2026-008- 0, REF A AGUA E ESGOTO DE SET2026 DO EAGM' };
+    db.received_documents.push(d);
+    db.payment_allocations.push({ id: uid(), document_id: d.id, invoice_id: ae8.id, amount: 34178.9, date: '2026-11-05', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: d.id, invoice_id: tc10.id, amount: 55882.83, date: '2026-11-05', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByText('G483.2026.AC.00754').first().waitFor();
+    await page.getByLabel('1 ponto(s) de atenção').first().click();
+    const det = page.getByTestId('detalhe-baixa-fora');
+    await det.waitFor();
+    const txt = (await det.innerText()).replace(/\s+/g, ' ');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ponto-baixa-fora-visual.png') });
+    ok(/o que a om pediu para pagar/i.test(txt) && /onde nós demos baixa/i.test(txt) && /o que fazer/i.test(txt), 'janela explica em 3 blocos: o que a OM pediu, onde demos baixa e o que fazer');
+    ok(/71000-AE-09-2026-008-0/.test(txt) && /71000-TC-09-2026-008-0/.test(txt) && /71000-TC-09-2026-010-0/.test(txt), 'mostra as duas faturas pedidas (inclusive a digitada com espaço) e a baixa dada');
+    ok(/71000-TC-09-2026-008-0 ⚠ ainda sem baixa/.test(txt) && /71000-AE-09-2026-008-0 ✔ já recebeu baixa/.test(txt), 'cada fatura pedida diz se já recebeu baixa ou ainda está sem baixa');
+    ok(/71000-TC-09-2026-010-0 R\$ 55\.882,83 ✘ fora do pedido/.test(txt) && /71000-AE-09-2026-008-0 R\$ 34\.178,90 ✔ estava no pedido/.test(txt), 'cada baixa dada diz se estava ou não no pedido, com o valor');
+    ok(/o que a om escreveu no siplad/i.test(txt) && /008- 0/.test(txt), 'mostra o texto original da OM');
+  });
+
   await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };

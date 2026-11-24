@@ -349,3 +349,18 @@ describe('faturas citadas no texto da OM', () => {
     expect(r.documentos.get('d1')?.map(p => p.tipo) ?? []).not.toContain('BAIXA_FORA_DESTINACAO');
   });
 });
+
+describe('motivo dado na própria baixa assistida', () => {
+  it('a baixa fora da destinação já nasce "ciente" quando o motivo foi registrado na baixa', () => {
+    const f = (id: string, n: string) => ({ id, invoiceNumber: n, value: 100, issueDate: '2026-09-15', dueDate: '2026-09-29', monthCompetence: 9, yearCompetence: 2026, serviceAcronym: n.split('-')[1], type: 'x', client: 'DABM', ug: '71000', omId: 'om1', isCanceled: false, contestada: false } as any);
+    const pontos = avaliarPontos(
+      [f('f1', '71000-TC-09-2026-008-0'), f('f2', '71000-TC-09-2026-010-0')],
+      [{ id: 'd1', documentNumber: 'G1', documentType: 'ALTCRED', totalValue: 100, operation: 'PAGAMENTO', destinacao: [{ tipo: 'FATURA', valor: '71000-TC-09-2026-008-0' }],
+        pontosRegistro: [{ tipo: 'BAIXA_FORA_DESTINACAO', mensagem: '', origem: 'sistema', em: '2026-11-05', resolvido: true, resolvidoPor: 'Ana', justificativa: 'OM confirmou por telefone' }] }],
+      [{ documentId: 'd1', invoiceId: 'f2', amount: 100 }],
+    ).documentos.get('d1')!;
+    expect(pontos[0].resolvido?.justificativa).toBe('OM confirmou por telefone');
+    expect(pontos[0].detalhe?.baixas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', valor: 100, indicada: false });
+    expect(pontos[0].detalhe?.indicadas).toEqual([{ numero: '71000-TC-09-2026-008-0', baixada: false }]);
+  });
+});

@@ -39,6 +39,16 @@ export interface PontoAtencao {
   origem: RegistroPonto['origem'];
   em?: string;
   resolvido?: { em?: string; por?: string; justificativa?: string };
+  /** dados estruturados para a janela mostrar o ponto de forma visual (hoje: baixa fora da destinação) */
+  detalhe?: DetalheBaixaFora;
+}
+
+export interface DetalheBaixaFora {
+  tipo: 'BAIXA_FORA';
+  indicadas: { numero: string; baixada: boolean }[];
+  omsIndicadas: number;
+  baixas: { numero: string; valor: number; indicada: boolean }[];
+  observacao: string;
 }
 
 interface DefTipo { titulo: string; gravidade: Gravidade; comoCorrigir: string; alvo: Alvo }
@@ -98,21 +108,22 @@ export interface DocumentoParaPontos {
 }
 export interface BaixaParaPontos { documentId: string; invoiceId: string; amount: number; tipoBaixa?: 'PAGAMENTO' | 'ADIANTAMENTO' | null }
 
-function montar(tipo: string, mensagem: string, automatico: boolean, origem: RegistroPonto['origem'], registro?: RegistroPonto): PontoAtencao {
+function montar(tipo: string, mensagem: string, automatico: boolean, origem: RegistroPonto['origem'], registro?: RegistroPonto, detalhe?: DetalheBaixaFora): PontoAtencao {
   const d = TIPOS_PONTO[tipo] || { titulo: tipo, gravidade: 'media' as Gravidade, comoCorrigir: '' };
   return {
     tipo, titulo: d.titulo, gravidade: d.gravidade, mensagem, comoCorrigir: d.comoCorrigir, automatico, origem,
-    em: registro?.em,
+    em: registro?.em, detalhe,
     resolvido: registro?.resolvido ? { em: registro.resolvidoEm, por: registro.resolvidoPor, justificativa: registro.justificativa } : undefined,
   };
 }
 
 /** Junta os pontos automáticos com os registrados (e com o "ciente" dado pelo usuário). */
-function combinar(automaticos: [string, string][], registros: RegistroPonto[] = []): PontoAtencao[] {
+function combinar(automaticos: [string, string, DetalheBaixaFora?][], registros: RegistroPonto[] = []): PontoAtencao[] {
   const out: PontoAtencao[] = [];
-  automaticos.forEach(([tipo, msg]) => {
-    const ciente = registros.find(r => r.tipo === tipo && r.mensagem === msg && r.resolvido);
-    out.push(montar(tipo, msg, true, 'sistema', ciente));
+  automaticos.forEach(([tipo, msg, detalhe]) => {
+    // "ciente" dado para este texto; ou o motivo registrado na própria baixa assistida (sem texto: vale para a baixa fora da destinação)
+    const ciente = registros.find(r => r.tipo === tipo && r.resolvido && (r.mensagem === msg || (tipo === 'BAIXA_FORA_DESTINACAO' && !r.mensagem)));
+    out.push(montar(tipo, msg, true, 'sistema', ciente, detalhe));
   });
   const autoTipos = new Set(Object.keys(TIPOS_AUTOMATICOS));
   registros.forEach(r => {
@@ -140,9 +151,11 @@ export function avaliarPontos(
   const usoDoc = new Map<string, number>();
   const semDoc = new Map<string, number>();
   const faturasDoDoc = new Map<string, string[]>();
+  const baixasPorDoc = new Map<string, BaixaParaPontos[]>();
   baixas.forEach(b => {
     if (!opDoc.has(b.documentId)) { semDoc.set(b.invoiceId, (semDoc.get(b.invoiceId) || 0) + b.amount); return; }
     const l = faturasDoDoc.get(b.documentId); if (l) l.push(b.invoiceId); else faturasDoDoc.set(b.documentId, [b.invoiceId]);
+    const lb = baixasPorDoc.get(b.documentId); if (lb) lb.push(b); else baixasPorDoc.set(b.documentId, [b]);
     const s = porFatura.get(b.invoiceId) || { adiant: 0, pago: 0, n: 0 };
     if (b.tipoBaixa ? b.tipoBaixa === 'ADIANTAMENTO' : opDoc.get(b.documentId) === 'ADIANTAMENTO') s.adiant += b.amount; else s.pago += b.amount;
     s.n++;
@@ -189,7 +202,7 @@ export function avaliarPontos(
   const pd = new Map<string, PontoAtencao[]>();
   const fatPorId = new Map(faturas.map(f => [f.id, f]));
   documentos.forEach(d => {
-    const a: [string, string][] = [];
+    const a: [string, string, DetalheBaixaFora?][] = [];
     const num = (d.documentNumber || '').trim().toUpperCase();
     const usado = r2(usoDoc.get(d.id) || 0);
     if (usado > d.totalValue + 0.01) a.push(['ALTCRED_ESTOURADA', `Valor ${brl(d.totalValue)}; baixado ${brl(usado)} (${brl(usado - d.totalValue)} a mais).`]);
@@ -204,12 +217,23 @@ export function avaliarPontos(
         const lista = (xs: string[]) => `${xs.slice(0, 5).join(', ')}${xs.length > 5 ? '…' : ''}`;
         const baixadas = new Set((faturasDoDoc.get(d.id) || []).map(id => (fatPorId.get(id)?.invoiceNumber || '').trim().toUpperCase()));
         const indicadasSemBaixa = [...destFat].filter(n => !baixadas.has(n));
+        const valorPor = new Map<string, number>();
+        (baixasPorDoc.get(d.id) || []).forEach(b => valorPor.set(b.invoiceId, r2((valorPor.get(b.invoiceId) || 0) + b.amount)));
+        const detalhe: DetalheBaixaFora = {
+          tipo: 'BAIXA_FORA',
+          indicadas: [...destFat].map(n => ({ numero: n, baixada: baixadas.has(n) })),
+          omsIndicadas: destOm.size,
+          baixas: [...valorPor.entries()].map(([id, valor]) => {
+            const f = fatPorId.get(id); const n = (f?.invoiceNumber || '').trim().toUpperCase();
+            return { numero: f?.invoiceNumber || id, valor, indicada: destFat.has(n) || !!(f?.omId && destOm.has(f.omId)) };
+          }),
+          observacao: (d.observacaoSolicitante || '').trim(),
+        };
         a.push(['BAIXA_FORA_DESTINACAO', [
           `A OM indicou: ${destFat.size ? lista([...destFat]) : ''}${destFat.size && destOm.size ? ' e ' : ''}${destOm.size ? `${destOm.size} OM (todas as faturas dela)` : ''}.`,
           `Demos baixa em: ${lista(fora.map(f => f.invoiceNumber))} — fora do que a OM indicou.`,
           indicadasSemBaixa.length ? `Indicadas e ainda sem baixa deste crédito: ${lista(indicadasSemBaixa)}.` : '',
-          d.observacaoSolicitante?.trim() ? `Observação da OM no SIPLAD: “${d.observacaoSolicitante.trim()}”` : '',
-        ].filter(Boolean).join('\n')]);
+        ].filter(Boolean).join('\n'), detalhe]);
       }
     }
     const pontos = combinar(a, d.pontosRegistro);
