@@ -1658,6 +1658,24 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByTestId('somas-subsidios').waitFor({ timeout: 10000 });
     ok(db.subsidios_tc.length === 3 && db.subsidios_tc.reduce((t, x) => t + Number(x.valor), 0) === 1700, 'subsídios: importar de novo substitui (continua 3 linhas, soma 1.700) em vez de duplicar');
     await page.getByRole('button', { name: 'Não alterar os valores' }).click();
+    // a rubrica ficou em modo "pela soma dos subsídios": uma nova planilha com valores diferentes ATUALIZA o valor sozinha
+    ok(db.rubricas.find(r => r.numero === 1).valor_modo === 'SUBSIDIOS', 'rubrica marcada fica no modo "pela soma dos subsídios"');
+    const sub2 = path.join(pasta, 'subsidios2.xlsx'); const wb2 = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2, XLSX.utils.aoa_to_sheet([['RUBRICA', 'DESCRIÇÃO DO SUBSÍDIO', 'DOCUMENTO', 'VALOR (R$)', 'OBSERVAÇÃO'], [1, 'Orçamento A', 'Contrato 1', 1000], [1, 'Orçamento B', 'Contrato 2', 300]]), 'SUBSIDIOS');
+    XLSX.writeFile(wb2, sub2);
+    await page.getByLabel('Planilha de subsídios').setInputFiles(sub2);
+    for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1300; i++) await page.waitForTimeout(250);
+    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1300, 'modo soma: nova importação atualiza o valor da rubrica sem digitar (1.000 + 300 = 1.300)');
+    if (await page.getByTestId('somas-subsidios').isVisible().catch(() => false)) await page.getByRole('button', { name: 'Não alterar os valores' }).click();
+    // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
+    await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
+    ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ficha-valor-modo.png') });
+    await page.getByLabel('Valor digitado').check();
+    await page.getByLabel('Valor previsto da rubrica', { exact: true }).fill('1500');
+    await page.getByRole('button', { name: 'Gravar e fechar' }).click();
+    for (let i = 0; i < 40 && db.rubricas.find(r => r.numero === 1).valor_modo !== 'DIGITADO'; i++) await page.waitForTimeout(250);
+    ok(db.rubricas.find(r => r.numero === 1).valor_modo === 'DIGITADO' && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1500 && db.subsidios_tc.some(x => x.rubrica === 1), 'ficha: valor digitado (1.500) e os subsídios continuam cadastrados');
     // 3) lotação: prévia com hoje × novo antes de gravar
     await page.getByRole('button', { name: 'Importar proposta (planilha)' }).click();
     await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(lot);

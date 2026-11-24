@@ -38,6 +38,8 @@ export interface RubricaProposta extends RubricaTC {
   parcelaNavios?: number | null;
   /** por que este valor (memória para conferência) */
   justificativaValor?: string | null;
+  /** DIGITADO: o valor é o digitado; SUBSIDIOS: o valor é a soma dos subsídios (acompanha as mudanças deles) */
+  valorModo?: 'DIGITADO' | 'SUBSIDIOS';
   /** coluna DESCONTOS da planilha importada (conferência) */
   descontoPlanilha?: number | null;
 }
@@ -96,7 +98,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
   const ok = (x: any) => (x.error ? [] : x.data || []);
   const N = (v: any) => (v == null ? null : Number(v));
   [p, rub, lot, mat, desc, atr].forEach(r => checar(r.error));
-  return {
+  const res: DadosProposta = {
     proposta: p.data ? { ano, status: p.data.status, aprovadaEm: p.data.aprovada_em, divulgadaEm: p.data.divulgada_em, observacao: p.data.observacao, naviosPlanilha: p.data.navios_planilha == null ? null : Number(p.data.navios_planilha), baseNavios: p.data.base_navios === 'VIGENTE' ? 'VIGENTE' : 'PREVISTO' } : { ano, status: 'PROPOSTA', baseNavios: 'PREVISTO' },
     rubricas: (rub.data || []).map(r => ({
       numero: r.numero, descricao: r.descricao, contaContabil: r.conta_contabil, valorPrevisto: Number(r.valor_previsto ?? r.valor_anual ?? 0),
@@ -105,7 +107,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
       rateioTodas: r.rateio_todas === true, valorNavios: N(r.valor_navios),
       naviosModo: (['NAO', 'INTEGRAL', 'PERCENTUAL', 'FIXO'].includes(r.navios_modo) ? r.navios_modo : (Number(r.percentual_navios || 0) > 0 ? 'PERCENTUAL' : 'NAO')) as NaviosModo,
       descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
-      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null,
+      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null, valorModo: r.valor_modo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO',
       criterio: (r.criterio || 'LOTACAO'), percentualOM: r.percentual_om == null ? 100 : Number(r.percentual_om), modoNavios: r.modo_navios === 'CONJUNTO' ? 'CONJUNTO' : 'SEPARADO',
       // antes do 014 só havia a parte dos navios em R$: vira percentual do valor previsto
       percentualNavios: r.percentual_navios != null ? Number(r.percentual_navios) : (r.parcela_navios && Number(r.valor_previsto ?? r.valor_anual) ? Math.round((Number(r.parcela_navios) / Number(r.valor_previsto ?? r.valor_anual)) * 1e6) / 1e4 : 0),
@@ -124,6 +126,13 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     fechados: ok(fec).map((x: any) => ({ tipo: x.tipo === 'DA' ? 'DA' : 'TC', nome: x.nome, omId: x.om_id, anteriorAnual: N(x.anterior_anual), anteriorMensal: N(x.anterior_mensal), proposta: N(x.proposta), descontos: N(x.descontos), atualizada: N(x.atualizada), mensal: N(x.mensal) })),
     extratos: ok(ext).map((x: any) => ({ nome: x.nome, omId: x.om_id, rubrica: x.rubrica, bruto: Number(x.bruto || 0), desconto: Number(x.desconto || 0), liquido: Number(x.liquido || 0) })),
   };
+  // rubricas em modo SUBSIDIOS valem a soma dos subsídios (acompanham inclusão, troca e exclusão)
+  for (const r of res.rubricas) {
+    if (r.valorModo !== 'SUBSIDIOS') continue;
+    const it = res.subsidios.filter(x => x.rubrica === r.numero);
+    if (it.length) r.valorPrevisto = Math.round(it.reduce((t, x) => t + x.valor, 0) * 100) / 100;
+  }
+  return res;
 }
 
 export async function salvarProposta(p: Proposta) {
@@ -149,6 +158,11 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
           if (r.destino === 'OG' || r.rateioTodas || ['INTEGRAL', 'FIXO'].includes(naviosModoDe(r))) throw new Error('Falta executar o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase (outros gastos, rateio entre todas e modo dos navios).');
         } else checar(e021);
       }
+    }
+    {
+      // script 045: valor digitado × pela soma dos subsídios
+      const { error: e045 } = await supabase.from('rubricas').update({ valor_modo: r.valorModo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO' }).eq('ano', ano).eq('numero', r.numero);
+      if (e045) { if (/valor_modo/.test(e045.message || '')) { if (r.valorModo === 'SUBSIDIOS') throw new Error('Falta executar o script supabase/migrations/045_rubricas_valor_modo.sql no Supabase.'); } else checar(e045); }
     }
     let { error } = await supabase.from('rubricas').update({ ...base, ...criterios, destino: r.destino, desconto_planilha: r.descontoPlanilha ?? null, parcela_navios: r.parcelaNavios ?? null, justificativa_valor: r.justificativaValor ?? null }).eq('ano', ano).eq('numero', r.numero);
     if (error && /criterio|percentual_om|percentual_navios|modo_navios/.test(error.message || '')) {
@@ -283,8 +297,22 @@ const falta013 = (e: any) => { if (e && /subsidios_tc|anexos_tc|fechados_tc|extr
 export async function salvarSubsidio(s: Omit<Subsidio, 'id'> & { id?: string }) {
   const { error } = await supabase.from('subsidios_tc').upsert({ id: s.id || uuidv4(), ano: s.ano, rubrica: s.rubrica, descricao: s.descricao.trim(), documento: s.documento?.trim() || null, valor: s.valor, observacao: s.observacao?.trim() || null, criado_por: s.criadoPor ?? null });
   falta013(error);
+  await sincronizarValoresPorSubsidios(s.ano);
 }
-export async function excluirSubsidio(id: string) { const { error } = await supabase.from('subsidios_tc').delete().eq('id', id); falta013(error); }
+/** Rubricas em modo SUBSIDIOS: o valor previsto (e o vigente) passa a ser a soma dos subsídios. Chamada depois de incluir, importar ou excluir subsídios. */
+export async function sincronizarValoresPorSubsidios(ano: number) {
+  const { data: rubs, error } = await supabase.from('rubricas').select('numero, descricao, conta_contabil, desconto_geral').eq('ano', ano).eq('valor_modo', 'SUBSIDIOS');
+  if (error) return; // antes do script 045 não há modo
+  if (!rubs?.length) return;
+  const { data: subs } = await supabase.from('subsidios_tc').select('rubrica, valor').eq('ano', ano);
+  for (const r of rubs) {
+    const it = (subs || []).filter((x: any) => x.rubrica === r.numero);
+    if (!it.length) continue;
+    const soma = Math.round(it.reduce((t: number, x: any) => t + Number(x.valor), 0) * 100) / 100;
+    await supabase.from('rubricas').update({ valor_previsto: soma, valor_anual: Math.max(0, soma - Number(r.desconto_geral || 0)) }).eq('ano', ano).eq('numero', r.numero);
+  }
+}
+export async function excluirSubsidio(id: string, ano?: number) { const { error } = await supabase.from('subsidios_tc').delete().eq('id', id); falta013(error); if (ano) await sincronizarValoresPorSubsidios(ano); }
 /** Importar SUBSTITUI os subsídios das rubricas que vêm no arquivo (importar de novo não duplica). Rubricas fora do arquivo ficam como estão. */
 export async function importarSubsidios(ano: number, linhas: Omit<Subsidio, 'id' | 'ano'>[]) {
   if (!linhas.length) return;
@@ -293,6 +321,7 @@ export async function importarSubsidios(ano: number, linhas: Omit<Subsidio, 'id'
   falta013(del.error);
   const { error } = await supabase.from('subsidios_tc').insert(linhas.map(l => ({ id: uuidv4(), ano, rubrica: l.rubrica, descricao: l.descricao, documento: l.documento, valor: l.valor, observacao: l.observacao, criado_por: l.criadoPor ?? null })));
   falta013(error);
+  await sincronizarValoresPorSubsidios(ano);
 }
 
 const BUCKET = 'contratos-tc';

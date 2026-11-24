@@ -68,9 +68,9 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     if (!mudar_.length) { setSomas(null); return; }
     setGravando(true);
     try {
-      const novos = dados.rubricas.filter(r => mudar_.some(x => x.numero === r.numero)).map(r => ({ ...r, valorPrevisto: mudar_.find(x => x.numero === r.numero)!.soma }));
+      const novos = dados.rubricas.filter(r => mudar_.some(x => x.numero === r.numero)).map(r => ({ ...r, valorPrevisto: mudar_.find(x => x.numero === r.numero)!.soma, valorModo: 'SUBSIDIOS' as const }));
       await salvarRubricasProposta(ano, novos);
-      notify.success(`Valor de ${novos.length} rubrica(s) atualizado pela soma dos subsídios.`);
+      notify.success(`${novos.length} rubrica(s) agora usam a soma dos subsídios (acompanha qualquer mudança neles). Para voltar ao valor digitado, abra a ficha da rubrica.`);
       setSomas(null); setSujo(false); recarregar();
     } catch (e) { notify.fail('Erro ao atualizar as rubricas', e); } finally { setGravando(false); }
   };
@@ -162,7 +162,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <td className="px-1"><select disabled={!podeEditar} className={`${entrada} text-xs w-24`} value={l.destino} onChange={e => mudar(i, { destino: e.target.value as Destino, ...(e.target.value === 'OG' && l.destino !== 'OG' ? { rateioTodas: true } : {}) })} aria-label={`Entra como (linha ${l.numero})`} title="Rubrica da taxa, outros gastos (entra na taxa) ou fora da taxa">
           <option value="TC">Rubrica</option><option value="OG">Outros gastos</option><option value="PAR">Fora da taxa</option></select></td>
         <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} /></td>
-        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
+        <td className="px-1"><input disabled={!podeEditar} readOnly={l.valorModo === 'SUBSIDIOS'} title={l.valorModo === 'SUBSIDIOS' ? 'Valor pela soma dos subsídios (para digitar, mude na ficha da rubrica)' : undefined} className={`${entrada} w-28 text-xs text-right ${l.valorModo === 'SUBSIDIOS' ? 'bg-slate-100' : ''}`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
         <td className="px-2 text-right text-slate-600">{mostrarNavios ? pct(Math.round(c.rub * 100) / 100) : ''}</td>
         <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.gastoAnterior)} onChange={e => mudar(i, { gastoAnterior: n2(e.target.value) })} aria-label={`Gasto anterior da rubrica ${l.numero}`} /></td>
         <td className={`px-2 text-right ${c.variacao !== null && c.variacao > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(c.variacao)}</td>
@@ -244,7 +244,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         {somas && (
           <div className="space-y-3 text-sm" data-testid="somas-subsidios">
             {somas.length === 0 ? <p className="text-slate-600">Nenhuma rubrica tem subsídio cadastrado em {ano}.</p> : <>
-              <p className="text-slate-600">Cada rubrica tem hoje um valor digitado; os subsídios importados formam a composição dele. Marque as rubricas que devem <b>passar a valer a soma dos subsídios</b>. As que ficarem <b>desmarcadas continuam com o valor digitado</b> (os subsídios ficam só como justificativa). Rubricas com diferença muito grande vêm desmarcadas: confira antes. <b>Nada muda até você clicar em "Atualizar valores".</b></p>
+              <p className="text-slate-600">Cada rubrica tem hoje um valor digitado; os subsídios importados formam a composição dele. Marque as rubricas que devem <b>usar a soma dos subsídios como valor</b> (acompanha qualquer mudança neles). As que ficarem <b>desmarcadas continuam com o valor digitado</b> (os subsídios ficam só como justificativa). Você pode trocar a qualquer momento na ficha da rubrica. Rubricas com diferença muito grande vêm desmarcadas: confira antes. <b>Nada muda até você clicar em "Atualizar valores".</b></p>
               <div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => setSomas(l => l && l.map(y => ({ ...y, marcar: !y.bloqueio && Math.abs(y.soma - y.atual) > 0.005 })))}>Marcar todas</Button><Button size="sm" variant="secondary" onClick={() => setSomas(l => l && l.map(y => ({ ...y, marcar: false })))}>Desmarcar todas</Button></div>
               <div className="max-h-[50vh] overflow-y-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-xs">

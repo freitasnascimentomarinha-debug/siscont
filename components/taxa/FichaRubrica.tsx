@@ -40,6 +40,7 @@ export const FichaRubrica: React.FC<{
   if (!rubrica) return null;
   const r = rubrica;
   const soma = Math.round(subsidios.reduce((s, x) => s + x.valor, 0) * 100) / 100;
+  const usaSoma = r.valorModo === 'SUBSIDIOS' && subsidios.length > 0;
   const confere = subsidios.length > 0 && Math.abs(soma - r.valorPrevisto) < 0.01;
 
   const incluirSubsidio = async () => {
@@ -64,9 +65,14 @@ export const FichaRubrica: React.FC<{
     <Modal isOpen onClose={onFechar} title={`Rubrica ${r.numero} — ${r.descricao || 'nova'}`} maxWidth="max-w-3xl">
       <div className="space-y-4 text-sm">
         <Passo n={1} titulo={`Quanto esta despesa vai custar em ${ano}?`} ajuda="Valor previsto para o ano e, se quiser, o motivo desse valor (opcional; fica registrado para conferência)." ok={r.valorPrevisto > 0 && !!r.justificativaValor?.trim()}>
+          <div className="mb-3 flex flex-wrap items-center gap-4 text-sm" role="radiogroup" aria-label="Como definir o valor">
+            <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar} checked={!usaSoma} onChange={() => onMudar({ valorModo: 'DIGITADO' })} aria-label="Valor digitado" />Valor digitado</label>
+            <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar || subsidios.length === 0} checked={usaSoma} onChange={() => onMudar({ valorModo: 'SUBSIDIOS', valorPrevisto: soma })} aria-label="Valor pela soma dos subsídios" />Pela soma dos subsídios ({subsidios.length} · {brl(soma)})</label>
+            {subsidios.length === 0 && <span className="text-xs text-slate-500">Cadastre ou importe subsídios para usar a soma.</span>}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="block">Valor previsto (R$)
-              <input disabled={!podeEditar} className={`${entrada} w-full text-right`} inputMode="decimal" value={fmt(r.valorPrevisto)} onChange={e => onMudar({ valorPrevisto: n2(e.target.value) ?? 0 })} aria-label="Valor previsto da rubrica" />
+            <label className="block">Valor previsto (R$){usaSoma && <span className="text-xs text-slate-500"> — soma dos subsídios</span>}
+              <input disabled={!podeEditar} readOnly={usaSoma} className={`${entrada} w-full text-right ${usaSoma ? 'bg-slate-100' : ''}`} inputMode="decimal" value={fmt(usaSoma ? soma : r.valorPrevisto)} onChange={e => onMudar({ valorPrevisto: n2(e.target.value) ?? 0 })} aria-label="Valor previsto da rubrica" />
             </label>
             <label className="block">Gasto em {ano - 1} (R$)
               <input disabled={!podeEditar} className={`${entrada} w-full text-right`} inputMode="decimal" value={fmt(r.gastoAnterior)} onChange={e => onMudar({ gastoAnterior: n2(e.target.value) })} aria-label="Gasto no ano anterior" />
@@ -85,7 +91,7 @@ export const FichaRubrica: React.FC<{
               {subsidios.map(s => (
                 <tr key={s.id} className="border-t border-slate-100">
                   <td className="py-1">{s.descricao}</td><td>{s.documento || '—'}</td><td className="text-right tabular-nums">{brl(s.valor)}</td><td className="pl-2 text-slate-500">{s.observacao}</td>
-                  <td className="text-right">{podeEditar && <button aria-label={`Excluir subsídio ${s.descricao}`} className="text-slate-400 hover:text-red-600" onClick={async () => { try { await excluirSubsidio(s.id); recarregar(); } catch (e) { notify.fail('Erro ao excluir', e); } }}><Trash2 size={14} /></button>}</td>
+                  <td className="text-right">{podeEditar && <button aria-label={`Excluir subsídio ${s.descricao}`} className="text-slate-400 hover:text-red-600" onClick={async () => { try { await excluirSubsidio(s.id, ano); recarregar(); } catch (e) { notify.fail('Erro ao excluir', e); } }}><Trash2 size={14} /></button>}</td>
                 </tr>
               ))}
               {!subsidios.length && <tr><td colSpan={5} className="py-2 text-slate-400">Nenhum subsídio ainda.</td></tr>}
