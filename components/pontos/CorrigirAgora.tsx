@@ -6,6 +6,7 @@ import { lerFatura } from '../../utils/cadastroImport';
 import { somarDias } from '../../utils/cobrancaMensagem';
 import { PontoAtencao } from '../../utils/pontosAtencao';
 import { notify } from '../../utils/notify';
+import { registrarMotivoDoCancelamento, restaurarFaturaCancelada } from '../../services/fase4Service';
 import { SeletorCliente } from '../ui/SeletorCliente';
 import { Button } from '../ui/Button';
 
@@ -39,6 +40,7 @@ export const CorrigirAgora: React.FC<{
   const [vAcr, setVAcr] = useState('');
   const [vDeb, setVDeb] = useState('');
   const [vVenc, setVVenc] = useState('');
+  const [motivoCanc, setMotivoCanc] = useState('');
 
   const carregar = async () => {
     const [f, d, b] = await Promise.all([db.getInvoices(), db.getDocuments(), db.getAllocations()]);
@@ -132,6 +134,27 @@ export const CorrigirAgora: React.FC<{
   };
   if (fatura && PONTOS_VALOR.has(ponto.tipo)) editorValores();
 
+  // cancelamento sem motivo: restaurar a fatura (foi engano) ou registrar o motivo (foi proposital)
+  if (fatura && ponto.tipo === 'CANCELAMENTO_A_VERIFICAR' && fatura.isCanceled) {
+    const podeRestaurar = !fatura.cancelamentoMotivo && !fatura.canceladaEm && !fatura.substituidaPor;
+    acoes.push(
+      <div key="cancelamento" className="space-y-3" data-testid="corrigir-cancelamento">
+        <div className="rounded border border-slate-200 bg-white p-2 space-y-1.5">
+          <div className="text-xs font-bold text-slate-700">Foi engano? Desfazer o cancelamento</div>
+          <p className="text-xs text-slate-600">A fatura volta a valer ({brl(fatura.value + (fatura.adjustmentAddition || 0) - (fatura.adjustmentDeduction || 0))}), com as baixas que tiver.</p>
+          <Button size="sm" variant="secondary" isLoading={gravando} disabled={!podeRestaurar} title={podeRestaurar ? undefined : 'Cancelada pelo sistema com motivo (ou substituída): não é desfeita aqui'}
+            onClick={() => { if (window.confirm(`Restaurar a fatura ${fatura.invoiceNumber}? Ela deixa de estar cancelada.`)) aplicar('fatura restaurada (cancelamento desfeito)', () => restaurarFaturaCancelada(fatura)); }}>Restaurar a fatura</Button>
+        </div>
+        <div className="rounded border border-slate-200 bg-white p-2 space-y-1.5">
+          <div className="text-xs font-bold text-slate-700">Foi proposital? Registrar o motivo do cancelamento</div>
+          <input value={motivoCanc} onChange={e => setMotivoCanc(e.target.value)} aria-label="Motivo do cancelamento da fatura" placeholder="Ex.: cancelada em 18/09/26 por solicitação do OD"
+            className="block w-full border border-slate-300 rounded px-2 py-1 text-sm bg-white" />
+          <Button size="sm" isLoading={gravando} disabled={!motivoCanc.trim()}
+            onClick={() => aplicar(`cancelamento confirmado: ${motivoCanc.trim()}`, () => registrarMotivoDoCancelamento(fatura, motivoCanc, usuario))}>Registrar o motivo</Button>
+        </div>
+      </div>);
+  }
+
   // ---------------------------------------------------------------- documentos
   if (doc && ponto.tipo === 'DOC_VALOR_INVALIDO') acoes.push(
     <div key="valor" className="flex items-end gap-2">
@@ -166,19 +189,6 @@ export const CorrigirAgora: React.FC<{
       </div>
     </div>);
 
-  // ponto de fatura sem correção própria: ao menos o editor de valores, para não obrigar a sair da janela
-  if (!acoes.length && fatura) editorValores();
-  // ponto de documento sem correção própria: editor do valor e da data do documento
-  if (!acoes.length && doc) acoes.push(
-    <div key="doc-geral" className="space-y-2" data-testid="editor-documento">
-      <div className="text-xs font-semibold text-slate-600">Alterar o documento {doc.documentNumber}</div>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="text-xs font-semibold text-slate-600">Valor recebido (R$)<input type="number" step="0.01" min="0" aria-label="Valor do documento" value={valor} onChange={e => setValor(e.target.value)} className="mt-1 block w-full border border-slate-300 rounded px-2 py-1 text-sm bg-white font-normal" /></label>
-        <label className="text-xs font-semibold text-slate-600">Data<input type="date" aria-label="Data do documento" value={data} onChange={e => setData(e.target.value)} className="mt-1 block w-full border border-slate-300 rounded px-2 py-1 text-sm bg-white font-normal" /></label>
-      </div>
-      <Button size="sm" isLoading={gravando} disabled={!(Number(valor) > 0) || !data || (Math.round(Number(valor) * 100) / 100 === doc.totalValue && data === doc.date)}
-        onClick={() => aplicar(`documento (valor ${brl(Number(valor))}, data ${dataBR(data)})`, () => db.saveDocument({ ...doc, totalValue: Math.round(Number(valor) * 100) / 100, date: data }))}>Gravar a alteração</Button>
-    </div>);
   if (!acoes.length) return null;
   return (
     <div className="mt-2 rounded-md border border-primary-200 bg-primary-50/50 p-2.5 space-y-2" data-testid="corrigir-agora">

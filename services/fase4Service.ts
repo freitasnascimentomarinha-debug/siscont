@@ -191,6 +191,23 @@ export async function cancelarFatura(inv: Invoice, motivo: string, devolverBaixa
   db.invalidateCache();
 }
 
+/** Desfaz um cancelamento feito SEM motivo (ex.: vindo da migração/planilha). Cancelamento registrado pelo sistema (com motivo) não é desfeito aqui: o crédito usado já foi estornado. */
+export async function restaurarFaturaCancelada(inv: Invoice) {
+  if (inv.cancelamentoMotivo || inv.canceladaEm) throw new Error('Esta fatura foi cancelada pelo sistema, com motivo. Para refazê-la, emita a versão seguinte (Retificar).');
+  if (inv.substituidaPor) throw new Error(`A fatura foi substituída por ${inv.substituidaPor}; não dá para restaurá-la.`);
+  const { error } = await supabase.from('invoices').update({ is_canceled: false, cancelamento_motivo: null, cancelada_em: null, cancelada_por: null }).eq('id', inv.id);
+  checar(error);
+  db.invalidateCache();
+}
+
+/** Confirma que o cancelamento foi proposital: grava o motivo na fatura. */
+export async function registrarMotivoDoCancelamento(inv: Invoice, motivo: string, usuario: string) {
+  if (!motivo.trim()) throw new Error('Informe o motivo do cancelamento.');
+  const { error } = await supabase.from('invoices').update({ cancelamento_motivo: motivo.trim(), cancelada_por: usuario || null }).eq('id', inv.id);
+  checar(error);
+  db.invalidateCache();
+}
+
 export interface AlteracoesVersao {
   value: number; adjustmentAddition: number; adjustmentDeduction: number; consumption: string; issueDate: string; dueDate: string; observation: string;
 }

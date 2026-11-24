@@ -2985,7 +2985,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // ponto anotado pela migração: valor da planilha diferente do livro de emissão (como a 41000-TC-09-2025-002-0)
     const fLivro = fat('40030-TC-09-2025-002-0', 19707.4, { due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Taxa Condominial', service_acronym: 'TC',
       pontos_atencao: [{ tipo: 'VALOR_DIVERGENTE_LIVRO', mensagem: 'Valor vigente na planilha R$ 19.707,40; no livro de emissão R$ 209.093,30 (serviço R$ 209.093,30 + acréscimo R$ 0,00 − débito R$ 0,00).', origem: 'migracao', em: '2026-11-07' }] });
-    db.invoices = [fVenc, fOk, fLivro];
+    // fatura cancelada sem motivo (ponto "Cancelamento a verificar"): a janela deve tratar o CANCELAMENTO, não o valor
+    const fCanc = fat('40030-TC-09-2025-003-0', 19707.4, { is_canceled: true, due_date: '2025-11-15', month_competence: 9, year_competence: 2025, competence: '09/2025', type: 'Taxa Condominial', service_acronym: 'TC',
+      pontos_atencao: [{ tipo: 'CANCELAMENTO_A_VERIFICAR', mensagem: 'Fatura cancelada sem motivo e sem fatura substituta. Verificar na planilha de pagamento se o cancelamento foi proposital.', origem: 'usuario', em: '2026-11-08' }] });
+    db.invoices = [fVenc, fOk, fLivro, fCanc];
     const alt = { id: uid(), document_number: 'G1.2026.AC.50001', document_type: 'ALTCRED', total_value: 100, date: '2026-09-01', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
     const zerado = { id: uid(), document_number: 'G1.2026.AC.50002', document_type: 'ALTCRED', total_value: 0, date: '2026-09-02', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '40030 - DIM', ug: '40030', observation: '' };
     db.received_documents.push(alt, zerado);
@@ -3030,6 +3033,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const gl = db.invoices.find(i => i.id === fLivro.id);
     ok(Number(gl.value) === 209093.3, 'o valor da fatura foi alterado pela própria janela do ponto');
     ok((gl.pontos_atencao || []).some(p => p.tipo === 'VALOR_DIVERGENTE_LIVRO' && p.resolvido && /Corrigido na própria janela/.test(p.justificativa || '')), 'o ponto ficou resolvido com o que foi feito (valor alterado), sem escrever à mão');
+    await page.keyboard.press('Escape');
+    // 5. cancelamento a verificar: oferece restaurar ou registrar o motivo (e NÃO o editor de valores)
+    await page.getByRole('row', { name: /40030-TC-09-2025-003-0/ }).getByRole('button', { name: 'Ver / resolver' }).first().click();
+    await page.getByTestId('corrigir-cancelamento').waitFor();
+    ok(await page.getByTestId('editor-valores-fatura').count() === 0, 'ponto de cancelamento não abre o editor de valores');
+    ok(await page.getByRole('button', { name: 'Restaurar a fatura' }).isEnabled(), 'oferece restaurar a fatura cancelada sem motivo');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-cancelamento.png') });
+    await page.getByLabel('Motivo do cancelamento da fatura').fill('Cancelada em 18/09/26 por solicitação do OD');
+    await page.getByRole('button', { name: 'Registrar o motivo' }).click();
+    await page.getByText(/Corrigido: cancelamento confirmado: Cancelada em 18\/09\/26/).waitFor();
+    const gc = db.invoices.find(i => i.id === fCanc.id);
+    ok(gc.cancelamento_motivo === 'Cancelada em 18/09/26 por solicitação do OD' && gc.is_canceled === true, 'motivo do cancelamento gravado na fatura (continua cancelada)');
   });
 
   if (extras.length) {
