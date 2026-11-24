@@ -2232,6 +2232,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('option', { name: /Banco do Brasil/ }).first().click();
     ok(await page.getByText(/Ligado ao cadastro: 00994 · Banco do Brasil/).isVisible(), 'documento ligado à OM do cadastro');
     await page.keyboard.press('Escape');
+    await page.waitForTimeout(400);   // dá tempo de a janela fechar antes do próximo clique
     // fatura avulsa: a emissão sugere vencimento e data-limite de certificação; sem datas não grava; RB aceita o anexo da Descrição de Manobra
     await page.getByRole('button', { name: 'Faturas emitidas' }).first().click();
     await page.getByRole('button', { name: 'Nova Fatura' }).click();
