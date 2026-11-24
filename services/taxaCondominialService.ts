@@ -285,8 +285,12 @@ export async function salvarSubsidio(s: Omit<Subsidio, 'id'> & { id?: string }) 
   falta013(error);
 }
 export async function excluirSubsidio(id: string) { const { error } = await supabase.from('subsidios_tc').delete().eq('id', id); falta013(error); }
+/** Importar SUBSTITUI os subsídios das rubricas que vêm no arquivo (importar de novo não duplica). Rubricas fora do arquivo ficam como estão. */
 export async function importarSubsidios(ano: number, linhas: Omit<Subsidio, 'id' | 'ano'>[]) {
   if (!linhas.length) return;
+  const rubricas = [...new Set(linhas.map(l => l.rubrica))];
+  const del = await supabase.from('subsidios_tc').delete().eq('ano', ano).in('rubrica', rubricas);
+  falta013(del.error);
   const { error } = await supabase.from('subsidios_tc').insert(linhas.map(l => ({ id: uuidv4(), ano, rubrica: l.rubrica, descricao: l.descricao, documento: l.documento, valor: l.valor, observacao: l.observacao, criado_por: l.criadoPor ?? null })));
   falta013(error);
 }

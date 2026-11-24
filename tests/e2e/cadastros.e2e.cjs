@@ -1653,6 +1653,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: /^Atualizar valores/ }).click();
     for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1200; i++) await page.waitForTimeout(250);
     ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1200 && db.subsidios_tc.length === 3, 'subsídios: "Atualizar valores" grava a soma (900 + 300 = 1.200) na rubrica');
+    // importar a mesma planilha de novo SUBSTITUI (não soma em dobro)
+    await page.getByLabel('Planilha de subsídios').setInputFiles(sub);
+    await page.getByTestId('somas-subsidios').waitFor({ timeout: 10000 });
+    ok(db.subsidios_tc.length === 3 && db.subsidios_tc.reduce((t, x) => t + Number(x.valor), 0) === 1700, 'subsídios: importar de novo substitui (continua 3 linhas, soma 1.700) em vez de duplicar');
+    await page.getByRole('button', { name: 'Não alterar os valores' }).click();
     // 3) lotação: prévia com hoje × novo antes de gravar
     await page.getByRole('button', { name: 'Importar proposta (planilha)' }).click();
     await page.locator('input[aria-label="Arquivo da proposta"]').setInputFiles(lot);

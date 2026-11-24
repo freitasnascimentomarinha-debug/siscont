@@ -136,7 +136,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         const j = new Map(r.justificativas.map(x => [x.rubrica, x.texto]));
         await salvarRubricasProposta(ano, linhas.filter(l => j.has(l.numero)).map(l => ({ ...l, justificativaValor: j.get(l.numero)! })));
       }
-      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados.${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''} Agora escolha se o valor das rubricas deve passar a ser a soma dos subsídios.`);
+      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados (substituem os subsídios anteriores das mesmas rubricas).${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''} Agora escolha se o valor das rubricas deve passar a ser a soma dos subsídios.`);
       r.avisos.forEach(a => notify.error(a));
       setSujo(false); setPedirSomas(true); recarregar();
     } catch (e) { notify.fail('Erro ao importar subsídios', e); } finally { setImportando(false); if (refSub.current) refSub.current.value = ''; }
