@@ -196,7 +196,7 @@ const PontosLista: React.FC = () => {
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50">
               <tr>
-                {['', 'Ponto', 'Registro', 'Cliente', 'Descrição', 'Situação', ''].map((h, i) => (
+                {['', 'Ponto', 'Registro', 'Cliente', 'Descrição', 'Situação / histórico da resolução', ''].map((h, i) => (
                   <th key={i} className="px-3 py-2 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -211,10 +211,13 @@ const PontosLista: React.FC = () => {
                     <div className="text-[11px] text-slate-500">{[l.alvo === 'fatura' ? 'Fatura' : 'Documento', l.detalhe].filter(Boolean).join(' · ')}</div>
                   </td>
                   <td className="px-3 py-2 max-w-[200px] truncate" title={l.cliente}>{l.cliente}</td>
-                  <td className="px-3 py-2 min-w-[280px]">{l.ponto.mensagem}</td>
+                  <td className="px-3 py-2 min-w-[280px] whitespace-pre-line">{l.ponto.mensagem}</td>
                   <td className="px-3 py-2 text-xs whitespace-nowrap">
                     {l.ponto.resolvido
-                      ? <span className="text-emerald-700" title={l.ponto.resolvido.justificativa}>{l.ponto.automatico ? 'Ciente' : 'Resolvido'}</span>
+                      ? <div className="whitespace-normal min-w-[220px] max-w-[320px]" data-testid="historico-resolucao">
+                          <div className="font-semibold text-emerald-700">{l.ponto.automatico ? 'Ciente' : 'Resolvido'}{l.ponto.resolvido.por ? ` por ${l.ponto.resolvido.por}` : ''}{l.ponto.resolvido.em ? ` em ${l.ponto.resolvido.em.slice(0, 10).split('-').reverse().join('/')}` : ''}</div>
+                          {l.ponto.resolvido.justificativa && <div className="text-slate-700 mt-0.5">Motivo: “{l.ponto.resolvido.justificativa}”</div>}
+                        </div>
                       : <span className="text-slate-600">{l.ponto.automatico ? 'Pendente (automático)' : 'Pendente'}</span>}
                   </td>
                   <td className="px-3 py-2 text-right"><button className="text-xs font-semibold text-primary-700 hover:underline" onClick={() => abrir(l)}>Ver / resolver</button></td>

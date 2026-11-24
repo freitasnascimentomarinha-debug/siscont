@@ -52,7 +52,11 @@ export interface DetalheCitadaInexistente {
 
 export interface DetalheBaixaFora {
   tipo: 'BAIXA_FORA';
-  indicadas: { numero: string; baixada: boolean; /** o número citado não existe no sistema */ inexistente?: boolean }[];
+  indicadas: {
+    numero: string; baixada: boolean;
+    /** o número citado não existe no sistema */ inexistente?: boolean;
+    /** a fatura pedida foi paga por OUTRA ALTCRED (e se já está quitada) */ outrasAltcreds?: { numero: string; valor: number }[]; quitada?: boolean;
+  }[];
   omsIndicadas: number;
   baixas: { numero: string; valor: number; indicada: boolean }[];
   observacao: string;
@@ -210,6 +214,10 @@ export function avaliarPontos(
   const pd = new Map<string, PontoAtencao[]>();
   const fatPorId = new Map(faturas.map(f => [f.id, f]));
   const numerosFaturas = new Set(faturas.map(f => (f.invoiceNumber || '').trim().toUpperCase()));
+  const fatPorNumero = new Map(faturas.map(f => [(f.invoiceNumber || '').trim().toUpperCase(), f]));
+  const numeroDoc = new Map(documentos.map(x => [x.id, x.documentNumber]));
+  const baixasPorFatura = new Map<string, BaixaParaPontos[]>();
+  baixas.forEach(b => { const l = baixasPorFatura.get(b.invoiceId); if (l) l.push(b); else baixasPorFatura.set(b.invoiceId, [b]); });
   documentos.forEach(d => {
     const a: [string, string, (DetalheBaixaFora | DetalheCitadaInexistente)?][] = [];
     const num = (d.documentNumber || '').trim().toUpperCase();
@@ -242,7 +250,14 @@ export function avaliarPontos(
         (baixasPorDoc.get(d.id) || []).forEach(b => valorPor.set(b.invoiceId, r2((valorPor.get(b.invoiceId) || 0) + b.amount)));
         const detalhe: DetalheBaixaFora = {
           tipo: 'BAIXA_FORA',
-          indicadas: [...destFat].map(n => ({ numero: n, baixada: baixadas.has(n), inexistente: !numerosFaturas.has(n) })),
+          indicadas: [...destFat].map(n => {
+            const fat = fatPorNumero.get(n);
+            const outrasPorDoc = new Map<string, number>();
+            (fat ? baixasPorFatura.get(fat.id) || [] : []).filter(b => b.documentId !== d.id).forEach(b => outrasPorDoc.set(numeroDoc.get(b.documentId) || '(documento removido)', r2((outrasPorDoc.get(numeroDoc.get(b.documentId) || '(documento removido)') || 0) + b.amount)));
+            const totalPago = fat ? r2((baixasPorFatura.get(fat.id) || []).reduce((x, b) => x + b.amount, 0)) : 0;
+            const valorFat = fat ? r2(fat.value + (fat.adjustmentAddition || 0) - (fat.adjustmentDeduction || 0)) : 0;
+            return { numero: n, baixada: baixadas.has(n), inexistente: !numerosFaturas.has(n), outrasAltcreds: [...outrasPorDoc.entries()].map(([numero, valor]) => ({ numero, valor })), quitada: !!fat && totalPago >= valorFat - 0.01 };
+          }),
           omsIndicadas: destOm.size,
           baixas: [...valorPor.entries()].map(([id, valor]) => {
             const f = fatPorId.get(id); const n = (f?.invoiceNumber || '').trim().toUpperCase();

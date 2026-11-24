@@ -22,6 +22,8 @@ const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
               <span className="font-mono text-xs text-slate-900">{i.numero}</span>
               {i.inexistente
                 ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">∅ não existe no sistema</span>
+                : !i.baixada && i.outrasAltcreds?.length
+                  ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-900" title="A fatura que a OM pediu para pagar com este crédito já recebeu baixa de outra ALTCRED">{i.quitada ? '✔ já quitada por outra ALTCRED' : '◐ já recebeu baixa de outra ALTCRED'}: {i.outrasAltcreds.map(o => `${o.numero} (${brlP(o.valor)})`).join(', ')}</span>
                 : i.baixada
                   ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ já recebeu baixa</span>
                   : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ ainda sem baixa</span>}
@@ -55,6 +57,7 @@ const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
       <div className="text-[11px] font-bold uppercase tracking-wide text-amber-800 mb-1">O que fazer</div>
       <ol className="list-decimal pl-5 space-y-1 text-xs text-slate-800">
         <li>Veja se a baixa marcada <b>✘ fora do pedido</b> está errada (ex.: engano de número da fatura).</li>
+        {d.indicadas.some(i => !i.baixada && i.outrasAltcreds?.length) && <li><b>Fatura pedida já paga por outra ALTCRED</b> (selo roxo): isso explica por que este crédito foi aplicado em outra fatura. Confira se a OM não mandou o mesmo pagamento duas vezes; se sim, informe o motivo e, se o valor ficou a mais, trate como adiantamento/estorno.</li>}
         <li><b>Se está errada:</b> clique em <b>remover</b> nessa baixa (quadro abaixo) e depois dê a baixa na fatura certa, em <i>Créditos recebidos › Pagar faturas</i>.</li>
         <li><b>Se está certa</b> (a OM confirmou, ou a fatura pedida já estava paga): clique em <b>“Informar o motivo (manter assim)”</b> e escreva por que pagamos diferente.</li>
       </ol>

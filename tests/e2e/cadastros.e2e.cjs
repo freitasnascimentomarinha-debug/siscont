@@ -546,6 +546,19 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/não existe no sistema/i.test(t2) && t2.includes('71000-EL-09-2026-001-0') && t2.includes('71000-EL-09-2026-002-0') && /este crédito já foi aplicado em/i.test(t2) && /baixa de R\$ 1\.500,00 já dada/.test(t2) && /não é uma indicação nova/i.test(t2), 'fatura citada inexistente: mostra que o crédito JÁ foi aplicado na parecida (não é indicação nova) e pede só a confirmação');
     ok(await page.getByText(/gravidade baixa/i).count() > 0, 'o ponto de fatura citada inexistente é de gravidade baixa (ícone "i" azul); a baixa fora da destinação segue média (triângulo amarelo)');
     ok(/o que fazer/i.test(t2) && /nada mais a fazer/i.test(t2) && /confirme com a OM/i.test(t2), 'explica o que fazer: se a fatura onde já demos baixa é a certa, só informar o motivo');
+    // histórico da resolução: motivo, quem e quando ficam consultáveis na lista de Pontos de atenção
+    await page.getByRole('button', { name: 'Informar o motivo (manter assim)' }).click();
+    await page.getByLabel('Justificativa').fill('OM citou 001; a fatura correta é a 002 (confirmado por telefone)');
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+    await page.getByText('Ponto marcado como ciente.').waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Pontos de Atenção' }).first().click();
+    await page.getByLabel('Situação', { exact: false }).first().selectOption('resolvidos').catch(() => {});
+    const hist = page.getByTestId('historico-resolucao');
+    await hist.first().waitFor({ timeout: 15000 });
+    const th = (await hist.first().innerText()).replace(/\s+/g, ' ');
+    ok(/ciente por CC Admin em \d{2}\/\d{2}\/\d{4}/i.test(th) && /Motivo: .OM citou 001; a fatura correta é a 002/.test(th), `histórico da resolução na lista: quem, quando e o motivo (${th.slice(0, 80)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-historico-resolucao.png') });
   });
 
   await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {

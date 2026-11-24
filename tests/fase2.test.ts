@@ -361,7 +361,7 @@ describe('motivo dado na própria baixa assistida', () => {
     ).documentos.get('d1')!;
     expect(pontos[0].resolvido?.justificativa).toBe('OM confirmou por telefone');
     expect((pontos[0].detalhe as any)?.baixas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', valor: 100, indicada: false });
-    expect((pontos[0].detalhe as any)?.indicadas).toEqual([{ numero: '71000-TC-09-2026-008-0', baixada: false, inexistente: false }]);
+    expect((pontos[0].detalhe as any)?.indicadas).toEqual([{ numero: '71000-TC-09-2026-008-0', baixada: false, inexistente: false, outrasAltcreds: [], quitada: false }]);
   });
 });
 
@@ -381,5 +381,21 @@ describe('fatura citada pela OM que não existe no sistema', () => {
     expect(r.map(p => p.tipo).sort()).toEqual(['BAIXA_FORA_DESTINACAO', 'FATURA_CITADA_INEXISTENTE']);
     const fora = r.find(p => p.tipo === 'BAIXA_FORA_DESTINACAO')!.detalhe as any;
     expect(fora.indicadas[0]).toMatchObject({ numero: '71000-TC-09-2026-008-0', inexistente: true });
+  });
+});
+
+describe('fatura pedida já paga por outra ALTCRED', () => {
+  const f = (id: string, n: string, v = 100) => ({ id, invoiceNumber: n, value: v, issueDate: '2026-10-05', dueDate: '2026-11-18', monthCompetence: 9, yearCompetence: 2026, serviceAcronym: n.split('-')[1], type: 'x', client: 'DABM', ug: '71000', omId: 'om1', isCanceled: false, contestada: false } as any);
+  it('mostra qual outra ALTCRED pagou a fatura pedida e se ela já está quitada', () => {
+    const docs = [
+      { id: 'd1', documentNumber: 'G1', documentType: 'ALTCRED', totalValue: 100, operation: 'PAGAMENTO', destinacao: [{ tipo: 'FATURA' as const, valor: '71000-TC-09-2026-008-0' }] },
+      { id: 'd2', documentNumber: 'G2', documentType: 'ALTCRED', totalValue: 100, operation: 'PAGAMENTO' },
+    ];
+    const r = avaliarPontos(
+      [f('f8', '71000-TC-09-2026-008-0'), f('f10', '71000-TC-09-2026-010-0')], docs,
+      [{ documentId: 'd2', invoiceId: 'f8', amount: 100 }, { documentId: 'd1', invoiceId: 'f10', amount: 100 }],
+    ).documentos.get('d1')!;
+    const det = r.find(p => p.tipo === 'BAIXA_FORA_DESTINACAO')!.detalhe as any;
+    expect(det.indicadas[0]).toMatchObject({ numero: '71000-TC-09-2026-008-0', baixada: false, quitada: true, outrasAltcreds: [{ numero: 'G2', valor: 100 }] });
   });
 });
