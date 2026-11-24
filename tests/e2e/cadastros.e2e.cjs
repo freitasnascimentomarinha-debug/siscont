@@ -262,6 +262,7 @@ function pdfSiplad(situacao = 'Processada', numero = 'Z999.2026.AC.00001') {
    ['Destino Destaque', 23, 532], ['UO Favorecida', 196, 532], ['Situação', 398, 532],
    ['--', 23, 517], ['--', 196, 517], [situacao, 398, 517],
    ['Observação do Solicitante', 23, 495], ['Quitação das faturas 12346-EL-08-2026-010-0 e 12346-AE-08-2026-004-0.', 23, 480],
+   ['Solicito manter o valor em dolares. Centro de custo B6.16.04.', 23, 468], ['Ultima linha da observacao completa.', 23, 456],
    ['Célula de Débito (CDD)', 245, 444],
    ['Moeda', 24, 427], ['PTRES', 63, 427], ['UO', 114, 427], ['Esfera', 147, 427], ['FR', 201, 427], ['ND', 255, 427], ['Plano Interno', 305, 427], ['UGR', 389, 427], ['UGE', 439, 427], ['Valor a Debitar', 494, 427],
    ['12345 -', 384, 410], ['1000000000', 181, 405], ['99999 -', 434, 405],
@@ -518,6 +519,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
     await page.getByText('Z999.2026.AC.00001').first().waitFor({ timeout: 20000 });
     ok(await page.getByLabel('Ação para Z999.2026.AC.00001').inputValue() === 'NOVA', 'PDF lido: ALTCRED nova reconhecida');
+    const obsTela = await page.getByLabel('Observação da Z999.2026.AC.00001').innerText();
+    ok(/Quitação das faturas.*Centro de custo B6\.16\.04.*Ultima linha da observacao completa\./s.test(obsTela), `importação mostra a observação completa, todas as linhas (${obsTela.replace(/\s+/g, ' ').slice(0, 60)}…)`);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase2-siplad.png') });
     await page.getByRole('button', { name: 'Gravar', exact: true }).click();
     await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();

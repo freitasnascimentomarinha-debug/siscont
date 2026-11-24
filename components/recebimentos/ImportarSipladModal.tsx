@@ -141,9 +141,9 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                       {(() => { const st = classificarSituacao(i.sol.situacao); return <span className={`inline-block px-2 py-0.5 rounded font-semibold ${st.classe}`} title={st.explicacao}>{st.rotulo}</span>; })()}
                       <div className="text-slate-500">{br(i.sol.dataSituacao)}</div>
                     </td>
-                    <td className="px-3 py-2 text-xs max-w-[220px]">
+                    <td className="px-3 py-2 text-xs min-w-[260px] max-w-[420px]">
                       {i.doc.destinacao?.length ? i.doc.destinacao.map(d => <div key={d.valor} className="font-mono">{d.valor}</div>) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
-                      <div className="text-slate-500 mt-1 line-clamp-3" title={i.sol.observacao}>{i.sol.observacao}</div>
+                      {i.sol.observacao && <div className="text-slate-600 mt-1 break-words" aria-label={`Observação da ${i.sol.numero}`}><span className="font-semibold text-slate-500">Observação: </span>{i.sol.observacao}</div>}
                     </td>
                     <td className="px-3 py-2 text-xs">
                       <select aria-label={`Ação para ${i.sol.numero}`} value={ignorados.has(n) ? 'IGNORAR' : destino[n] ?? i.acao}
