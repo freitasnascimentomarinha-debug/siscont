@@ -1620,8 +1620,27 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok((nova.nomes_alternativos || []).includes('OM NOVA FORA DA ILHA'), 'nome da planilha guardado como nome alternativo (próxima importação reconhece)');
     // incluir cliente à mão
     await page.getByRole('button', { name: 'Incluir cliente' }).click();
-    ok(await page.getByLabel('Buscar cliente').isVisible(), 'incluir cliente: busca no cadastro ou cria novo');
-    await page.keyboard.press('Escape');
+    ok(await page.getByLabel('Buscar cliente').isVisible() && await page.getByRole('button', { name: 'Criar novo cliente' }).count() === 0, 'incluir cliente: só busca no Cadastro de OM (sem criar cliente solto na matriz)');
+    await page.getByLabel('Buscar cliente').fill('ZZZ inexistente');
+    ok(await page.getByText('Nenhum cliente encontrado no Cadastro de OM.').isVisible(), 'cliente inexistente: avisa que não está no cadastro');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'matriz-incluir-cadastro.png') });
+    // com alterações não gravadas, pergunta antes de sair (recusar mantém na matriz)
+    if (!(await page.getByRole('button', { name: 'Gravar clientes e matriz' }).isDisabled())) {
+      page.once('dialog', d => d.dismiss());
+      await page.getByRole('button', { name: 'Ir para o Cadastro de OM' }).click();
+      ok(await page.getByRole('button', { name: 'Gravar clientes e matriz' }).isVisible(), 'com alterações não gravadas, o aviso permite ficar na matriz');
+      await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'Gravar clientes e matriz' }).click();
+      await page.getByText('Clientes e matriz gravados.').last().waitFor();
+      await page.getByRole('button', { name: 'Incluir cliente' }).click();
+    }
+    await page.getByRole('button', { name: 'Ir para o Cadastro de OM' }).click();
+    await page.getByRole('heading', { name: /Cadastros/ }).waitFor();
+    ok(await page.getByRole('button', { name: 'OM / Clientes' }).getAttribute('class').then(c => /border-primary-600/.test(c || '')), 'o botão leva ao Cadastro, já na aba OM / Clientes');
+    await page.getByRole('button', { name: /Taxa condominial/ }).first().click();
+    await page.getByRole('button', { name: /2\. Clientes e matriz/ }).click();
+    await page.getByLabel('Exercício da proposta').selectOption('2026');
+    await page.getByLabel('Lotação anterior de AMRJ').waitFor();
     // desconto da OM (SecNSNQ 23,5% no total)
     await page.getByRole('button', { name: '3. Descontos por OM' }).click();
     await page.getByLabel('OM do desconto').selectOption({ label: 'SecNSNQ' });

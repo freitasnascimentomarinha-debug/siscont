@@ -15,7 +15,9 @@ import { normalizar } from '../../utils/taxaCondominialImport';
 export const ClienteModal: React.FC<{
   aberto: boolean; titulo: string; oms: OM[]; tipo?: 'TERRA' | 'NAVIO'; nomeSugerido?: string;
   onEscolher: (om: OM) => void | Promise<void>; onFechar: () => void;
-}> = ({ aberto, titulo, oms, tipo, nomeSugerido = '', onEscolher, onFechar }) => {
+  /** só escolhe quem já está no Cadastro de OM; quem não está é cadastrado lá (botão leva ao Cadastro) */
+  soCadastro?: boolean; onIrCadastro?: () => void;
+}> = ({ aberto, titulo, oms, tipo, nomeSugerido = '', onEscolher, onFechar, soCadastro, onIrCadastro }) => {
   const [busca, setBusca] = useState('');
   const [novo, setNovo] = useState<{ nome: string; sigla: string; codigo: string; tipo: 'TERRA' | 'NAVIO' | 'EXTRA_MB'; foraDaIlha: boolean } | null>(null);
   const [gravando, setGravando] = useState(false);
@@ -57,7 +59,7 @@ export const ClienteModal: React.FC<{
             <label className="relative flex-1"><Search size={14} className="absolute left-2 top-2.5 text-slate-400" />
               <input autoFocus className={`${entrada} w-full pl-7`} placeholder="Buscar por nome, sigla, código ou abreviação..." value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar cliente" />
             </label>
-            <Button variant="secondary" onClick={() => setNovo({ nome: nomeSugerido.replace(/\s*\(.*?\)\s*/g, ' ').trim() || busca, sigla: '', codigo: '', tipo: tipo || 'TERRA', foraDaIlha: false })}><Plus size={14} className="mr-1" />Criar novo cliente</Button>
+            {!soCadastro && <Button variant="secondary" onClick={() => setNovo({ nome: nomeSugerido.replace(/\s*\(.*?\)\s*/g, ' ').trim() || busca, sigla: '', codigo: '', tipo: tipo || 'TERRA', foraDaIlha: false })}><Plus size={14} className="mr-1" />Criar novo cliente</Button>}
           </div>
           <div className="max-h-[50vh] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
             {lista.map(({ o }) => (
@@ -69,8 +71,14 @@ export const ClienteModal: React.FC<{
                 {!o.ativo && <span className="text-[10px] bg-slate-200 text-slate-700 rounded px-1.5 py-0.5">desativada</span>}
               </button>
             ))}
-            {!lista.length && <div className="p-4 text-slate-400">Nenhum cliente encontrado. Use "Criar novo cliente".</div>}
+            {!lista.length && <div className="p-4 text-slate-400">{soCadastro ? 'Nenhum cliente encontrado no Cadastro de OM.' : 'Nenhum cliente encontrado. Use "Criar novo cliente".'}</div>}
           </div>
+          {soCadastro && (
+            <div className="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900">
+              <span className="flex-1 text-xs">Não está na lista? O cliente precisa estar cadastrado antes. Cadastre em <b>Cadastros › OM / Clientes</b> e volte aqui para incluí-lo.</span>
+              {onIrCadastro && <Button variant="secondary" onClick={onIrCadastro}>Ir para o Cadastro de OM</Button>}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3 text-sm">

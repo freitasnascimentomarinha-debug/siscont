@@ -268,9 +268,16 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
   const [matriz, setMatriz] = useState<Set<string>>(new Set(dados.matriz));
   const [sujo, setSujo] = useState(false);
   const [busca, setBusca] = useState('');
-  const [so, setSo] = useState(true);
+  const so = true; // a matriz mostra só as OM participantes; as demais entram por "Incluir cliente" (a partir do Cadastro de OM)
   const [gravando, setGravando] = useState(false);
   const [incluir, setIncluir] = useState(false);
+  // cliente que não está no cadastro: leva ao Cadastro de OM (aba OM / Clientes) para incluir antes
+  const irCadastroOM = () => {
+    if (sujo && !window.confirm('Há alterações não gravadas nesta aba. Sair mesmo assim para o Cadastro de OM?')) return;
+    try { sessionStorage.setItem('siscont:cadastros_aba', 'oms'); } catch { /* sem armazenamento */ }
+    setIncluir(false);
+    window.dispatchEvent(new CustomEvent('siscont:ir', { detail: 'cadastros' }));
+  };
   const [resolver, setResolver] = useState<Pendente | null>(null);
   const [extras, setExtras] = useState<Set<string>>(new Set());
   useEffect(() => { if (!sujo) { setLot(inicial()); setMatriz(new Set(dados.matriz)); setNavCfg(navInicial()); setNavMarcado(navMarcadoInicial()); setBaseNav(dados.proposta.baseNavios || 'PREVISTO'); } }, [dados]);
@@ -412,7 +419,6 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
       )}
       <div className="flex flex-wrap gap-3 items-end">
         <Campo rotulo={navioModo ? 'Buscar navio' : 'Buscar OM'}><input className={entrada} value={busca} onChange={e => setBusca(e.target.value)} /></Campo>
-        <label className="text-sm flex items-center gap-2 pb-1.5"><input type="checkbox" checked={so} onChange={e => setSo(e.target.checked)} /> só participantes</label>
         {podeEditar && <Button variant="secondary" onClick={() => setIncluir(true)}><Plus size={16} className="mr-1" />{navioModo ? 'Incluir navio' : 'Incluir cliente'}</Button>}
         {podeEditar && <Button onClick={gravar} isLoading={gravando} disabled={!sujo}><Save size={16} className="mr-1" />{navioModo ? 'Gravar navios e valor destinado' : 'Gravar clientes e matriz'}</Button>}
         {sujo && <span className="text-xs text-amber-700 pb-1.5">Alterações não gravadas.</span>}
@@ -484,9 +490,10 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
         </table>
       </div>
       <ClienteModal aberto={incluir} titulo={navioModo ? 'Incluir navio nas diárias' : 'Incluir cliente na taxa condominial'} oms={dados.oms} tipo={navioModo ? 'NAVIO' : undefined}
+        soCadastro onIrCadastro={irCadastroOM}
         onFechar={() => setIncluir(false)}
         onEscolher={om => { setIncluir(false); if (om.tipo === 'NAVIO' !== navioModo) { notify.error(navioModo ? 'Escolha um navio.' : 'Navio entra pela aba Navios (diárias).'); return; }
-          setExtras(e => new Set(e).add(om.id)); setSo(true); set(om.id, {}); if (!dados.oms.some(x => x.id === om.id)) { recarregar(); } notify.success(`${om.nome} incluído: informe a lotação${navioModo ? '' : ' e marque as rubricas'} e grave.`); }} />
+          setExtras(e => new Set(e).add(om.id)); set(om.id, {}); if (!dados.oms.some(x => x.id === om.id)) { recarregar(); } notify.success(`${om.nome} incluído: informe a lotação${navioModo ? '' : ' e marque as rubricas'} e grave.`); }} />
       <ClienteModal aberto={!!resolver} titulo="Escolher correspondente" oms={dados.oms} tipo={resolver?.tipo === 'NAVIO' ? 'NAVIO' : undefined} nomeSugerido={resolver?.nome}
         onFechar={() => setResolver(null)}
         onEscolher={async om => { const p = resolver!; setResolver(null); try { await resolverPendente(p, om.id, dados.oms.find(x => x.id === om.id) ?? om); notify.success(`"${p.nome}" ligado a ${om.nome}.`); recarregar(); } catch (e) { notify.fail('Erro ao gravar', e); } }} />
