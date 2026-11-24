@@ -1631,10 +1631,14 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Exercício da proposta').selectOption('2027');
     // 1) histórico: nada é gravado antes de confirmar; o ano de cada aba aparece para conferir
     await page.getByRole('button', { name: '6. Média trienal' }).click();
+    // janela flexível: mapa feito antes de o ano fechar → 2023–2025 para 2027 (guardado nos parâmetros)
+    await page.getByLabel('Último ano da janela da média').selectOption('2025');
+    for (let i = 0; i < 40 && !db.parametros.some(x => x.chave === 'janela_media_2027'); i++) await page.waitForTimeout(250);
+    ok(db.parametros.find(x => x.chave === 'janela_media_2027')?.valor === '2025', 'janela da média de 2027 guardada: termina em 2025');
     await page.locator('input[type=file]').last().setInputFiles(hist);
     await page.getByTestId('importar-historico').waitFor({ timeout: 10000 });
     const txt = await page.getByTestId('importar-historico').innerText();
-    ok(/duas abas "2023"/.test(txt) && /2026: ✘ falta/.test(txt), 'histórico: avisa que a 2ª aba "2023" foi tratada como 2024 e que falta o ano 2026');
+    ok(/duas abas "2023"/.test(txt) && /2023: ✔/.test(txt) && !/✘/.test(txt), 'histórico: avisa que a 2ª aba "2023" foi tratada como 2024; com a janela 2023–2025 não falta ano');
     ok(db.atracacao_anual.length === 0, 'histórico: nada é gravado antes de "Importar e gravar"');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-historico-anos.png') });
     await page.getByRole('button', { name: 'Importar e gravar' }).click();

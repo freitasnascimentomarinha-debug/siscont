@@ -21,8 +21,17 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export interface AnoClasse { ano: number; classeId: string; dias: number; navios: number }
 export interface MediaClasse { classeId: string; anos: { ano: number; dias: number; navios: number; porNavio: number }[]; total: number; mediaAnual: number; mediaMensal: number }
 
-export function mediaTrienal(dados: AnoClasse[], exercicio: number, classes: string[]): MediaClasse[] {
-  const anos = [exercicio - 3, exercicio - 2, exercicio - 1];
+/**
+ * Último ano da janela da média trienal. Padrão: o ano anterior ao exercício. Como o mapa costuma ser feito em julho, antes de o ano
+ * fechar, a janela pode terminar antes (ex.: exercício 2027 com 2023–2025). Guardado em `parametros` (chave janela_media_AAAA).
+ */
+export function anoFinalJanela(parametros: { chave: string; valor: string | null }[] | undefined, exercicio: number): number {
+  const v = Number(parametros?.find(p => p.chave === `janela_media_${exercicio}`)?.valor);
+  return Number.isInteger(v) && v >= exercicio - 3 && v <= exercicio - 1 ? v : exercicio - 1;
+}
+
+export function mediaTrienal(dados: AnoClasse[], exercicio: number, classes: string[], anoFinal: number = exercicio - 1): MediaClasse[] {
+  const anos = [anoFinal - 2, anoFinal - 1, anoFinal];
   return classes.map(c => {
     const det = anos.map(a => {
       const d = dados.find(x => x.ano === a && x.classeId === c);

@@ -10,7 +10,7 @@ import { Campo, br, brl, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
 import { AbaResultado, ImportarProposta } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
-import { PorRubrica, mediaTrienal } from '../utils/taxaCondominial';
+import { PorRubrica, anoFinalJanela, mediaTrienal } from '../utils/taxaCondominial';
 import { calcularTaxaAno } from '../utils/taxaConsolidada';
 import { resolverEmissora } from '../utils/emissora';
 import { cadastroService } from '../services/cadastroService';
@@ -61,8 +61,8 @@ export const TaxaCondominial: React.FC = () => {
 
   const medias = useMemo(() => {
     if (!dados) return new Map<string, number>();
-    return new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id)).map(m => [m.classeId, m.mediaMensal]));
-  }, [dados, ano]);
+    return new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id), anoFinalJanela(parametros, ano)).map(m => [m.classeId, m.mediaMensal]));
+  }, [dados, ano, parametros]);
   // OM emissora (BNIC): participa ou não do rateio; nunca é publicada nos Preços (não é cliente de si mesma)
   const emissora = useMemo(() => (dados ? resolverEmissora(dados.oms, parametros) : null), [dados, parametros]);
   // cálculos separados: taxa condominial (OM de terra × rubricas TC) e diárias (navios × rubricas DA).
@@ -165,7 +165,7 @@ export const TaxaCondominial: React.FC = () => {
           {aba === 'descontos' && <AbaDescontos ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} resultado={resultado} />}
           {aba === 'resultado' && <AbaResultado ano={ano} dados={dados} resultado={resultado} anterior={anterior} modo="TC" />}
           {aba === 'navios' && <AbaClientes ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} medias={medias} modo="NAVIO" />}
-          {aba === 'media' && <AbaMedia ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} />}
+          {aba === 'media' && <AbaMedia ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} parametros={parametros} aoMudarJanela={(chave, valor) => setParametros(ps => [...ps.filter(p => p.chave !== chave), { chave, valor, descricao: 'Último ano da janela da média trienal' } as Parametro])} />}
           {aba === 'diarias' && resultadoDA && <AbaResultado ano={ano} dados={dados} resultado={resultadoDA} anterior={anteriorDA} modo="DA" />}
         </div>
         <ImportarProposta ano={ano} dados={dados} aberto={importar} fechar={() => setImportar(false)} gravado={carregar} />

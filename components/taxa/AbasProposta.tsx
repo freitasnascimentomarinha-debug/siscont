@@ -15,7 +15,8 @@ import {
 } from '../../services/taxaCondominialService';
 import { AREAS_CNIC, OM } from '../../types';
 import { ClienteModal } from './ClienteModal';
-import { AnoClasse, BaseNavios, CRITERIOS, calcularTotalNavios, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
+import { cadastroService } from '../../services/cadastroService';
+import { AnoClasse, BaseNavios, CRITERIOS, calcularTotalNavios, Criterio, Desconto, MediaClasse, NAVIOS_MODOS, NaviosModo, PorRubrica, ResultadoRateio, anoFinalJanela, mediaTrienal, naviosAtivos, naviosModoDe, parteNavios, valorVigente } from '../../utils/taxaCondominial';
 import { AbaHistorico, acharPorNome, lerAbas, lerHistorico, lerSubsidios, sugerirAnosDasAbas } from '../../utils/taxaCondominialImport';
 import { Modal } from '../ui/Modal';
 
@@ -565,8 +566,14 @@ export const AbaClientes: React.FC<AbaProps & { modo: 'TERRA' | 'NAVIO'; medias:
 };
 
 // ================================================================== Média trienal
-export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarregar }) => {
-  const anos = [ano - 3, ano - 2, ano - 1];
+export const AbaMedia: React.FC<AbaProps & { parametros?: { chave: string; valor: string | null }[]; aoMudarJanela?: (chave: string, valor: string) => void }> = ({ ano, dados, podeEditar, recarregar, parametros, aoMudarJanela }) => {
+  const anoFinal = anoFinalJanela(parametros, ano);
+  const anos = [anoFinal - 2, anoFinal - 1, anoFinal];
+  const mudarJanela = async (v: number) => {
+    const chave = `janela_media_${ano}`;
+    try { await cadastroService.saveParametro({ chave, valor: String(v), descricao: 'Último ano da janela da média trienal' } as any); aoMudarJanela?.(chave, String(v)); notify.success(`Janela da média de ${ano}: ${v - 2}, ${v - 1} e ${v}.`); }
+    catch (e) { notify.fail('Erro ao guardar a janela', e); }
+  };
   type C = { dias: string; navios: string };
   const inicial = () => {
     const m: Record<string, C> = {};
@@ -590,7 +597,7 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
     setCel(m => ({ ...m, [k]: { ...valor(a, cid), ...p } })); setAlterados(s => new Set(s).add(k));
   };
   const dadosAtuais: AnoClasse[] = classes.flatMap(c => anos.map(a => { const v = valor(a, c.id); return { ano: a, classeId: c.id, dias: Number(v.dias) || 0, navios: Number(v.navios) || 0 }; }));
-  const medias: MediaClasse[] = mediaTrienal(dadosAtuais, ano, classes.map(c => c.id));
+  const medias: MediaClasse[] = mediaTrienal(dadosAtuais, ano, classes.map(c => c.id), anoFinal);
 
   const importar = async (f?: File) => {
     if (!f) return;
@@ -645,6 +652,13 @@ export const AbaMedia: React.FC<AbaProps> = ({ ano, dados, podeEditar, recarrega
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm">
+        <label className="text-slate-600" htmlFor="janela-final">Anos usados na média de {ano}: último ano da janela</label>
+        <select id="janela-final" className={entrada} disabled={!podeEditar} value={anoFinal} onChange={e => mudarJanela(Number(e.target.value))} aria-label="Último ano da janela da média">
+          {[ano - 1, ano - 2, ano - 3].map(a => <option key={a} value={a}>{a} ({a - 2}, {a - 1} e {a})</option>)}
+        </select>
+        <span className="text-xs text-slate-500">Se o mapa é feito antes de o ano fechar, escolha {ano - 2}.</span>
+      </div>
       <p className="text-xs text-slate-500">Para {ano}: em cada ano de {anos[0]} a {anos[2]}, dias atracados ("A") da classe ÷ navios da classe naquele ano; a soma ÷ 3 é a média anual e ÷ 12 a média mensal, que entra como "dias" do navio no rateio. Navios = ativos no cadastro (pode ajustar).</p>
       {podeEditar && <div className="flex flex-wrap gap-3 items-end">
         <input ref={ref} type="file" accept=".xlsx,.xls,.ods" className="hidden" onChange={e => importar(e.target.files?.[0])} />

@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { comparativo, mediaTrienal, montarParticipantes, naviosAtivos, ratear, valorVigente } from '../utils/taxaCondominial';
+import { anoFinalJanela, comparativo, mediaTrienal, montarParticipantes, naviosAtivos, ratear, valorVigente } from '../utils/taxaCondominial';
 import { acharPorNome, lerDespesas, lerHistorico, sugerirAnosDasAbas, lerLotacoes, lerMatriz, lerProposta, ligarOMs } from '../utils/taxaCondominialImport';
 import { backupAtrasado, diasSemBackup, diferencas, resumo } from '../utils/auditoria';
 import { acharNavio } from '../utils/importMedicoes';
 
 describe('Fase 6 — média trienal', () => {
+  it('janela flexível: padrão termina no ano anterior; parâmetro janela_media_AAAA antecipa (mapa feito antes de o ano fechar)', () => {
+    expect(anoFinalJanela([], 2027)).toBe(2026);
+    expect(anoFinalJanela([{ chave: 'janela_media_2027', valor: '2025' }], 2027)).toBe(2025);
+    expect(anoFinalJanela([{ chave: 'janela_media_2027', valor: '2030' }], 2027)).toBe(2026); // fora do permitido
+    const d = [2023, 2024, 2025, 2026].map(ano => ({ ano, classeId: 'B', dias: 100 * (ano - 2022), navios: 1 }));
+    expect(mediaTrienal(d, 2027, ['B'], 2025)[0].anos.map(x => x.ano)).toEqual([2023, 2024, 2025]);
+    expect(mediaTrienal(d, 2027, ['B'])[0].anos.map(x => x.ano)).toEqual([2024, 2025, 2026]);
+  });
   it('Corvetas Classe Barroso (planilha 2026): 355 + 288 + 0 em 1 navio → 214,3/ano e 17,86/mês', () => {
     const [m] = mediaTrienal([
       { ano: 2023, classeId: 'B', dias: 355, navios: 1 }, { ano: 2024, classeId: 'B', dias: 288, navios: 1 }, { ano: 2025, classeId: 'B', dias: 0, navios: 1 },

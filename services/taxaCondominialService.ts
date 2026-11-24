@@ -84,7 +84,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
     lerTudo('lotacoes_tc', q => q.eq('ano', ano), ['om_id']),
     lerTudo('matriz_tc', q => q.eq('ano', ano), ['rubrica', 'om_id']),
     lerTudo('descontos_tc', q => q.eq('ano', ano), ['id']),
-    lerTudo('atracacao_anual', q => q.gte('ano', ano - 3).lte('ano', ano), ['ano', 'classe_id']),
+    lerTudo('atracacao_anual', q => q.gte('ano', ano - 5).lte('ano', ano), ['ano', 'classe_id']),
     cadastroService.listOMs(), cadastroService.listClasses(),
   ]);
   const pend = await lerTudo('pendentes_tc', q => q.eq('ano', ano), ['id']); // ausente antes do script 012

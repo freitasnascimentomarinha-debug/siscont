@@ -4,7 +4,7 @@
  * os descontos de cada OM) + a parte paga pelos navios. É este valor final que o Fluxo de caixa usa.
  */
 import { resolverEmissora } from './emissora';
-import { Desconto, PorRubrica, ResultadoRateio, mediaTrienal, montarParticipantes, ratearProposta, valorVigente } from './taxaCondominial';
+import { Desconto, PorRubrica, anoFinalJanela, ResultadoRateio, mediaTrienal, montarParticipantes, ratearProposta, valorVigente } from './taxaCondominial';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -19,7 +19,7 @@ export const linhaDaTaxa = (r: { destino?: string }) => r.destino === 'TC' || r.
 export function calcularTaxaAno(dados: DadosCalculoTC, ano: number, parametros: { chave: string; valor: string | null }[]): {
   resultado: ResultadoRateio; resultadoDA: ResultadoRateio; descontosPorOM: Map<number, number>; porRubrica: PorRubrica[];
 } {
-  const medias = new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id)).map(m => [m.classeId, m.mediaMensal]));
+  const medias = new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id), anoFinalJanela(parametros as any, ano)).map(m => [m.classeId, m.mediaMensal]));
   // OM emissora (BNIC): participa ou não do rateio
   const emissora = resolverEmissora(dados.oms, parametros as any);
   const part = montarParticipantes(dados.oms, dados.lotacoes, medias).filter(p => !(emissora?.omId === p.omId && !emissora.participaRateio));
