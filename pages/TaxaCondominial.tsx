@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { obterNormas } from '../utils/normas';
-import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Undo2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileUp, RefreshCw, Send, Trash2, Undo2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Parametro, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { ConfirmModal } from '../components/ui/Modal';
 import { Campo, br, brl, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
-import { AbaResultado, ImportarProposta } from '../components/taxa/ResultadoProposta';
+import { AbaResultado, ImportarProposta, LimparImportado } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
 import { PorRubrica, anoFinalJanela, mediaTrienal } from '../utils/taxaCondominial';
 import { calcularTaxaAno } from '../utils/taxaConsolidada';
@@ -44,6 +44,7 @@ export const TaxaCondominial: React.FC = () => {
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [importar, setImportar] = useState(false);
+  const [limpar, setLimpar] = useState(false);
   const [confirma, setConfirma] = useState<null | 'aprovar' | 'publicarTC' | 'publicarDA' | 'reabrir'>(null);
   const [parametros, setParametros] = useState<Parametro[]>([]);
   useEffect(() => { cadastroService.listParametros().then(setParametros).catch(() => undefined); }, []);
@@ -126,6 +127,7 @@ export const TaxaCondominial: React.FC = () => {
           <div className="flex-1" />
           {podeEditar && <>
             <Button size="sm" variant="secondary" onClick={() => setImportar(true)}><FileUp size={14} className="mr-1" />Importar proposta (planilha)</Button>
+            <Button size="sm" variant="secondary" onClick={() => setLimpar(true)} title="Apaga o que foi importado neste exercício (com confirmação)"><Trash2 size={14} className="mr-1" />Limpar importado</Button>
             {status === 'PROPOSTA' && <Button size="sm" onClick={() => setConfirma('aprovar')} disabled={pendencias.length > 0}><CheckCircle2 size={14} className="mr-1" />Aprovar proposta</Button>}
             {status === 'APROVADA' && <Button size="sm" variant="ghost" onClick={() => setConfirma('reabrir')}><Undo2 size={14} className="mr-1" />Reabrir</Button>}
             {status !== 'PROPOSTA' && <>
@@ -169,6 +171,7 @@ export const TaxaCondominial: React.FC = () => {
           {aba === 'diarias' && resultadoDA && <AbaResultado ano={ano} dados={dados} resultado={resultadoDA} anterior={anteriorDA} modo="DA" />}
         </div>
         <ImportarProposta ano={ano} dados={dados} aberto={importar} fechar={() => setImportar(false)} gravado={carregar} />
+        <LimparImportado ano={ano} dados={dados} anoFinal={anoFinalJanela(parametros, ano)} aberto={limpar} fechar={() => setLimpar(false)} limpo={carregar} />
         <ConfirmModal isOpen={!!confirma} onClose={() => setConfirma(null)} onConfirm={executar}
           title={confirma === 'publicarTC' ? `Publicar taxa condominial ${ano}` : confirma === 'publicarDA' ? `Publicar diárias ${ano}` : confirma === 'aprovar' ? `Aprovar proposta ${ano}` : 'Reabrir proposta'}
           message={confirma === 'publicarTC'

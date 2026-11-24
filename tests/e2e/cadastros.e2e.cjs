@@ -1644,29 +1644,21 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Importar e gravar' }).click();
     for (let i = 0; i < 40 && db.atracacao_anual.length < 3; i++) await page.waitForTimeout(250);
     ok(db.atracacao_anual.length === 3 && [2023, 2024, 2025].every(a => db.atracacao_anual.some(r => r.ano === a)), 'histórico: gravou 2023, 2024 (aba "2023_2") e 2025');
-    // 2) subsídios: depois de importar, pergunta se o valor da rubrica passa a ser a soma
+    // 2) subsídios: importar SUBSTITUI o valor das rubricas pela soma (900 + 300 = 1.200) e importar de novo não duplica
     await page.getByRole('button', { name: '1. Rubricas' }).click();
     await page.getByLabel('Planilha de subsídios').setInputFiles(sub);
-    await page.getByTestId('somas-subsidios').waitFor({ timeout: 10000 });
-    ok(db.rubricas.find(r => r.numero === 1).valor_previsto === 1000, 'subsídios: importar não muda o valor da rubrica sem confirmação');
-    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-somas-subsidios.png') });
-    await page.getByRole('button', { name: /^Atualizar valores/ }).click();
     for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1200; i++) await page.waitForTimeout(250);
-    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1200 && db.subsidios_tc.length === 3, 'subsídios: "Atualizar valores" grava a soma (900 + 300 = 1.200) na rubrica');
-    // importar a mesma planilha de novo SUBSTITUI (não soma em dobro)
+    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1200 && db.rubricas.find(r => r.numero === 1).valor_modo === 'SUBSIDIOS' && db.subsidios_tc.length === 3, 'subsídios: importar SUBSTITUI o valor da rubrica pela soma (900 + 300 = 1.200) e deixa no modo "pela soma"');
     await page.getByLabel('Planilha de subsídios').setInputFiles(sub);
-    await page.getByTestId('somas-subsidios').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(1500);
     ok(db.subsidios_tc.length === 3 && db.subsidios_tc.reduce((t, x) => t + Number(x.valor), 0) === 1700, 'subsídios: importar de novo substitui (continua 3 linhas, soma 1.700) em vez de duplicar');
-    await page.getByRole('button', { name: 'Não alterar os valores' }).click();
-    // a rubrica ficou em modo "pela soma dos subsídios": uma nova planilha com valores diferentes ATUALIZA o valor sozinha
-    ok(db.rubricas.find(r => r.numero === 1).valor_modo === 'SUBSIDIOS', 'rubrica marcada fica no modo "pela soma dos subsídios"');
+    // nova planilha com valores diferentes: o valor da rubrica acompanha, sem digitar
     const sub2 = path.join(pasta, 'subsidios2.xlsx'); const wb2 = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb2, XLSX.utils.aoa_to_sheet([['RUBRICA', 'DESCRIÇÃO DO SUBSÍDIO', 'DOCUMENTO', 'VALOR (R$)', 'OBSERVAÇÃO'], [1, 'Orçamento A', 'Contrato 1', 1000], [1, 'Orçamento B', 'Contrato 2', 300]]), 'SUBSIDIOS');
     XLSX.writeFile(wb2, sub2);
     await page.getByLabel('Planilha de subsídios').setInputFiles(sub2);
     for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1300; i++) await page.waitForTimeout(250);
-    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1300, 'modo soma: nova importação atualiza o valor da rubrica sem digitar (1.000 + 300 = 1.300)');
-    if (await page.getByTestId('somas-subsidios').isVisible().catch(() => false)) await page.getByRole('button', { name: 'Não alterar os valores' }).click();
+    ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1300, 'nova importação troca o valor da rubrica (1.000 + 300 = 1.300) sem digitar');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');
@@ -1687,6 +1679,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Gravar importação' }).click();
     for (let i = 0; i < 40 && db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao !== 714; i++) await page.waitForTimeout(250);
     ok(db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao === 714 && db.rubricas.length === 2, 'lotação: gravou 714 e não mexeu nas rubricas');
+    // limpar o que foi importado no exercício (com confirmação digitada)
+    await page.getByRole('button', { name: 'Limpar importado' }).click();
+    await page.getByTestId('limpar-importado').waitFor();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'limpar-importado.png') });
+    const bLimpar = page.getByRole('button', { name: 'Limpar selecionados' });
+    ok(await bLimpar.isDisabled(), 'limpar: botão travado até digitar a confirmação');
+    await page.getByLabel('Confirmação para limpar').fill('LIMPAR 2027');
+    await bLimpar.click();
+    for (let i = 0; i < 40 && (db.subsidios_tc.length || db.lotacoes_tc.length); i++) await page.waitForTimeout(250);
+    ok(db.subsidios_tc.length === 0 && db.lotacoes_tc.length === 0 && db.atracacao_anual.length === 0, 'limpar: subsídios, lotação e histórico do exercício apagados');
+    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1500, 'limpar: as rubricas e seus valores continuam (valores só zeram se marcado)');
   });
 
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {

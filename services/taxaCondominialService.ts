@@ -390,3 +390,29 @@ export async function taxaParaGastos(ano: number) {
     nomes: Object.fromEntries(dados.oms.map((o: any) => [o.id, o.nome as string])) as Record<string, string>,
   };
 }
+
+export type EscopoLimpeza = 'SUBSIDIOS' | 'JUSTIFICATIVAS' | 'LOTACAO' | 'HISTORICO' | 'MATRIZ' | 'DESCONTOS' | 'PENDENTES' | 'VALORES';
+/**
+ * Limpa o que foi importado no exercício (pedido pela Ficha/tela da taxa). Nunca mexe em outro exercício, nos anexos (documentos),
+ * no cadastro de OM nem em propostas já aprovadas/divulgadas (a tela bloqueia). Cada tabela tem trilha de auditoria.
+ */
+export async function limparImportado(ano: number, escopos: EscopoLimpeza[], anoFinalMedia: number) {
+  const tem = (e: EscopoLimpeza) => escopos.includes(e);
+  const del = async (tabela: string, filtro: (q: any) => any) => { const { error } = await filtro(supabase.from(tabela).delete()); if (error) checar(error); };
+  if (tem('SUBSIDIOS')) {
+    await del('subsidios_tc', q => q.eq('ano', ano));
+    // sem subsídios não há soma: as rubricas voltam ao modo digitado (o valor atual fica como está)
+    const { error } = await supabase.from('rubricas').update({ valor_modo: 'DIGITADO' }).eq('ano', ano);
+    if (error && !/valor_modo/.test(error.message || '')) checar(error);
+  }
+  if (tem('JUSTIFICATIVAS')) { const { error } = await supabase.from('rubricas').update({ justificativa_valor: null }).eq('ano', ano); if (error && !/justificativa_valor/.test(error.message || '')) checar(error); }
+  if (tem('LOTACAO')) await del('lotacoes_tc', q => q.eq('ano', ano));
+  if (tem('MATRIZ')) await del('matriz_tc', q => q.eq('ano', ano));
+  if (tem('DESCONTOS')) await del('descontos_tc', q => q.eq('ano', ano));
+  if (tem('PENDENTES')) { const { error } = await supabase.from('pendentes_tc').delete().eq('ano', ano); if (error && !/pendentes_tc/.test(error.message || '')) checar(error); }
+  if (tem('HISTORICO')) await del('atracacao_anual', q => q.gte('ano', anoFinalMedia - 2).lte('ano', anoFinalMedia));
+  if (tem('VALORES')) {
+    const { error } = await supabase.from('rubricas').update({ valor_previsto: 0, valor_anual: 0, desconto_geral: 0, gasto_anterior: null }).eq('ano', ano);
+    checar(error);
+  }
+}

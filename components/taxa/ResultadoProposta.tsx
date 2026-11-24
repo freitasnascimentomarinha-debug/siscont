@@ -9,7 +9,7 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
-import { DadosProposta, importarDescontos, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarProposta, salvarRubricasProposta } from '../../services/taxaCondominialService';
+import { DadosProposta, EscopoLimpeza, importarDescontos, limparImportado, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarProposta, salvarRubricasProposta } from '../../services/taxaCondominialService';
 import { ClienteModal } from './ClienteModal';
 import { ResultadoRateio } from '../../utils/taxaCondominial';
 import { lerAbas, lerProposta, ligarOMs } from '../../utils/taxaCondominialImport';
@@ -310,6 +310,50 @@ export const ImportarProposta: React.FC<{ ano: number; dados: DadosProposta; abe
       <ClienteModal aberto={!!escolhendo} titulo="Escolher correspondente" oms={oms} tipo={escolhendo && navioDe.get(escolhendo) ? 'NAVIO' : undefined} nomeSugerido={escolhendo || ''}
         onFechar={() => setEscolhendo(null)}
         onEscolher={om => { if (!oms.some(o => o.id === om.id)) setOms(l => [...l, om]); setEsc(m => new Map(m).set(escolhendo!, { tipo: 'OM', omId: om.id })); setEscolhendo(null); }} />
+    </Modal>
+  );
+};
+
+// ================================================================== Limpar o que foi importado
+const ESCOPOS: { id: EscopoLimpeza; titulo: string; ajuda: string; padrao: boolean; qtd: (d: DadosProposta, anoFinal: number) => number }[] = [
+  { id: 'SUBSIDIOS', titulo: 'Subsídios das rubricas', ajuda: 'As rubricas que usavam a soma passam ao valor digitado (o valor atual fica). Os documentos anexados NÃO são apagados.', padrao: true, qtd: d => d.subsidios.length },
+  { id: 'JUSTIFICATIVAS', titulo: 'Justificativas do valor', ajuda: 'O "por que o valor é esse" de cada rubrica.', padrao: true, qtd: d => d.rubricas.filter(r => r.justificativaValor?.trim()).length },
+  { id: 'LOTACAO', titulo: 'Lotação das OM e navios', ajuda: 'Lotação do exercício (a lotação do ano anterior não é mexida).', padrao: true, qtd: d => 0 },
+  { id: 'MATRIZ', titulo: 'Matriz (OM × rubricas)', ajuda: 'Quais OM participam de cada rubrica.', padrao: true, qtd: d => d.matriz.size },
+  { id: 'DESCONTOS', titulo: 'Descontos por OM', ajuda: 'Descontos lançados por OM e rubrica.', padrao: true, qtd: d => d.descontos.length },
+  { id: 'PENDENTES', titulo: 'Nomes pendentes de correspondência', ajuda: 'Nomes da planilha que ainda não foram ligados a uma OM.', padrao: true, qtd: d => d.pendentes.length },
+  { id: 'HISTORICO', titulo: 'Histórico trienal (dias atracados)', ajuda: 'Só os 3 anos da janela da média deste exercício.', padrao: true, qtd: (d, af) => d.atracacaoAnual.filter(a => a.ano >= af - 2 && a.ano <= af).length },
+  { id: 'VALORES', titulo: 'Valores das rubricas (zerar)', ajuda: 'Valor previsto, desconto geral e gasto anterior voltam a zero. As rubricas (nº e nome) continuam.', padrao: false, qtd: d => d.rubricas.filter(r => r.valorPrevisto > 0).length },
+];
+export const LimparImportado: React.FC<{ ano: number; dados: DadosProposta; anoFinal: number; aberto: boolean; fechar: () => void; limpo: () => void }> = ({ ano, dados, anoFinal, aberto, fechar, limpo }) => {
+  const [marcados, setMarcados] = useState<Set<EscopoLimpeza>>(new Set(ESCOPOS.filter(e => e.padrao).map(e => e.id)));
+  const [confirma, setConfirma] = useState('');
+  const [gravando, setGravando] = useState(false);
+  const travada = dados.proposta.status !== 'PROPOSTA';
+  const qtd = (e: typeof ESCOPOS[number]) => (e.id === 'LOTACAO' ? dados.lotacoes.length : e.qtd(dados, anoFinal));
+  const executar = async () => {
+    setGravando(true);
+    try { await limparImportado(ano, [...marcados], anoFinal); notify.success(`Exercício ${ano} limpo: ${[...marcados].length} grupo(s) apagado(s).`); setConfirma(''); fechar(); limpo(); }
+    catch (e) { notify.fail('Erro ao limpar', e); } finally { setGravando(false); }
+  };
+  return (
+    <Modal isOpen={aberto} onClose={fechar} title={`Limpar o que foi importado em ${ano}`} maxWidth="max-w-2xl">
+      <div className="space-y-3 text-sm" data-testid="limpar-importado">
+        <Aviso tom="amber">Apaga só dados do exercício <b>{ano}</b> (nada de outros anos, do cadastro de OM ou das faturas). Cada tabela tem trilha de auditoria, mas <b>não há "desfazer"</b>: para recuperar, é preciso importar a planilha de novo.</Aviso>
+        {travada && <Aviso tom="red">A proposta de {ano} está <b>{dados.proposta.status}</b>: não é possível limpar. Reabra a proposta primeiro.</Aviso>}
+        <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+          {ESCOPOS.map(e => (
+            <label key={e.id} className="flex items-start gap-2 px-3 py-2">
+              <input type="checkbox" disabled={travada} checked={marcados.has(e.id)} aria-label={e.titulo} onChange={ev => setMarcados(m => { const n = new Set(m); ev.target.checked ? n.add(e.id) : n.delete(e.id); return n; })} className="mt-1" />
+              <span className="flex-1"><b>{e.titulo}</b> <span className="text-slate-500">({qtd(e)} registro(s))</span><div className="text-xs text-slate-500">{e.ajuda}</div></span>
+            </label>
+          ))}
+        </div>
+        <label className="block">Para confirmar, digite <b>LIMPAR {ano}</b>
+          <input className={`${entrada} w-full`} value={confirma} onChange={e => setConfirma(e.target.value)} aria-label="Confirmação para limpar" disabled={travada} />
+        </label>
+        <div className="flex justify-end gap-2"><Button variant="secondary" onClick={fechar}>Cancelar</Button><Button variant="danger" disabled={travada || !marcados.size || confirma.trim().toUpperCase() !== `LIMPAR ${ano}`} isLoading={gravando} onClick={executar}>Limpar selecionados</Button></div>
+      </div>
     </Modal>
   );
 };

@@ -132,13 +132,32 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
       const validas = new Set(linhas.map(l => l.numero));
       const fora = r.subsidios.filter(s => !validas.has(s.rubrica));
       await importarSubsidios(ano, r.subsidios.filter(s => validas.has(s.rubrica)).map(s => ({ ...s, criadoPor: usuario })));
-      if (r.justificativas.length) {
-        const j = new Map(r.justificativas.map(x => [x.rubrica, x.texto]));
-        await salvarRubricasProposta(ano, linhas.filter(l => j.has(l.numero)).map(l => ({ ...l, justificativaValor: j.get(l.numero)! })));
+      // importar SUBSTITUI: cada rubrica com subsídios passa a valer a soma deles (modo "pela soma dos subsídios"); justificativas junto
+      const j = new Map(r.justificativas.map(x => [x.rubrica, x.texto]));
+      const soma = new Map<number, number>();
+      r.subsidios.filter(x => validas.has(x.rubrica)).forEach(x => soma.set(x.rubrica, Math.round(((soma.get(x.rubrica) || 0) + x.valor) * 100) / 100));
+      const bloqueadas: number[] = [], grandes: number[] = [];
+      const alvo = linhas.filter(l => l.destino !== 'DA' && (j.has(l.numero) || soma.has(l.numero))).map(l => {
+        const novo: RubricaProposta = { ...l, ...(j.has(l.numero) ? { justificativaValor: j.get(l.numero)! } : {}) };
+        const sm = soma.get(l.numero);
+        if (sm !== undefined) {
+          if (l.descontoGeral > sm) bloqueadas.push(l.numero);
+          else { if (l.valorPrevisto > 0 && (sm / l.valorPrevisto > 3 || sm / l.valorPrevisto < 0.33)) grandes.push(l.numero); novo.valorPrevisto = sm; novo.valorModo = 'SUBSIDIOS'; }
+        }
+        return novo;
+      });
+      let usouSoma = alvo.filter(x => x.valorModo === 'SUBSIDIOS').length;
+      if (alvo.length) {
+        try { await salvarRubricasProposta(ano, alvo); }
+        catch (e: any) {
+          if (!/045/.test(e?.message || '')) throw e;
+          // antes do script 045: o valor é substituído (modo digitado), sem acompanhar mudanças futuras dos subsídios
+          await salvarRubricasProposta(ano, alvo.map(x => ({ ...x, valorModo: 'DIGITADO' as const })));
+        }
       }
-      notify.success(`${r.subsidios.length - fora.length} subsídio(s) e ${r.justificativas.length} justificativa(s) importados (substituem os subsídios anteriores das mesmas rubricas).${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''} Agora escolha se o valor das rubricas deve passar a ser a soma dos subsídios.`);
+      notify.success(`${r.subsidios.length - fora.length} subsídio(s) importados e ${usouSoma} rubrica(s) com o valor SUBSTITUÍDO pela soma deles (o valor digitado antes foi trocado; fica no histórico de auditoria).${bloqueadas.length ? ` Rubrica(s) ${bloqueadas.join(', ')} mantidas: o desconto geral é maior que a soma.` : ''}${grandes.length ? ` Atenção, mudança grande nas rubricas ${grandes.join(', ')}: confira.` : ''}${fora.length ? ` ${fora.length} linha(s) de rubrica inexistente ignoradas.` : ''}`);
       r.avisos.forEach(a => notify.error(a));
-      setSujo(false); setPedirSomas(true); recarregar();
+      setSujo(false); recarregar();
     } catch (e) { notify.fail('Erro ao importar subsídios', e); } finally { setImportando(false); if (refSub.current) refSub.current.value = ''; }
   };
 
