@@ -28,6 +28,8 @@ export const BaixaAssistidaModal: React.FC<{
 
   const candidatas = useMemo(() => (doc ? faturasCandidatas(invoices, documentos, baixas, oms) : []), [doc, invoices, documentos, baixas, oms]);
   const citadas = useMemo(() => extrairFaturas(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`), [doc]);
+  const existentes = useMemo(() => new Set(invoices.map(i => i.invoiceNumber.trim().toUpperCase())), [invoices]);
+  const citadasInexistentes = useMemo(() => [...new Set([...citadas, ...(doc?.destinacao || []).filter(d => d.tipo === 'FATURA').map(d => d.valor.trim().toUpperCase())])].filter(n => !existentes.has(n)), [citadas, doc, existentes]);
 
   useEffect(() => {
     if (!doc) return;
@@ -168,6 +170,12 @@ export const BaixaAssistidaModal: React.FC<{
           ))}
         </div>
 
+        {citadasInexistentes.length > 0 && (
+          <div className="p-3 rounded-lg border border-slate-300 bg-slate-50 text-slate-800 text-xs" role="note" data-testid="citadas-inexistentes">
+            <b>∅ A OM citou {citadasInexistentes.length === 1 ? 'uma fatura' : `${citadasInexistentes.length} faturas`} que não existe(m) no sistema:</b> <span className="font-mono">{citadasInexistentes.join(', ')}</span>.
+            Pode ser erro de digitação da OM. O sistema propõe a fatura parecida (mesmo cliente, serviço e mês), quando há uma só em aberto; confira com a OM antes de gravar.
+          </div>
+        )}
         {erros.map(e => <p key={e} className="text-red-600 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />{e}</p>)}
         {temDestinacao && foraUsadas.length > 0 && (
           <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 space-y-2">

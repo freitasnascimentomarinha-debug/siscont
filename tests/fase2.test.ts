@@ -360,7 +360,25 @@ describe('motivo dado na própria baixa assistida', () => {
       [{ documentId: 'd1', invoiceId: 'f2', amount: 100 }],
     ).documentos.get('d1')!;
     expect(pontos[0].resolvido?.justificativa).toBe('OM confirmou por telefone');
-    expect(pontos[0].detalhe?.baixas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', valor: 100, indicada: false });
-    expect(pontos[0].detalhe?.indicadas).toEqual([{ numero: '71000-TC-09-2026-008-0', baixada: false }]);
+    expect((pontos[0].detalhe as any)?.baixas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', valor: 100, indicada: false });
+    expect((pontos[0].detalhe as any)?.indicadas).toEqual([{ numero: '71000-TC-09-2026-008-0', baixada: false, inexistente: false }]);
+  });
+});
+
+describe('fatura citada pela OM que não existe no sistema', () => {
+  const f = (id: string, n: string) => ({ id, invoiceNumber: n, value: 55882.83, issueDate: '2026-10-05', dueDate: '2026-11-18', monthCompetence: 9, yearCompetence: 2026, serviceAcronym: n.split('-')[1], type: 'x', client: 'DABM', ug: '71000', omId: 'om1', isCanceled: false, contestada: false } as any);
+  const doc = { id: 'd1', documentNumber: 'G1', documentType: 'ALTCRED', totalValue: 55882.83, operation: 'PAGAMENTO', destinacao: [{ tipo: 'FATURA' as const, valor: '71000-TC-09-2026-008-0' }], observacaoSolicitante: 'FATURA 71000-TC-09-2026-008-0' };
+  it('a baixa na parecida (mesmo cliente, serviço e mês) vira aviso de número inexistente, não "fora da destinação"', () => {
+    const r = avaliarPontos([f('f1', '71000-TC-09-2026-010-0')], [doc], [{ documentId: 'd1', invoiceId: 'f1', amount: 55882.83 }]).documentos.get('d1')!;
+    expect(r.map(p => p.tipo)).toEqual(['FATURA_CITADA_INEXISTENTE']);
+    const det = r[0].detalhe as any;
+    expect(det.itens[0].citada).toBe('71000-TC-09-2026-008-0');
+    expect(det.itens[0].parecidas[0]).toMatchObject({ numero: '71000-TC-09-2026-010-0', baixadoAqui: 55882.83 });
+  });
+  it('baixa em fatura sem parentesco continua "fora da destinação", marcando a citada como inexistente', () => {
+    const r = avaliarPontos([f('f2', '71000-AE-09-2026-008-0')], [doc], [{ documentId: 'd1', invoiceId: 'f2', amount: 100 }]).documentos.get('d1')!;
+    expect(r.map(p => p.tipo).sort()).toEqual(['BAIXA_FORA_DESTINACAO', 'FATURA_CITADA_INEXISTENTE']);
+    const fora = r.find(p => p.tipo === 'BAIXA_FORA_DESTINACAO')!.detalhe as any;
+    expect(fora.indicadas[0]).toMatchObject({ numero: '71000-TC-09-2026-008-0', inexistente: true });
   });
 });

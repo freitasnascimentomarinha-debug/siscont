@@ -40,12 +40,19 @@ export interface PontoAtencao {
   em?: string;
   resolvido?: { em?: string; por?: string; justificativa?: string };
   /** dados estruturados para a janela mostrar o ponto de forma visual (hoje: baixa fora da destinação) */
-  detalhe?: DetalheBaixaFora;
+  detalhe?: DetalheBaixaFora | DetalheCitadaInexistente;
+}
+
+export interface DetalheCitadaInexistente {
+  tipo: 'CITADA_INEXISTENTE';
+  /** fatura citada que não existe e as parecidas do sistema (mesma UG, serviço, mês e ano), com o que este crédito baixou nelas */
+  itens: { citada: string; parecidas: { numero: string; valor: number; baixadoAqui: number }[] }[];
+  observacao: string;
 }
 
 export interface DetalheBaixaFora {
   tipo: 'BAIXA_FORA';
-  indicadas: { numero: string; baixada: boolean }[];
+  indicadas: { numero: string; baixada: boolean; /** o número citado não existe no sistema */ inexistente?: boolean }[];
   omsIndicadas: number;
   baixas: { numero: string; valor: number; indicada: boolean }[];
   observacao: string;
@@ -80,6 +87,7 @@ export const TIPOS_PONTO: Record<string, DefTipo> = {
   ALTCRED_ESTOURADA: { alvo: 'documento', gravidade: 'alta', titulo: 'Crédito usado a mais', comoCorrigir: 'As baixas somam mais que o valor do documento. Confira a ALTCRED no SIPLAD e remova ou mude de documento as baixas excedentes.' },
   DOC_NUMERO_REPETIDO: { alvo: 'documento', gravidade: 'alta', titulo: 'Número repetido', comoCorrigir: 'Dois documentos com o mesmo número. Junte as baixas em um deles e exclua o outro.' },
   DOC_VALOR_INVALIDO: { alvo: 'documento', gravidade: 'media', titulo: 'Valor zerado ou negativo', comoCorrigir: 'Edite o documento e informe o valor recebido.' },
+  FATURA_CITADA_INEXISTENTE: { alvo: 'documento', gravidade: 'baixa', titulo: 'Fatura citada pela OM não existe no sistema', comoCorrigir: 'A OM citou um número de fatura que não está no sistema. Pode ser erro de digitação da OM ou fatura ainda não lançada: confira com a OM e, se a fatura parecida for a certa, informe o motivo.' },
   BAIXA_FORA_DESTINACAO: { alvo: 'documento', gravidade: 'media', titulo: 'Baixa fora da destinação', comoCorrigir: 'O cliente indicou faturas/OM para este crédito, mas houve baixa em outras. Confirme com a OM ou mude a baixa (OI: o crédito é usado conforme a destinação).' },
   BAIXA_SEM_DOCUMENTO: { alvo: 'fatura', gravidade: 'alta', titulo: 'Baixa sem documento', comoCorrigir: 'Há baixa ligada a uma ALTCRED/GRU que não existe mais. Exclua a baixa e lance de novo com o documento correto.' },
   // ---- documentos: anotados pela migração
@@ -108,7 +116,7 @@ export interface DocumentoParaPontos {
 }
 export interface BaixaParaPontos { documentId: string; invoiceId: string; amount: number; tipoBaixa?: 'PAGAMENTO' | 'ADIANTAMENTO' | null }
 
-function montar(tipo: string, mensagem: string, automatico: boolean, origem: RegistroPonto['origem'], registro?: RegistroPonto, detalhe?: DetalheBaixaFora): PontoAtencao {
+function montar(tipo: string, mensagem: string, automatico: boolean, origem: RegistroPonto['origem'], registro?: RegistroPonto, detalhe?: DetalheBaixaFora | DetalheCitadaInexistente): PontoAtencao {
   const d = TIPOS_PONTO[tipo] || { titulo: tipo, gravidade: 'media' as Gravidade, comoCorrigir: '' };
   return {
     tipo, titulo: d.titulo, gravidade: d.gravidade, mensagem, comoCorrigir: d.comoCorrigir, automatico, origem,
@@ -118,7 +126,7 @@ function montar(tipo: string, mensagem: string, automatico: boolean, origem: Reg
 }
 
 /** Junta os pontos automáticos com os registrados (e com o "ciente" dado pelo usuário). */
-function combinar(automaticos: [string, string, DetalheBaixaFora?][], registros: RegistroPonto[] = []): PontoAtencao[] {
+function combinar(automaticos: [string, string, (DetalheBaixaFora | DetalheCitadaInexistente)?][], registros: RegistroPonto[] = []): PontoAtencao[] {
   const out: PontoAtencao[] = [];
   automaticos.forEach(([tipo, msg, detalhe]) => {
     // "ciente" dado para este texto; ou o motivo registrado na própria baixa assistida (sem texto: vale para a baixa fora da destinação)
@@ -137,7 +145,7 @@ function combinar(automaticos: [string, string, DetalheBaixaFora?][], registros:
 const TIPOS_AUTOMATICOS: Record<string, true> = {
   PAGO_A_MAIOR: true, ADIANTAMENTO_MAIOR: true, CANCELADA_COM_BAIXA: true, VENCIMENTO_INVALIDO: true, NUMERO_REPETIDO: true,
   VALOR_NEGATIVO: true, SEM_CADASTRO: true, COMPETENCIA_DIVERGENTE: true, SERVICO_DIVERGENTE: true, NUMERO_FORA_PADRAO: true,
-  ALTCRED_ESTOURADA: true, DOC_NUMERO_REPETIDO: true, DOC_VALOR_INVALIDO: true, BAIXA_FORA_DESTINACAO: true, BAIXA_SEM_DOCUMENTO: true,
+  ALTCRED_ESTOURADA: true, DOC_NUMERO_REPETIDO: true, DOC_VALOR_INVALIDO: true, BAIXA_FORA_DESTINACAO: true, FATURA_CITADA_INEXISTENTE: true, BAIXA_SEM_DOCUMENTO: true,
 };
 export const ehAutomatico = (tipo: string) => !!TIPOS_AUTOMATICOS[tipo];
 
@@ -201,8 +209,9 @@ export function avaliarPontos(
 
   const pd = new Map<string, PontoAtencao[]>();
   const fatPorId = new Map(faturas.map(f => [f.id, f]));
+  const numerosFaturas = new Set(faturas.map(f => (f.invoiceNumber || '').trim().toUpperCase()));
   documentos.forEach(d => {
-    const a: [string, string, DetalheBaixaFora?][] = [];
+    const a: [string, string, (DetalheBaixaFora | DetalheCitadaInexistente)?][] = [];
     const num = (d.documentNumber || '').trim().toUpperCase();
     const usado = r2(usoDoc.get(d.id) || 0);
     if (usado > d.totalValue + 0.01) a.push(['ALTCRED_ESTOURADA', `Valor ${brl(d.totalValue)}; baixado ${brl(usado)} (${brl(usado - d.totalValue)} a mais).`]);
@@ -211,17 +220,29 @@ export function avaliarPontos(
     if (d.destinacao?.length) {
       const destFat = new Set([...d.destinacao.filter(x => x.tipo === 'FATURA').map(x => x.valor.trim().toUpperCase()), ...extrairFaturas(d.observacaoSolicitante)]);
       const destOm = new Set(d.destinacao.filter(x => x.tipo === 'OM').map(x => x.valor));
+      // número citado que NÃO existe no sistema (erro de digitação da OM ou fatura ainda não lançada)
+      const prefixo = (n: string) => n.trim().toUpperCase().replace(/-\d{3}-\d$/, '');
+      const citadasInexistentes = [...destFat].filter(n => !numerosFaturas.has(n));
+      const parecidasDe = (n: string) => faturas.filter(f => prefixo(f.invoiceNumber || '') === prefixo(n) && !numerosFaturas.has(n) && (f.invoiceNumber || '').trim().toUpperCase() !== n);
+      const valorBaixado = (fid: string) => r2((baixasPorDoc.get(d.id) || []).filter(b => b.invoiceId === fid).reduce((x, b) => x + b.amount, 0));
+      if (citadasInexistentes.length) {
+        const itens = citadasInexistentes.map(c => ({ citada: c, parecidas: parecidasDe(c).slice(0, 4).map(f => ({ numero: f.invoiceNumber, valor: r2(f.value + (f.adjustmentAddition || 0) - (f.adjustmentDeduction || 0)), baixadoAqui: valorBaixado(f.id) })) }));
+        a.push(['FATURA_CITADA_INEXISTENTE', `A OM citou ${citadasInexistentes.length} fatura(s) que não existe(m) no sistema: ${citadasInexistentes.join(', ')}.`,
+          { tipo: 'CITADA_INEXISTENTE', itens, observacao: (d.observacaoSolicitante || '').trim() }]);
+      }
+      // baixa numa fatura parecida com a citada que não existe (mesma UG, serviço, mês e ano) é a correção do número digitado errado: não é "fora da destinação"
+      const explicada = (f: FaturaParaPontos) => citadasInexistentes.some(c => prefixo(c) === prefixo(f.invoiceNumber || ''));
       const fora = [...new Set(faturasDoDoc.get(d.id) || [])].map(id => fatPorId.get(id)).filter(f => f
-        && !destFat.has((f.invoiceNumber || '').trim().toUpperCase()) && !(f.omId && destOm.has(f.omId))) as FaturaParaPontos[];
+        && !destFat.has((f.invoiceNumber || '').trim().toUpperCase()) && !(f.omId && destOm.has(f.omId)) && !explicada(f)) as FaturaParaPontos[];
       if (fora.length) {
         const lista = (xs: string[]) => `${xs.slice(0, 5).join(', ')}${xs.length > 5 ? '…' : ''}`;
         const baixadas = new Set((faturasDoDoc.get(d.id) || []).map(id => (fatPorId.get(id)?.invoiceNumber || '').trim().toUpperCase()));
-        const indicadasSemBaixa = [...destFat].filter(n => !baixadas.has(n));
+        const indicadasSemBaixa = [...destFat].filter(n => !baixadas.has(n) && numerosFaturas.has(n));
         const valorPor = new Map<string, number>();
         (baixasPorDoc.get(d.id) || []).forEach(b => valorPor.set(b.invoiceId, r2((valorPor.get(b.invoiceId) || 0) + b.amount)));
         const detalhe: DetalheBaixaFora = {
           tipo: 'BAIXA_FORA',
-          indicadas: [...destFat].map(n => ({ numero: n, baixada: baixadas.has(n) })),
+          indicadas: [...destFat].map(n => ({ numero: n, baixada: baixadas.has(n), inexistente: !numerosFaturas.has(n) })),
           omsIndicadas: destOm.size,
           baixas: [...valorPor.entries()].map(([id, valor]) => {
             const f = fatPorId.get(id); const n = (f?.invoiceNumber || '').trim().toUpperCase();

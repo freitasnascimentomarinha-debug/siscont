@@ -513,15 +513,20 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const f = (n, sig, tipo, valor) => ({ id: uid(), invoice_number: n, ug: '71000', sector: 'DGMM', command: '71000 - DABM', client: om.nome, value: valor, adjustment_addition: 0, adjustment_deduction: 0,
       issue_date: '2026-10-05', due_date: '2026-11-18', month_competence: 9, year_competence: 2026, competence: '09/2026', type: tipo, service_acronym: sig, is_canceled: false, siplad_settled: false, om_id: om.id });
     const tc8 = f('71000-TC-09-2026-008-0', 'TC', 'Taxa Condominial', 55882.83), ae8 = f('71000-AE-09-2026-008-0', 'AE', 'Água e Esgoto', 34178.9), tc10 = f('71000-TC-09-2026-010-0', 'TC', 'Taxa Condominial', 55882.83);
-    db.invoices = [tc8, ae8, tc10];
+    const el2 = f('71000-EL-09-2026-002-0', 'EL', 'Eletricidade', 1500);
+    db.invoices = [tc8, ae8, tc10, el2];
     const d = { id: uid(), document_number: 'G483.2026.AC.00754', document_type: 'ALTCRED', total_value: 90061.73, date: '2026-11-05', operation: 'PAGAMENTO', client: om.nome, sector: 'DGMM', command: '71000', ug: '71000', comando_id: cmd.id, om_id: om.id, observation: '',
       destinacao: [{ tipo: 'FATURA', valor: '71000-TC-09-2026-008-0' }], observacao_solicitante: 'PAGAMENTO DA FATURA Nº 71000-TC-09-2026-008-0-DABM, REF A TAXA CONDOMINIAL E 71000-AE-09-2026-008- 0, REF A AGUA E ESGOTO DE SET2026 DO EAGM' };
     db.received_documents.push(d);
     db.payment_allocations.push({ id: uid(), document_id: d.id, invoice_id: ae8.id, amount: 34178.9, date: '2026-11-05', tipo_baixa: 'PAGAMENTO' }, { id: uid(), document_id: d.id, invoice_id: tc10.id, amount: 55882.83, date: '2026-11-05', tipo_baixa: 'PAGAMENTO' });
+    // outra ALTCRED: a OM citou uma fatura que não existe no sistema (EL-001), e a baixa foi na parecida (EL-002)
+    const d2 = { ...d, id: uid(), document_number: 'G483.2026.AC.00755', total_value: 1500, destinacao: [{ tipo: 'FATURA', valor: '71000-EL-09-2026-001-0' }], observacao_solicitante: 'PAGAMENTO DA FATURA 71000-EL-09-2026-001-0 DE ENERGIA' };
+    db.received_documents.push(d2);
+    db.payment_allocations.push({ id: uid(), document_id: d2.id, invoice_id: el2.id, amount: 1500, date: '2026-11-05', tipo_baixa: 'PAGAMENTO' });
     await page.reload();
     await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
     await page.getByText('G483.2026.AC.00754').first().waitFor();
-    await page.getByLabel('1 ponto(s) de atenção').first().click();
+    await page.locator('div.rounded-xl, div.rounded-lg').filter({ hasText: 'G483.2026.AC.00754' }).getByLabel('1 ponto(s) de atenção').last().click();
     const det = page.getByTestId('detalhe-baixa-fora');
     await det.waitFor();
     const txt = (await det.innerText()).replace(/\s+/g, ' ');
@@ -531,6 +536,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/71000-TC-09-2026-008-0 ⚠ ainda sem baixa/.test(txt) && /71000-AE-09-2026-008-0 ✔ já recebeu baixa/.test(txt), 'cada fatura pedida diz se já recebeu baixa ou ainda está sem baixa');
     ok(/71000-TC-09-2026-010-0 R\$ 55\.882,83 ✘ fora do pedido/.test(txt) && /71000-AE-09-2026-008-0 R\$ 34\.178,90 ✔ estava no pedido/.test(txt), 'cada baixa dada diz se estava ou não no pedido, com o valor');
     ok(/o que a om escreveu no siplad/i.test(txt) && /008- 0/.test(txt), 'mostra o texto original da OM');
+    // citada inexistente: avisa que o número não existe, mostra a parecida que recebeu a baixa e o que fazer
+    await page.keyboard.press('Escape');
+    await page.locator('div.rounded-xl, div.rounded-lg').filter({ hasText: 'G483.2026.AC.00755' }).getByLabel('1 ponto(s) de atenção').last().click();
+    const det2 = page.getByTestId('detalhe-citada-inexistente');
+    await det2.waitFor();
+    const t2 = (await det2.innerText()).replace(/\s+/g, ' ');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'ponto-citada-inexistente.png') });
+    ok(/não existe no sistema/i.test(t2) && t2.includes('71000-EL-09-2026-001-0') && t2.includes('71000-EL-09-2026-002-0') && /recebeu R\$ 1\.500,00 deste crédito/.test(t2), 'fatura citada inexistente: mostra o número citado, a parecida do sistema e o que ela recebeu deste crédito');
+    ok(/o que fazer/i.test(t2) && /confirme com a OM/i.test(t2), 'explica o que fazer quando a fatura citada não existe');
   });
 
   await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {

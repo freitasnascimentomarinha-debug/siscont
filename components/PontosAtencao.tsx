@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AlertOctagon, AlertTriangle, CheckCircle2, Info, RotateCcw } from 'lucide-react';
-import { DetalheBaixaFora, Gravidade, pendentes, PontoAtencao } from '../utils/pontosAtencao';
+import { DetalheBaixaFora, DetalheCitadaInexistente, Gravidade, pendentes, PontoAtencao } from '../utils/pontosAtencao';
 import { db } from '../services/db';
 import { notify } from '../utils/notify';
 import { Modal } from './ui/Modal';
@@ -20,9 +20,11 @@ const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
           {d.indicadas.map(i => (
             <li key={i.numero} className="flex flex-wrap items-center justify-between gap-1">
               <span className="font-mono text-xs text-slate-900">{i.numero}</span>
-              {i.baixada
-                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ já recebeu baixa</span>
-                : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ ainda sem baixa</span>}
+              {i.inexistente
+                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">∅ não existe no sistema</span>
+                : i.baixada
+                  ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ já recebeu baixa</span>
+                  : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ ainda sem baixa</span>}
             </li>
           ))}
           {d.omsIndicadas > 0 && <li className="text-xs text-slate-700">+ todas as faturas de {d.omsIndicadas} OM indicada(s)</li>}
@@ -55,6 +57,51 @@ const DetalheBaixaForaView: React.FC<{ d: DetalheBaixaFora }> = ({ d }) => (
         <li>Veja se a baixa marcada <b>✘ fora do pedido</b> está errada (ex.: engano de número da fatura).</li>
         <li><b>Se está errada:</b> clique em <b>remover</b> nessa baixa (quadro abaixo) e depois dê a baixa na fatura certa, em <i>Créditos recebidos › Pagar faturas</i>.</li>
         <li><b>Se está certa</b> (a OM confirmou, ou a fatura pedida já estava paga): clique em <b>“Informar o motivo (manter assim)”</b> e escreva por que pagamos diferente.</li>
+      </ol>
+    </div>
+  </div>
+);
+
+/** "A OM citou uma fatura que não existe no sistema": mostra a citada, as parecidas e o que fazer. */
+const DetalheCitadaInexistenteView: React.FC<{ d: DetalheCitadaInexistente }> = ({ d }) => (
+  <div className="space-y-3 text-sm" data-testid="detalhe-citada-inexistente">
+    <p className="text-slate-800">A OM escreveu o número de uma fatura que <b>não existe no sistema</b>. Pode ser <b>erro de digitação da OM</b> ou uma fatura que ainda não foi lançada.</p>
+    {d.itens.map(it => (
+      <div key={it.citada} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">A OM citou</span>
+          <span className="font-mono text-xs text-slate-900">{it.citada}</span>
+          <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-800">∅ não existe no sistema</span>
+        </div>
+        {it.parecidas.length > 0 ? (
+          <div className="rounded-md border border-sky-200 bg-sky-50 p-2">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-sky-800 mb-1">Fatura parecida no sistema (mesmo cliente, serviço e mês)</div>
+            <ul className="space-y-1">
+              {it.parecidas.map(p => (
+                <li key={p.numero} className="flex flex-wrap items-center justify-between gap-1">
+                  <span><span className="font-mono text-xs text-slate-900">{p.numero}</span> <span className="text-xs text-slate-600">valor {brlP(p.valor)}</span></span>
+                  {p.baixadoAqui > 0.005
+                    ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">✔ recebeu {brlP(p.baixadoAqui)} deste crédito</span>
+                    : <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">⚠ não recebeu baixa deste crédito</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : <p className="text-xs text-slate-600">Não há fatura parecida (mesmo cliente, serviço e mês) no sistema.</p>}
+      </div>
+    ))}
+    {d.observacao && (
+      <div className="rounded-lg border border-slate-200 bg-white p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">O que a OM escreveu no SIPLAD</div>
+        <p className="text-xs text-slate-700 italic">“{d.observacao}”</p>
+      </div>
+    )}
+    <div className="rounded-lg border border-amber-200 bg-white p-3">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-amber-800 mb-1">O que fazer</div>
+      <ol className="list-decimal pl-5 space-y-1 text-xs text-slate-800">
+        <li><b>Se a fatura parecida é a certa</b> (a OM só errou o número): clique em <b>“Informar o motivo (manter assim)”</b> e anote, por exemplo, “OM citou 008; a fatura correta é a 010”.</li>
+        <li><b>Se a fatura citada existe de verdade</b> e ainda não foi lançada: lance em <i>Emitir faturas do mês</i> ou <i>Faturas emitidas</i> e depois ajuste a baixa.</li>
+        <li>Na dúvida, <b>confirme com a OM</b> qual fatura ela quis pagar.</li>
       </ol>
     </div>
   </div>
@@ -133,7 +180,7 @@ export const PontosModal: React.FC<{
                     <span className="text-[10px] uppercase font-bold tracking-wide text-slate-500">gravidade {COR_GRAVIDADE[p.gravidade].rotulo}</span>
                     <span className="text-[10px] text-slate-500">{p.automatico ? '· detectado automaticamente' : `· anotado na ${p.origem === 'migracao' ? 'migração' : 'gravação'}${p.em ? ` em ${dataBR(p.em)}` : ''}`}</span>
                   </div>
-                  {p.detalhe?.tipo === 'BAIXA_FORA' ? <DetalheBaixaForaView d={p.detalhe} /> : (<>
+                  {p.detalhe?.tipo === 'BAIXA_FORA' ? <DetalheBaixaForaView d={p.detalhe} /> : p.detalhe?.tipo === 'CITADA_INEXISTENTE' ? <DetalheCitadaInexistenteView d={p.detalhe} /> : (<>
                     <p className="text-sm text-slate-800 whitespace-pre-line">{p.mensagem}</p>
                     <p className="text-xs text-slate-600"><b>Como corrigir:</b> {p.comoCorrigir}</p>
                   </>)}
@@ -147,7 +194,7 @@ export const PontosModal: React.FC<{
                   )}
                   {podeEditar && !p.resolvido && resolvendo !== i && (
                     <button className="text-xs font-semibold text-primary-700 hover:underline" onClick={() => { setResolvendo(i); setJustificativa(''); }}>
-                      {p.tipo === 'BAIXA_FORA_DESTINACAO' ? 'Informar o motivo (manter assim)' : p.automatico ? 'Estou ciente (manter assim)' : 'Marcar como resolvido'}
+                      {p.tipo === 'BAIXA_FORA_DESTINACAO' || p.tipo === 'FATURA_CITADA_INEXISTENTE' ? 'Informar o motivo (manter assim)' : p.automatico ? 'Estou ciente (manter assim)' : 'Marcar como resolvido'}
                     </button>
                   )}
                   {podeEditar && p.resolvido && (
@@ -159,10 +206,10 @@ export const PontosModal: React.FC<{
                     <div className="mt-2 space-y-2">
                       <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} rows={2} autoFocus
                         aria-label="Justificativa"
-                        placeholder={p.tipo === 'BAIXA_FORA_DESTINACAO' ? 'Por que pagamos diferente do que a OM indicou? (ex.: a OM confirmou por telefone que a fatura paga é a correta)' : p.automatico ? 'Por que está correto assim? (ex.: excedente devolvido por GRU nº...)' : 'O que foi feito? (ex.: conferido no SIPLAD, vencimento correto)'}
+                        placeholder={p.tipo === 'FATURA_CITADA_INEXISTENTE' ? 'O que foi apurado? (ex.: a OM citou a 008, mas a fatura correta é a 010)' : p.tipo === 'BAIXA_FORA_DESTINACAO' ? 'Por que pagamos diferente do que a OM indicou? (ex.: a OM confirmou por telefone que a fatura paga é a correta)' : p.automatico ? 'Por que está correto assim? (ex.: excedente devolvido por GRU nº...)' : 'O que foi feito? (ex.: conferido no SIPLAD, vencimento correto)'}
                         className="w-full text-sm border border-slate-300 rounded-md p-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary-500" />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => resolver(p)} isLoading={gravando} disabled={p.tipo === 'BAIXA_FORA_DESTINACAO' && !justificativa.trim()}>Confirmar</Button>
+                        <Button size="sm" onClick={() => resolver(p)} isLoading={gravando} disabled={(p.tipo === 'BAIXA_FORA_DESTINACAO' || p.tipo === 'FATURA_CITADA_INEXISTENTE') && !justificativa.trim()}>Confirmar</Button>
                         <Button size="sm" variant="ghost" onClick={() => setResolvendo(null)} disabled={gravando}>Cancelar</Button>
                       </div>
                     </div>
