@@ -11,6 +11,7 @@ import { assinaturaDe, definirAssinatura } from './utils/assinatura';
 import { isSupabaseConfigured } from './services/supabase';
 import { cleanupCorruptedLocalStorage } from './utils/localStorageCleanup';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { recarregarSeVersaoNova } from './utils/novaVersao';
 import { Toaster } from './components/ui/Toaster';
 import { definirPaginaDoErro } from './services/errosService';
 import { useExercicio } from './services/exercicio';
@@ -20,7 +21,8 @@ function telaLazy<M>(carregar: () => Promise<M>, pegar: (m: M) => React.Componen
   return lazy(async () => {
     try { return { default: pegar(await carregar()) }; }
     catch (e) {
-      try { if (!sessionStorage.getItem('siscont-recarregou')) { sessionStorage.setItem('siscont-recarregou', '1'); window.location.reload(); return new Promise<never>(() => undefined); } } catch { /* sem storage */ }
+      // versão nova publicada com a aba aberta: recarrega (a cada nova versão, com trava de 30 s contra laço)
+      if (recarregarSeVersaoNova(e)) return new Promise<never>(() => undefined);
       throw e;
     }
   });

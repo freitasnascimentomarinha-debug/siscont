@@ -2,6 +2,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { registrarErro } from '../services/errosService';
+import { ehErroDeVersaoNova } from '../utils/novaVersao';
 
 interface Props {
   children: ReactNode;
@@ -34,11 +35,23 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 text-red-600 rounded-full mb-6">
               <AlertTriangle size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Ops! Algo deu errado.</h1>
-            <p className="text-slate-600 mb-8">
-              Ocorreu um erro inesperado que impediu o carregamento de uma parte do sistema.
-              Fique tranquilo, seus dados no servidor estão seguros.
-            </p>
+            {ehErroDeVersaoNova(this.state.error) ? (
+              <>
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">O sistema foi atualizado.</h1>
+                <p className="text-slate-600 mb-8" data-testid="aviso-versao-nova">
+                  Uma versão nova foi publicada enquanto esta página estava aberta. É só <b>recarregar</b> para continuar.
+                  Seus dados no servidor estão seguros.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">Ops! Algo deu errado.</h1>
+                <p className="text-slate-600 mb-8">
+                  Ocorreu um erro inesperado que impediu o carregamento de uma parte do sistema.
+                  Fique tranquilo, seus dados no servidor estão seguros.
+                </p>
+              </>
+            )}
             <div className="flex flex-col gap-3">
               <button 
                 onClick={() => window.location.reload()}
