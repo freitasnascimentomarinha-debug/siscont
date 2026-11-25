@@ -670,6 +670,32 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/Já está pagando faturas/.test(t2) && /12346-EL-08-2026-010-0/.test(t2), `ALTCRED já cadastrada mostra as baixas já feitas (${t2.slice(0, 90)}…)`);
   });
 
+  await cenario('Fluxo de caixa: a importação de ALTCRED mostra se já paga faturas e deixa pagar logo após gravar', [pdfSiplad('Processada', 'Z999.2026.AC.00012')], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '12346', nome: 'Navio Teste', tipo: 'NAVIO', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const nova = (n, v, venc) => ({ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: n, value: v, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: venc, month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: n.split('-')[1], is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] });
+    db.invoices = [nova('12346-EL-08-2026-010-0', 400, '2026-09-29'), nova('12346-AE-08-2026-004-0', 350, '2026-09-29')];
+    await page.reload();
+    await page.getByRole('button', { name: 'Fluxo de caixa' }).click();
+    await page.getByRole('heading', { name: 'Fluxo de Caixa' }).waitFor();
+    await page.getByRole('button', { name: 'Importar', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'ALTCRED (PDF do SIPLAD)' }).click();
+    await page.getByRole('heading', { name: 'Importar ALTCRED do SIPLAD (PDF)' }).waitFor();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00012').first().waitFor({ timeout: 20000 });
+    const t = (await page.getByTestId('item-altcred').first().innerText()).replace(/\s+/g, ' ');
+    ok(/em aberto R\$ 400,00/.test(t) && /ALTCRED nova: ainda não paga nenhuma fatura/.test(t), 'Fluxo de caixa: mostra a situação das faturas citadas e que a ALTCRED nova ainda não paga nada');
+    await page.getByLabel('Pagar faturas depois de gravar: Z999.2026.AC.00012').check();
+    await page.getByRole('button', { name: 'Gravar', exact: true }).click();
+    await page.getByRole('heading', { name: /Baixa assistida — Z999.2026.AC.00012/ }).waitFor({ timeout: 15000 });
+    ok(await page.getByLabel('Valor para 12346-EL-08-2026-010-0').inputValue() === '400' && db.payment_allocations.length === 0, 'Fluxo de caixa: abre a baixa assistida da ALTCRED gravada, sem pagar nada antes da confirmação');
+    await page.getByRole('button', { name: 'Gravar baixas' }).click();
+    await page.getByText(/baixa\(s\) gravada\(s\)/).waitFor();
+    ok(db.payment_allocations.length >= 2, 'Fluxo de caixa: baixas gravadas depois de conferir e confirmar');
+  });
+
   await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };

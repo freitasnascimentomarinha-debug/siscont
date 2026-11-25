@@ -7,7 +7,7 @@ import { useAbaNoEndereco } from '../utils/abaNoEndereco';
 import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { notify } from '../utils/notify';
-import { CashFlowItem, CashFlowExit, DocumentType, ReceivedDocument, podeEditarDados } from '../types';
+import { CashFlowItem, CashFlowExit, DocumentType, Invoice, OM, PaymentAllocation, ReceivedDocument, podeEditarDados } from '../types';
 import { Button } from '../components/ui/Button';
 import { Input, Select, CurrencyInput } from '../components/ui/Input';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
@@ -18,6 +18,9 @@ import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 import { CLASSES_CATEGORIA, Etiqueta, agruparPorMes, etiquetaDaClasse, precisaAtencao, separarOrigem } from '../utils/fluxoCaixa';
 import { salvarSaidas, listarRubricas, listarSaidas, Fase5NaoInstaladaError, Saida } from '../services/relatoriosService';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
+import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
+import { carregarCadastro } from '../services/recebimentosService';
+import { motivoBloqueio } from '../utils/situacaoSiplad';
 import { CATEGORIAS } from '../utils/relatorios';
 import { PreviaNE, NEExistente, entraNaGravacao, gravarPreviaNE, lerPlanilhaNE, SaldoMensal, CondominioRubrica, Disponivel, Rubricas } from '../components/fluxo/PaineisFluxo';
 import * as XLSX from 'xlsx';
@@ -35,6 +38,23 @@ const Lancamentos: React.FC = () => {
   const [items, setItems] = useState<CashFlowItem[]>([]);
   const [sipladAberto, setSipladAberto] = useState(false);
   const [docsCredito, setDocsCredito] = useState<ReceivedDocument[]>([]);
+  // faturas, baixas e OM: a importação de ALTCRED mostra se já paga faturas e permite pagar logo após gravar (baixa assistida)
+  const [invoicesAlt, setInvoicesAlt] = useState<Invoice[]>([]);
+  const [baixasAlt, setBaixasAlt] = useState<PaymentAllocation[]>([]);
+  const [omsAlt, setOmsAlt] = useState<OM[]>([]);
+  const [baixaDoc, setBaixaDoc] = useState<ReceivedDocument | null>(null);
+  const [filaBaixa, setFilaBaixa] = useState<string[]>([]);
+  useEffect(() => {
+    if (!filaBaixa.length || baixaDoc) return;
+    const num = filaBaixa[0].trim().toUpperCase();
+    const d = docsCredito.find(x => x.documentNumber.trim().toUpperCase() === num);
+    if (!d) return; // a lista ainda está atualizando
+    setFilaBaixa(f => f.slice(1));
+    const bloqueio = motivoBloqueio(d.situacaoSiplad);
+    if (bloqueio) notify.info(`${d.documentNumber}: ${bloqueio}`);
+    else if (d.availableValue <= 0.005) notify.info(`${d.documentNumber} não tem saldo para pagar faturas.`);
+    else setBaixaDoc(d);
+  }, [filaBaixa, baixaDoc, docsCredito]);
 
   // Filters
   const [filterText, setFilterText] = useState('');
@@ -108,6 +128,9 @@ const Lancamentos: React.FC = () => {
     try {
       setItems(await db.getCashFlow());
       setDocsCredito(await db.getDocuments());
+      db.getInvoices().then(setInvoicesAlt).catch(() => {});
+      db.getAllocations().then(setBaixasAlt).catch(() => {});
+      carregarCadastro().then(cad => setOmsAlt(cad.oms)).catch(() => {});
       listarSaidas().then(ss => { setSaidasFull(ss); setClasses(new Map(ss.map(x => [x.id, x.rubricaNumero ? `R${x.rubricaNumero}` : x.categoria || '']))); }).catch(() => {});
     } catch (err) {
       notify.fail('Erro ao carregar fluxo de caixa', err);
@@ -581,7 +604,8 @@ const Lancamentos: React.FC = () => {
       </Gaveta>
 
 
-      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} />
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} invoices={invoicesAlt} baixas={baixasAlt} onPagarDepois={isReadOnly ? undefined : setFilaBaixa} />
+      <BaixaAssistidaModal doc={baixaDoc} usuario={user?.name || user?.email || ''} onClose={() => setBaixaDoc(null)} invoices={invoicesAlt} documentos={docsCredito} baixas={baixasAlt} oms={omsAlt} onGravado={refresh} />
       <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
         footer={<div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={() => setPreviaNE(null)}>Cancelar</Button>
