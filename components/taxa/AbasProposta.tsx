@@ -123,14 +123,20 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const pdfRubricas = () => {
     const pct1 = (v: number | null) => (v === null ? '-' : `${v > 0 ? '+' : ''}${v.toLocaleString('pt-BR')}%`);
     const crit: Record<string, string> = { LOTACAO: 'Pessoa', AREA: 'Area', IGUAL: 'Iguais', PESO: 'Peso' };
-    const tabela = (titulo: string, xs: { l: RubricaProposta }[], t: ReturnType<typeof somar>, navios: boolean) => ({
-      titulo, head: ['Nº', 'Despesa', 'Responsável', `Valor ${ano}`, `Valor ${ano - 1}`, 'Variação', 'Descontos', 'Valor atualizado', 'Navios', 'Rateio', 'Subsídio'],
-      body: xs.map(({ l }) => { const c = calc(l); const sb = subDe(l.numero);
-        return [l.numero, l.descricao, l.responsavel || '-', brl(l.valorPrevisto), l.gastoAnterior ? brl(l.gastoAnterior) : '-', pct1(c.variacao), navios && c.descontos ? brl(c.descontos) : '-', navios ? brl(c.atualizado) : brl(l.valorPrevisto),
-          navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-', sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : l.zeroConfirmado ? 'zero mesmo (sem orçamento)' : entraNaTaxa(l) ? 'sem subsídio (aguardando)' : '-']; }),
-      direita: [3, 4, 5, 6, 7, 8], larguras: [8, 50, 38, 24, 24, 19, 22, 26, 22, 28, 28],
-      total: ['', 'Soma', '', brl(t.prev), t.ant ? brl(t.ant) : '-', t.ant ? pct1(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '-', navios ? brl(t.desc) : '-', navios ? brl(t.atu) : brl(t.prev), navios ? brl(t.nav) : '-', '', ''],
-    });
+    const todas = linhas.map(l => ({ l })).filter(x => x.l.destino !== 'DA').sort((x, y) => x.l.numero - y.l.numero);
+    const rotulo: Record<string, string> = { TC: 'Rubrica', OG: 'Outros gastos', PAR: 'Fora da taxa' };
+    // uma só tabela, na ordem do sistema (1, 2, 3...), com a coluna "Entra como"; as somas por grupo vêm em linhas de destaque no fim
+    const linhaSoma = (nome: string, t: ReturnType<typeof somar>, navios: boolean) => ['', nome, '', '', brl(t.prev), t.ant ? brl(t.ant) : '-', t.ant ? pct1(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '-', navios ? brl(t.desc) : '-', navios ? brl(t.atu) : brl(t.prev), navios ? brl(t.nav) : '-', '', ''];
+    const corpo = todas.map(({ l }) => { const c = calc(l); const sb = subDe(l.numero); const navios = entraNaTaxa(l);
+      return [l.numero, l.descricao, rotulo[l.destino] || l.destino, l.responsavel || '-', brl(l.valorPrevisto), l.gastoAnterior ? brl(l.gastoAnterior) : '-', pct1(c.variacao), navios && c.descontos ? brl(c.descontos) : '-', navios ? brl(c.atualizado) : brl(l.valorPrevisto),
+        navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-',
+        sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : l.zeroConfirmado ? 'zero mesmo (sem orçamento)' : navios ? 'sem subsídio (aguardando)' : '-']; });
+    const somas = [linhaSoma(`Soma das ${tc.length} rubricas da taxa`, tTC, true), ...(og.length ? [linhaSoma(`Soma dos ${og.length} outros gastos`, tOG, true)] : []), ...(par.length ? [linhaSoma('Soma fora da taxa', tPAR, false)] : [])];
+    const tabela = {
+      titulo: `Rubricas da taxa condominial ${ano} (${todas.length})`, head: ['Nº', 'Despesa', 'Entra como', 'Responsável', `Valor ${ano}`, `Valor ${ano - 1}`, 'Variação', 'Descontos', 'Valor atualizado', 'Navios', 'Rateio', 'Subsídio'],
+      body: [...corpo, ...somas], destaque: somas.map((_, k) => corpo.length + k),
+      direita: [4, 5, 6, 7, 8, 9], larguras: [8, 46, 22, 34, 22, 22, 16, 20, 24, 20, 26, 28],
+    };
     const comJust = linhas.filter(l => l.destino !== 'DA' && (l.justificativaValor || '').trim()).sort((x, y) => x.numero - y.numero);
     const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length && !l.zeroConfirmado).sort((x, y) => x.numero - y.numero);
     const zeros = linhas.filter(l => entraNaTaxa(l) && l.zeroConfirmado).sort((x, y) => x.numero - y.numero);
@@ -142,9 +148,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         ...(zeros.length ? [`Sem orçamento em ${ano} (zero mesmo): ${zeros.map(l => l.numero).join(', ')}.`] : [])],
       cartoes: [['Taxas condominiais (rubricas)', brl(tTC.atu)], ['Outros gastos', brl(tOG.atu)], ['Total dos navios (diárias)', brl(valorDA)], ['Total', brl(tTC.atu + tOG.atu + valorDA)]],
       tabelas: [
-        tabela(`Rubricas da taxa condominial (${tc.length})`, tc, tTC, true),
-        ...(og.length ? [tabela(`Outros gastos incorporados à taxa (${og.length})`, og, tOG, true)] : []),
-        ...(par.length ? [tabela(`Fora da taxa (${par.length})`, par, tPAR, false)] : []),
+        tabela,
         ...(comJust.length ? [{ titulo: 'Justificativa do valor de cada rubrica', head: ['Nº', 'Despesa', 'Por que este valor'], body: comJust.map(l => [l.numero, l.descricao, (l.justificativaValor || '').trim()]), larguras: [9, 60, 205] }] : []),
       ],
     });
