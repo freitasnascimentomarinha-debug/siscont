@@ -4,7 +4,7 @@
  * os descontos de cada OM) + a parte paga pelos navios. É este valor final que o Fluxo de caixa usa.
  */
 import { resolverEmissora } from './emissora';
-import { Desconto, PorRubrica, anoFinalJanela, ResultadoRateio, mediaTrienal, montarParticipantes, ratearProposta, valorVigente } from './taxaCondominial';
+import { Desconto, Participante, PorRubrica, anoFinalJanela, ResultadoRateio, mediaTrienal, montarParticipantes, ratearProposta, valorVigente } from './taxaCondominial';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -18,6 +18,8 @@ export const linhaDaTaxa = (r: { destino?: string }) => r.destino === 'TC' || r.
 
 export function calcularTaxaAno(dados: DadosCalculoTC, ano: number, parametros: { chave: string; valor: string | null }[]): {
   resultado: ResultadoRateio; resultadoDA: ResultadoRateio; descontosPorOM: Map<number, number>; porRubrica: PorRubrica[];
+  /** OM de terra que entraram no rateio e as linhas da taxa (para explicar variações entre anos) */
+  terra: Participante[]; rubTC: any[];
 } {
   const medias = new Map(mediaTrienal(dados.atracacaoAnual, ano, dados.classes.map(c => c.id), anoFinalJanela(parametros as any, ano)).map(m => [m.classeId, m.mediaMensal]));
   // OM emissora (BNIC): participa ou não do rateio
@@ -28,7 +30,7 @@ export function calcularTaxaAno(dados: DadosCalculoTC, ano: number, parametros: 
   const r = ratearProposta(rubTC, terra, navios, dados.matriz, dados.descontos, dados.proposta?.baseNavios || 'PREVISTO');
   const descontosPorOM = new Map<number, number>();
   r.tc.oms.forEach(o => o.parcelas.forEach(p => descontosPorOM.set(p.rubrica, r2((descontosPorOM.get(p.rubrica) || 0) + p.desconto))));
-  return { resultado: r.tc, resultadoDA: r.da, descontosPorOM, porRubrica: r.porRubrica };
+  return { resultado: r.tc, resultadoDA: r.da, descontosPorOM, porRubrica: r.porRubrica, terra, rubTC };
 }
 
 export interface RubricaConsolidada {

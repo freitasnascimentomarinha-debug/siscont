@@ -100,18 +100,28 @@ export function parteNavios(r: RubricaTC, base: BaseNavios = 'PREVISTO'): number
   }
 }
 
+const pesoBase = (p: Participante) => (p.semHistorico ? 0 : p.lotacao * p.dias);
+/** Peso de um participante numa rubrica, conforme o critério dela (lotação × dias, área, partes iguais ou peso informado). */
+export function pesoRubrica(r: { criterio?: Criterio }, p: Participante): number {
+  switch (r.criterio || 'LOTACAO') {
+    case 'AREA': return Math.max(0, p.area || 0);
+    case 'IGUAL': return p.tipo === 'NAVIO' && p.semHistorico ? 0 : 1;
+    case 'PESO': return Math.max(0, p.pesoManual || 0);
+    default: return pesoBase(p);
+  }
+}
+/** Quem divide a rubrica: marcados na matriz (ou todos os da matriz, se "rateio entre todas") com peso > 0. */
+export function participantesDaRubrica(r: { numero: number; criterio?: Criterio; rateioTodas?: boolean }, participantes: Participante[], matriz: Set<string>): { omId: string; peso: number }[] {
+  const naMatriz = new Set([...matriz].map(k => k.slice(k.indexOf('|') + 1)));
+  return participantes
+    .filter(p => (r.rateioTodas ? naMatriz.has(p.omId) : matriz.has(`${r.numero}|${p.omId}`)))
+    .map(p => ({ omId: p.omId, peso: pesoRubrica(r, p) })).filter(x => x.peso > 0);
+}
+
 export function ratear(rubricas: RubricaTC[], participantes: Participante[], matriz: Set<string>, descontos: Desconto[]): ResultadoRateio {
   const chave = (rub: number, om: string) => `${rub}|${om}`;
-  const peso = (p: Participante) => (p.semHistorico ? 0 : p.lotacao * p.dias);
-  // peso de cada participante na rubrica, conforme o critério da rubrica
-  const pesoRub = (r: RubricaTC, p: Participante) => {
-    switch (r.criterio || 'LOTACAO') {
-      case 'AREA': return Math.max(0, p.area || 0);
-      case 'IGUAL': return p.tipo === 'NAVIO' && p.semHistorico ? 0 : 1;
-      case 'PESO': return Math.max(0, p.pesoManual || 0);
-      default: return peso(p);
-    }
-  };
+  const peso = pesoBase;
+  const pesoRub = pesoRubrica;
   const res = new Map<string, ResultadoOM>(participantes.map(p => [p.omId, {
     omId: p.omId, nome: p.nome, tipo: p.tipo, lotacao: p.lotacao, dias: p.dias, peso: r2(peso(p)), parcelas: [], anualBruto: 0, descontos: 0, anual: 0, mensal: 0, percentual: 0,
   }]));

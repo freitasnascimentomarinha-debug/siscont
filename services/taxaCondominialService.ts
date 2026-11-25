@@ -416,3 +416,12 @@ export async function limparImportado(ano: number, escopos: EscopoLimpeza[], ano
     checar(error);
   }
 }
+
+/** Carrega os dois exercícios (o atual e o anterior), calcula a taxa de cada um e explica a variação por OM e rubrica. */
+export async function analiseDeVariacoes(ano: number) {
+  const [{ calcularTaxaAno }, { analisarVariacoes }, { cadastroService }] = await Promise.all([import('../utils/taxaConsolidada'), import('../utils/analiseVariacao'), import('./cadastroService')]);
+  const [dAtu, dAnt, parametros] = await Promise.all([carregarProposta(ano), carregarProposta(ano - 1), cadastroService.listParametros().catch(() => [])]);
+  const monta = (a: number, d: DadosProposta) => ({ ano: a, calc: calcularTaxaAno(d, a, parametros as any), matriz: d.matriz, rubricas: d.rubricas });
+  const temAnterior = dAnt.rubricas.length > 0 && dAnt.lotacoes.length > 0;
+  return { temAnterior, analise: temAnterior ? analisarVariacoes(monta(ano - 1, dAnt), monta(ano, dAtu)) : [], statusAnterior: dAnt.proposta?.status || 'PROPOSTA' };
+}

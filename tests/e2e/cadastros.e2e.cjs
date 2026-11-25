@@ -1692,6 +1692,37 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1500, 'limpar: as rubricas e seus valores continuam (valores só zeram se marcado)');
   });
 
+  await cenario('Justificativa das variações da taxa: por OM e rubrica, em relação ao ano anterior', [], async (page, db) => {
+    const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', tipo: 'TERRA', ativo: true };
+    const cias = { id: uid(), codigo: '81200', nome: 'Centro de Instrução', tipo: 'TERRA', ativo: true };
+    const nova = { id: uid(), codigo: '81300', nome: 'OM Nova', tipo: 'TERRA', ativo: true };
+    db.oms.push(amrj, cias, nova);
+    const rub = (ano, valor) => ({ ano, numero: 1, descricao: 'Manutenção de Telhados', destino: 'TC', valor_previsto: valor, valor_anual: valor, desconto_geral: 0 });
+    db.rubricas.push(rub(2026, 1000), rub(2027, 1200));
+    db.lotacoes_tc.push({ ano: 2026, om_id: amrj.id, lotacao: 100 }, { ano: 2026, om_id: cias.id, lotacao: 100 }, { ano: 2027, om_id: amrj.id, lotacao: 150 }, { ano: 2027, om_id: cias.id, lotacao: 100 }, { ano: 2027, om_id: nova.id, lotacao: 50 });
+    [amrj, cias].forEach(o => db.matriz_tc.push({ ano: 2026, rubrica: 1, om_id: o.id }));
+    [amrj, cias, nova].forEach(o => db.matriz_tc.push({ ano: 2027, rubrica: 1, om_id: o.id }));
+    await page.reload();
+    await page.getByRole('button', { name: 'Taxa condominial e diárias' }).click();
+    await page.getByRole('heading', { name: 'Taxa condominial e diárias' }).waitFor();
+    await page.getByLabel('Exercício da proposta').selectOption('2027');
+    await page.getByRole('button', { name: '8. Justificar variações' }).click();
+    await page.getByTestId('aba-variacoes').waitFor({ timeout: 10000 });
+    const linha = page.getByRole('row').filter({ hasText: 'Arsenal de Marinha do Rio de Janeiro' }).first();
+    const t = await linha.innerText();
+    ok(/Aumento de/.test(t) && /valor das rubricas 1/.test(t) && /lotação da OM \(100 → 150\)/.test(t) && /outras OM passaram a dividir/.test(t), `AMRJ: justificativa cita valor da rubrica, lotação (100 → 150) e a OM nova que passou a dividir (${t.replace(/\s+/g, ' ').slice(0, 260)})`);
+    const nv = await page.getByRole('row').filter({ hasText: 'OM Nova' }).first().innerText();
+    ok(/nova/.test(nv) && /sem taxa em 2026/.test(nv), 'OM nova: explica que não tinha taxa no ano anterior');
+    await linha.click();
+    await page.getByText('Valor da rubrica', { exact: false }).first().waitFor();
+    ok(await page.getByText(/valor da rubrica subiu de R\$ 1\.000,00 para R\$ 1\.200,00/).isVisible(), 'detalhe por rubrica: valor da rubrica subiu de 1.000 para 1.200');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'justificativa-variacoes.png'), fullPage: true });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    ok(/justificativa_variacoes_taxa_2027\.xlsx/.test(dl.suggestedFilename()), 'exporta o Excel da justificativa');
+    const [dp] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
+    ok(/justificativa_variacoes_taxa_2027\.pdf/.test(dp.suggestedFilename()), 'exporta o PDF da justificativa');
+  });
+
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
     db.classes_navio.push(classe);
