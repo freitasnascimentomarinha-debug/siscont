@@ -68,6 +68,19 @@ export const ReceivedBalances: React.FC = () => {
   const [activeDoc, setActiveDoc] = useState<ReceivedDocument | null>(null);
   const [sipladAberto, setSipladAberto] = useState(false);
   const [baixaDoc, setBaixaDoc] = useState<ReceivedDocument | null>(null);
+  // ALTCRED recém-importadas marcadas para "pagar as faturas depois de gravar": a baixa assistida abre uma por vez (você confere e autoriza em cada uma)
+  const [filaBaixa, setFilaBaixa] = useState<string[]>([]);
+  useEffect(() => {
+    if (!filaBaixa.length || baixaDoc) return;
+    const num = filaBaixa[0].trim().toUpperCase();
+    const d = documents.find(x => x.documentNumber.trim().toUpperCase() === num);
+    if (!d) return; // a lista ainda está atualizando
+    setFilaBaixa(f => f.slice(1));
+    const bloqueio = motivoBloqueio(d.situacaoSiplad);
+    if (bloqueio) notify.info(`${d.documentNumber}: ${bloqueio}`);
+    else if (d.availableValue <= 0.005) notify.info(`${d.documentNumber} não tem saldo para pagar faturas.`);
+    else setBaixaDoc(d);
+  }, [filaBaixa, baixaDoc, documents]);
   const [oms, setOms] = useState<OM[]>([]);
   const [cad, setCad] = useState<Cadastro>({ oms: [], comandos: [], setores: [] });
   // filtros de várias escolhas (valores EXCLUÍDOS) pelo setor/comando/cliente do cadastro, e busca pela fatura paga
@@ -1107,7 +1120,7 @@ export const ReceivedBalances: React.FC = () => {
         title={confirmDelete?.type === 'doc' ? 'Excluir documento' : 'Excluir baixa'}
         message={mensagemExclusao()}
       />
-      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} />
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} invoices={invoices} baixas={allocations} onPagarDepois={setFilaBaixa} />
       <BaixaAssistidaModal doc={baixaDoc} usuario={user?.name || user?.email || ''} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
         onAlterado={async () => {

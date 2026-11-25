@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FileUp } from 'lucide-react';
-import { ReceivedDocument } from '../../types';
+import { Invoice, PaymentAllocation, ReceivedDocument } from '../../types';
 import { FINALIDADES } from '../../utils/relatorios';
 import { itensDoPdf, lerSolicitacoesDetalhado, ordemDeExibicao, OrdemAltcred, ordenarPorAntiguidade, ROTULO_ORDEM, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, comPendencia, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
@@ -24,9 +24,41 @@ const lerArquivo = (f: File) => new Promise<ArrayBuffer>((res, rej) => {
 });
 
 /** Lê o PDF "Solicitações de Alteração de Crédito" do SIPLAD e cadastra/completa as ALTCRED. */
-export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => void; documentos: ReceivedDocument[]; onGravado: () => Promise<void> }> = ({ aberto, onClose, documentos, onGravado }) => {
+export const ImportarSipladModal: React.FC<{
+  aberto: boolean; onClose: () => void; documentos: ReceivedDocument[]; onGravado: () => Promise<void>;
+  /** faturas e baixas: com elas cada ALTCRED mostra se já paga faturas e a situação de cada fatura citada */
+  invoices?: Invoice[]; baixas?: PaymentAllocation[];
+  /** depois de gravar, abre a baixa assistida (onde o pagamento é conferido e autorizado) para as ALTCRED marcadas */
+  onPagarDepois?: (numeros: string[]) => void;
+}> = ({ aberto, onClose, documentos, onGravado, invoices, baixas, onPagarDepois }) => {
   const ref = useRef<HTMLInputElement>(null);
   const [itens, setItens] = useState<ItemImportacao[]>([]);
+  const [pagarDepois, setPagarDepois] = useState<Record<number, boolean>>({});
+  // situação de pagamento: quanto cada ALTCRED já baixou e como está cada fatura citada
+  const pagamento = useMemo(() => {
+    if (!invoices || !baixas) return null;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const porDoc = new Map<string, PaymentAllocation[]>();
+    baixas.forEach(b => porDoc.set(b.documentId, [...(porDoc.get(b.documentId) || []), b]));
+    const faturaPorId = new Map(invoices.map(i => [i.id, i]));
+    const usadoPorFatura = new Map<string, number>();
+    const idsDocs = new Set(documentos.map(d => d.id));
+    baixas.forEach(b => { if (idsDocs.has(b.documentId)) usadoPorFatura.set(b.invoiceId, (usadoPorFatura.get(b.invoiceId) || 0) + b.amount); });
+    const porNumero = new Map(invoices.map(i => [(i.invoiceNumber || '').trim().toUpperCase(), i]));
+    return {
+      baixasDe: (docId: string) => {
+        const bs = porDoc.get(docId) || [];
+        return { total: r2(bs.reduce((s, b) => s + b.amount, 0)), faturas: bs.map(b => ({ numero: faturaPorId.get(b.invoiceId)?.invoiceNumber || '?', valor: b.amount })) };
+      },
+      fatura: (numero: string) => {
+        const inv = porNumero.get(numero.trim().toUpperCase());
+        if (!inv) return { estado: 'AUSENTE' as const };
+        if (inv.isCanceled) return { estado: 'CANCELADA' as const };
+        const saldo = r2(inv.value + (inv.adjustmentAddition || 0) - (inv.adjustmentDeduction || 0) - (usadoPorFatura.get(inv.id) || 0));
+        return saldo > 0.005 ? { estado: 'ABERTA' as const, saldo, vencimento: inv.dueDate } : { estado: 'QUITADA' as const };
+      },
+    };
+  }, [invoices, baixas, documentos]);
   // ordem de exibição (escolha lembrada neste navegador); a gravação segue sempre da mais antiga para a mais nova
   const [ordem, setOrdemEstado] = useState<OrdemAltcred>(() => { try { const v = localStorage.getItem('siscont.ordemAltcred') as OrdemAltcred | null; return v && v in ROTULO_ORDEM ? v : 'ANTIGO'; } catch { return 'ANTIGO'; } });
   const setOrdem = (o: OrdemAltcred) => { setOrdemEstado(o); try { localStorage.setItem('siscont.ordemAltcred', o); } catch { /* sem armazenamento: vale só agora */ } };
@@ -57,7 +89,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
       setSemSolicitacao(vazios); setDescartadas(fora);
       // do mais antigo para o mais novo (também é a ordem em que são gravadas)
       const plano = planejarImportacaoSiplad(ordenarPorAntiguidade(sols), documentos, await carregarCadastro());
-      setItens(plano); setDestino({}); setFinalidade({}); setPendencia({});
+      setItens(plano); setDestino({}); setFinalidade({}); setPendencia({}); setPagarDepois({});
       // devolvida, cancelada e não processada não são recebimento: já vêm como "Não importar" (dá para trocar)
       setIgnorados(new Set(plano.map((p, k) => (classificarSituacao(p.sol.situacao).importarPadrao ? -1 : k)).filter(k => k >= 0)));
     } catch (e) {
@@ -79,9 +111,11 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         return pendencia[k] !== undefined ? comPendencia(base, pendencia[k]!) : base;
       }));
       notify.success(`${n} ALTCRED gravada(s) a partir do SIPLAD.`);
+      const pagar = itens.filter((_, k) => pagarDepois[k] && !ignorados.has(k) && pendencia[k] === undefined && destino[k] !== 'OUTROS').map(i => i.sol.numero);
       setItens([]); setDescartadas([]);
       await onGravado();
       onClose();
+      if (pagar.length && onPagarDepois) onPagarDepois(pagar);
     } catch (e) {
       notify.fail('Erro ao gravar', e);
     } finally { setGravando(false); }
@@ -174,12 +208,30 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                     <div>
                       <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Destinação</div>
                       <div className="text-xs">
-                        {i.doc.destinacao?.length ? i.doc.destinacao.map(d => <div key={d.valor} className="font-mono">{d.valor}</div>) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
+                        {i.doc.destinacao?.length ? i.doc.destinacao.map(d => {
+                          const f = pagamento && d.tipo === 'FATURA' ? pagamento.fatura(d.valor) : null;
+                          return (
+                            <div key={d.valor} className="flex flex-wrap items-center gap-x-2">
+                              <span className="font-mono">{d.valor}</span>
+                              {f?.estado === 'ABERTA' && <span className="px-1.5 rounded bg-sky-100 text-sky-800">em aberto {brl(f.saldo)}{f.vencimento ? ` · vence ${br(f.vencimento)}` : ''}</span>}
+                              {f?.estado === 'QUITADA' && <span className="px-1.5 rounded bg-emerald-100 text-emerald-800">já quitada</span>}
+                              {f?.estado === 'CANCELADA' && <span className="px-1.5 rounded bg-slate-200 text-slate-700">cancelada</span>}
+                              {f?.estado === 'AUSENTE' && <span className="px-1.5 rounded bg-amber-100 text-amber-800">não encontrada no sistema</span>}
+                            </div>
+                          );
+                        }) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
                       </div>
                       {i.sol.observacao && <div className="mt-2 text-xs text-slate-600 break-words" aria-label={`Observação da ${i.sol.numero}`}><span className="font-semibold text-slate-500">Observação: </span>{i.sol.observacao}</div>}
                     </div>
                   </div>
                   <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-xs space-y-2">
+                    {pagamento && i.existente && (() => {
+                      const b = pagamento.baixasDe(i.existente.id);
+                      return b.total > 0.005
+                        ? <div className="rounded border border-emerald-200 bg-emerald-50 text-emerald-900 px-2 py-1.5" data-testid="ja-paga-faturas"><b>Já está pagando faturas:</b> {brl(b.total)} baixado em {b.faturas.length} fatura(s) ({b.faturas.slice(0, 4).map(f => `${f.numero} ${brl(f.valor)}`).join(' · ')}{b.faturas.length > 4 ? ` e mais ${b.faturas.length - 4}` : ''}). Saldo disponível: <b>{brl(i.existente.availableValue)}</b>.</div>
+                        : <div className="rounded border border-slate-200 bg-white text-slate-700 px-2 py-1.5" data-testid="ja-paga-faturas">Já cadastrada, mas <b>ainda não pagou nenhuma fatura</b>. Saldo disponível: <b>{brl(i.existente.availableValue)}</b>.</div>;
+                    })()}
+                    {pagamento && !i.existente && <div className="rounded border border-slate-200 bg-white text-slate-700 px-2 py-1.5" data-testid="ja-paga-faturas">ALTCRED nova: ainda <b>não paga nenhuma fatura</b>.</div>}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                       <label className="flex items-center gap-1.5 font-semibold text-slate-600">O que fazer
                         <select aria-label={`Ação para ${i.sol.numero}`} value={ign ? 'IGNORAR' : destino[n] ?? i.acao}
@@ -201,6 +253,13 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                             <option value="">Sem indicação</option>
                             {FINALIDADES.map(f => <option key={f.id} value={f.id}>{f.rotulo}</option>)}
                           </select>
+                        </label>
+                      )}
+                      {onPagarDepois && !ign && i.acao !== 'ESTORNO' && destino[n] !== 'OUTROS' && pendencia[n] === undefined && st.recebido && (
+                        <label className="flex items-center gap-1.5 text-primary-800 font-semibold">
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-primary-600" checked={!!pagarDepois[n]} aria-label={`Pagar faturas depois de gravar: ${i.sol.numero}`}
+                            onChange={e => setPagarDepois(p => ({ ...p, [n]: e.target.checked }))} />
+                          Depois de gravar, pagar as faturas (abre a baixa assistida para você conferir e autorizar)
                         </label>
                       )}
                       {!ign && i.acao !== 'ESTORNO' && (
