@@ -127,26 +127,24 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
       titulo, head: ['Nº', 'Despesa', 'Responsável', `Valor ${ano}`, `Valor ${ano - 1}`, 'Variação', 'Descontos', 'Valor atualizado', 'Navios', 'Rateio', 'Subsídio'],
       body: xs.map(({ l }) => { const c = calc(l); const sb = subDe(l.numero);
         return [l.numero, l.descricao, l.responsavel || '-', brl(l.valorPrevisto), l.gastoAnterior ? brl(l.gastoAnterior) : '-', pct1(c.variacao), navios && c.descontos ? brl(c.descontos) : '-', navios ? brl(c.atualizado) : brl(l.valorPrevisto),
-          navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-', sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : 'sem subsídio']; }),
+          navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-', sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : l.zeroConfirmado ? 'zero mesmo (sem orçamento)' : entraNaTaxa(l) ? 'sem subsídio (aguardando)' : '-']; }),
       direita: [3, 4, 5, 6, 7, 8], larguras: [8, 50, 38, 24, 24, 19, 22, 26, 22, 28, 28],
       total: ['', 'Soma', '', brl(t.prev), t.ant ? brl(t.ant) : '-', t.ant ? pct1(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '-', navios ? brl(t.desc) : '-', navios ? brl(t.atu) : brl(t.prev), navios ? brl(t.nav) : '-', '', ''],
     });
     const comJust = linhas.filter(l => l.destino !== 'DA' && (l.justificativaValor || '').trim()).sort((x, y) => x.numero - y.numero);
-    const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length).sort((x, y) => x.numero - y.numero);
-    const zeradas = linhas.filter(l => entraNaTaxa(l) && !(l.valorPrevisto > 0)).sort((x, y) => x.numero - y.numero);
+    const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length && !l.zeroConfirmado).sort((x, y) => x.numero - y.numero);
+    const zeros = linhas.filter(l => entraNaTaxa(l) && l.zeroConfirmado).sort((x, y) => x.numero - y.numero);
     baixarRelatorio({
       titulo: `Rubricas da taxa condominial ${ano}`, arquivo: `rubricas_taxa_condominial_${ano}.pdf`, orientacao: 'l',
       linhas: [`Proposta ${ano}: ${(dados.proposta.status || 'PROPOSTA').toLowerCase()} · gerado em ${dataBR(hojeISO())}`,
         'Valor atualizado = valor da rubrica menos descontos, na parte que as OM pagam. Navios = parte da rubrica paga pelo grupo dos navios (diárias de atracação).',
-        ...(sem.length ? [`Atenção: ${sem.length} rubrica(s) sem subsídio: ${sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.`] : [])],
+        ...(sem.length ? [`Atenção: ${sem.length} rubrica(s) aguardando subsídio: ${sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.`] : []),
+        ...(zeros.length ? [`Sem orçamento em ${ano} (zero mesmo): ${zeros.map(l => l.numero).join(', ')}.`] : [])],
       cartoes: [['Taxas condominiais (rubricas)', brl(tTC.atu)], ['Outros gastos', brl(tOG.atu)], ['Total dos navios (diárias)', brl(valorDA)], ['Total', brl(tTC.atu + tOG.atu + valorDA)]],
       tabelas: [
         tabela(`Rubricas da taxa condominial (${tc.length})`, tc, tTC, true),
         ...(og.length ? [tabela(`Outros gastos incorporados à taxa (${og.length})`, og, tOG, true)] : []),
         ...(par.length ? [tabela(`Fora da taxa (${par.length})`, par, tPAR, false)] : []),
-        ...(zeradas.length ? [{ titulo: `Rubricas com valor zerado em ${ano} (${zeradas.length}) - não entram no rateio até receberem valor`, head: ['Nº', 'Despesa', 'Responsável', `Valor ${ano - 1}`, 'Subsídio', 'Situação / justificativa'],
-          body: zeradas.map(l => [l.numero, l.descricao, l.responsavel || '-', l.gastoAnterior ? brl(l.gastoAnterior) : '-', subDe(l.numero).length ? `${subDe(l.numero).length}` : 'sem subsídio', (l.justificativaValor || '').trim() || 'aguardando o subsídio do responsável']),
-          direita: [3], larguras: [8, 60, 45, 28, 28, 100] }] : []),
         ...(comJust.length ? [{ titulo: 'Justificativa do valor de cada rubrica', head: ['Nº', 'Despesa', 'Por que este valor'], body: comJust.map(l => [l.numero, l.descricao, (l.justificativaValor || '').trim()]), larguras: [9, 60, 205] }] : []),
       ],
     });
@@ -203,7 +201,8 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     return (
       <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
         <span title={l.justificativaValor || 'sem justificativa do valor'} className={l.justificativaValor?.trim() ? 'text-emerald-700' : 'text-slate-300'}>{l.justificativaValor?.trim() ? '✍ ok' : '✍ —'}</span>
-        {!sb.length && (l.destino === 'TC' || l.destino === 'OG') && dados.subsidios.length > 0 && <span title="Sem subsídio: aguardando documento do responsável" className="px-1 rounded bg-amber-100 text-amber-800 font-semibold">sem subsídio</span>}
+        {!sb.length && l.zeroConfirmado && <span title="Sem orçamento neste ano: zero mesmo" className="px-1 rounded bg-slate-200 text-slate-700 font-semibold">zero mesmo</span>}
+        {!sb.length && !l.zeroConfirmado && (l.destino === 'TC' || l.destino === 'OG') && dados.subsidios.length > 0 && <span title="Sem subsídio: aguardando documento do responsável" className="px-1 rounded bg-amber-100 text-amber-800 font-semibold">sem subsídio</span>}
         <span title={`${sb.length} subsídio(s), soma ${brl(soma)}`} className={sb.length ? (Math.abs(soma - l.valorPrevisto) < 0.01 ? 'text-emerald-700' : 'text-slate-600') : 'text-slate-300'}>Σ {sb.length}</span>
         <span title={`${ax.length} documento(s)`} className={ax.length ? 'text-emerald-700' : 'text-slate-300'}>📎 {ax.length}</span>
       </span>
@@ -275,11 +274,13 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
       {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
       {(() => {
         // rubricas da taxa sem nenhum subsídio: o valor fica em branco (zero) até chegar o documento do responsável
-        const sem = linhas.filter(l => (l.destino === 'TC' || l.destino === 'OG') && !subDe(l.numero).length);
-        if (!sem.length || !dados.subsidios.length) return null;
+        const sem = linhas.filter(l => (l.destino === 'TC' || l.destino === 'OG') && !subDe(l.numero).length && !l.zeroConfirmado);
+        const zeros = linhas.filter(l => entraNaTaxa(l) && l.zeroConfirmado).sort((x, y) => x.numero - y.numero);
+        const nota = zeros.length ? <Aviso tom="slate"><b data-testid="info-zero-mesmo">{zeros.length} rubrica(s) sem orçamento em {ano} (zero mesmo)</b> — {zeros.map(l => l.numero).join(', ')}. Não são pendência de subsídio e não entram no rateio.</Aviso> : null;
+        if (!sem.length || !dados.subsidios.length) return nota;
         const zeradas = sem.filter(l => !(l.valorPrevisto > 0));
-        return <Aviso tom="amber"><b data-testid="alerta-sem-subsidio">Atenção: {sem.length} rubrica(s) sem subsídio</b> — {sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.{' '}
-          {zeradas.length === sem.length ? 'Todas estão com o valor em branco (R$ 0,00) e não entram no rateio até receberem o subsídio.' : `${zeradas.length} estão com o valor em branco (R$ 0,00) e ${sem.length - zeradas.length} com valor digitado, sem documento que o sustente.`} Importe os subsídios ou preencha a ficha de cada uma quando o responsável enviar.</Aviso>;
+        return <><Aviso tom="amber"><b data-testid="alerta-sem-subsidio">Atenção: {sem.length} rubrica(s) sem subsídio</b> — {sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.{' '}
+          {zeradas.length === sem.length ? 'Todas estão com o valor em branco (R$ 0,00) e não entram no rateio até receberem o subsídio.' : `${zeradas.length} estão com o valor em branco (R$ 0,00) e ${sem.length - zeradas.length} com valor digitado, sem documento que o sustente.`} Importe os subsídios ou preencha a ficha de cada uma quando o responsável enviar. Se a rubrica não terá orçamento este ano, marque "zero mesmo" na ficha ou na aba 8. Responsáveis.</Aviso>{nota}</>;
       })()}
       {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.join(', ')} (passe o mouse no ⚠).</Aviso>}
 

@@ -1678,7 +1678,18 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const [dpr] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF das rubricas' }).click()]);
     const txtPr = fs.readFileSync(await dpr.path(), 'latin1');
     if (SHOTS) fs.copyFileSync(await dpr.path(), path.join(SHOTS, 'rubricas_taxa_condominial.pdf'));
-    ok(dpr.suggestedFilename() === 'rubricas_taxa_condominial_2027.pdf' && txtPr.includes('Rubricas da taxa condominial') && txtPr.includes('Soma') && txtPr.includes('sem subs') && txtPr.includes('TESTE') && txtPr.includes('valor zerado'), 'PDF das rubricas: tabela com totais, responsável e rubricas sem subsídio');
+    ok(dpr.suggestedFilename() === 'rubricas_taxa_condominial_2027.pdf' && txtPr.includes('Rubricas da taxa condominial') && txtPr.includes('Soma') && txtPr.includes('sem subs') && txtPr.includes('TESTE') && txtPr.includes('aguardando'), 'PDF das rubricas: tabela com totais, responsável e rubricas sem subsídio');
+    // "zero mesmo": rubrica sem orçamento no ano deixa de ser pendência de subsídio
+    await page.getByRole('button', { name: '8. Responsáveis' }).click();
+    await page.getByLabel('Situação da rubrica 3', { exact: true }).selectOption('ZERO');
+    await page.getByRole('button', { name: 'Gravar responsáveis' }).click();
+    for (let i = 0; i < 40 && db.rubricas.find(r => r.numero === 3).zero_confirmado !== true; i++) await page.waitForTimeout(250);
+    ok(db.rubricas.find(r => r.numero === 3).zero_confirmado === true && Number(db.rubricas.find(r => r.numero === 3).valor_previsto) === 0, 'zero mesmo: rubrica 3 marcada e com valor zero');
+    await page.getByRole('button', { name: '1. Rubricas' }).click();
+    await page.getByTestId('info-zero-mesmo').waitFor();
+    ok(!(await page.getByTestId('alerta-sem-subsidio').count()), 'zero mesmo: a rubrica sai do alerta de "sem subsídio" e aparece como sem orçamento');
+    const [dpz] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF das rubricas' }).click()]);
+    ok(fs.readFileSync(await dpz.path(), 'latin1').includes('zero mesmo'), 'PDF das rubricas marca a rubrica como "zero mesmo (sem orçamento)"');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');

@@ -42,6 +42,8 @@ export interface RubricaProposta extends RubricaTC {
   valorModo?: 'DIGITADO' | 'SUBSIDIOS';
   /** quem envia o subsídio / atualização desta rubrica (lista de responsáveis) */
   responsavel?: string | null;
+  /** rubrica sem orçamento neste ano ("zero mesmo"): não é pendência de subsídio */
+  zeroConfirmado?: boolean;
   /** coluna DESCONTOS da planilha importada (conferência) */
   descontoPlanilha?: number | null;
 }
@@ -109,7 +111,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
       rateioTodas: r.rateio_todas === true, valorNavios: N(r.valor_navios),
       naviosModo: (['NAO', 'INTEGRAL', 'PERCENTUAL', 'FIXO'].includes(r.navios_modo) ? r.navios_modo : (Number(r.percentual_navios || 0) > 0 ? 'PERCENTUAL' : 'NAO')) as NaviosModo,
       descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
-      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null, valorModo: r.valor_modo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO', responsavel: r.responsavel ?? null,
+      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null, valorModo: r.valor_modo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO', responsavel: r.responsavel ?? null, zeroConfirmado: r.zero_confirmado === true,
       criterio: (r.criterio || 'LOTACAO'), percentualOM: r.percentual_om == null ? 100 : Number(r.percentual_om), modoNavios: r.modo_navios === 'CONJUNTO' ? 'CONJUNTO' : 'SEPARADO',
       // antes do 014 só havia a parte dos navios em R$: vira percentual do valor previsto
       percentualNavios: r.percentual_navios != null ? Number(r.percentual_navios) : (r.parcela_navios && Number(r.valor_previsto ?? r.valor_anual) ? Math.round((Number(r.parcela_navios) / Number(r.valor_previsto ?? r.valor_anual)) * 1e6) / 1e4 : 0),
@@ -160,6 +162,11 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
           if (r.destino === 'OG' || r.rateioTodas || ['INTEGRAL', 'FIXO'].includes(naviosModoDe(r))) throw new Error('Falta executar o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase (outros gastos, rateio entre todas e modo dos navios).');
         } else checar(e021);
       }
+    }
+    {
+      // script 047: rubrica "zero mesmo" (sem orçamento no ano)
+      const { error: e047 } = await supabase.from('rubricas').update({ zero_confirmado: r.zeroConfirmado === true }).eq('ano', ano).eq('numero', r.numero);
+      if (e047) { if (/zero_confirmado/.test(e047.message || '')) { if (r.zeroConfirmado) throw new Error('Falta executar o script supabase/migrations/047_rubricas_zero_confirmado.sql no Supabase.'); } else checar(e047); }
     }
     {
       // script 046: responsável pela rubrica

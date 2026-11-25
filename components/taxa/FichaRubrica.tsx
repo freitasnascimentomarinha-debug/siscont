@@ -68,6 +68,11 @@ export const FichaRubrica: React.FC<{
           <label className="block mb-3 text-sm">Responsável pela rubrica <span className="text-slate-400">(quem envia o subsídio e a atualização)</span>
             <input disabled={!podeEditar} className={`${entrada} w-full`} value={r.responsavel || ''} onChange={e => onMudar({ responsavel: e.target.value })} aria-label="Responsável pela rubrica" placeholder="posto (setor) nome" />
           </label>
+          <label className="mb-3 flex items-start gap-2 text-sm rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
+            <input type="checkbox" className="mt-1" disabled={!podeEditar} checked={!!r.zeroConfirmado} aria-label="Zero mesmo: sem orçamento neste ano"
+              onChange={e => onMudar(e.target.checked ? { zeroConfirmado: true, valorPrevisto: 0, valorModo: 'DIGITADO' } : { zeroConfirmado: false })} />
+            <span><b>Zero mesmo</b> — esta rubrica não terá orçamento em {ano}. <span className="text-slate-500">Diferente de "ainda não enviaram o subsídio": a rubrica deixa de aparecer como pendência e fica registrada como sem orçamento. Descreva o motivo em "Por que este valor?".</span></span>
+          </label>
           <div className="mb-3 flex flex-wrap items-center gap-4 text-sm" role="radiogroup" aria-label="Como definir o valor">
             <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar} checked={!usaSoma} onChange={() => onMudar({ valorModo: 'DIGITADO' })} aria-label="Valor digitado" />Valor digitado</label>
             <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar || subsidios.length === 0} checked={usaSoma} onChange={() => onMudar({ valorModo: 'SUBSIDIOS', valorPrevisto: soma })} aria-label="Valor pela soma dos subsídios" />Pela soma dos subsídios ({subsidios.length} · {brl(soma)})</label>
@@ -75,7 +80,7 @@ export const FichaRubrica: React.FC<{
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label className="block">Valor previsto (R$){usaSoma && <span className="text-xs text-slate-500"> — soma dos subsídios</span>}
-              <input disabled={!podeEditar} readOnly={usaSoma} className={`${entrada} w-full text-right ${usaSoma ? 'bg-slate-100' : ''}`} inputMode="decimal" value={fmt(usaSoma ? soma : r.valorPrevisto)} onChange={e => onMudar({ valorPrevisto: n2(e.target.value) ?? 0 })} aria-label="Valor previsto da rubrica" />
+              <input disabled={!podeEditar || !!r.zeroConfirmado} readOnly={usaSoma} className={`${entrada} w-full text-right ${usaSoma || r.zeroConfirmado ? 'bg-slate-100' : ''}`} inputMode="decimal" value={fmt(usaSoma ? soma : r.valorPrevisto)} onChange={e => onMudar({ valorPrevisto: n2(e.target.value) ?? 0 })} aria-label="Valor previsto da rubrica" />
             </label>
             <label className="block">Gasto em {ano - 1} (R$)
               <input disabled={!podeEditar} className={`${entrada} w-full text-right`} inputMode="decimal" value={fmt(r.gastoAnterior)} onChange={e => onMudar({ gastoAnterior: n2(e.target.value) })} aria-label="Gasto no ano anterior" />
