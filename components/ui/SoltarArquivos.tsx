@@ -7,6 +7,8 @@ import { notify } from '../../utils/notify';
  * Ao arrastar um arquivo por cima da página, a área de importação mais próxima do ponteiro fica destacada; ao soltar, o arquivo
  * vai para o mesmo campo "Escolher arquivo" daquela área (como se tivesse sido escolhido ali). Respeita os tipos aceitos
  * (.xlsx, .pdf...) e se o campo aceita vários arquivos. Um campo marcado com data-sem-soltar nunca recebe arquivo solto (ex.: restaurar backup).
+ * Telas em que a importação fica atrás de um botão (janela que abre ao clicar) marcam o botão com data-soltar-abre: soltar o arquivo
+ * na página abre essa janela e entrega o arquivo ao campo dela.
  * Soltar um arquivo fora de qualquer área não faz nada (o navegador não abre o arquivo e não tira você do sistema).
  */
 const temArquivos = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
@@ -36,6 +38,12 @@ export function acharAlvo(inicio: Element | null, arquivos: { name: string; type
   return null;
 }
 
+/** Botão da página que abre a janela de importação (marcado com data-soltar-abre), se houver um visível e nenhuma janela aberta. */
+const abridor = (): HTMLElement | null => {
+  if (document.querySelector('[role=dialog]')) return null;
+  return (Array.from(document.querySelectorAll('[data-soltar-abre]')) as HTMLElement[]).find(b => visivel(b) && !(b as HTMLButtonElement).disabled) || null;
+};
+
 function entregar(input: HTMLInputElement, files: File[]) {
   const aceitos = files.filter(f => aceita(input, f));
   const lista = input.multiple ? aceitos : aceitos.slice(0, 1);
@@ -60,7 +68,9 @@ export const SoltarArquivos: React.FC = () => {
       const area = alvo?.area ?? null;
       if (area !== marcada.current) { desmarcar(); if (area) { area.setAttribute('data-soltar', '1'); marcada.current = area; } }
       if (e.dataTransfer) e.dataTransfer.dropEffect = area ? 'copy' : 'none';
-      setDica(area ? { texto: 'Solte aqui para importar', ok: true } : { texto: 'Não há onde importar arquivos nesta área', ok: false });
+      const abre = !area && abridor();
+      setDica(area ? { texto: 'Solte aqui para importar', ok: true } : abre ? { texto: 'Solte aqui para abrir a importação', ok: true } : { texto: 'Não há onde importar arquivos nesta área', ok: false });
+      if (abre && e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     };
     const saiu = (e: DragEvent) => { if (!e.relatedTarget) { desmarcar(); setDica(null); } };
     const soltou = (e: DragEvent) => {
@@ -70,6 +80,20 @@ export const SoltarArquivos: React.FC = () => {
       desmarcar(); setDica(null);
       const alvo = acharAlvo(e.target as Element, files);
       if (!alvo) {
+        // a importação fica atrás de um botão: abre a janela e entrega o arquivo ao campo dela
+        const abre = abridor();
+        if (abre) {
+          abre.click();
+          let tentativas = 0;
+          const esperar = () => {
+            const dlg = document.querySelector('[role=dialog]');
+            const t = dlg ? acharAlvo(dlg, files) : null;
+            if (t) { if (!entregar(t.input, files)) notify.info('Este tipo de arquivo não é aceito nesta área.'); return; }
+            if (++tentativas < 20) setTimeout(esperar, 100); else notify.info('Abri a importação, mas ela não aceita este tipo de arquivo. Use o botão de escolher arquivo.');
+          };
+          setTimeout(esperar, 50);
+          return;
+        }
         notify.info('Não há onde importar este arquivo aqui (ou o tipo não é aceito nesta área). Solte sobre uma área de importação, ou use o botão de escolher arquivo.');
         return;
       }

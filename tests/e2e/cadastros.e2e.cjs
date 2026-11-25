@@ -574,6 +574,21 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pontos-historico-resolucao.png') });
   });
 
+  await cenario('SIPLAD: arrastar o PDF para a página de Créditos recebidos (janela fechada) abre a importação e lê o arquivo', [pdfSiplad('Processada', 'Z999.2026.AC.00009')], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    db.comandos.push({ id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true });
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).waitFor();
+    ok(await page.locator('[role=dialog]').count() === 0, 'janela de importação fechada');
+    await soltarArquivos(page, 'main', [{ nome: 'x.pdf', texto: '%PDF', mime: 'application/pdf' }], { soDragover: true });
+    ok(/abrir a importação/.test(await page.getByTestId('dica-soltar').innerText()), 'ao arrastar sobre a página, a dica diz "Solte aqui para abrir a importação"');
+    await page.evaluate(() => window.dispatchEvent(new DragEvent('dragleave', { bubbles: true })));
+    await soltarArquivos(page, 'main', [{ caminho: Array.isArray(arquivos) ? arquivos[0] : arquivos, nome: 'altcred_teste.pdf', mime: 'application/pdf' }]);
+    await page.getByText('Z999.2026.AC.00009').first().waitFor({ timeout: 20000 });
+    ok(true, 'PDF solto na página abriu a janela do SIPLAD e foi lido');
+  });
+
   await cenario('SIPLAD: UGR e UGE das células e ALTCRED com pendência (fora do saldo e do fluxo até resolver)', [pdfSiplad('Processada', 'Z999.2026.AC.00007')], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };

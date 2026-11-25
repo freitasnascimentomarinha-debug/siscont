@@ -739,7 +739,7 @@ export const ReceivedBalances: React.FC = () => {
           <SeletorPublico valor={publico} onChange={setPublico} />
           {!isReadOnly && (
             <span className="relative group inline-flex">
-              <Button variant="secondary" size="sm" onClick={() => setSipladAberto(true)} aria-describedby="dica-importar" aria-label="Importar ALTCRED do PDF do SIPLAD">
+              <Button variant="secondary" size="sm" data-soltar-abre onClick={() => setSipladAberto(true)} aria-describedby="dica-importar" aria-label="Importar ALTCRED do PDF do SIPLAD">
                 <FileUp className="w-4 h-4 mr-2" /> Importar
               </Button>
               <span id="dica-importar" role="tooltip"
