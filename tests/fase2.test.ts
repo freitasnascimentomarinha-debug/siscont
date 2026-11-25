@@ -300,12 +300,40 @@ describe('relatório do SIPLAD com várias solicitações (prefixos novos, receb
     const r = separarCreditoBNIC([{ tipoAlteracao: 'x', celulas: [cel('CREDITO', '40015', '40015')] }, { tipoAlteracao: 'x', celulas: [cel('CREDITO', '41000', '41000')] }]);
     expect([r.lidas.length, r.descartadas.length]).toEqual([1, 1]);
   });
-  it('página de continuação (só mais células, sem cabeçalho) avisa que o total pode estar incompleto', () => {
-    const cont: ItemPdf[] = [item('Solicitações de Alteração de', 180, 794), item('Moeda', 24, 700), item('R$', 32, 680), item('1.000,00', 500, 680)];
-    const r = lerSolicitacoesDetalhado([paginaFicticia(), cont]);
-    expect(r.lidas).toHaveLength(1); expect(r.continuacoes).toEqual([2]);
-    expect(r.lidas[0].avisos.some(a => /continua na página 2/.test(a))).toBe(true);
-    expect(lerSolicitacoesDetalhado([paginaFicticia(), [item('Solicitações de Alteração de', 180, 794)]]).continuacoes).toEqual([]);   // página em branco não é continuação
+  it('solicitação que continua na página seguinte: as páginas são unidas e a data em que ficou "Processada" vem do trâmite da 2ª página', () => {
+    // 1ª página corta o trâmite depois da primeira linha (o resto do histórico não coube e foi para a página seguinte)
+    const primeira = paginaFicticia().filter(i => i.y > 200 || i.y === 215);
+    const cabecalhoPag = [item('Data 25/11/2026', 480, 800), item('Solicitações de Alteração de', 180, 794), item('Hora: 07:40', 480, 790), item('Crédito', 271, 773), item('Página 2 de 3', 480, 770)];
+    const segunda: ItemPdf[] = [...cabecalhoPag, item('Dias em', 300, 740), item('Setor', 35, 725), item('Resultado da Análise', 100, 725),
+      item('DGOM 20', 35, 700), item('Processamento em Batch', 100, 700), item('10/03/2026', 300, 700),
+      item('DGOM 20', 35, 680), item('Processada', 128, 680), item('12/03/2026', 300, 680)];
+    expect(lerSolicitacao(primeira)!.dataSituacao).toBe('2026-03-10');   // sozinha, a 1ª página não tem a linha "Processada" (cai na data de criação)
+    const r = lerSolicitacoesDetalhado([primeira, segunda]);
+    expect(r.lidas).toHaveLength(1);
+    expect(r.continuacoes).toEqual([2]);
+    expect(r.lidas[0].dataSituacao).toBe('2026-03-12');
+    expect(r.lidas[0].numero).toBe('Z999.2026.AC.00001');
+    expect(r.lidas[0].valor).toBe(1234.56);
+  });
+  it('continuação com as células de crédito e o total: tudo vem das duas páginas', () => {
+    // 1ª página termina no título "Células de Crédito (CDC)"; a tabela de crédito, o total e o trâmite ficam na página seguinte
+    const primeira = paginaFicticia().filter(i => i.y >= 364);
+    const segunda: ItemPdf[] = [item('Página 2 de 2', 480, 770),
+      ...['Moeda:24', 'PTRES:63', 'UO:114', 'Esfera:147', 'FR:201', 'ND:255', 'Plano Interno:305', 'UGR:389', 'UGE:439', 'Valor a Creditar:493'].map(c => { const [t, x] = c.split(':'); return item(t, +x, 700); }),
+      item('1000000000', 181, 683, 45), item('40015 -', 384, 683, 30), item('40015 -', 434, 683, 30), item('R$', 32, 678, 8), item('111111', 63, 678), item('22222', 108, 678), item('1', 158, 678, 4),
+      item('33903900', 241, 678, 40), item('R.TESTE.0', 296, 678, 70), item('1.234,56', 502, 678, 35), item('BNIC', 388, 673, 20), item('BNIC', 438, 673, 20),
+      item('Valor Total a Creditar', 383, 655), item('1.234,56', 501, 655, 35),
+      item('Histórico Trâmite', 260, 620), item('DGOM 20', 35, 590), item('Processada', 128, 590), item('12/03/2026', 300, 590)];
+    expect(lerSolicitacao(primeira)!.celulas.filter(c => c.tipo === 'CREDITO')).toHaveLength(0);
+    const r = lerSolicitacoesDetalhado([primeira, segunda]);
+    expect(r.continuacoes).toEqual([2]);
+    const sol = r.lidas[0];
+    expect(sol.celulas.filter(c => c.tipo === 'CREDITO')).toHaveLength(1);
+    expect(sol.valor).toBe(1234.56);
+    expect(sol.dataSituacao).toBe('2026-03-12');
+  });
+  it('página em branco (só o cabeçalho da página) não é continuação', () => {
+    expect(lerSolicitacoesDetalhado([paginaFicticia(), [item('Solicitações de Alteração de', 180, 794), item('Página 2 de 2', 480, 770)]]).continuacoes).toEqual([]);
   });
 });
 

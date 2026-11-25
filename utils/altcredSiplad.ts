@@ -242,15 +242,23 @@ export interface LeituraSiplad { lidas: SolicitacaoAltcred[]; descartadas: Solic
 export function lerSolicitacoesDetalhado(paginas: ItemPdf[][]): LeituraSiplad {
   const todas: SolicitacaoAltcred[] = [];
   const continuacoes: number[] = [];
+  // uma solicitação que não cabe numa página continua na seguinte (sem cabeçalho): as páginas são unidas antes da leitura, para que o
+  // restante das células, o total e o histórico de trâmite (onde está a data em que ficou "Processada") não se percam
+  let acc: { itens: ItemPdf[]; pagina: number; extras: number } | null = null;
+  const fechar = () => { if (acc) { const sol = lerSolicitacao(acc.itens, acc.pagina); if (sol) todas.push(sol); acc = null; } };
   paginas.forEach((it, n) => {
-    const s = lerSolicitacao(it, n + 1);
-    if (s) { todas.push(s); return; }
-    if (todas.length && it.some(i => /^moeda$/i.test(limpo(i.s)))) {
-      continuacoes.push(n + 1);
-      const ant = todas[todas.length - 1];
-      ant.avisos.push(`A solicitação continua na página ${n + 1} do PDF (mais células): o valor lido pode estar incompleto — confira o total no SIPLAD.`);
-    }
+    const novaSolicitacao = !!acharRotulo(it, 'N° da Solicitação') || !!acharRotulo(it, 'Nº da Solicitação') || !!lerSolicitacao(it, n + 1);
+    if (novaSolicitacao) { fechar(); acc = { itens: [...it], pagina: n + 1, extras: 0 }; return; }
+    if (!acc) return;
+    // página de continuação: tira o cabeçalho da página (Data, Hora, Página X de Y) e põe o resto abaixo do que já foi lido
+    const pag = it.find(i => /^p[aá]gina \d+ de \d+/i.test(limpo(i.s)));
+    const corpo = it.filter(i => !pag || i.y < pag.y - 3);
+    if (!corpo.length) return;
+    acc.extras += 1; continuacoes.push(n + 1);
+    const deslocamento = 1000 * acc.extras;
+    acc.itens.push(...corpo.map(i => ({ ...i, y: i.y - deslocamento })));
   });
+  fechar();
   return { ...separarCreditoBNIC(todas), continuacoes };
 }
 
