@@ -25,7 +25,7 @@ export const NOME_CAUSA: Record<Causa, string> = {
   RUBRICA_NOVA: 'Rubrica nova', RUBRICA_EXCLUIDA: 'Rubrica excluída', DESCONTO_TOTAL: 'Desconto sobre o total da OM', AJUSTE: 'Arredondamento / outros',
 };
 
-export interface Efeito { causa: Causa; valor: number; detalhe: string }
+export interface Efeito { causa: Causa; valor: number; detalhe: string; /** versão curta (PDF e chips) */ curto: string }
 export interface LinhaRubrica { numero: number; descricao: string; anterior: number; atual: number; diferenca: number; efeitos: Efeito[]; texto: string }
 export interface AnaliseOM {
   omId: string; nome: string; situacao: 'MANTIDA' | 'NOVA' | 'SAIU';
@@ -72,17 +72,18 @@ export function analisarVariacoes(ant: EntradaAno, atu: EntradaAno): AnaliseOM[]
       if (!wP && !wC && !liqP && !liqC) continue;
       const Vp = valorAnt.get(n) ?? 0, Vc = valorAtu.get(n) ?? 0;
       const ef: Efeito[] = [];
-      const add = (causa: Causa, valor: number, detalhe: string) => { if (Math.abs(valor) >= 0.005) ef.push({ causa, valor, detalhe }); };
-      if (!rubAnt.has(n)) add('RUBRICA_NOVA', liqC - liqP, `rubrica nova em ${atu.ano}, com ${brl(Vc)}`);
-      else if (!rubAtu.has(n)) add('RUBRICA_EXCLUIDA', liqC - liqP, `rubrica não existe mais em ${atu.ano} (era ${brl(Vp)})`);
+      const add = (causa: Causa, valor: number, detalhe: string, curto = detalhe) => { if (Math.abs(valor) >= 0.005) ef.push({ causa, valor, detalhe, curto }); };
+      if (!rubAnt.has(n)) add('RUBRICA_NOVA', liqC - liqP, `rubrica nova em ${atu.ano}, com ${brl(Vc)}`, `rubrica nova (${brl(Vc)})`);
+      else if (!rubAtu.has(n)) add('RUBRICA_EXCLUIDA', liqC - liqP, `rubrica não existe mais em ${atu.ano} (era ${brl(Vp)})`, `rubrica excluída (era ${brl(Vp)})`);
       else if (!wP && wC) {
         const SC0 = pc.reduce((s, x) => s + x.peso, 0);
         const parcela = `parcela de ${brl(liqC)}: ${brl(Vc)} da rubrica × peso da OM ${wC.toLocaleString('pt-BR')} ÷ ${SC0.toLocaleString('pt-BR')} (soma dos pesos de quem divide a rubrica)`;
         add('ENTROU_RUBRICA', liqC - liqP, oa
           ? `a OM NÃO fazia parte desta rubrica em ${ant.ano} (não estava marcada na matriz) e PASSOU A FAZER PARTE em ${atu.ano}; ${parcela}`
-          : `OM nova na taxa: passou a fazer parte desta rubrica em ${atu.ano}; ${parcela}`);
+          : `OM nova na taxa: passou a fazer parte desta rubrica em ${atu.ano}; ${parcela}`,
+          oa ? `passou a fazer parte da rubrica (em ${ant.ano} não participava)` : `OM nova: passou a fazer parte da rubrica`);
       }
-      else if (wP && !wC) add('SAIU_RUBRICA', liqC - liqP, ob ? `a OM participava desta rubrica em ${ant.ano} (pagava ${brl(liqP)}) e DEIXOU DE FAZER PARTE em ${atu.ano} (desmarcada na matriz ou sem peso)` : `a OM saiu da taxa em ${atu.ano}: deixou de pagar ${brl(liqP)} nesta rubrica`);
+      else if (wP && !wC) add('SAIU_RUBRICA', liqC - liqP, ob ? `a OM participava desta rubrica em ${ant.ano} (pagava ${brl(liqP)}) e DEIXOU DE FAZER PARTE em ${atu.ano} (desmarcada na matriz ou sem peso)` : `a OM saiu da taxa em ${atu.ano}: deixou de pagar ${brl(liqP)} nesta rubrica`, `deixou de fazer parte da rubrica (em ${ant.ano} participava)`);
       else if (wP && wC) {
         const SP = pa.reduce((s, x) => s + x.peso, 0), SC = pc.reduce((s, x) => s + x.peso, 0);
         const idsA = new Set(pa.map(x => x.omId)), idsC = new Set(pc.map(x => x.omId));
@@ -101,15 +102,16 @@ export function analisarVariacoes(ant: EntradaAno, atu: EntradaAno): AnaliseOM[]
         const descP = parA?.desconto ?? 0, descC = parB?.desconto ?? 0;
         const e6 = -(descC - descP);
         const crit = nomeCriterio(rubAtu.get(n)?.criterio);
-        add('VALOR_RUBRICA', e1, `valor da rubrica ${Vc >= Vp ? 'subiu' : 'caiu'} de ${brl(Vp)} para ${brl(Vc)}`);
+        add('VALOR_RUBRICA', e1, `valor da rubrica ${Vc >= Vp ? 'subiu' : 'caiu'} de ${brl(Vp)} para ${brl(Vc)}`, `valor da rubrica ${brl(Vp)} → ${brl(Vc)}`);
         add('LOTACAO_PROPRIA', e2, crit === 'lotação'
           ? `lotação da OM ${wC >= wP ? 'subiu' : 'caiu'} de ${lotAnt.get(id) ?? '?'} para ${lotAtu.get(id) ?? '?'}`
-          : `peso da OM (${crit}) ${wC >= wP ? 'subiu' : 'caiu'} de ${wP} para ${wC}`);
-        add('OUTRAS_SAIRAM', e3, `deixaram de dividir a rubrica: ${nomeLista(saiu.map(x => x.omId))}`);
-        add('OUTRAS_ENTRARAM', e4, `passaram a dividir a rubrica: ${nomeLista(entrou.map(x => x.omId))}`);
+          : `peso da OM (${crit}) ${wC >= wP ? 'subiu' : 'caiu'} de ${wP} para ${wC}`,
+          crit === 'lotação' ? `lotação da OM ${lotAnt.get(id) ?? '?'} → ${lotAtu.get(id) ?? '?'}` : `peso da OM (${crit}) ${wP} → ${wC}`);
+        add('OUTRAS_SAIRAM', e3, `deixaram de dividir a rubrica: ${nomeLista(saiu.map(x => x.omId))}`, `saíram da divisão: ${nomeLista(saiu.map(x => x.omId))}`);
+        add('OUTRAS_ENTRARAM', e4, `passaram a dividir a rubrica: ${nomeLista(entrou.map(x => x.omId))}`, `entraram na divisão: ${nomeLista(entrou.map(x => x.omId))}`);
         const dLot = ficou.reduce((s, x) => s + x.peso, 0) - ficou.reduce((s, x) => s + pesoAntDe(x.omId), 0);
-        add('LOTACAO_OUTRAS', e5, `lotação das demais OM ${dLot >= 0 ? 'subiu' : 'caiu'} (peso total das outras ${dLot >= 0 ? '+' : '−'}${Math.abs(Math.round(dLot)).toLocaleString('pt-BR')})`);
-        add('DESCONTO', e6, `desconto da OM nesta rubrica foi de ${brl(descP)} para ${brl(descC)}`);
+        add('LOTACAO_OUTRAS', e5, `lotação das demais OM ${dLot >= 0 ? 'subiu' : 'caiu'} (peso total das outras ${dLot >= 0 ? '+' : '−'}${Math.abs(Math.round(dLot)).toLocaleString('pt-BR')})`, `lotação das demais OM ${dLot >= 0 ? 'subiu' : 'caiu'}`);
+        add('DESCONTO', e6, `desconto da OM nesta rubrica foi de ${brl(descP)} para ${brl(descC)}`, `desconto ${brl(descP)} → ${brl(descC)}`);
         // diferença de arredondamento: vai para a maior etapa, para a soma fechar com a diferença real
         const resto = r2((liqC - liqP) - ef.reduce((s, x) => s + x.valor, 0));
         if (Math.abs(resto) >= 0.005 && ef.length) { const m = ef.reduce((a, b) => (Math.abs(b.valor) > Math.abs(a.valor) ? b : a)); m.valor = r2(m.valor + resto); }

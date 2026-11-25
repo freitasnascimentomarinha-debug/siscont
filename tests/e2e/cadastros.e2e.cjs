@@ -1706,21 +1706,34 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Taxa condominial e diárias' }).click();
     await page.getByRole('heading', { name: 'Taxa condominial e diárias' }).waitFor();
     await page.getByLabel('Exercício da proposta').selectOption('2027');
-    await page.getByRole('button', { name: '8. Justificar variações' }).click();
-    await page.getByTestId('aba-variacoes').waitFor({ timeout: 10000 });
-    const linha = page.getByRole('row').filter({ hasText: 'Arsenal de Marinha do Rio de Janeiro' }).first();
-    const t = await linha.innerText();
-    ok(/Aumento de/.test(t) && /valor das rubricas 1/.test(t) && /lotação da OM \(100 → 150\)/.test(t) && /outras OM passaram a dividir/.test(t), `AMRJ: justificativa cita valor da rubrica, lotação (100 → 150) e a OM nova que passou a dividir (${t.replace(/\s+/g, ' ').slice(0, 260)})`);
-    const nv = await page.getByRole('row').filter({ hasText: 'OM Nova' }).first().innerText();
-    ok(/nova/.test(nv) && /não há dados de 2026 para comparar/.test(nv) && /não constava na lotação nem na matriz/.test(nv), 'OM nova: explica por que não há dados do ano anterior');
-    await linha.click();
-    await page.getByText('Valor da rubrica', { exact: false }).first().waitFor();
-    ok(await page.getByText(/valor da rubrica subiu de R\$ 1\.000,00 para R\$ 1\.200,00/).isVisible(), 'detalhe por rubrica: valor da rubrica subiu de 1.000 para 1.200');
+    // dentro do "Resultado da taxa" (não é mais uma aba separada)
+    ok(!(await page.getByRole('button', { name: /Justificar variações/ }).count()), 'não existe aba separada: a justificativa fica no Resultado da taxa');
+    await page.getByRole('button', { name: '4. Resultado da taxa' }).click();
+    const painel = page.getByTestId('painel-variacoes');
+    await painel.waitFor({ timeout: 10000 });
+    await painel.getByText('O que mais explica as variações').waitFor({ timeout: 10000 });
+    const cartao = painel.getByRole('button', { name: 'Justificativa de Arsenal de Marinha do Rio de Janeiro' });
+    const t = await cartao.innerText();
+    ok(/Aumento de/.test(t) && /valor das rubricas 1/.test(t) && /lotação da OM \(100 → 150\)/.test(t) && /outras OM passaram a dividir/.test(t), `AMRJ: justificativa cita valor da rubrica, lotação (100 → 150) e a OM nova que passou a dividir (${t.replace(/\s+/g, ' ').slice(0, 220)})`);
+    const nv = await painel.getByRole('button', { name: 'Justificativa de OM Nova' }).innerText();
+    ok(/nova na taxa/.test(nv) && /não há dados de 2026 para comparar/.test(nv) && /não constava na lotação nem na matriz/.test(nv), 'OM nova: explica por que não há dados do ano anterior');
+    // clicar na OM da tabela do resultado abre a justificativa dela
+    await page.getByRole('row').filter({ hasText: 'Centro de Instrução' }).first().click();
+    await page.waitForTimeout(400);
+    ok(await painel.getByRole('button', { name: 'Justificativa de Centro de Instrução' }).getAttribute('aria-expanded') === 'true', 'clicar na OM da tabela abre a justificativa dela');
+    await cartao.click();
+    await painel.getByText(/valor da rubrica subiu de R\$ 1\.000,00 para R\$ 1\.200,00/).first().waitFor();
+    ok(true, 'detalhe por rubrica: valor da rubrica subiu de 1.000 para 1.200');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'justificativa-variacoes.png'), fullPage: true });
-    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
+    const [dl] = await Promise.all([page.waitForEvent('download'), painel.getByRole('button', { name: 'Excel' }).click()]);
     ok(/justificativa_variacoes_taxa_2027\.xlsx/.test(dl.suggestedFilename()), 'exporta o Excel da justificativa');
-    const [dp] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
-    ok(/justificativa_variacoes_taxa_2027\.pdf/.test(dp.suggestedFilename()), 'exporta o PDF da justificativa');
+    const [dp] = await Promise.all([page.waitForEvent('download'), painel.getByRole('button', { name: 'PDF das justificativas' }).click()]);
+    const txtJ = fs.readFileSync(await dp.path(), 'latin1');
+    if (SHOTS) fs.copyFileSync(await dp.path(), path.join(SHOTS, 'justificativa_variacoes.pdf'));
+    ok(/justificativa_variacoes_taxa_2027\.pdf/.test(dp.suggestedFilename()) && txtJ.includes('Resumo por OM') && txtJ.includes('O que mais explica') && txtJ.includes('PASSOU A FAZER PARTE'.slice(0, 0) + 'Arsenal de Marinha'), 'PDF das justificativas: capa com indicadores, causas, resumo por OM e um bloco por OM');
+    const [dr] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /^PDF \(proposta e resultado\)/ }).click()]);
+    const txtR = fs.readFileSync(await dr.path(), 'latin1');
+    ok(txtR.includes('Resumo por OM') && txtR.includes('rubrica por rubrica') === false && txtR.includes('Arsenal de Marinha'), 'PDF da proposta e resultado leva também a justificativa das variações');
   });
 
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {

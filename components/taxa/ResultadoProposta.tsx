@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { obterNormas } from '../../utils/normas';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloProposta } from '../../utils/modelos';
@@ -9,7 +9,10 @@ import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Aviso, Campo, brl, entrada, lerArquivo } from '../faturamento/comum';
 import { notify } from '../../utils/notify';
-import { DadosProposta, EscopoLimpeza, importarDescontos, limparImportado, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarProposta, salvarRubricasProposta } from '../../services/taxaCondominialService';
+import { PainelVariacoes } from './PainelVariacoes';
+import { tabelasJustificativa } from '../../utils/relatorioVariacao';
+import type { AnaliseOM } from '../../utils/analiseVariacao';
+import { analiseDeVariacoes, DadosProposta, EscopoLimpeza, importarDescontos, limparImportado, salvarConferencia, salvarLotacoes, salvarMatriz, salvarPendentes, salvarProposta, salvarRubricasProposta } from '../../services/taxaCondominialService';
 import { ClienteModal } from './ClienteModal';
 import { ResultadoRateio } from '../../utils/taxaCondominial';
 import { lerAbas, lerProposta, ligarOMs } from '../../utils/taxaCondominialImport';
@@ -24,6 +27,15 @@ const pct = (v: number | null) => (v === null ? '—' : `${v.toLocaleString('pt-
 export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resultado: ResultadoRateio; anterior: Map<string, number>; modo: 'TC' | 'DA' }> = ({ ano, dados, resultado, anterior, modo }) => {
   const [omExtrato, setOmExtrato] = useState('');
   const da = modo === 'DA';
+  // justificativa das variações em relação ao ano anterior (só a taxa condominial; recalcula quando a proposta muda)
+  const [vari, setVari] = useState<{ analise: AnaliseOM[]; temAnterior: boolean; carregando: boolean; erro: string }>({ analise: [], temAnterior: false, carregando: !da, erro: '' });
+  useEffect(() => {
+    if (da) return;
+    let vivo = true; setVari(v => ({ ...v, carregando: true, erro: '' }));
+    analiseDeVariacoes(ano).then(d => { if (vivo) setVari({ analise: d.analise, temAnterior: d.temAnterior, carregando: false, erro: '' }); })
+      .catch(e => { if (vivo) setVari({ analise: [], temAnterior: false, carregando: false, erro: e?.message || 'Não foi possível calcular as variações.' }); });
+    return () => { vivo = false; };
+  }, [ano, dados, da]);
   const rub = new Map(dados.rubricas.map(r => [r.numero, r]));
   const totalVig = resultado.valorRubricas.reduce((s, r) => s + r.valor, 0);
   // composição do total da taxa: rubricas (1 a 33) e outros gastos (34 a 37), já sem os descontos das OM
@@ -66,11 +78,14 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
     const rubricasPdf = da
       ? resultado.valorRubricas.filter(v => v.valor > 0).map(v => ({ numero: v.numero, descricao: rub.get(v.numero)?.descricao || '', previsto: v.valor, descontoGeral: 0, vigente: v.valor }))
       : dados.rubricas.filter(r => r.destino === 'TC' || r.destino === 'OG').map(r => ({ numero: r.numero, descricao: r.descricao, previsto: r.valorPrevisto, descontoGeral: r.descontoGeral, vigente: Math.round((r.valorPrevisto - r.descontoGeral) * 100) / 100 }));
-    baixarRelatorio(relatorioTaxa({
+    const base = relatorioTaxa({
       ano, modo, status: dados.proposta.status || 'PROPOSTA', hoje: hojeISO(), cartoes, custoMilitarDia: resultado.custoMilitarDia,
       oms: resultado.oms.map(o => ({ nome: o.nome, lotacao: o.lotacao, dias: o.dias ?? null, anual: o.anual, mensal: o.mensal, percentual: o.percentual, bruto: bruto(o), descontos: o.descontos, diaria: o.diaria ?? null, semHistorico: o.regraDiaria === 'SEM_HISTORICO', anteriorMensal: antDe(o) ?? null, variacao: variacao(o) })),
       rubricas: rubricasPdf, descontos: dados.descontos.map(d => ({ om: dados.oms.find(o => o.id === d.omId)?.nome || '', rubrica: d.rubrica === null ? 'Total' : `${d.rubrica} – ${rub.get(d.rubrica)?.descricao || ''}`, tipo: d.tipo, valor: d.valor, justificativa: d.justificativa })),
-    }));
+    });
+    // taxa condominial: o PDF para anexar a processo leva também a justificativa das variações (se houver ano anterior)
+    if (!da && vari.analise.length) base.tabelas = [...base.tabelas, ...tabelasJustificativa(vari.analise, ano)];
+    baixarRelatorio(base);
   };
   const cartoes: [string, string][] = da
     ? [['Valor destinado às diárias', brl(totalVig)], ['Navios', String(resultado.oms.length)], ['Custo por militar-dia', `R$ ${resultado.custoMilitarDia.toLocaleString('pt-BR', { minimumFractionDigits: 4 })}`], ['Diárias (soma de 1 dia de cada navio)', brl(resultado.oms.reduce((s, o) => s + (o.diaria || 0), 0))]]
@@ -142,6 +157,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
           </table>
         )}
       </div>}
+      {!da && <PainelVariacoes ano={ano} analise={vari.analise} temAnterior={vari.temAnterior} carregando={vari.carregando} erro={vari.erro} destaque={omExtrato} />}
     </div>
   );
 };
