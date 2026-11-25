@@ -1745,6 +1745,31 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(txtR.includes('Resumo por OM') && txtR.includes('rubrica por rubrica') === false && txtR.includes('Arsenal de Marinha'), 'PDF da proposta e resultado leva também a justificativa das variações');
   });
 
+  await cenario('Matriz: botões "todas" e "nenhuma" de cada OM e da coluna', [], async (page, db) => {
+    const a = { id: uid(), codigo: '81100', nome: 'OM Alfa', tipo: 'TERRA', ativo: true }, b = { id: uid(), codigo: '81200', nome: 'OM Beta', tipo: 'TERRA', ativo: true };
+    db.oms.push(a, b);
+    [1, 2, 3].forEach(n => db.rubricas.push({ ano: 2027, numero: n, descricao: `Rubrica ${n}`, destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }));
+    db.lotacoes_tc.push({ ano: 2027, om_id: a.id, lotacao: 100 }, { ano: 2027, om_id: b.id, lotacao: 100 });
+    [1, 2, 3].forEach(n => [a, b].forEach(o => db.matriz_tc.push({ ano: 2027, rubrica: n, om_id: o.id })));
+    await page.reload();
+    await page.getByRole('button', { name: 'Taxa condominial e diárias' }).click();
+    await page.getByRole('heading', { name: 'Taxa condominial e diárias' }).waitFor();
+    await page.getByLabel('Exercício da proposta').selectOption('2027');
+    await page.getByRole('button', { name: '2. Clientes e matriz' }).click();
+    await page.getByRole('button', { name: /Editar matriz/ }).click();
+    const linha = nome => page.getByRole('row').filter({ hasText: nome }).first();
+    const marcadas = async nome => linha(nome).locator('input[type=checkbox]:checked').count();
+    ok(await marcadas('OM Alfa') === 3, 'matriz: OM Alfa começa marcada nas 3 rubricas');
+    await linha('OM Alfa').getByRole('button', { name: 'nenhuma' }).click();
+    ok(await marcadas('OM Alfa') === 0 && await marcadas('OM Beta') === 3, 'botão "nenhuma" da OM desmarca todas as rubricas dela e só dela');
+    await linha('OM Alfa').getByRole('button', { name: 'todas' }).click();
+    ok(await marcadas('OM Alfa') === 3, 'botão "todas" da OM marca de novo as 3 rubricas');
+    await linha('OM Alfa').getByRole('button', { name: 'nenhuma' }).click();
+    await page.getByRole('button', { name: /Gravar clientes e matriz/ }).click();
+    for (let i = 0; i < 40 && db.matriz_tc.some(m => m.om_id === a.id); i++) await page.waitForTimeout(250);
+    ok(!db.matriz_tc.some(m => m.om_id === a.id) && db.matriz_tc.filter(m => m.om_id === b.id).length === 3, 'gravar: a OM sem nenhuma rubrica sai da matriz e a outra continua');
+  });
+
   await cenario('Fases 6 e 7: taxa condominial, diárias, publicação, auditoria, backup e menu por função', [], async (page, db) => {
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true };
     db.classes_navio.push(classe);
