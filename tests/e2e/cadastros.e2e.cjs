@@ -609,6 +609,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(true, 'PDF arrastado e solto na janela do SIPLAD foi lido (sem usar o botão de escolher arquivo)');
     const ug = await page.getByLabel('UGR, UGE e Plano Interno de Z999.2026.AC.00007').innerText();
     ok(/CDD \(débito\)/.test(ug) && /CDC \(crédito\)/.test(ug) && /UGR .+· UGE .+/s.test(ug) && ug.includes("12345 - ComTeste") && ug.includes("40015 - BNIC") && ug.includes("PI X.1.TESTE.0") && ug.includes("PI R.TESTE.0"), `importação mostra UGR, UGE e Plano Interno do CDD e do CDC (${ug.replace(/\s+/g, ' ').slice(0, 90)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-cartoes.png') });
     // pendência exige o texto e aparece como alerta; fica fora do saldo e do fluxo
     await page.getByLabel('Com pendência: Z999.2026.AC.00007').check();
     await page.getByRole('button', { name: 'Gravar', exact: true }).click();
@@ -3039,7 +3040,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const resumo = (await page.getByTestId('resumo-situacoes').innerText()).replace(/\s+/g, ' ');
     ok(/3 solicitação/.test(resumo) && /1 aguardando processamento/.test(resumo) && /1 devolvida à origem/.test(resumo) && /1 processada/.test(resumo), `resumo das situações lido do PDF (${resumo.slice(0, 120)})`);
     // ordem flexível: a escolha troca a ordem da lista sem perder o que foi marcado
-    const ordemNums = async () => (await page.locator('tbody tr td .font-mono').allInnerTexts()).map(t => t.trim()).filter(t => /\.AC\.\d{5}$/.test(t));
+    const ordemNums = async () => (await page.getByTestId('numero-altcred').allInnerTexts()).map(t => t.trim());
     const nAnt = await ordemNums();
     await page.getByLabel('Ordem da lista de ALTCRED').selectOption('NOVO');
     const nNovo = await ordemNums();
@@ -3049,7 +3050,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Ordem da lista de ALTCRED').selectOption('ANTIGO');
     ok(await page.getByLabel('Ação para Z999.2026.AC.00003').inputValue() === 'IGNORAR', 'devolvida à origem já vem como "Não importar"');
     ok(await page.getByLabel('Ação para Z999.2026.AC.00002').inputValue() === 'NOVA' && await page.getByLabel('Ação para Z999.2026.AC.00004').inputValue() === 'NOVA', 'aguardando e processada vêm para importar');
-    ok(await page.locator('table span').filter({ hasText: 'Aguardando processamento' }).first().isVisible() && await page.locator('table span').filter({ hasText: 'Devolvida à origem' }).first().isVisible(), 'etiquetas de situação na tabela de importação');
+    ok(await page.getByTestId('lista-altcred').locator('span').filter({ hasText: 'Aguardando processamento' }).first().isVisible() && await page.getByTestId('lista-altcred').locator('span').filter({ hasText: 'Devolvida à origem' }).first().isVisible(), 'etiquetas de situação na tabela de importação');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-situacoes.png'), fullPage: true });
     await page.getByRole('button', { name: 'Gravar', exact: true }).click();
     await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();

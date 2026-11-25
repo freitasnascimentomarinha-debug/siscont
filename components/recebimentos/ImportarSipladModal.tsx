@@ -102,12 +102,12 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
       ) : undefined}>
       <div className="space-y-4">
         <div className="p-4 rounded-lg border border-slate-200 bg-slate-50 flex flex-col md:flex-row gap-3 md:items-center">
-          <p className="text-sm text-slate-600 flex-1">
+          {itens.length > 0 ? <p className="text-sm text-slate-600 flex-1">PDF lido. Para ler outro arquivo, use <b>Selecionar PDF</b> (a lista abaixo é substituída).</p> : <p className="text-sm text-slate-600 flex-1">
             No SIPLAD, gere o relatório <b>Solicitações de Alteração de Crédito</b> (uma solicitação por página) e selecione o PDF.
             O sistema lê número, datas, tipo, UG cliente, situação, observação do solicitante, células de débito/crédito (PTRES, FR, ND, PI) e valor;
             liga ao comando pelo código da UG e guarda as faturas citadas na observação como <b>destinação</b>.
             ALTCRED que já existe (por exemplo, migrada da planilha) é <b>completada</b> com esses dados, sem mudar valor nem baixas.
-          </p>
+          </p>}
           <input ref={ref} type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={e => ler(e.target.files)} />
           <Button onClick={() => ref.current?.click()} isLoading={lendo}>{!lendo && <FileUp size={16} className="mr-2" />}Selecionar PDF</Button>
         </div>
@@ -140,90 +140,93 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
           </label>
         )}
         {itens.length > 0 && (
-          <div className="overflow-x-auto border border-slate-200 rounded-lg">
-            <table className="min-w-full text-sm divide-y divide-slate-200">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr><th className="px-3 py-2 text-left">ALTCRED</th><th className="px-3 py-2 text-left">Cliente (UG)</th><th className="px-3 py-2 text-right">Valor</th><th className="px-3 py-2 text-left">Situação</th><th className="px-3 py-2 text-left">Destinação</th><th className="px-3 py-2 text-left">O que fazer</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {ordenados.map(n => { const i = itens[n]; return (
-                  <tr key={n} className="align-top">
-                    <td className="px-3 py-2">
-                      <div className="font-mono text-xs font-semibold">{i.sol.numero}</div>
-                      <div className="text-[11px] text-slate-500">{i.sol.tipoAlteracao}</div>
-                      <div className="text-[11px] text-slate-500">criada {br(i.sol.dataCriacao)}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div>{i.doc.client}</div>
-                      <div className="text-[11px] text-slate-500">{i.doc.command}</div>
-                      <div className="mt-1 space-y-0.5 text-[11px] text-slate-600" aria-label={`UGR, UGE e Plano Interno de ${i.sol.numero}`}>
+          <div className="space-y-3" data-testid="lista-altcred">
+            {ordenados.map(n => {
+              const i = itens[n];
+              const st = classificarSituacao(i.sol.situacao);
+              const ign = ignorados.has(n);
+              return (
+                <section key={n} data-testid="item-altcred" className={`border rounded-lg overflow-hidden ${ign ? 'border-slate-200 opacity-70' : 'border-slate-300'}`} aria-label={`ALTCRED ${i.sol.numero}`}>
+                  {/* cabeçalho: número, tipo, datas, situação e valor — sempre visíveis, sem rolar para o lado */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 bg-slate-50 border-b border-slate-200">
+                    <div className="font-mono text-sm font-bold text-slate-800" data-testid="numero-altcred">{i.sol.numero}</div>
+                    <div className="text-xs text-slate-600">{i.sol.tipoAlteracao}{i.sol.dataCriacao ? ` · criada ${br(i.sol.dataCriacao)}` : ''}</div>
+                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${st.classe}`} title={st.explicacao}>{st.rotulo}{i.sol.dataSituacao ? ` · ${br(i.sol.dataSituacao)}` : ''}</span>
+                    <div className="ml-auto text-base font-bold tabular-nums text-slate-900">{brl(i.sol.valor)}</div>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 text-sm">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Cliente</div>
+                      <div className="font-medium text-slate-800">{i.doc.client}</div>
+                      <div className="text-xs text-slate-500">{i.doc.command}</div>
+                      <div className="mt-2 space-y-1 text-xs text-slate-600" aria-label={`UGR, UGE e Plano Interno de ${i.sol.numero}`}>
                         {(['DEBITO', 'CREDITO'] as const).map(t => {
                           const cs = (i.sol.celulas || []).filter(c => c.tipo === t);
                           return (
                             <div key={t}>
-                              <span className="font-semibold text-slate-500">{t === 'DEBITO' ? 'CDD (débito)' : 'CDC (crédito)'}:</span>{' '}
-                              {cs.length ? cs.map((c, j) => <span key={j} className="mr-2 whitespace-nowrap">UGR <b>{c.ugr || '—'}</b> · UGE <b>{c.uge || '—'}</b> · PI <b>{c.pi || '—'}</b></span>) : <span className="text-slate-400">não lida</span>}
+                              <span className="font-semibold text-slate-500">{t === 'DEBITO' ? 'CDD (débito)' : 'CDC (crédito)'}:</span>
+                              {cs.length ? cs.map((c, j) => <div key={j} className="pl-2">UGR <b>{c.ugr || '—'}</b> · UGE <b>{c.uge || '—'}</b> · PI <b>{c.pi || '—'}</b></div>) : <span className="text-slate-400"> não lida</span>}
                             </div>
                           );
                         })}
                       </div>
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{brl(i.sol.valor)}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {(() => { const st = classificarSituacao(i.sol.situacao); return <span className={`inline-block px-2 py-0.5 rounded font-semibold ${st.classe}`} title={st.explicacao}>{st.rotulo}</span>; })()}
-                      <div className="text-slate-500">{br(i.sol.dataSituacao)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs min-w-[260px] max-w-[420px]">
-                      {i.doc.destinacao?.length ? i.doc.destinacao.map(d => <div key={d.valor} className="font-mono">{d.valor}</div>) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
-                      {i.sol.observacao && <div className="text-slate-600 mt-1 break-words" aria-label={`Observação da ${i.sol.numero}`}><span className="font-semibold text-slate-500">Observação: </span>{i.sol.observacao}</div>}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <select aria-label={`Ação para ${i.sol.numero}`} value={ignorados.has(n) ? 'IGNORAR' : destino[n] ?? i.acao}
-                        onChange={e => {
-                          const v = e.target.value;
-                          setIgnorados(prev => { const s2 = new Set(prev); if (v === 'IGNORAR') s2.add(n); else s2.delete(n); return s2; });
-                          setDestino(prev => { const d2 = { ...prev }; if (v === 'ADIANTAMENTO' || v === 'OUTROS') d2[n] = v; else delete d2[n]; return d2; });
-                        }}
-                        className="border border-slate-300 rounded px-1 py-1 bg-white">
-                        <option value={i.acao}>{i.acao === 'NOVA' ? 'Cadastrar nova (pagar faturas)' : ROTULO[i.acao]}</option>
-                        {i.acao !== 'ESTORNO' && <option value="ADIANTAMENTO">Cadastrar como adiantamento</option>}
-                        {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como outros serviços (não paga fatura)</option>}
-                        <option value="IGNORAR">{ROTULO.IGNORAR}</option>
-                      </select>
-                      {!ignorados.has(n) && destino[n] === 'OUTROS' && (
-                        <label className="mt-1 block text-slate-600">Finalidade
-                          <select aria-label={`Finalidade de ${i.sol.numero}`} value={finalidade[n] || ''} onChange={e => setFinalidade(prev => ({ ...prev, [n]: e.target.value }))} className="ml-1 border border-slate-300 rounded px-1 py-1 bg-white">
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Destinação</div>
+                      <div className="text-xs">
+                        {i.doc.destinacao?.length ? i.doc.destinacao.map(d => <div key={d.valor} className="font-mono">{d.valor}</div>) : <span className="text-slate-500">Nenhuma fatura citada{i.acao === 'NOVA' && !i.doc.aguardando ? '' : ' — fica "aguardando destinação"'}</span>}
+                      </div>
+                      {i.sol.observacao && <div className="mt-2 text-xs text-slate-600 break-words" aria-label={`Observação da ${i.sol.numero}`}><span className="font-semibold text-slate-500">Observação: </span>{i.sol.observacao}</div>}
+                    </div>
+                  </div>
+                  <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-xs space-y-2">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <label className="flex items-center gap-1.5 font-semibold text-slate-600">O que fazer
+                        <select aria-label={`Ação para ${i.sol.numero}`} value={ign ? 'IGNORAR' : destino[n] ?? i.acao}
+                          onChange={e => {
+                            const v = e.target.value;
+                            setIgnorados(prev => { const s2 = new Set(prev); if (v === 'IGNORAR') s2.add(n); else s2.delete(n); return s2; });
+                            setDestino(prev => { const d2 = { ...prev }; if (v === 'ADIANTAMENTO' || v === 'OUTROS') d2[n] = v; else delete d2[n]; return d2; });
+                          }}
+                          className="border border-slate-300 rounded px-2 py-1 bg-white font-normal">
+                          <option value={i.acao}>{i.acao === 'NOVA' ? 'Cadastrar nova (pagar faturas)' : ROTULO[i.acao]}</option>
+                          {i.acao !== 'ESTORNO' && <option value="ADIANTAMENTO">Cadastrar como adiantamento</option>}
+                          {i.acao !== 'ESTORNO' && <option value="OUTROS">Cadastrar como outros serviços (não paga fatura)</option>}
+                          <option value="IGNORAR">{ROTULO.IGNORAR}</option>
+                        </select>
+                      </label>
+                      {!ign && destino[n] === 'OUTROS' && (
+                        <label className="flex items-center gap-1.5 text-slate-600">Finalidade
+                          <select aria-label={`Finalidade de ${i.sol.numero}`} value={finalidade[n] || ''} onChange={e => setFinalidade(prev => ({ ...prev, [n]: e.target.value }))} className="border border-slate-300 rounded px-2 py-1 bg-white">
                             <option value="">Sem indicação</option>
                             {FINALIDADES.map(f => <option key={f.id} value={f.id}>{f.rotulo}</option>)}
                           </select>
                         </label>
                       )}
-                      {!ignorados.has(n) && destino[n] === 'OUTROS' && !classificarSituacao(i.sol.situacao).recebido && classificarSituacao(i.sol.situacao).codigo !== 'AGUARDANDO' && classificarSituacao(i.sol.situacao).codigo !== 'EM_ANALISE' && (
-                        <div className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />Situação no SIPLAD: {classificarSituacao(i.sol.situacao).rotulo.toLowerCase()}. Confira se o crédito realmente entrou na R.901.16.</div>
+                      {!ign && i.acao !== 'ESTORNO' && (
+                        <label className="flex items-center gap-1.5 text-slate-700">
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-amber-600" checked={pendencia[n] !== undefined} aria-label={`Com pendência: ${i.sol.numero}`}
+                            onChange={e => setPendencia(p => { const x = { ...p }; if (e.target.checked) x[n] = ''; else delete x[n]; return x; })} />
+                          Registrar com pendência (verificar algo)
+                        </label>
                       )}
-                      {!ignorados.has(n) && i.acao !== 'ESTORNO' && (
-                        <div className="mt-2">
-                          <label className="flex items-center gap-1 text-slate-700">
-                            <input type="checkbox" className="h-3.5 w-3.5 accent-amber-600" checked={pendencia[n] !== undefined} aria-label={`Com pendência: ${i.sol.numero}`}
-                              onChange={e => setPendencia(p => { const x = { ...p }; if (e.target.checked) x[n] = ''; else delete x[n]; return x; })} />
-                            Registrar com pendência (verificar algo)
-                          </label>
-                          {pendencia[n] !== undefined && (
-                            <div className="mt-1">
-                              <input className="w-full border border-amber-300 rounded px-2 py-1 bg-amber-50" placeholder="O que falta verificar? (ex.: confirmar a OM com o cliente)" aria-label={`O que verificar na ${i.sol.numero}`}
-                                value={pendencia[n] || ''} onChange={e => setPendencia(p => ({ ...p, [n]: e.target.value }))} />
-                              <div className="text-amber-800 mt-0.5">Fica registrada com alerta e <b>fora do saldo, das baixas e do fluxo de caixa</b> até a pendência ser resolvida.</div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {i.acao === 'ESTORNO' && i.existente && <div className="mt-1 text-slate-600">{i.existente.documentNumber}: {brl(i.existente.totalValue)} → {brl(i.doc.totalValue)}</div>}
-                      {i.avisos.map(a => <div key={a} className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />{a}</div>)}
-                    </td>
-                  </tr>
-                ); })}
-              </tbody>
-            </table>
+                    </div>
+                    {!ign && destino[n] === 'OUTROS' && !st.recebido && st.codigo !== 'AGUARDANDO' && st.codigo !== 'EM_ANALISE' && (
+                      <div className="text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />Situação no SIPLAD: {st.rotulo.toLowerCase()}. Confira se o crédito realmente entrou na R.901.16.</div>
+                    )}
+                    {!ign && i.acao !== 'ESTORNO' && pendencia[n] !== undefined && (
+                      <div>
+                        <input className="w-full border border-amber-300 rounded px-2 py-1 bg-amber-50" placeholder="O que falta verificar? (ex.: confirmar a OM com o cliente)" aria-label={`O que verificar na ${i.sol.numero}`}
+                          value={pendencia[n] || ''} onChange={e => setPendencia(p => ({ ...p, [n]: e.target.value }))} />
+                        <div className="text-amber-800 mt-0.5">Fica registrada com alerta e <b>fora do saldo, das baixas e do fluxo de caixa</b> até a pendência ser resolvida.</div>
+                      </div>
+                    )}
+                    {i.acao === 'ESTORNO' && i.existente && <div className="text-slate-600">{i.existente.documentNumber}: {brl(i.existente.totalValue)} → {brl(i.doc.totalValue)}</div>}
+                    {i.avisos.map(a => <div key={a} className="text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />{a}</div>)}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         )}
       </div>
