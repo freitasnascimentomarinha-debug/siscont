@@ -15,6 +15,8 @@ export interface FaturaCandidata {
 export interface DocParaBaixa {
   saldo: number; ug?: string; ugClienteCodigo?: string | null; comandoId?: string | null;
   destinacao?: Destinacao[]; faturasCitadas?: string[];
+  /** citações sem UG ou mal formatadas ("RB10-2026-002-0"): achadas entre as faturas do cliente pelo sufixo SS-MM-AAAA-SEQ-V */
+  faturasCitadasParciais?: { sufixo: string; original: string }[];
 }
 export interface ItemProposta {
   faturaId: string; numero: string; cliente: string; vencimento: string; saldoFatura: number;
@@ -31,7 +33,8 @@ export function proporBaixa(doc: DocParaBaixa, faturas: FaturaCandidata[], opcoe
   const dest = doc.destinacao || [];
   const citadas = new Set([...dest.filter(d => d.tipo === 'FATURA').map(d => norm(d.valor)), ...(doc.faturasCitadas || []).map(norm)]);
   const omsDest = new Set(dest.filter(d => d.tipo === 'OM').map(d => d.valor));
-  const temDestinacao = citadas.size > 0 || omsDest.size > 0;
+  const parciais = new Map((doc.faturasCitadasParciais || []).map(p => [p.sufixo, p.original]));
+  const temDestinacao = citadas.size > 0 || omsDest.size > 0 || parciais.size > 0;
   const ugs = new Set([doc.ug, doc.ugClienteCodigo].filter(Boolean) as string[]);
 
   const abertas = faturas.filter(f => f.saldo > 0.005 && (opcoes.incluirContestadas || !f.contestada));
@@ -45,7 +48,8 @@ export function proporBaixa(doc: DocParaBaixa, faturas: FaturaCandidata[], opcoe
   abertas.forEach(f => { const k = semVersao(f.numero); if (aproximadas.has(k)) unicaPorPrefixo.set(k, (unicaPorPrefixo.get(k) || 0) + 1); });
   const citadaComo = (f: FaturaCandidata) => { const k = semVersao(f.numero); return !citadas.has(norm(f.numero)) && unicaPorPrefixo.get(k) === 1 ? aproximadas.get(k) : undefined; };
   const grupo = (f: FaturaCandidata): ItemProposta['grupo'] | null => {
-    if (citadas.has(norm(f.numero)) || citadaComo(f)) return 'CITADA';
+    const doCliente = (doc.comandoId && f.comandoId === doc.comandoId) || ugs.has(f.ug) || (!!f.omId && omsDest.has(f.omId));
+    if (citadas.has(norm(f.numero)) || citadaComo(f) || (doCliente && parciais.has(norm(f.numero).replace(/^\d{4,5}-/, '')))) return 'CITADA';
     if (f.omId && omsDest.has(f.omId)) return 'OM_DESTINADA';
     if ((doc.comandoId && f.comandoId === doc.comandoId) || ugs.has(f.ug)) return 'COMANDO';
     return null;
@@ -62,7 +66,7 @@ export function proporBaixa(doc: DocParaBaixa, faturas: FaturaCandidata[], opcoe
     // com destinação, só sugere valor nas faturas destinadas; as demais aparecem zeradas para o usuário decidir
     const valor = foraDestinacao ? 0 : r2(Math.max(0, Math.min(resta, f.saldo)));
     resta = r2(resta - valor);
-    return { faturaId: f.id, numero: f.numero, cliente: f.cliente, vencimento: f.vencimento, saldoFatura: r2(f.saldo), valor, grupo: g, foraDestinacao, contestada: !!f.contestada, ...(citadaComo(f) ? { citadaComo: citadaComo(f) } : {}) };
+    return { faturaId: f.id, numero: f.numero, cliente: f.cliente, vencimento: f.vencimento, saldoFatura: r2(f.saldo), valor, grupo: g, foraDestinacao, contestada: !!f.contestada, ...(citadaComo(f) ? { citadaComo: citadaComo(f) } : parciais.get(norm(f.numero).replace(/^\d{4,5}-/, '')) && !citadas.has(norm(f.numero)) ? { citadaComo: parciais.get(norm(f.numero).replace(/^\d{4,5}-/, '')) } : {}) };
   });
   const usado = r2(itens.reduce((s, i) => s + i.valor, 0));
   return { itens, usado, sobra: r2(doc.saldo - usado), temDestinacao };

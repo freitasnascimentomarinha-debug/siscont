@@ -57,7 +57,8 @@ export function ordemDeExibicao<T extends { numero: string; dataCriacao: string 
 
 /** Nº da solicitação: sigla do setor (G424, R, B4D0, P3MA, P3X3...), ano, AC e sequência. */
 export const RE_ALTCRED = /\b[A-Z][A-Z0-9]{0,4}\.\d{4}\.AC\.\d{5}\b/;
-export const RE_FATURA_TEXTO = /\b\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d\b/g;
+// sem \b no início: a OM costuma colar texto antes do número ("FAT71000-AE-09-2026-008-0", "NF:71000-...")
+export const RE_FATURA_TEXTO = /(?<!\d)\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d(?!\d)/g;
 
 /**
  * Números de fatura citados num texto livre (observação da OM). Tolera o que as OM digitam: espaços em volta dos hífens
@@ -67,6 +68,21 @@ export function extrairFaturas(texto: string | null | undefined): string[] {
   const t = (texto || '').toUpperCase().replace(/([0-9A-Z])\s*[-–—]\s*(?=[0-9A-Z])/g, '$1-');
   return [...new Set(t.match(RE_FATURA_TEXTO) || [])];
 }
+
+/**
+ * Citações que a OM escreveu SEM a UG ou com o serviço colado ao mês ("RB10-2026-002-0", "RB-10-2026-002-0"): devolve o trecho
+ * padronizado como sufixo "SS-MM-AAAA-SEQ-V" (ex.: "RB-10-2026-002-0") e o texto original. A fatura é achada entre as do cliente.
+ */
+export function extrairCitacoesParciais(texto: string | null | undefined): { sufixo: string; original: string }[] {
+  const t = (texto || '').toUpperCase();
+  const out = new Map<string, string>();
+  const re = /(?<![0-9A-Z-])([A-Z]{2})\s*-?\s*(\d{2})\s*-\s*(\d{4})\s*-\s*(\d{3})\s*-\s*(\d)(?!\d)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) { const sufixo = `${m[1]}-${m[2]}-${m[3]}-${m[4]}-${m[5]}`; if (!out.has(sufixo)) out.set(sufixo, m[0].replace(/\s+/g, '')); }
+  return [...out.entries()].map(([sufixo, original]) => ({ sufixo, original }));
+}
+/** Sufixo "SS-MM-AAAA-SEQ-V" de um número de fatura completo ("71000-AE-09-2026-008-0" → "AE-09-2026-008-0"). */
+export const sufixoDaFatura = (numero: string) => (numero || '').trim().toUpperCase().replace(/^\d{4,5}-/, '');
 
 const limpo = (s: string) => s.replace(/\s+/g, ' ').trim();
 const vazio = (s: string) => !s || /^-+$/.test(s.trim());

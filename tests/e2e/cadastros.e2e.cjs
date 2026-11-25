@@ -714,6 +714,95 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-sem-fatura.png') });
   });
 
+  await cenario('Baixa assistida: números mal formatados, várias faturas de uma vez, justificativa visível e ALTCRED sem fatura vira adiantamento', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '41000', nome: 'AMRJ', tipo: 'TERRA', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const f = (n, sig, tipo, valor, extra = {}) => ({ id: uid(), invoice_number: n, ug: '41000', sector: 'DGMM', command: '41000 - AMRJ', client: 'AMRJ', value: valor, adjustment_addition: 0, adjustment_deduction: 0,
+      issue_date: '2026-10-05', due_date: '2026-11-18', month_competence: 10, year_competence: 2026, competence: '10/2026', type: tipo, service_acronym: sig, is_canceled: false, siplad_settled: false, om_id: om.id, ...extra });
+    const rb = f('41000-RB-10-2026-002-0', 'RB', 'Rebocador', 500), tc = f('55555-TC-10-2026-002-0', 'TC', 'Taxa Condominial', 300, { ug: '55555', client: 'Outra OM', command: '55555 - Outro', om_id: null }), el = f('55555-EL-10-2026-001-0', 'EL', 'Eletricidade', 200, { ug: '55555', client: 'Outra OM', command: '55555 - Outro', om_id: null });
+    const quitada = f('41000-AE-10-2026-001-0', 'AE', 'Água', 100), cancelada = f('41000-TL-10-2026-001-0', 'TL', 'Telefone', 80, { is_canceled: true });
+    db.invoices = [rb, tc, el, quitada, cancelada];
+    // ALTCRED A: a OM citou a fatura do rebocador mal formatada e com texto colado antes
+    const a = { id: uid(), document_number: 'G1.2026.AC.00001', document_type: 'ALTCRED', total_value: 600, date: '2026-11-20', operation: 'PAGAMENTO', client: 'AMRJ', sector: 'DGMM', command: '41000', ug: '41000', comando_id: cmd.id, om_id: om.id, observation: '', destinacao: [], observacao_solicitante: 'Pagamento da fatura RB10-2026-002-0 (rebocador).' };
+    // ALTCRED B: sem nenhuma fatura em aberto para o cliente
+    const b = { ...a, id: uid(), document_number: 'G1.2026.AC.00002', total_value: 900, ug: '77777', comando_id: null, om_id: null, command: '77777', client: 'Cliente Sem Faturas', observacao_solicitante: '' };
+    db.received_documents.push(a, b);
+    db.payment_allocations.push({ id: uid(), document_id: a.id, invoice_id: quitada.id, amount: 100, date: '2026-11-20', tipo_baixa: 'PAGAMENTO' });
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByText('G1.2026.AC.00002').first().waitFor();
+    // --- 1) citação mal formatada (RB10-2026-002-0) é reconhecida como a fatura do cliente
+    const card = n => page.locator('div.border').filter({ has: page.getByRole('heading', { name: n }) }).last();
+    await card('G1.2026.AC.00001').getByTitle('Ver Detalhes').click();
+    await page.getByTestId('dados-siplad').waitFor();
+    await page.getByRole('button', { name: 'Baixa assistida' }).click();
+    await page.getByRole('heading', { name: /Baixa assistida — G1.2026.AC.00001/ }).waitFor();
+    ok(await page.getByLabel('Valor para 41000-RB-10-2026-002-0').inputValue() === '500', 'citação "RB10-2026-002-0" (sem UG, serviço colado ao mês) achou a fatura do cliente e propôs o valor');
+    // --- 2) buscar vários números de uma vez, mal formatados; explica os que não dá para adicionar
+    await page.getByLabel('Buscar fatura para adicionar').fill('fat 55555-TC-10-2026-002-0, EL10-2026-001-0 e 41000-AE-10-2026-001-0 e RB99-2026-009-0');
+    await page.getByRole('button', { name: 'Adicionar a fatura 55555-TC-10-2026-002-0' }).waitFor();
+    ok(await page.getByRole('button', { name: 'Adicionar a fatura 55555-EL-10-2026-001-0' }).isVisible(), 'vários números digitados de uma vez (um colado a texto, outro sem UG): todos aparecem como opção');
+    const motivos = (await page.getByTestId('fatura-nao-achada').allInnerTexts()).join(' | ');
+    ok(/41000-AE-10-2026-001-0.*quitada/.test(motivos) && /RB-?99-2026-009-0.*não existe/.test(motivos.replace(/\s+/g, ' ')), `explica por que não achou (${motivos.replace(/\s+/g, ' ').slice(0, 120)})`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'baixa-busca-varias.png') });
+    await page.getByRole('button', { name: /Adicionar as 2 faturas encontradas/ }).click();
+    ok(await page.getByLabel('Valor para 55555-TC-10-2026-002-0').count() === 1 && await page.getByLabel('Valor para 55555-EL-10-2026-001-0').count() === 1, '"Adicionar as 2 faturas encontradas" põe as duas na lista de uma vez');
+    // --- 3) pagar fatura diferente da indicada: o campo da justificativa aparece (antes exigia e não mostrava)
+    await page.getByLabel('Valor para 41000-RB-10-2026-002-0').fill('0');
+    await page.getByLabel('Valor para 55555-TC-10-2026-002-0').fill('300');
+    await page.getByTestId('motivo-fora').waitFor();
+    ok(await page.getByRole('button', { name: 'Gravar baixas' }).isDisabled(), 'pagar fora da indicação: sem justificativa, não grava');
+    await page.getByLabel('Motivo da baixa fora da indicação').fill('A OM confirmou por telefone que o pagamento é da TC');
+    await page.getByRole('button', { name: 'Gravar baixas' }).click();
+    await page.getByText(/baixa\(s\) gravada\(s\)/).waitFor();
+    ok(db.payment_allocations.some(x => x.invoice_id === tc.id && Number(x.amount) === 300), 'com a justificativa preenchida, a baixa foi gravada');
+    // --- 4) ALTCRED sem nenhuma fatura: pode virar adiantamento ali mesmo
+    await card('G1.2026.AC.00002').getByTitle('Ver Detalhes').click();
+    await card('G1.2026.AC.00002').getByRole('button', { name: 'Baixa assistida' }).click();
+    await page.getByTestId('sem-faturas-baixa').waitFor();
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Transformar esta ALTCRED em adiantamento' }).click();
+    for (let i = 0; i < 40 && db.received_documents.find(x => x.document_number === 'G1.2026.AC.00002').operation !== 'ADIANTAMENTO'; i++) await page.waitForTimeout(250);
+    ok(db.received_documents.find(x => x.document_number === 'G1.2026.AC.00002').operation === 'ADIANTAMENTO', 'ALTCRED sem fatura para pagar foi transformada em adiantamento pela própria baixa assistida');
+  });
+
+  await cenario('SIPLAD: cliente não cadastrado aparece como veio do extrato do SIPLAD, com aviso', [pdfSiplad('Processada', 'Z999.2026.AC.00030')], async (page, db, arquivos) => {
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00030').first().waitFor({ timeout: 20000 });
+    const cli = (await page.getByTestId('cliente-altcred').first().innerText()).replace(/\s+/g, ' ');
+    ok(/12345 - ComTeste/.test(cli) && /não cadastrado/.test(cli), `cliente não cadastrado mostra o nome do extrato do SIPLAD e a marca "não cadastrado" (${cli})`);
+    ok(/Cliente não cadastrado: 12345 - ComTeste/.test(await page.getByTestId('item-altcred').first().innerText()), 'aviso explica que o cliente não está no cadastro');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-cliente-nao-cadastrado.png') });
+  });
+
+  await cenario('SIPLAD: duas ALTCRED do mesmo cliente no PDF — a segunda avisa que as anteriores já cobrem as faturas em aberto', [pdfSiplad('Processada', 'Z999.2026.AC.00020'), pdfSiplad('Processada', 'Z999.2026.AC.00021')], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '12346', nome: 'Navio Teste', tipo: 'NAVIO', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    db.invoices = [{ id: uid(), ug: '12346', sector: 'DGMM', command: '12345 - Comando Teste', client: 'Navio Teste', invoice_number: '12346-EL-08-2026-010-0', value: 600, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-09-15', due_date: '2026-09-29',
+      month_competence: 8, year_competence: 2026, competence: '08/2026', type: 'Eletricidade', service_acronym: 'EL', is_canceled: false, siplad_settled: false, om_id: om.id, origem: null, quitacao_externa: null, quitada_em: null, contestada: false, pontos_atencao: [] }];
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00021').first().waitFor({ timeout: 20000 });
+    const c1 = page.getByRole('region', { name: 'ALTCRED Z999.2026.AC.00020' }), c2 = page.getByRole('region', { name: 'ALTCRED Z999.2026.AC.00021' });
+    ok(/1 fatura\(s\) em aberto/.test(await c1.innerText()), 'a primeira ALTCRED enxerga a fatura em aberto do cliente');
+    await c2.getByTestId('sem-fatura-depois-das-anteriores').waitFor();
+    const t2 = (await c2.getByTestId('sem-fatura-depois-das-anteriores').innerText()).replace(/\s+/g, ' ');
+    ok(/Z999\.2026\.AC\.00020/.test(t2) && /já cobrem/.test(t2), `a segunda avisa que a anterior já cobre a única fatura em aberto (${t2.slice(0, 110)}…)`);
+    ok(await c2.getByLabel('Pagar faturas depois de gravar: Z999.2026.AC.00021').count() === 0, 'a segunda não oferece pagar faturas (não há o que pagar)');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-cobertura-anteriores.png'), fullPage: true });
+    await c2.getByRole('button', { name: 'Cadastrar como adiantamento' }).click();
+    ok(await c2.getByLabel('Ação para Z999.2026.AC.00021').inputValue() === 'ADIANTAMENTO', 'o botão põe a segunda ALTCRED como adiantamento');
+  });
+
   await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };

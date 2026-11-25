@@ -42,6 +42,8 @@ export function clientePorUG(codigo: string | null | undefined, cad: Cadastro) {
 // ------------------------------------------------------------------ importação do PDF do SIPLAD
 export type AcaoImportacao = 'NOVA' | 'COMPLETAR' | 'ESTORNO' | 'IGNORAR';
 export interface ItemImportacao {
+  /** cliente como aparece no extrato do SIPLAD (UG Cliente; se vazia, a UG debitada) e se foi reconhecido no cadastro */
+  clienteSiplad?: string; clienteCadastrado?: boolean;
   sol: SolicitacaoAltcred;
   acao: AcaoImportacao;
   doc: ReceivedDocument; // documento a gravar (novo, existente completado, ou a ALTCRED de origem com o estorno)
@@ -92,15 +94,22 @@ export function planejarImportacaoSiplad(sols: SolicitacaoAltcred[], docs: Recei
       };
     }
     if (sol.altcredOrigem && !origem && ehEstorno(sol)) avisos.push(`ALTCRED de origem ${sol.altcredOrigem} não está no sistema: importada como documento separado.`);
-    const cli = clientePorUG(sol.ugClienteCodigo, cad);
-    if (!cli) avisos.push(`UG cliente ${sol.ugCliente || '(vazia)'} não encontrada no cadastro de comandos/OM.`);
+    // cliente: a UG Cliente do SIPLAD; quando vem vazia ("--", comum em remanejamento), vale a UG debitada
+    const debito = sol.celulas.find(c => c.tipo === 'DEBITO')?.ugr || '';
+    const codDebito = debito.match(/\b\d{5}\b/)?.[0] || null;
+    let cli = clientePorUG(sol.ugClienteCodigo, cad);
+    let viaDebito = false;
+    if (!cli && !sol.ugClienteCodigo && codDebito) { const alt = clientePorUG(codDebito, cad); if (alt) { cli = alt; viaDebito = true; } }
+    const clienteSiplad = sol.ugCliente || debito || '';
+    if (!cli) avisos.push(`Cliente não cadastrado: ${clienteSiplad || '(UG cliente vazia no SIPLAD)'}. Mostrado como veio do extrato do SIPLAD; cadastre o comando/OM para ligar as faturas.`);
+    if (viaDebito) avisos.push(`UG cliente vazia no SIPLAD: usada a UG debitada (${debito}).`);
     if ((cli as any)?.ugAntiga) avisos.push(`UG antiga: ${(cli as any).ugAntiga.de} agora é ${(cli as any).ugAntiga.para} (a OM mudou de UG); ligada à OM de hoje.`);
     const adiant = /adiantament/i.test(sol.observacao);
     const destinacao = sol.faturasCitadas.map(n => ({ tipo: 'FATURA' as const, valor: n }));
     return {
-      sol, acao: 'NOVA', avisos,
+      sol, acao: 'NOVA', avisos, clienteSiplad, clienteCadastrado: !!cli,
       doc: {
-        id: uuidv4(), ug: sol.ugClienteCodigo || '', sector: cli?.sector || '', command: cli?.command || '', client: cli?.client || sol.ugCliente,
+        id: uuidv4(), ug: sol.ugClienteCodigo || (viaDebito ? codDebito || '' : ''), sector: cli?.sector || '', command: cli?.command || '', client: cli?.client || clienteSiplad,
         documentNumber: sol.numero, documentType: DocumentType.ALTCRED, totalValue: sol.valor,
         date: sol.dataSituacao || sol.dataCriacao || new Date().toISOString().slice(0, 10),
         operation: adiant ? OperationType.ADIANTAMENTO : OperationType.PAGAMENTO,

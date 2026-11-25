@@ -3,7 +3,7 @@ import { AlertTriangle, FileUp } from 'lucide-react';
 import { Invoice, OM, PaymentAllocation, ReceivedDocument } from '../../types';
 import { proporBaixa } from '../../utils/baixaAssistida';
 import { FINALIDADES } from '../../utils/relatorios';
-import { itensDoPdf, lerSolicitacoesDetalhado, ordemDeExibicao, OrdemAltcred, ordenarPorAntiguidade, ROTULO_ORDEM, SolicitacaoAltcred } from '../../utils/altcredSiplad';
+import { extrairCitacoesParciais, itensDoPdf, lerSolicitacoesDetalhado, ordemDeExibicao, OrdemAltcred, ordenarPorAntiguidade, ROTULO_ORDEM, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, faturasCandidatas, comPendencia, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao } from '../../utils/situacaoSiplad';
@@ -48,11 +48,12 @@ export const ImportarSipladModal: React.FC<{
     const porNumero = new Map(invoices.map(i => [(i.invoiceNumber || '').trim().toUpperCase(), i]));
     const candidatas = faturasCandidatas(invoices, documentos, baixas, oms || []);
     return {
+      candidatas,
       // faturas em aberto que esta ALTCRED poderia pagar (as citadas, as da OM indicada e as do comando/UG do cliente)
       abertasPara: (doc: ReceivedDocument) => {
         const p = proporBaixa({
           saldo: Math.max(doc.availableValue, doc.totalValue), ug: doc.ug, ugClienteCodigo: doc.ugCliente?.match(/\d{5}/)?.[0], comandoId: doc.comandoId,
-          destinacao: doc.destinacao, faturasCitadas: [],
+          destinacao: doc.destinacao, faturasCitadas: [], faturasCitadasParciais: extrairCitacoesParciais(doc.observacaoSolicitante),
         }, candidatas, { incluirContestadas: true });
         return { itens: p.itens, total: r2(p.itens.reduce((s, x) => s + x.saldoFatura, 0)), citadas: p.itens.filter(x => x.grupo === 'CITADA').length };
       },
@@ -83,6 +84,28 @@ export const ImportarSipladModal: React.FC<{
   const [finalidade, setFinalidade] = useState<Record<number, string>>({});
   // pendência por linha (algo a verificar): a ALTCRED é registrada, mas só entra no saldo e no fluxo depois de resolvida
   const [pendencia, setPendencia] = useState<Record<number, string | undefined>>({});
+  // cobertura em sequência: uma OM pode ter várias ALTCRED no mesmo PDF; cada uma só enxerga as faturas que as ANTERIORES (mais antigas) deste PDF
+  // não vão pagar. Assim fica claro quando uma ALTCRED já não tem fatura para pagar (e deve virar adiantamento).
+  const cobertura = useMemo(() => {
+    if (!pagamento || !itens.length) return null;
+    const ordemAntiga = ordemDeExibicao(itens.map(i => ({ numero: i.sol.numero, dataCriacao: i.sol.dataCriacao, dataSituacao: i.sol.dataSituacao, valor: i.sol.valor, situacao: '' })), 'ANTIGO');
+    const livre = new Map(pagamento.candidatas.map(c => [c.id, c.saldo]));
+    const consumidoPor = new Map<string, string[]>();
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const out: Record<number, { abertasAntes: number; restantes: number; total: number; citadas: number; anteriores: string[] }> = {};
+    ordemAntiga.forEach(n => {
+      const it = itens[n], d = it.doc;
+      const base = { saldo: it.existente ? it.existente.availableValue : d.totalValue, ug: d.ug, ugClienteCodigo: d.ugCliente?.match(/\d{5}/)?.[0], comandoId: d.comandoId, destinacao: d.destinacao, faturasCitadas: [] as string[], faturasCitadasParciais: extrairCitacoesParciais(d.observacaoSolicitante) };
+      const antes = proporBaixa(base, pagamento.candidatas, { incluirContestadas: true });
+      const agora = proporBaixa(base, pagamento.candidatas.map(c => ({ ...c, saldo: r2(livre.get(c.id) ?? c.saldo) })), { incluirContestadas: true });
+      const anteriores = [...new Set(antes.itens.flatMap(x => consumidoPor.get(x.faturaId) || []))];
+      out[n] = { abertasAntes: antes.itens.length, restantes: agora.itens.length, total: r2(agora.itens.reduce((s, x) => s + x.saldoFatura, 0)), citadas: agora.itens.filter(x => x.grupo === 'CITADA').length, anteriores };
+      // o que esta ALTCRED consumiria (só as que realmente vão pagar fatura)
+      const paga = !ignorados.has(n) && destino[n] === undefined && pendencia[n] === undefined && it.acao !== 'ESTORNO' && classificarSituacao(it.sol.situacao).recebido;
+      if (paga) agora.itens.forEach(x => { if (x.valor > 0.005) { livre.set(x.faturaId, r2((livre.get(x.faturaId) ?? 0) - x.valor)); consumidoPor.set(x.faturaId, [...(consumidoPor.get(x.faturaId) || []), it.sol.numero]); } });
+    });
+    return out;
+  }, [pagamento, itens, ignorados, destino, pendencia]);
 
   const ler = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -200,8 +223,8 @@ export const ImportarSipladModal: React.FC<{
                   </div>
                   <div className="grid md:grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 text-sm">
                     <div>
-                      <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Cliente</div>
-                      <div className="font-medium text-slate-800">{i.doc.client}</div>
+                      <div className="text-[11px] font-semibold uppercase text-slate-400 mb-0.5">Cliente{i.clienteCadastrado === false ? ' (como veio do extrato do SIPLAD)' : ''}</div>
+                      <div className="font-medium text-slate-800" data-testid="cliente-altcred">{i.doc.client || i.clienteSiplad || '—'}{i.clienteCadastrado === false && <span className="ml-2 px-1.5 rounded bg-amber-100 text-amber-800 text-[11px] font-semibold">não cadastrado</span>}</div>
                       <div className="text-xs text-slate-500">{i.doc.command}</div>
                       <div className="mt-2 space-y-1 text-xs text-slate-600" aria-label={`UGR, UGE e Plano Interno de ${i.sol.numero}`}>
                         {(['DEBITO', 'CREDITO'] as const).map(t => {
@@ -242,11 +265,18 @@ export const ImportarSipladModal: React.FC<{
                         : <div className="rounded border border-slate-200 bg-white text-slate-700 px-2 py-1.5" data-testid="ja-paga-faturas">Já cadastrada, mas <b>ainda não pagou nenhuma fatura</b>. Saldo disponível: <b>{brl(i.existente.availableValue)}</b>.</div>;
                     })()}
                     {pagamento && !i.existente && <div className="rounded border border-slate-200 bg-white text-slate-700 px-2 py-1.5" data-testid="ja-paga-faturas">ALTCRED nova: ainda <b>não paga nenhuma fatura</b>.</div>}
-                    {pagamento && i.acao !== 'ESTORNO' && (() => {
-                      const ab = pagamento.abertasPara(i.doc);
-                      return ab.itens.length === 0
-                        ? <div className="rounded border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5 flex gap-1" data-testid="sem-fatura-para-pagar"><AlertTriangle size={14} className="shrink-0 mt-0.5" /><span><b>Nenhuma fatura em aberto para pagar:</b> {i.doc.client || 'a OM'} não tem fatura em aberto no sistema (nem as citadas na observação, nem as do comando/UG). O crédito não tem o que pagar agora: fica aguardando ou como adiantamento.</span></div>
-                        : <div className="rounded border border-sky-200 bg-sky-50 text-sky-900 px-2 py-1.5" data-testid="faturas-para-pagar"><b>{ab.itens.length} fatura(s) em aberto</b> para esta OM/comando, somando {brl(ab.total)}{ab.citadas ? ` (${ab.citadas} citada(s) na observação)` : ''}.</div>;
+                    {cobertura && i.acao !== 'ESTORNO' && (() => {
+                      const cb = cobertura[n];
+                      if (!cb) return null;
+                      if (cb.abertasAntes === 0) return <div className="rounded border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5 flex gap-1" data-testid="sem-fatura-para-pagar"><AlertTriangle size={14} className="shrink-0 mt-0.5" /><span><b>Nenhuma fatura em aberto para pagar:</b> {i.doc.client || 'a OM'} não tem fatura em aberto no sistema (nem as citadas na observação, nem as do comando/UG). O crédito não tem o que pagar agora: fica aguardando ou como adiantamento.</span></div>;
+                      if (cb.restantes === 0) return (
+                        <div className="rounded border border-amber-300 bg-amber-50 text-amber-900 px-2 py-1.5 flex flex-wrap items-center gap-2" data-testid="sem-fatura-depois-das-anteriores">
+                          <AlertTriangle size={14} className="shrink-0" />
+                          <span className="flex-1"><b>Sem fatura para pagar depois das anteriores:</b> as ALTCRED anteriores deste PDF ({cb.anteriores.join(', ') || 'mais antigas'}) já cobrem as {cb.abertasAntes} fatura(s) em aberto deste cliente. Esta ficaria sem o que pagar: o ideal é cadastrá-la como adiantamento.</span>
+                          {destino[n] !== 'ADIANTAMENTO' && !ign && <button type="button" className="px-2 py-1 rounded bg-amber-600 text-white font-semibold hover:bg-amber-700" onClick={() => setDestino(d => ({ ...d, [n]: 'ADIANTAMENTO' }))}>Cadastrar como adiantamento</button>}
+                        </div>
+                      );
+                      return <div className="rounded border border-sky-200 bg-sky-50 text-sky-900 px-2 py-1.5" data-testid="faturas-para-pagar"><b>{cb.restantes} fatura(s) em aberto</b> para esta OM/comando, somando {brl(cb.total)}{cb.citadas ? ` (${cb.citadas} citada(s) na observação)` : ''}{cb.anteriores.length ? ` — depois de contar as ALTCRED anteriores deste PDF (${cb.anteriores.join(', ')})` : ''}.</div>;
                     })()}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                       <label className="flex items-center gap-1.5 font-semibold text-slate-600">O que fazer
@@ -271,7 +301,7 @@ export const ImportarSipladModal: React.FC<{
                           </select>
                         </label>
                       )}
-                      {onPagarDepois && !ign && i.acao !== 'ESTORNO' && destino[n] !== 'OUTROS' && pendencia[n] === undefined && st.recebido && (!pagamento || pagamento.abertasPara(i.doc).itens.length > 0) && (
+                      {onPagarDepois && !ign && i.acao !== 'ESTORNO' && destino[n] !== 'OUTROS' && pendencia[n] === undefined && st.recebido && (!cobertura || (cobertura[n]?.restantes ?? 1) > 0) && (
                         <label className="flex items-center gap-1.5 text-primary-800 font-semibold">
                           <input type="checkbox" className="h-3.5 w-3.5 accent-primary-600" checked={!!pagarDepois[n]} aria-label={`Pagar faturas depois de gravar: ${i.sol.numero}`}
                             onChange={e => setPagarDepois(p => ({ ...p, [n]: e.target.checked }))} />

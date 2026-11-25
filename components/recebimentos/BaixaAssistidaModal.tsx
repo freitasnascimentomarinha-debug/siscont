@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Invoice, OM, PaymentAllocation, ReceivedDocument } from '../../types';
 import { ItemProposta, proporBaixa, validarBaixa } from '../../utils/baixaAssistida';
-import { extrairFaturas } from '../../utils/altcredSiplad';
+import { extrairCitacoesParciais, extrairFaturas, sufixoDaFatura } from '../../utils/altcredSiplad';
+import { db } from '../../services/db';
+import { OperationType } from '../../types';
 import { faturasCandidatas, gravarBaixaAssistida } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao, motivoBloqueio } from '../../utils/situacaoSiplad';
@@ -28,6 +30,10 @@ export const BaixaAssistidaModal: React.FC<{
 
   const candidatas = useMemo(() => (doc ? faturasCandidatas(invoices, documentos, baixas, oms) : []), [doc, invoices, documentos, baixas, oms]);
   const citadas = useMemo(() => extrairFaturas(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`), [doc]);
+  // o que foi digitado na busca pode ser um ou VÁRIOS números de fatura (hooks sempre antes do return antecipado)
+  const pedidosCompletos = useMemo(() => extrairFaturas(busca), [busca]);
+  const pedidosParciais = useMemo(() => extrairCitacoesParciais(busca), [busca]);
+  const citadasParciais = useMemo(() => extrairCitacoesParciais(`${doc?.observacaoSolicitante || ''} ${doc?.observation || ''}`), [doc]);
   const existentes = useMemo(() => new Set(invoices.map(i => (i.invoiceNumber || '').trim().toUpperCase())), [invoices]);
   const citadasInexistentes = useMemo(() => [...new Set([...citadas, ...(doc?.destinacao || []).filter(d => d.tipo === 'FATURA').map(d => d.valor.trim().toUpperCase())])].filter(n => !existentes.has(n)), [citadas, doc, existentes]);
 
@@ -35,16 +41,20 @@ export const BaixaAssistidaModal: React.FC<{
     if (!doc) return;
     const p = proporBaixa({
       saldo: doc.availableValue, ug: doc.ug, ugClienteCodigo: doc.ugCliente?.match(/\d{5}/)?.[0], comandoId: doc.comandoId,
-      destinacao: doc.destinacao, faturasCitadas: citadas,
+      destinacao: doc.destinacao, faturasCitadas: citadas, faturasCitadasParciais: citadasParciais,
     }, candidatas, { incluirContestadas });
     setItens(p.itens);
-  }, [doc, candidatas, citadas, incluirContestadas]);
+  }, [doc, candidatas, citadas, citadasParciais, incluirContestadas]);
 
   if (!doc) return null;
   const usado = Math.round(itens.reduce((s, i) => s + (i.valor > 0 ? i.valor : 0), 0) * 100) / 100;
   const sobra = Math.round((doc.availableValue - usado) * 100) / 100;
   const erros = validarBaixa(itens, doc.availableValue);
-  const temDestinacao = itens.some(i => i.grupo !== 'COMANDO');
+  // a OM indicou faturas? (destinação gravada, números na observação — mesmo mal formatados — ou alguma fatura da própria indicação na lista)
+  const temDestinacao = !!doc.destinacao?.length || citadas.length > 0 || citadasParciais.length > 0 || itens.some(i => i.grupo !== 'COMANDO');
+  const indicadas = new Set([...(doc.destinacao || []).filter(d => d.tipo === 'FATURA').map(d => d.valor.trim().toUpperCase()), ...citadas]);
+  const sufixosIndicados = new Set(citadasParciais.map(p => p.sufixo));
+  const foiIndicada = (numero: string) => indicadas.has(numero.trim().toUpperCase()) || sufixosIndicados.has(sufixoDaFatura(numero));
   const foraUsadas = itens.filter(i => i.foraDestinacao && i.valor > 0);
   const ehPagamento = doc.operation !== 'ADIANTAMENTO';
   const bloqueio = motivoBloqueio(doc.situacaoSiplad);
@@ -52,14 +62,56 @@ export const BaixaAssistidaModal: React.FC<{
   const alterar = (k: number, valor: number) => setItens(itens.map((x, n) => (n === k ? { ...x, valor: Math.max(0, Math.round(valor * 100) / 100) } : x)));
   // outras faturas em aberto (de qualquer cliente) que podem receber esta baixa, escolhidas à mão
   const q = busca.trim().toLowerCase();
-  const extras = q.length < 2 ? [] : candidatas
-    .filter(c => !itens.some(i => i.faturaId === c.id) && (incluirContestadas || !c.contestada) && `${c.numero} ${c.cliente} ${c.ug} ${c.tipo || ''}`.toLowerCase().includes(q))
-    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '') || a.numero.localeCompare(b.numero)).slice(0, 8);
+  const soAlfaNum = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // o que foi digitado pode ser um ou VÁRIOS números de fatura, completos ou mal formatados ("RB10-2026-002-0", "fat 71000-AE-09-2026-008-0")
+  const sufixosPedidos = new Set(pedidosParciais.map(p => p.sufixo));
+  const porNumero = pedidosCompletos.length + pedidosParciais.length > 0;
+  const casaPedido = (numero: string) => pedidosCompletos.includes(numero.trim().toUpperCase()) || sufixosPedidos.has(sufixoDaFatura(numero));
+  const livres = candidatas.filter(c => !itens.some(i => i.faturaId === c.id));
+  const extras = (porNumero
+    ? livres.filter(c => casaPedido(c.numero))
+    : q.length < 2 ? [] : livres.filter(c => `${c.numero} ${c.cliente} ${c.ug} ${c.tipo || ''}`.toLowerCase().includes(q) || (soAlfaNum(q).length >= 4 && soAlfaNum(c.numero).includes(soAlfaNum(q)))))
+    .filter(c => incluirContestadas || !c.contestada || porNumero)
+    .sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '') || a.numero.localeCompare(b.numero)).slice(0, porNumero ? 30 : 8);
+  // números digitados que não viraram opção: diz POR QUÊ (já quitada, cancelada, não existe...)
+  const naoAchadas = !porNumero ? [] : [
+    ...pedidosCompletos.filter(n => !extras.some(c => c.numero.trim().toUpperCase() === n)).map(n => ({ rotulo: n, filtro: (x: string) => x.trim().toUpperCase() === n })),
+    ...pedidosParciais.filter(p => !extras.some(c => sufixoDaFatura(c.numero) === p.sufixo)).map(p => ({ rotulo: p.original, filtro: (x: string) => sufixoDaFatura(x) === p.sufixo })),
+  ].map(p => {
+    const todas = invoices.filter(i => p.filtro(i.invoiceNumber || ''));
+    if (!todas.length) return { rotulo: p.rotulo, motivo: 'não existe no sistema (confira o número com a OM)' };
+    const i = todas[0];
+    if (i.isCanceled) return { rotulo: `${i.invoiceNumber}`, motivo: 'fatura cancelada' };
+    if (i.quitacaoExterna) return { rotulo: `${i.invoiceNumber}`, motivo: 'quitada fora do sistema' };
+    const c = candidatas.find(x => x.id === i.id);
+    if (!c) return { rotulo: `${i.invoiceNumber}`, motivo: 'já está quitada (não tem saldo em aberto)' };
+    if (itens.some(x => x.faturaId === i.id)) return { rotulo: `${i.invoiceNumber}`, motivo: 'já está na lista acima' };
+    return { rotulo: `${i.invoiceNumber}`, motivo: c.contestada ? 'está contestada: marque "Incluir faturas contestadas"' : 'não pôde ser adicionada' };
+  });
   const adicionar = (c: (typeof candidatas)[number]) => {
     const resta = Math.max(0, doc.availableValue - itens.reduce((t, x) => t + x.valor, 0));
     setItens([...itens, { faturaId: c.id, numero: c.numero, cliente: c.cliente, vencimento: c.vencimento, saldoFatura: c.saldo, valor: Math.round(Math.min(c.saldo, resta) * 100) / 100,
-      grupo: 'COMANDO', foraDestinacao: temDestinacao, contestada: !!c.contestada }]);
+      grupo: 'COMANDO', foraDestinacao: temDestinacao && !foiIndicada(c.numero), contestada: !!c.contestada }]);
     setBusca('');
+  };
+  /** várias de uma vez: cada uma recebe o que ainda resta do saldo da ALTCRED (no máximo o saldo da fatura) */
+  const adicionarTodas = (lista: typeof extras) => {
+    let resta = Math.max(0, doc.availableValue - itens.reduce((t, x) => t + x.valor, 0));
+    const novos = lista.map(c => {
+      const valor = Math.round(Math.min(c.saldo, resta) * 100) / 100; resta = Math.round((resta - valor) * 100) / 100;
+      return { faturaId: c.id, numero: c.numero, cliente: c.cliente, vencimento: c.vencimento, saldoFatura: c.saldo, valor, grupo: 'COMANDO' as const, foraDestinacao: temDestinacao && !foiIndicada(c.numero), contestada: !!c.contestada };
+    });
+    setItens([...itens, ...novos]); setBusca('');
+  };
+  // ALTCRED sem fatura para pagar: vira adiantamento (só se ainda não pagou nada com ela)
+  const temBaixas = baixas.some(b => b.documentId === doc.id);
+  const virarAdiantamento = async () => {
+    if (!window.confirm(`Transformar a ${doc.documentNumber} em ADIANTAMENTO? O saldo de ${brl(doc.availableValue)} fica guardado para as próximas faturas do cliente.`)) return;
+    try {
+      await db.saveDocument({ ...doc, operation: OperationType.ADIANTAMENTO, informedAdvance: true, aguardando: false, sobraAdiantamento: false });
+      notify.success(`${doc.documentNumber} agora é adiantamento.`);
+      await onGravado(); onClose();
+    } catch (e) { notify.fail('Erro ao transformar em adiantamento', e); }
   };
   const preencher = (k: number) => {
     const outros = itens.reduce((s, x, n) => s + (n === k ? 0 : x.valor), 0);
@@ -85,7 +137,7 @@ export const BaixaAssistidaModal: React.FC<{
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose} disabled={gravando}>Cancelar</Button>
-            <Button onClick={gravar} isLoading={gravando} disabled={!!bloqueio || erros.length > 0 || usado <= 0 || (temDestinacao && foraUsadas.length > 0 && !motivoFora.trim())} title={bloqueio || (temDestinacao && foraUsadas.length > 0 && !motivoFora.trim() ? 'Informe o motivo de a baixa sair fora do que a OM indicou' : undefined)}>Gravar baixas</Button>
+            <Button onClick={gravar} isLoading={gravando} disabled={!!bloqueio || erros.length > 0 || usado <= 0 || (foraUsadas.length > 0 && !motivoFora.trim())} title={bloqueio || (temDestinacao && foraUsadas.length > 0 && !motivoFora.trim() ? 'Informe o motivo de a baixa sair fora do que a OM indicou' : undefined)}>Gravar baixas</Button>
           </div>
         </div>
       }>
@@ -120,9 +172,10 @@ export const BaixaAssistidaModal: React.FC<{
         </div>
 
         {itens.length === 0 ? (
-          <p className="p-6 text-center text-slate-500 border border-dashed border-slate-300 rounded-lg">
-            Nenhuma fatura em aberto encontrada para este cliente/comando. Confira a UG e o comando do documento ou procure a fatura no campo abaixo ("Adicionar outra fatura em aberto").
-          </p>
+          <div className="p-6 text-center text-slate-500 border border-dashed border-slate-300 rounded-lg space-y-3" data-testid="sem-faturas-baixa">
+            <p>Nenhuma fatura em aberto encontrada para este cliente/comando. Confira a UG e o comando do documento, procure a fatura no campo abaixo ("Adicionar outra fatura em aberto") ou guarde o saldo como adiantamento.</p>
+            {ehPagamento && !temBaixas && <Button variant="secondary" onClick={virarAdiantamento}>Transformar esta ALTCRED em adiantamento</Button>}
+          </div>
         ) : (
           <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-[50vh] overflow-y-auto">
             <table className="min-w-full divide-y divide-slate-200">
@@ -158,9 +211,11 @@ export const BaixaAssistidaModal: React.FC<{
 
         <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/60 space-y-2">
           <label className="block text-xs font-semibold text-slate-600">Adicionar outra fatura em aberto (qualquer cliente)
-            <input aria-label="Buscar fatura para adicionar" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Digite o nº da fatura, a UG ou o nome do cliente (mín. 2 letras)"
+            <input aria-label="Buscar fatura para adicionar" value={busca} onChange={e => setBusca(e.target.value)} placeholder="Número(s) da fatura (pode colar vários, até mal formatados, ex.: RB10-2026-002-0), a UG ou o nome do cliente"
               className="mt-1 w-full border border-slate-300 rounded px-2 py-1.5 text-sm font-normal bg-white" /></label>
-          {q.length >= 2 && !extras.length && <p className="text-xs text-slate-500">Nenhuma outra fatura em aberto encontrada.</p>}
+          {q.length >= 2 && !extras.length && !naoAchadas.length && <p className="text-xs text-slate-500">Nenhuma outra fatura em aberto encontrada.</p>}
+          {naoAchadas.map(n => <p key={n.rotulo} className="text-xs text-amber-800 flex gap-1" data-testid="fatura-nao-achada"><AlertTriangle size={12} className="mt-0.5 shrink-0" /><span><span className="font-mono">{n.rotulo}</span>: {n.motivo}.</span></p>)}
+          {porNumero && extras.length > 1 && <button type="button" onClick={() => adicionarTodas(extras)} className="text-xs font-semibold text-primary-700 hover:underline">Adicionar as {extras.length} faturas encontradas</button>}
           {extras.map(c => (
             <button key={c.id} type="button" onClick={() => adicionar(c)} aria-label={`Adicionar a fatura ${c.numero}`}
               className="w-full flex flex-wrap items-center justify-between gap-2 text-left text-xs bg-white border border-slate-200 hover:border-primary-400 rounded px-2 py-1.5">
@@ -177,8 +232,8 @@ export const BaixaAssistidaModal: React.FC<{
           </div>
         )}
         {erros.map(e => <p key={e} className="text-red-600 flex gap-1"><AlertTriangle size={14} className="mt-0.5" />{e}</p>)}
-        {temDestinacao && foraUsadas.length > 0 && (
-          <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 space-y-2">
+        {foraUsadas.length > 0 && (
+          <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 space-y-2" data-testid="motivo-fora">
             <p className="text-amber-800 flex gap-1"><AlertTriangle size={14} className="mt-0.5 shrink-0" />
               A OM indicou outras faturas. {foraUsadas.length} fatura(s) fora da indicação receberão baixa: <span className="font-mono">{foraUsadas.map(i => i.numero).join(', ')}</span>.
               Isso ficará marcado como ponto de atenção, já com o motivo abaixo.
