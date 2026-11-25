@@ -69,9 +69,9 @@ export const FichaRubrica: React.FC<{
             <input disabled={!podeEditar} className={`${entrada} w-full`} value={r.responsavel || ''} onChange={e => onMudar({ responsavel: e.target.value })} aria-label="Responsável pela rubrica" placeholder="posto (setor) nome" />
           </label>
           <label className="mb-3 flex items-start gap-2 text-sm rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
-            <input type="checkbox" className="mt-1" disabled={!podeEditar} checked={!!r.zeroConfirmado} aria-label="Zero mesmo: sem orçamento neste ano"
+            <input type="checkbox" className="mt-1" disabled={!podeEditar} checked={!!r.zeroConfirmado} aria-label="Sem orçamento neste ano"
               onChange={e => onMudar(e.target.checked ? { zeroConfirmado: true, valorPrevisto: 0, valorModo: 'DIGITADO' } : { zeroConfirmado: false })} />
-            <span><b>Zero mesmo</b> — esta rubrica não terá orçamento em {ano}. <span className="text-slate-500">Diferente de "ainda não enviaram o subsídio": a rubrica deixa de aparecer como pendência e fica registrada como sem orçamento. Descreva o motivo em "Por que este valor?".</span></span>
+            <span><b>Sem orçamento em {ano}</b> — esta rubrica não terá valor neste ano (fica em zero). <span className="text-slate-500">Diferente de "ainda não enviaram o subsídio": a rubrica deixa de aparecer como pendência e fica registrada como sem orçamento. Descreva o motivo em "Por que este valor?".</span></span>
           </label>
           <div className="mb-3 flex flex-wrap items-center gap-4 text-sm" role="radiogroup" aria-label="Como definir o valor">
             <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar} checked={!usaSoma} onChange={() => onMudar({ valorModo: 'DIGITADO' })} aria-label="Valor digitado" />Valor digitado</label>

@@ -22,7 +22,7 @@ export const AbaResponsaveis: React.FC<{ ano: number; dados: DadosProposta; pode
   const [filtro, setFiltro] = useState<'TODAS' | 'PENDENTES'>('TODAS');
   useEffect(() => { if (!sujo) { setResp(inicial()); setZero(inicialZero()); } }, [dados]);
 
-  const semSub = (n: number) => !dados.subsidios.some(s => s.rubrica === n) && !zero[n]; // pendência de verdade: sem subsídio e sem "zero mesmo"
+  const semSub = (n: number) => !dados.subsidios.some(s => s.rubrica === n) && !zero[n]; // pendência de verdade: sem subsídio e sem "sem orçamento"
   const nomeResp = (n: number) => (resp[n] || '').trim();
   const grupos = useMemo(() => {
     const m = new Map<string, number[]>();
@@ -44,7 +44,7 @@ export const AbaResponsaveis: React.FC<{ ano: number; dados: DadosProposta; pode
 
   return (
     <div className="space-y-4" data-testid="aba-responsaveis">
-      <p className="text-xs text-slate-500">Quem envia o subsídio e a atualização de cada rubrica em {ano}. A lista vem do ano anterior; corrija o que mudou e grave. Rubricas <b>sem subsídio</b> mostram quem ainda precisa enviar; se a rubrica não terá orçamento este ano, marque <b>Zero mesmo</b> e ela deixa de ser pendência.</p>
+      <p className="text-xs text-slate-500">Quem envia o subsídio e a atualização de cada rubrica em {ano}. A lista vem do ano anterior; corrija o que mudou e grave. Rubricas <b>sem subsídio</b> mostram quem ainda precisa enviar; se a rubrica não terá orçamento este ano, marque <b>Sem orçamento</b> e ela deixa de ser pendência.</p>
       {semResp.length > 0 && <Aviso tom="amber">{semResp.length} rubrica(s) sem responsável: {semResp.map(r => r.numero).join(', ')}.</Aviso>}
       <div className="border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-3 py-1.5 bg-slate-50 text-xs font-semibold text-slate-600">Por responsável (quem tem pendência vem primeiro)</div>
@@ -83,7 +83,7 @@ export const AbaResponsaveis: React.FC<{ ano: number; dados: DadosProposta; pode
                   ? <span className="text-emerald-700">recebido ({dados.subsidios.filter(s => s.rubrica === r.numero).length})</span>
                   : <select disabled={!podeEditar} className={`${entrada} text-xs`} value={zero[r.numero] ? 'ZERO' : 'AGUARDA'} aria-label={`Situação da rubrica ${r.numero}`}
                       onChange={e => { setSujo(true); setZero(m => ({ ...m, [r.numero]: e.target.value === 'ZERO' })); }}>
-                      <option value="AGUARDA">Aguardando subsídio</option><option value="ZERO">Zero mesmo (sem orçamento)</option></select>}</td>
+                      <option value="AGUARDA">Aguardando subsídio</option><option value="ZERO">Sem orçamento em {ano} (valor zero)</option></select>}</td>
               </tr>
             ))}
             {!lista.length && <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-500">Todas as rubricas têm subsídio.</td></tr>}

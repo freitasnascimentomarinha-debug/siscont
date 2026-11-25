@@ -42,7 +42,7 @@ export interface RubricaProposta extends RubricaTC {
   valorModo?: 'DIGITADO' | 'SUBSIDIOS';
   /** quem envia o subsídio / atualização desta rubrica (lista de responsáveis) */
   responsavel?: string | null;
-  /** rubrica sem orçamento neste ano ("zero mesmo"): não é pendência de subsídio */
+  /** rubrica sem orçamento neste ano ("sem orçamento"): não é pendência de subsídio */
   zeroConfirmado?: boolean;
   /** coluna DESCONTOS da planilha importada (conferência) */
   descontoPlanilha?: number | null;
@@ -164,7 +164,7 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
       }
     }
     {
-      // script 047: rubrica "zero mesmo" (sem orçamento no ano)
+      // script 047: rubrica sem orçamento no ano
       const { error: e047 } = await supabase.from('rubricas').update({ zero_confirmado: r.zeroConfirmado === true }).eq('ano', ano).eq('numero', r.numero);
       if (e047) { if (/zero_confirmado/.test(e047.message || '')) { if (r.zeroConfirmado) throw new Error('Falta executar o script supabase/migrations/047_rubricas_zero_confirmado.sql no Supabase.'); } else checar(e047); }
     }
