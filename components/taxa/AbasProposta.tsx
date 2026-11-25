@@ -130,12 +130,12 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     const corpo = todas.map(({ l }) => { const c = calc(l); const sb = subDe(l.numero); const navios = entraNaTaxa(l);
       return [l.numero, l.descricao, rotulo[l.destino] || l.destino, l.responsavel || '-', brl(l.valorPrevisto), l.gastoAnterior ? brl(l.gastoAnterior) : '-', pct1(c.variacao), navios && c.descontos ? brl(c.descontos) : '-', navios ? brl(c.atualizado) : brl(l.valorPrevisto),
         navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-',
-        sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : l.zeroConfirmado ? 'sem orçamento em '+ano+' (valor zero)' : navios ? 'sem subsídio (aguardando)' : '-']; });
+        sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0)).replace('R$ ', '')})` : l.zeroConfirmado ? 'sem orçamento em '+ano+' (valor zero)' : navios ? 'sem subsídio (aguardando)' : '-']; });
     const somas = [linhaSoma(`Soma das ${tc.length} rubricas da taxa`, tTC, true), ...(og.length ? [linhaSoma(`Soma dos ${og.length} outros gastos`, tOG, true)] : []), ...(par.length ? [linhaSoma('Soma fora da taxa', tPAR, false)] : [])];
     const tabela = {
       titulo: `Rubricas da taxa condominial ${ano} (${todas.length})`, head: ['Nº', 'Despesa', 'Entra como', 'Responsável', `Valor ${ano}`, `Valor ${ano - 1}`, 'Variação', 'Descontos', 'Valor atualizado', 'Navios', 'Rateio', 'Subsídio'],
       body: [...corpo, ...somas], destaque: somas.map((_, k) => corpo.length + k),
-      direita: [4, 5, 6, 7, 8, 9], larguras: [8, 46, 22, 34, 22, 22, 16, 20, 24, 20, 26, 28],
+      direita: [4, 5, 6, 7, 8, 9], larguras: [7, 38, 16, 26, 27, 27, 17, 25, 27, 25, 22, 28], fonte: 7,
     };
     const comJust = linhas.filter(l => l.destino !== 'DA' && (l.justificativaValor || '').trim()).sort((x, y) => x.numero - y.numero);
     const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length && !l.zeroConfirmado).sort((x, y) => x.numero - y.numero);

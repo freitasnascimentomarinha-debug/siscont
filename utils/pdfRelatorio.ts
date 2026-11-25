@@ -11,6 +11,8 @@ export interface TabelaPdf {
   /** linhas em destaque (índices do body), por exemplo as linhas de grupo */
   destaque?: number[];
   larguras?: number[];
+  /** tamanho da fonte da tabela (padrão 8); tabelas largas com valores altos usam menos */
+  fonte?: number;
 }
 export interface RelatorioPdf {
   titulo: string; linhas: string[]; cartoes?: [string, string][]; tabelas: TabelaPdf[]; rodape?: string;
@@ -51,7 +53,7 @@ function montar(r: RelatorioPdf, compacto: boolean): jsPDF {
     const destaque = new Set(t.destaque || []);
     tabelaPdf(doc, {
       startY: y + 1, head: [[{ content: t.titulo, colSpan: t.head.length, styles: { fillColor: TEMA.faixa, halign: 'left' } }], t.head], body: t.body,
-      foot: t.total ? [t.total] : undefined, tableWidth: util, styles: { fontSize: compacto ? 7.5 : 8, cellPadding: compacto ? 1.05 : 1.6 }, headStyles: { fillColor: TEMA.cab },
+      foot: t.total ? [t.total] : undefined, tableWidth: util, styles: { fontSize: t.fonte ? (compacto ? t.fonte - 0.5 : t.fonte) : compacto ? 7.5 : 8, cellPadding: compacto ? 1.05 : 1.6 }, headStyles: { fillColor: TEMA.cab },
       columnStyles: Object.fromEntries(t.head.map((_, i) => [i, { ...(dir.has(i) ? { halign: 'right' } : {}), ...(t.larguras?.[i] ? { cellWidth: t.larguras[i] * escala(t.larguras) } : {}) }])),
       didParseCell: (d: any) => {
         if (d.section === 'head' && d.row.index === 1 && dir.has(d.column.index)) d.cell.styles.halign = 'right';
