@@ -99,6 +99,7 @@ export const AbaVariacoes: React.FC<{ ano: number; versao: unknown }> = ({ ano, 
                 </tr>
                 {abertas.has(o.omId) && (
                   <tr className="bg-slate-50"><td /><td colSpan={6} className="px-2 py-2">
+                    {o.motivoSemAnterior && <div className="mb-2 rounded border border-sky-200 bg-sky-50 text-sky-900 px-2 py-1.5 text-xs"><b>Sem dados de {ano - 1}:</b> {o.motivoSemAnterior}.</div>}
                     <table className="w-full text-[11px]">
                       <thead className="text-slate-500"><tr><th className="text-left">Nº · Rubrica</th><th className="text-right px-2">{ano - 1}</th><th className="text-right px-2">{ano}</th><th className="text-right px-2">Variação</th><th className="text-left px-2">Por quê</th></tr></thead>
                       <tbody>

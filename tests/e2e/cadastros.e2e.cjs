@@ -1712,7 +1712,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const t = await linha.innerText();
     ok(/Aumento de/.test(t) && /valor das rubricas 1/.test(t) && /lotação da OM \(100 → 150\)/.test(t) && /outras OM passaram a dividir/.test(t), `AMRJ: justificativa cita valor da rubrica, lotação (100 → 150) e a OM nova que passou a dividir (${t.replace(/\s+/g, ' ').slice(0, 260)})`);
     const nv = await page.getByRole('row').filter({ hasText: 'OM Nova' }).first().innerText();
-    ok(/nova/.test(nv) && /sem taxa em 2026/.test(nv), 'OM nova: explica que não tinha taxa no ano anterior');
+    ok(/nova/.test(nv) && /não há dados de 2026 para comparar/.test(nv) && /não constava na lotação nem na matriz/.test(nv), 'OM nova: explica por que não há dados do ano anterior');
     await linha.click();
     await page.getByText('Valor da rubrica', { exact: false }).first().waitFor();
     ok(await page.getByText(/valor da rubrica subiu de R\$ 1\.000,00 para R\$ 1\.200,00/).isVisible(), 'detalhe por rubrica: valor da rubrica subiu de 1.000 para 1.200');

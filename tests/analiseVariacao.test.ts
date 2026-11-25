@@ -34,10 +34,18 @@ describe('Justificativa das variações', () => {
     const b = r.find(o => o.omId === 'B')!;
     expect(b.rubricas.find(l => l.numero === 1)!.efeitos[0].causa).toBe('SAIU_RUBRICA');
     expect(b.rubricas.find(l => l.numero === 2)!.efeitos[0].causa).toBe('ENTROU_RUBRICA');
+    expect(b.rubricas.find(l => l.numero === 2)!.efeitos[0].detalhe).toMatch(/NÃO fazia parte desta rubrica em 2026.*PASSOU A FAZER PARTE em 2027/);
+    expect(b.resumo).toMatch(/PASSOU A FAZER PARTE das rubricas 2/);
+    expect(b.resumo).toMatch(/DEIXOU DE FAZER PARTE das rubricas 1/);
     expect(Math.abs(soma(b) - b.diferenca)).toBeLessThan(0.05);
     const novo = analisarVariacoes(ant, ano(2027, [rub(1, 1000)], { A: 100, B: 100, C: 10 }, ['1|A', '1|B', '1|C'])).find(o => o.omId === 'C')!;
     expect(novo.situacao).toBe('NOVA');
-    expect(novo.resumo).toMatch(/OM sem taxa em 2026/);
+    expect(novo.resumo).toMatch(/OM NOVA na taxa condominial — não há dados de 2026/);
+    expect(novo.motivoSemAnterior).toMatch(/não constava na lotação nem na matriz/);
+    expect(novo.rubricas[0].efeitos[0].detalhe).toMatch(/OM nova na taxa: passou a fazer parte desta rubrica/);
+    // tinha lotação mas não estava na matriz
+    const semMatriz = analisarVariacoes(ano(2026, [rub(1, 1000)], { A: 100, C: 10 }, ['1|A']), ano(2027, [rub(1, 1000)], { A: 100, C: 10 }, ['1|A', '1|C'])).find(o => o.omId === 'C')!;
+    expect(semMatriz.motivoSemAnterior).toMatch(/tinha lotação em 2026, mas não estava marcada em nenhuma rubrica/);
     const saiu = analisarVariacoes(ant, ano(2027, [rub(1, 1000)], { A: 100 }, ['1|A'])).find(o => o.omId === 'B')!;
     expect(saiu.situacao).toBe('SAIU');
   });

@@ -32,6 +32,8 @@ export interface AnaliseOM {
   lotacaoAnterior: number | null; lotacaoAtual: number | null;
   anualAnterior: number; anualAtual: number; diferenca: number; percentual: number | null;
   porCausa: Partial<Record<Causa, number>>; rubricas: LinhaRubrica[]; resumo: string;
+  /** OM sem dados do ano anterior: por que não há com o que comparar */
+  motivoSemAnterior?: string;
 }
 export type CalculoAno = ReturnType<typeof calcularTaxaAno>;
 export interface EntradaAno { ano: number; calc: CalculoAno; matriz: Set<string>; rubricas: { numero: number; descricao: string; criterio?: string }[] }
@@ -58,7 +60,9 @@ export function analisarVariacoes(ant: EntradaAno, atu: EntradaAno): AnaliseOM[]
   const ids = [...new Set([...omsAnt.keys(), ...omsAtu.keys()])];
   const out: AnaliseOM[] = ids.map(id => {
     const oa = omsAnt.get(id), ob = omsAtu.get(id);
-    const situacao: AnaliseOM['situacao'] = !oa ? 'NOVA' : !ob ? 'SAIU' : 'MANTIDA';
+    // "nova": não pagava taxa no ano anterior (sem lotação ou sem nenhuma rubrica marcada) e agora paga; "saiu": o contrário
+    const pagavaAnt = !!oa && oa.parcelas.length > 0, pagaAtu = !!ob && ob.parcelas.length > 0;
+    const situacao: AnaliseOM['situacao'] = !pagavaAnt && pagaAtu ? 'NOVA' : pagavaAnt && !pagaAtu ? 'SAIU' : 'MANTIDA';
     const linhas: LinhaRubrica[] = [];
     for (const n of numeros) {
       const pa = partsAnt.get(n)!, pc = partsAtu.get(n)!;
@@ -71,8 +75,14 @@ export function analisarVariacoes(ant: EntradaAno, atu: EntradaAno): AnaliseOM[]
       const add = (causa: Causa, valor: number, detalhe: string) => { if (Math.abs(valor) >= 0.005) ef.push({ causa, valor, detalhe }); };
       if (!rubAnt.has(n)) add('RUBRICA_NOVA', liqC - liqP, `rubrica nova em ${atu.ano}, com ${brl(Vc)}`);
       else if (!rubAtu.has(n)) add('RUBRICA_EXCLUIDA', liqC - liqP, `rubrica não existe mais em ${atu.ano} (era ${brl(Vp)})`);
-      else if (!wP && wC) add('ENTROU_RUBRICA', liqC - liqP, `a OM não participava da rubrica em ${ant.ano} e passou a participar em ${atu.ano}`);
-      else if (wP && !wC) add('SAIU_RUBRICA', liqC - liqP, `a OM participava da rubrica em ${ant.ano} e deixou de participar em ${atu.ano}`);
+      else if (!wP && wC) {
+        const SC0 = pc.reduce((s, x) => s + x.peso, 0);
+        const parcela = `parcela de ${brl(liqC)}: ${brl(Vc)} da rubrica × peso da OM ${wC.toLocaleString('pt-BR')} ÷ ${SC0.toLocaleString('pt-BR')} (soma dos pesos de quem divide a rubrica)`;
+        add('ENTROU_RUBRICA', liqC - liqP, oa
+          ? `a OM NÃO fazia parte desta rubrica em ${ant.ano} (não estava marcada na matriz) e PASSOU A FAZER PARTE em ${atu.ano}; ${parcela}`
+          : `OM nova na taxa: passou a fazer parte desta rubrica em ${atu.ano}; ${parcela}`);
+      }
+      else if (wP && !wC) add('SAIU_RUBRICA', liqC - liqP, ob ? `a OM participava desta rubrica em ${ant.ano} (pagava ${brl(liqP)}) e DEIXOU DE FAZER PARTE em ${atu.ano} (desmarcada na matriz ou sem peso)` : `a OM saiu da taxa em ${atu.ano}: deixou de pagar ${brl(liqP)} nesta rubrica`);
       else if (wP && wC) {
         const SP = pa.reduce((s, x) => s + x.peso, 0), SC = pc.reduce((s, x) => s + x.peso, 0);
         const idsA = new Set(pa.map(x => x.omId)), idsC = new Set(pc.map(x => x.omId));
@@ -121,14 +131,21 @@ export function analisarVariacoes(ant: EntradaAno, atu: EntradaAno): AnaliseOM[]
     if (Math.abs(ajuste) >= 0.02) porCausa.AJUSTE = ajuste;
     const diferenca = r2(anualC - anualP);
     const percentual = anualP ? Math.round((diferenca / anualP) * 10000) / 100 : null;
-    const base = { omId: id, nome: nomes.get(id) || '', situacao, lotacaoAnterior: oa ? lotAnt.get(id) ?? null : null, lotacaoAtual: ob ? lotAtu.get(id) ?? null : null, anualAnterior: anualP, anualAtual: anualC, diferenca, percentual, porCausa, rubricas: linhas.filter(l => l.diferenca !== 0 || l.efeitos.length) };
+    let motivoSemAnterior: string | undefined;
+    if (situacao === 'NOVA') {
+      const tinhaLot = ant.calc.terra.some(p => p.omId === id), naMatrizAnt = [...ant.matriz].some(k => k.slice(k.indexOf('|') + 1) === id);
+      motivoSemAnterior = !tinhaLot && !naMatrizAnt ? `a OM não constava na lotação nem na matriz da taxa de ${ant.ano}: ela passou a participar da taxa condominial em ${atu.ano}, por isso não há valor anterior para comparar`
+        : tinhaLot && !naMatrizAnt ? `a OM tinha lotação em ${ant.ano}, mas não estava marcada em nenhuma rubrica da matriz (não pagava taxa condominial); em ${atu.ano} passou a participar`
+        : `a OM estava na matriz de ${ant.ano}, mas sem lotação informada (sem peso para o rateio, não pagou); em ${atu.ano} passou a ter lotação e a participar`;
+    }
+    const base = { omId: id, nome: nomes.get(id) || '', situacao, motivoSemAnterior, lotacaoAnterior: oa ? lotAnt.get(id) ?? null : null, lotacaoAtual: ob ? lotAtu.get(id) ?? null : null, anualAnterior: anualP, anualAtual: anualC, diferenca, percentual, porCausa, rubricas: linhas.filter(l => l.diferenca !== 0 || l.efeitos.length) };
     return { ...base, resumo: resumir(base, ant.ano, atu.ano, linhas) };
   });
   return out.sort((a, b) => a.nome.localeCompare(b.nome));
 }
 
 function resumir(o: Omit<AnaliseOM, 'resumo'>, anoAnt: number, anoAtu: number, linhas: LinhaRubrica[]): string {
-  if (o.situacao === 'NOVA') return `OM sem taxa em ${anoAnt} (não estava na matriz ou na lotação): passa a pagar ${brl(o.anualAtual)} por ano em ${anoAtu}, em ${linhas.filter(l => l.atual > 0).length} rubrica(s).`;
+  if (o.situacao === 'NOVA') return `OM NOVA na taxa condominial — não há dados de ${anoAnt} para comparar: ${o.motivoSemAnterior}. Em ${anoAtu} paga ${brl(o.anualAtual)} por ano, em ${linhas.filter(l => l.atual > 0).length} rubrica(s) (${linhas.filter(l => l.atual > 0).map(l => l.numero).slice(0, 12).join(', ')}).`;
   if (o.situacao === 'SAIU') return `OM com taxa em ${anoAnt} (${brl(o.anualAnterior)}) que não participa do rateio de ${anoAtu}.`;
   if (Math.abs(o.diferenca) < 0.005) return `Sem variação no total anual (${brl(o.anualAtual)}).`;
   const quais = (causa: Causa, n = 3) => linhas.filter(l => l.efeitos.some(e => e.causa === causa && Math.abs(e.valor) >= 0.5)).sort((a, b) => Math.abs(b.efeitos.find(e => e.causa === causa)!.valor) - Math.abs(a.efeitos.find(e => e.causa === causa)!.valor)).slice(0, n).map(l => l.numero);
@@ -139,8 +156,8 @@ function resumir(o: Omit<AnaliseOM, 'resumo'>, anoAnt: number, anoAtu: number, l
   if (Math.abs(v('OUTRAS_SAIRAM')) >= 0.5) partes.push([v('OUTRAS_SAIRAM'), `${sinal(v('OUTRAS_SAIRAM'))} porque outras OM deixaram de dividir as rubricas ${quais('OUTRAS_SAIRAM').join(', ')}`]);
   if (Math.abs(v('OUTRAS_ENTRARAM')) >= 0.5) partes.push([v('OUTRAS_ENTRARAM'), `${sinal(v('OUTRAS_ENTRARAM'))} porque outras OM passaram a dividir as rubricas ${quais('OUTRAS_ENTRARAM').join(', ')}`]);
   if (Math.abs(v('LOTACAO_OUTRAS')) >= 0.5) partes.push([v('LOTACAO_OUTRAS'), `${sinal(v('LOTACAO_OUTRAS'))} por ${v('LOTACAO_OUTRAS') > 0 ? 'redução' : 'aumento'} da lotação das demais OM`]);
-  if (Math.abs(v('ENTROU_RUBRICA')) >= 0.5) partes.push([v('ENTROU_RUBRICA'), `${sinal(v('ENTROU_RUBRICA'))} por passar a participar das rubricas ${quais('ENTROU_RUBRICA', 6).join(', ')}`]);
-  if (Math.abs(v('SAIU_RUBRICA')) >= 0.5) partes.push([v('SAIU_RUBRICA'), `${sinal(v('SAIU_RUBRICA'))} por deixar de participar das rubricas ${quais('SAIU_RUBRICA', 6).join(', ')}`]);
+  if (Math.abs(v('ENTROU_RUBRICA')) >= 0.5) partes.push([v('ENTROU_RUBRICA'), `${sinal(v('ENTROU_RUBRICA'))} porque a OM PASSOU A FAZER PARTE das rubricas ${quais('ENTROU_RUBRICA', 8).join(', ')} (em ${anoAnt} não participava delas)`]);
+  if (Math.abs(v('SAIU_RUBRICA')) >= 0.5) partes.push([v('SAIU_RUBRICA'), `${sinal(v('SAIU_RUBRICA'))} porque a OM DEIXOU DE FAZER PARTE das rubricas ${quais('SAIU_RUBRICA', 8).join(', ')} (em ${anoAnt} participava delas)`]);
   if (Math.abs(v('RUBRICA_NOVA')) >= 0.5) partes.push([v('RUBRICA_NOVA'), `${sinal(v('RUBRICA_NOVA'))} por rubrica(s) nova(s) (${quais('RUBRICA_NOVA', 6).join(', ')})`]);
   if (Math.abs(v('RUBRICA_EXCLUIDA')) >= 0.5) partes.push([v('RUBRICA_EXCLUIDA'), `${sinal(v('RUBRICA_EXCLUIDA'))} por rubrica(s) excluída(s) (${quais('RUBRICA_EXCLUIDA', 6).join(', ')})`]);
   const desc = v('DESCONTO') + v('DESCONTO_TOTAL');
