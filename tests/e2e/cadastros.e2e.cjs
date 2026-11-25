@@ -1610,7 +1610,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true }; db.classes_navio.push(classe);
     const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
     db.oms.push(amrj);
-    db.rubricas.push({ ano: 2027, numero: 1, descricao: 'Telhados', destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }, { ano: 2027, numero: 2, descricao: 'Água', destino: 'TC', valor_previsto: 500, valor_anual: 500, desconto_geral: 0 });
+    db.rubricas.push({ ano: 2027, numero: 1, descricao: 'Telhados', destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }, { ano: 2027, numero: 2, descricao: 'Água', destino: 'TC', valor_previsto: 500, valor_anual: 500, desconto_geral: 0 }, { ano: 2027, numero: 3, descricao: 'Gás', destino: 'TC', valor_previsto: 400, valor_anual: 400, desconto_geral: 0 });
     db.lotacoes_tc.push({ id: uid(), ano: 2027, om_id: amrj.id, lotacao: 600, lotacao_anterior: 600 });
     const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-imp-'));
     // histórico: duas abas chamadas "2023" (a segunda é 2024) e uma "2025"
@@ -1659,6 +1659,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByLabel('Planilha de subsídios').setInputFiles(sub2);
     for (let i = 0; i < 40 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) !== 1300; i++) await page.waitForTimeout(250);
     ok(Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1300, 'nova importação troca o valor da rubrica (1.000 + 300 = 1.300) sem digitar');
+    // alerta das rubricas sem subsídio (a 2 tem valor digitado e nenhum subsídio na planilha)
+    ok(/1 rubrica\(s\) sem subsídio.*3/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta: rubrica 3 aparece como "sem subsídio"');
+    ok(await page.getByText('sem subsídio', { exact: true }).first().isVisible(), 'marca "sem subsídio" na linha da rubrica');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');
@@ -1678,7 +1681,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'importar-lotacao-previa.png') });
     await page.getByRole('button', { name: 'Gravar importação' }).click();
     for (let i = 0; i < 40 && db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao !== 714; i++) await page.waitForTimeout(250);
-    ok(db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao === 714 && db.rubricas.length === 2, 'lotação: gravou 714 e não mexeu nas rubricas');
+    ok(db.lotacoes_tc.find(l => l.om_id === amrj.id).lotacao === 714 && db.rubricas.length === 3, 'lotação: gravou 714 e não mexeu nas rubricas');
     // limpar o que foi importado no exercício (com confirmação digitada)
     await page.getByRole('button', { name: 'Limpar importado' }).click();
     await page.getByTestId('limpar-importado').waitFor();
@@ -1689,7 +1692,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await bLimpar.click();
     for (let i = 0; i < 40 && (db.subsidios_tc.length || db.lotacoes_tc.length); i++) await page.waitForTimeout(250);
     ok(db.subsidios_tc.length === 0 && db.lotacoes_tc.length === 0 && db.atracacao_anual.length === 0, 'limpar: subsídios, lotação e histórico do exercício apagados');
-    ok(db.rubricas.length === 2 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1500, 'limpar: as rubricas e seus valores continuam (valores só zeram se marcado)');
+    ok(db.rubricas.length === 3 && Number(db.rubricas.find(r => r.numero === 1).valor_previsto) === 1500, 'limpar: as rubricas e seus valores continuam (valores só zeram se marcado)');
   });
 
   await cenario('Justificativa das variações da taxa: por OM e rubrica, em relação ao ano anterior', [], async (page, db) => {

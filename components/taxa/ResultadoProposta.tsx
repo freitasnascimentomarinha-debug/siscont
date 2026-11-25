@@ -98,6 +98,10 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
       {conferidos.length > 0 && (divergem.length
         ? <Aviso><b>Conferência com a planilha:</b> {conferidos.length - divergem.length} de {conferidos.length} conferem. Diferentes: {divergem.map(o => `${o.nome} (sistema ${brl(atual(o))} × planilha ${brl(planilha(o) || 0)})`).join('; ')}.</Aviso>
         : <Aviso tom="emerald"><b>Conferência com a planilha:</b> os {conferidos.length} valores {da ? 'de diária' : 'mensais'} conferem com a aba PROPOSTA da planilha importada.</Aviso>)}
+      {!da && (() => {
+        const sem = dados.rubricas.filter(x => (x.destino === 'TC' || x.destino === 'OG') && !dados.subsidios.some(s => s.rubrica === x.numero));
+        return sem.length && dados.subsidios.length ? <Aviso tom="amber"><b>Atenção — rubricas sem subsídio:</b> {sem.map(x => `${x.numero} – ${x.descricao}${x.valorPrevisto > 0 ? ` (${brl(x.valorPrevisto)} sem documento)` : ' (valor em branco)'}`).join('; ')}. As de valor em branco não entram no rateio; confira quando os subsídios chegarem.</Aviso> : null;
+      })()}
       {semPart.length > 0 && <Aviso tom="red"><b>Rubricas com valor e sem participante</b> (não rateadas): {semPart.map(r => `${r.numero} – ${rub.get(r.numero)?.descricao} (${brl(r.valor)})`).join('; ')}. {da ? 'Inclua os navios na aba Navios.' : 'Marque as OM na aba Clientes e matriz ou zere o valor.'}</Aviso>}
       {da && !totalVig && <Aviso>Nenhuma linha da taxa com parte dos navios. Defina no quadro "Valor destinado aos navios" da aba 5. Navios.</Aviso>}
       {semHist.length > 0 && <Aviso>

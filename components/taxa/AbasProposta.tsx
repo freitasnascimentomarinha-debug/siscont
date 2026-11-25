@@ -168,6 +168,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     return (
       <span className="flex items-center gap-1.5 text-[11px] whitespace-nowrap">
         <span title={l.justificativaValor || 'sem justificativa do valor'} className={l.justificativaValor?.trim() ? 'text-emerald-700' : 'text-slate-300'}>{l.justificativaValor?.trim() ? '✍ ok' : '✍ —'}</span>
+        {!sb.length && (l.destino === 'TC' || l.destino === 'OG') && dados.subsidios.length > 0 && <span title="Sem subsídio: aguardando documento do responsável" className="px-1 rounded bg-amber-100 text-amber-800 font-semibold">sem subsídio</span>}
         <span title={`${sb.length} subsídio(s), soma ${brl(soma)}`} className={sb.length ? (Math.abs(soma - l.valorPrevisto) < 0.01 ? 'text-emerald-700' : 'text-slate-600') : 'text-slate-300'}>Σ {sb.length}</span>
         <span title={`${ax.length} documento(s)`} className={ax.length ? 'text-emerald-700' : 'text-slate-300'}>📎 {ax.length}</span>
       </span>
@@ -236,6 +237,14 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <Button size="sm" variant="secondary" onClick={() => exportarSubsidios(ano, linhas, dados, descontosPorOM).catch(e => notify.fail('Erro ao exportar', e))}><Download size={14} className="mr-1" />Pacote de subsídios (ZIP)</Button>
       </div>
       {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
+      {(() => {
+        // rubricas da taxa sem nenhum subsídio: o valor fica em branco (zero) até chegar o documento do responsável
+        const sem = linhas.filter(l => (l.destino === 'TC' || l.destino === 'OG') && !subDe(l.numero).length);
+        if (!sem.length || !dados.subsidios.length) return null;
+        const zeradas = sem.filter(l => !(l.valorPrevisto > 0));
+        return <Aviso tom="amber"><b data-testid="alerta-sem-subsidio">Atenção: {sem.length} rubrica(s) sem subsídio</b> — {sem.map(l => l.numero).join(', ')}.{' '}
+          {zeradas.length === sem.length ? 'Todas estão com o valor em branco (R$ 0,00) e não entram no rateio até receberem o subsídio.' : `${zeradas.length} estão com o valor em branco (R$ 0,00) e ${sem.length - zeradas.length} com valor digitado, sem documento que o sustente.`} Importe os subsídios ou preencha a ficha de cada uma quando o responsável enviar.</Aviso>;
+      })()}
       {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.join(', ')} (passe o mouse no ⚠).</Aviso>}
 
       {bloco('TC', <table className="w-full text-xs">{cabecalho(true)}<tbody>{tc.map(x => linhaTabela(x, true))}</tbody>{rodape(`SOMA DAS ${tc.length} RUBRICAS DA TAXA`, tTC, true)}</table>)}
