@@ -71,9 +71,9 @@ export function relatorioTaxa(e: EntradaTaxaPdf): RelatorioPdf {
     });
   } else {
     tabelas.push({
-      titulo: `Anexo B — comparativo ${e.ano - 1} × ${e.ano} por OM`, head: ['OM', `Mensal ${e.ano - 1}`, `Proposta ${e.ano} (A)`, 'Descontos (ano)', 'Proposta atualizada', 'Mensal', '%', 'Variação'],
-      body: e.oms.map(o => [o.nome, o.anteriorMensal ? brl(o.anteriorMensal) : '-', brl(o.bruto), o.descontos ? brl(o.descontos) : '-', brl(o.anual), brl(o.mensal), pct(o.percentual), o.variacao === null ? '-' : pct(o.variacao)]),
-      direita: [1, 2, 3, 4, 5, 6, 7], total: ['Total', '', brl(e.oms.reduce((s, o) => s + o.bruto, 0)), brl(e.oms.reduce((s, o) => s + o.descontos, 0)), brl(e.oms.reduce((s, o) => s + o.anual, 0)), brl(e.oms.reduce((s, o) => s + o.mensal, 0)), '', ''],
+      titulo: `Anexo B — comparativo ${e.ano - 1} × ${e.ano} por OM`, head: ['OM', `Anual ${e.ano - 1}`, `Mensal ${e.ano - 1}`, `Proposta ${e.ano} (A)`, 'Descontos (ano)', 'Proposta atualizada', 'Mensal', '%', 'Variação'],
+      body: e.oms.map(o => [o.nome, o.anteriorMensal ? brl(Math.round(o.anteriorMensal * 1200) / 100) : '-', o.anteriorMensal ? brl(o.anteriorMensal) : '-', brl(o.bruto), o.descontos ? brl(o.descontos) : '-', brl(o.anual), brl(o.mensal), pct(o.percentual), o.variacao === null ? '-' : pct(o.variacao)]),
+      direita: [1, 2, 3, 4, 5, 6, 7, 8], total: ['Total', brl(e.oms.reduce((s, o) => s + Math.round((o.anteriorMensal || 0) * 1200) / 100, 0)), brl(e.oms.reduce((s, o) => s + (o.anteriorMensal || 0), 0)), brl(e.oms.reduce((s, o) => s + o.bruto, 0)), brl(e.oms.reduce((s, o) => s + o.descontos, 0)), brl(e.oms.reduce((s, o) => s + o.anual, 0)), brl(e.oms.reduce((s, o) => s + o.mensal, 0)), '', ''],
     });
   }
   tabelas.push({

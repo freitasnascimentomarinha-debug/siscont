@@ -117,7 +117,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
             <th className="px-2 text-right">{da ? 'Valor anual estimado' : 'Anual'}</th><th className="px-2 text-right">{da ? 'Valor estimado mês' : 'Mensal (TC)'}</th><th className="px-2 text-right">%</th>
             {da && <th className="px-2 text-right">Diária {ano}</th>}
             <th className="px-2 text-right" title="valor da aba PROPOSTA da planilha importada">Planilha</th>
-            <th className="px-2 text-right">{da ? `Diária ${ano - 1}` : `Mensal ${ano - 1}`}</th><th className="px-2 text-right">Variação</th>
+            {!da && <th className="px-2 text-right" title="Mensal do ano anterior × 12">Anual {ano - 1}</th>}<th className="px-2 text-right">{da ? `Diária ${ano - 1}` : `Mensal ${ano - 1}`}</th><th className="px-2 text-right">Variação</th>
           </tr></thead>
           <tbody>
             {resultado.oms.map(o => {
@@ -130,6 +130,7 @@ export const AbaResultado: React.FC<{ ano: number; dados: DadosProposta; resulta
                   <td className="px-2 text-right font-semibold">{brl(o.anual)}</td><td className="px-2 text-right font-semibold">{brl(o.mensal)}</td><td className="px-2 text-right">{o.percentual}</td>
                   {da && <td className="px-2 text-right font-semibold" title={o.regraDiaria === 'SEM_HISTORICO' ? 'sem histórico: diária pela lotação' : undefined}>{o.diaria !== undefined ? `${brl(o.diaria)}${o.regraDiaria === 'SEM_HISTORICO' ? ' *' : ''}` : '—'}</td>}
                   <td className="px-2 text-right whitespace-nowrap">{planilha(o) == null ? <span className="text-slate-300">—</span> : <>{brl(planilha(o)!)} {confere(o) ? <span className="text-emerald-700" title="confere">✓</span> : <span className="text-amber-700" title={`diferença ${brl(Math.round((atual(o) - planilha(o)!) * 100) / 100)}`}>⚠</span>}</>}</td>
+                  {!da && <td className="px-2 text-right text-slate-500">{antDe(o) ? brl(Math.round(antDe(o)! * 1200) / 100) : '—'}</td>}
                   <td className="px-2 text-right text-slate-500">{antDe(o) ? brl(antDe(o)!) : '—'}</td>
                   <td className={`px-2 text-right ${v && v > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{pct(v)}</td>
                 </tr>

@@ -49,9 +49,9 @@ describe('PDF da taxa condominial e das diárias', () => {
     const r = relatorioTaxa({ ...base, modo: 'TC' });
     expect(r.arquivo).toBe('taxa_condominial_2026.pdf'); expect(r.orientacao).toBe('l');
     expect(r.tabelas.map(t => t.titulo)).toEqual(['Anexo B — comparativo 2025 × 2026 por OM', 'Rubricas da taxa condominial', 'Descontos por OM']);
-    expect(r.tabelas[0].total).toEqual(['Total', '', 'R$ 1.700,00', 'R$ 100,00', 'R$ 1.600,00', 'R$ 133,33', '', '']);
-    expect(r.tabelas[0].body[0]).toEqual(['AMRJ', 'R$ 80,00', 'R$ 1.300,00', 'R$ 100,00', 'R$ 1.200,00', 'R$ 100,00', '75%', '25%']);
-    expect(r.tabelas[0].body[1][1]).toBe('-');
+    expect(r.tabelas[0].total).toEqual(['Total', 'R$ 960,00', 'R$ 80,00', 'R$ 1.700,00', 'R$ 100,00', 'R$ 1.600,00', 'R$ 133,33', '', '']);
+    expect(r.tabelas[0].body[0]).toEqual(['AMRJ', 'R$ 960,00', 'R$ 80,00', 'R$ 1.300,00', 'R$ 100,00', 'R$ 1.200,00', 'R$ 100,00', '75%', '25%']);
+    expect(r.tabelas[0].body[1][1]).toBe('-'); expect(r.tabelas[0].head.slice(0, 3)).toEqual(['OM', 'Anual 2025', 'Mensal 2025']);
     expect(texto(r as any).s).toContain('Anexo B');
   });
   it('diárias: um valor por navio, com aviso de classe sem histórico', () => {
