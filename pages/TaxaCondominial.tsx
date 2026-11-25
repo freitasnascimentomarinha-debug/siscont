@@ -8,6 +8,7 @@ import { Button } from '../components/ui/Button';
 import { ConfirmModal } from '../components/ui/Modal';
 import { Campo, br, brl, entrada } from '../components/faturamento/comum';
 import { AbaClientes, AbaDescontos, AbaMedia, AbaRubricas } from '../components/taxa/AbasProposta';
+import { AbaResponsaveis } from '../components/taxa/AbaResponsaveis';
 import { AbaResultado, ImportarProposta, LimparImportado } from '../components/taxa/ResultadoProposta';
 import { DadosProposta, Fase6NaoInstaladaError, StatusProposta, carregarProposta, publicar, salvarProposta, tcAnterior } from '../services/taxaCondominialService';
 import { PorRubrica, anoFinalJanela, mediaTrienal } from '../utils/taxaCondominial';
@@ -16,13 +17,14 @@ import { resolverEmissora } from '../utils/emissora';
 import { cadastroService } from '../services/cadastroService';
 import { notify } from '../utils/notify';
 
-type Aba = 'rubricas' | 'clientes' | 'descontos' | 'resultado' | 'navios' | 'media' | 'diarias';
+type Aba = 'rubricas' | 'clientes' | 'descontos' | 'resultado' | 'responsaveis' | 'navios' | 'media' | 'diarias';
 const GRUPOS: { titulo: string; abas: { id: Aba; label: string; dica: string }[] }[] = [
   { titulo: 'Taxa condominial', abas: [
     { id: 'rubricas', label: '1. Rubricas', dica: 'Despesas do ano (aba Despesas_NOVO): previsto, valor anterior, descontos e valor atualizado' },
     { id: 'clientes', label: '2. Clientes e matriz', dica: 'OM que pagam a taxa: lotação e de quais despesas participam' },
     { id: 'descontos', label: '3. Descontos por OM', dica: 'Descontos concedidos a uma OM' },
     { id: 'resultado', label: '4. Resultado da taxa', dica: `Taxa por OM, ${obterNormas().anexoTC}, extrato e justificativa das variações` },
+    { id: 'responsaveis', label: '8. Responsáveis', dica: 'Quem envia o subsídio e a atualização de cada rubrica; mostra quem ainda não enviou' },
   ] },
   { titulo: 'Diária de atracação', abas: [
     { id: 'navios', label: '5. Navios', dica: 'Navios que pagam diária: lotação e dias atracados' },
@@ -36,7 +38,7 @@ export const TaxaCondominial: React.FC = () => {
   const { user } = useAuth();
   const podeEditar = podeEditarDados(user?.role);
   const [ano, setAno] = useState(new Date().getFullYear() + (new Date().getMonth() >= 6 ? 1 : 0));
-  const [aba, setAba] = useAbaNoEndereco<Aba>(['rubricas', 'clientes', 'descontos', 'resultado', 'navios', 'media', 'diarias'], 'rubricas');
+  const [aba, setAba] = useAbaNoEndereco<Aba>(['rubricas', 'clientes', 'descontos', 'resultado', 'responsaveis', 'navios', 'media', 'diarias'], 'rubricas');
   const [dados, setDados] = useState<DadosProposta | null>(null);
   const [anterior, setAnterior] = useState<Map<string, number>>(new Map());
   const [anteriorDA, setAnteriorDA] = useState<Map<string, number>>(new Map());
@@ -166,6 +168,7 @@ export const TaxaCondominial: React.FC = () => {
           {aba === 'clientes' && <AbaClientes ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} medias={medias} modo="TERRA" />}
           {aba === 'descontos' && <AbaDescontos ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} resultado={resultado} />}
           {aba === 'resultado' && <AbaResultado ano={ano} dados={dados} resultado={resultado} anterior={anterior} modo="TC" />}
+          {aba === 'responsaveis' && <AbaResponsaveis ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} />}
           {aba === 'navios' && <AbaClientes ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} medias={medias} modo="NAVIO" />}
           {aba === 'media' && <AbaMedia ano={ano} dados={dados} podeEditar={podeEditar} recarregar={carregar} parametros={parametros} aoMudarJanela={(chave, valor) => setParametros(ps => [...ps.filter(p => p.chave !== chave), { chave, valor, descricao: 'Último ano da janela da média trienal' } as Parametro])} />}
           {aba === 'diarias' && resultadoDA && <AbaResultado ano={ano} dados={dados} resultado={resultadoDA} anterior={anteriorDA} modo="DA" />}

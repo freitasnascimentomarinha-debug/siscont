@@ -1663,11 +1663,17 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(/1 rubrica\(s\) sem subsídio.*3/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta: rubrica 3 aparece como "sem subsídio"');
     ok(await page.getByText('sem subsídio', { exact: true }).first().isVisible(), 'marca "sem subsídio" na linha da rubrica');
     // responsável da rubrica: digitar na tabela, aparece no alerta de "sem subsídio" e é gravado
+    await page.getByRole('button', { name: '8. Responsáveis' }).click();
+    await page.getByTestId('aba-responsaveis').waitFor();
     await page.getByLabel('Responsável pela rubrica 3', { exact: true }).fill('1T (EN) TESTE');
-    await page.getByRole('button', { name: 'Gravar rubricas' }).click();
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'aba-responsaveis.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Gravar responsáveis' }).click();
     for (let i = 0; i < 40 && db.rubricas.find(r => r.numero === 3).responsavel !== '1T (EN) TESTE'; i++) await page.waitForTimeout(250);
-    ok(db.rubricas.find(r => r.numero === 3).responsavel === '1T (EN) TESTE', 'responsável da rubrica gravado');
+    ok(db.rubricas.find(r => r.numero === 3).responsavel === '1T (EN) TESTE', 'aba Responsáveis: responsável da rubrica gravado');
+    ok(/1T \(EN\) TESTE/.test(await page.getByTestId('aba-responsaveis').innerText()) && await page.getByTestId('aba-responsaveis').getByText('sem subsídio').first().isVisible(), 'aba Responsáveis: agrupa por responsável e marca "sem subsídio"');
+    await page.getByRole('button', { name: '1. Rubricas' }).click();
     ok(/3 \(1T \(EN\) TESTE\)/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta de "sem subsídio" mostra o responsável da rubrica');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'rubricas-responsavel.png'), fullPage: true });
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');
