@@ -1674,6 +1674,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: '1. Rubricas' }).click();
     ok(/3 \(1T \(EN\) TESTE\)/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta de "sem subsídio" mostra o responsável da rubrica');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'rubricas-responsavel.png'), fullPage: true });
+    // PDF desta página (Rubricas da taxa condominial)
+    const [dpr] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF das rubricas' }).click()]);
+    const txtPr = fs.readFileSync(await dpr.path(), 'latin1');
+    if (SHOTS) fs.copyFileSync(await dpr.path(), path.join(SHOTS, 'rubricas_taxa_condominial.pdf'));
+    ok(dpr.suggestedFilename() === 'rubricas_taxa_condominial_2027.pdf' && txtPr.includes('Rubricas da taxa condominial') && txtPr.includes('Soma') && txtPr.includes('sem subs') && txtPr.includes('TESTE'), 'PDF das rubricas: tabela com totais, responsável e rubricas sem subsídio');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');

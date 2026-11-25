@@ -2,7 +2,9 @@ import { numeroDigitado } from '../../utils/numeroDigitado';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BaixarModelo } from '../ui/BaixarModelo';
 import { modeloHistorico, modeloSubsidios } from '../../utils/modelos';
-import { Check, Download, FileUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { Check, Download, FileText, FileUp, Pencil, Plus, Save, Trash2, X } from 'lucide-react';
+import { baixarRelatorio } from '../../utils/pdfRelatorio';
+import { dataBR, hojeISO } from '../../utils/datas';
 // @ts-ignore - pacote xlsx sem tipos completos no build
 import * as XLSX from 'xlsx';
 import { FichaRubrica } from './FichaRubrica';
@@ -116,6 +118,35 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
   const valorDA = calcularTotalNavios(linhas.filter(entraNaTaxa), dados.descontos, baseNavios).total;
   void somaNavios;
   const divergentes = tc.filter(x => calc(x.l).confere === false).map(x => x.l.numero);
+
+  /** PDF desta página: rubricas da taxa, outros gastos e fora da taxa, com totais, responsável, subsídios e justificativa do valor. */
+  const pdfRubricas = () => {
+    const pct1 = (v: number | null) => (v === null ? '-' : `${v > 0 ? '+' : ''}${v.toLocaleString('pt-BR')}%`);
+    const crit: Record<string, string> = { LOTACAO: 'Pessoa', AREA: 'Area', IGUAL: 'Iguais', PESO: 'Peso' };
+    const tabela = (titulo: string, xs: { l: RubricaProposta }[], t: ReturnType<typeof somar>, navios: boolean) => ({
+      titulo, head: ['Nº', 'Despesa', 'Responsável', `Valor ${ano}`, `Valor ${ano - 1}`, 'Variação', 'Descontos', 'Valor atualizado', 'Navios', 'Rateio', 'Subsídio'],
+      body: xs.map(({ l }) => { const c = calc(l); const sb = subDe(l.numero);
+        return [l.numero, l.descricao, l.responsavel || '-', brl(l.valorPrevisto), l.gastoAnterior ? brl(l.gastoAnterior) : '-', pct1(c.variacao), navios && c.descontos ? brl(c.descontos) : '-', navios ? brl(c.atualizado) : brl(l.valorPrevisto),
+          navios && c.navios ? brl(c.navios) : '-', navios ? `${crit[l.criterio || 'LOTACAO']} ${l.percentualOM ?? 100}% · ${l.rateioTodas ? 'todas' : 'matriz'}` : '-', sb.length ? `${sb.length} (${brl(sb.reduce((s, x) => s + x.valor, 0))})` : 'sem subsídio']; }),
+      direita: [3, 4, 5, 6, 7, 8], larguras: [8, 50, 38, 24, 24, 19, 22, 26, 22, 28, 28],
+      total: ['', 'Soma', '', brl(t.prev), t.ant ? brl(t.ant) : '-', t.ant ? pct1(Math.round(((t.prev - t.ant) / t.ant) * 10000) / 100) : '-', navios ? brl(t.desc) : '-', navios ? brl(t.atu) : brl(t.prev), navios ? brl(t.nav) : '-', '', ''],
+    });
+    const comJust = linhas.filter(l => l.destino !== 'DA' && (l.justificativaValor || '').trim()).sort((x, y) => x.numero - y.numero);
+    const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length).sort((x, y) => x.numero - y.numero);
+    baixarRelatorio({
+      titulo: `Rubricas da taxa condominial ${ano}`, arquivo: `rubricas_taxa_condominial_${ano}.pdf`, orientacao: 'l',
+      linhas: [`Proposta ${ano}: ${(dados.proposta.status || 'PROPOSTA').toLowerCase()} · gerado em ${dataBR(hojeISO())}`,
+        'Valor atualizado = valor da rubrica menos descontos, na parte que as OM pagam. Navios = parte da rubrica paga pelo grupo dos navios (diárias de atracação).',
+        ...(sem.length ? [`Atenção: ${sem.length} rubrica(s) sem subsídio: ${sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.`] : [])],
+      cartoes: [['Taxas condominiais (rubricas)', brl(tTC.atu)], ['Outros gastos', brl(tOG.atu)], ['Total dos navios (diárias)', brl(valorDA)], ['Total', brl(tTC.atu + tOG.atu + valorDA)]],
+      tabelas: [
+        tabela(`Rubricas da taxa condominial (${tc.length})`, tc, tTC, true),
+        ...(og.length ? [tabela(`Outros gastos incorporados à taxa (${og.length})`, og, tOG, true)] : []),
+        ...(par.length ? [tabela(`Fora da taxa (${par.length})`, par, tPAR, false)] : []),
+        ...(comJust.length ? [{ titulo: 'Justificativa do valor de cada rubrica', head: ['Nº', 'Despesa', 'Por que este valor'], body: comJust.map(l => [l.numero, l.descricao, (l.justificativaValor || '').trim()]), larguras: [9, 60, 205] }] : []),
+      ],
+    });
+  };
 
   const gravar = async () => {
     setGravando(true);
@@ -235,6 +266,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
           <BaixarModelo modelo={() => modeloSubsidios(ano, linhas.filter(l => l.destino !== 'DA').map(l => ({ numero: l.numero, descricao: l.descricao })))} />
         </>}
         <Button size="sm" variant="secondary" onClick={() => exportarSubsidios(ano, linhas, dados, descontosPorOM).catch(e => notify.fail('Erro ao exportar', e))}><Download size={14} className="mr-1" />Pacote de subsídios (ZIP)</Button>
+        <Button size="sm" variant="secondary" onClick={pdfRubricas}><FileText size={14} className="mr-1" />PDF das rubricas</Button>
       </div>
       {erros.length > 0 && <Aviso tom="red">{erros.map(e => <div key={e}>{e}</div>)}</Aviso>}
       {(() => {
