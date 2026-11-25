@@ -408,6 +408,23 @@ export const ReceivedBalances: React.FC = () => {
     await refresh();
   };
 
+  // somatório das faturas marcadas em "Pagar Faturas": quanto está em aberto, quanto a ALTCRED cobre (na ordem em que foram marcadas, como na gravação) e a sobra ou a falta
+  const resumoPagar = (() => {
+    if (!activeDoc) return null;
+    const disp = activeDoc.availableValue;
+    let resta = disp, emAberto = 0, vaiPagar = 0, parciais = 0;
+    selectedInvoiceIds.forEach(id => {
+      const inv = invoices.find(i => i.id === id);
+      if (!inv) return;
+      const debt = saldoDaFatura(inv, r2(allocations.filter(a => a.invoiceId === inv.id).reduce((s, a) => s + a.amount, 0)));
+      emAberto = r2(emAberto + debt);
+      const pg = r2(Math.max(0, Math.min(debt, resta)));
+      if (pg > 0.005 && pg < debt - 0.005) parciais += 1;
+      vaiPagar = r2(vaiPagar + pg); resta = r2(resta - pg);
+    });
+    return { n: selectedInvoiceIds.length, emAberto, disp, vaiPagar, sobra: r2(disp - vaiPagar), falta: r2(Math.max(0, emAberto - disp)), parciais };
+  })();
+
   const handleAllocate = async () => {
     if (isReadOnly) return;
     if (!activeDoc || selectedInvoiceIds.length === 0) return;
@@ -1028,9 +1045,24 @@ export const ReceivedBalances: React.FC = () => {
         onClose={() => setIsPayModalOpen(false)}
         title={`Pagar Faturas (Disp: R$ ${activeDoc?.availableValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`}
         maxWidth="max-w-3xl"
-        footer={<div className="flex justify-end gap-2"><Button onClick={handleAllocate} disabled={!selectedInvoiceIds.length}>Confirmar Pagamento{selectedInvoiceIds.length ? ` (${selectedInvoiceIds.length})` : ''}</Button></div>}
+        footer={<div className="flex flex-wrap items-center justify-between gap-3" data-testid="rodape-pagar-faturas">
+          <div className="text-sm text-slate-700" aria-live="polite">
+            {resumoPagar && resumoPagar.n > 0
+              ? <>{resumoPagar.n} fatura(s) · em aberto <b className="tabular-nums">R$ {resumoPagar.emAberto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> · vai pagar <b className="tabular-nums text-emerald-700">R$ {resumoPagar.vaiPagar.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b>{resumoPagar.falta > 0.005 ? <span className="text-red-600"> · faltam R$ {resumoPagar.falta.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> : <span className="text-slate-500"> · sobra R$ {resumoPagar.sobra.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}</>
+              : <span className="text-slate-500">Marque as faturas para ver o total.</span>}
+          </div>
+          <Button onClick={handleAllocate} disabled={!selectedInvoiceIds.length}>Confirmar Pagamento{selectedInvoiceIds.length ? ` (${selectedInvoiceIds.length})` : ''}</Button></div>}
       >
         <div className="space-y-3">
+          {/* somatório sempre visível, mesmo com a lista rolando */}
+          <div className={`rounded-lg border px-3 py-2 text-sm flex flex-wrap items-center gap-x-5 gap-y-1 sticky top-0 z-10 ${resumoPagar && resumoPagar.n > 0 ? (resumoPagar.falta > 0.005 ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50') : 'border-slate-200 bg-slate-50'}`} data-testid="somatorio-pagar-faturas">
+            <span>Marcadas: <b>{resumoPagar?.n ?? 0}</b></span>
+            <span>Total em aberto: <b className="tabular-nums">R$ {(resumoPagar?.emAberto ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b></span>
+            <span>Disponível na ALTCRED: <b className="tabular-nums">R$ {(resumoPagar?.disp ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b></span>
+            {resumoPagar && resumoPagar.n > 0 && (resumoPagar.falta > 0.005
+              ? <span className="text-amber-800 font-semibold">Faltam R$ {resumoPagar.falta.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{resumoPagar.parciais ? ': a última fatura será paga só em parte' : ''}</span>
+              : <span className="text-emerald-800 font-semibold">Sobram R$ {resumoPagar.sobra.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} na ALTCRED</span>)}
+          </div>
           <Input
             placeholder="Filtrar por comando, UG, cliente ou número da fatura..."
             value={invoiceSearch}

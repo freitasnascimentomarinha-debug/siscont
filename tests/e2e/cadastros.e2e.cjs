@@ -803,6 +803,38 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await c2.getByLabel('Ação para Z999.2026.AC.00021').inputValue() === 'ADIANTAMENTO', 'o botão põe a segunda ALTCRED como adiantamento');
   });
 
+  await cenario('Pagar Faturas: somatório das faturas marcadas, do disponível e da sobra ou falta', [], async (page, db) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '41000', nome: 'Arsenal', sigla: 'AMRJ', setor_id: setor.id, ativo: true };
+    const om = { id: uid(), codigo: '41000', nome: 'AMRJ', tipo: 'TERRA', comando_id: cmd.id, setor_id: null, ativo: true, codigo_proprio: true };
+    db.comandos.push(cmd); db.oms.push(om);
+    const f = (n, valor) => ({ id: uid(), invoice_number: n, ug: '41000', sector: 'DGMM', command: '41000 - AMRJ', client: 'AMRJ', value: valor, adjustment_addition: 0, adjustment_deduction: 0, issue_date: '2026-10-05', due_date: '2026-11-18',
+      month_competence: 10, year_competence: 2026, competence: '10/2026', type: 'Taxa Condominial', service_acronym: 'TC', is_canceled: false, siplad_settled: false, om_id: om.id });
+    db.invoices = [f('41000-TC-10-2026-001-0', 300), f('41000-TC-10-2026-002-0', 300), f('41000-TC-10-2026-003-0', 150)];
+    db.received_documents.push({ id: uid(), document_number: 'G9.2026.AC.00001', document_type: 'ALTCRED', total_value: 500, date: '2026-11-20', operation: 'PAGAMENTO', client: 'AMRJ', sector: 'DGMM', command: '41000', ug: '41000', comando_id: cmd.id, om_id: om.id, observation: '', destinacao: [] });
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByText('G9.2026.AC.00001').first().waitFor();
+    const card = page.locator('div.border').filter({ has: page.getByRole('heading', { name: 'G9.2026.AC.00001' }) }).last();
+    await card.getByTitle('Ver Detalhes').click();
+    await card.getByRole('button', { name: 'Pagar Faturas' }).click();
+    const som = page.getByTestId('somatorio-pagar-faturas');
+    await som.waitFor();
+    ok(/Marcadas: 0/.test(await som.innerText()) && /Disponível na ALTCRED: R\$ 500,00/.test(await som.innerText()), 'sem nada marcado: mostra 0 faturas e o disponível da ALTCRED');
+    await page.getByLabel('Pagar a fatura 41000-TC-10-2026-001-0').check();
+    let t = (await som.innerText()).replace(/\s+/g, ' ');
+    ok(/Marcadas: 1/.test(t) && /Total em aberto: R\$ 300,00/.test(t) && /Sobram R\$ 200,00/.test(t), `marcou 1 fatura de 300: total 300 e sobram 200 (${t})`);
+    await page.getByLabel('Pagar a fatura 41000-TC-10-2026-002-0').check();
+    t = (await som.innerText()).replace(/\s+/g, ' ');
+    ok(/Marcadas: 2/.test(t) && /Total em aberto: R\$ 600,00/.test(t) && /Faltam R\$ 100,00: a última fatura será paga só em parte/.test(t), `duas faturas (600) acima do disponível (500): avisa que faltam 100 e que a última sai parcial (${t})`);
+    const rod = (await page.getByTestId('rodape-pagar-faturas').innerText()).replace(/\s+/g, ' ');
+    ok(/2 fatura\(s\)/.test(rod) && /em aberto R\$ 600,00/.test(rod) && /vai pagar R\$ 500,00/.test(rod) && /faltam R\$ 100,00/.test(rod), `o rodapé (ao lado do botão) repete o total: ${rod.slice(0, 110)}`);
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'pagar-faturas-somatorio.png') });
+    await page.getByLabel('Pagar a fatura 41000-TC-10-2026-002-0').uncheck();
+    t = (await som.innerText()).replace(/\s+/g, ' ');
+    ok(/Marcadas: 1/.test(t) && /Sobram R\$ 200,00/.test(t), 'desmarcar atualiza o somatório');
+  });
+
   await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
     const setor = db.setores.find(x => x.sigla === 'DGMM');
     const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
