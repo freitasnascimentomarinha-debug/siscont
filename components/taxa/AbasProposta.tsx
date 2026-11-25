@@ -133,6 +133,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
     });
     const comJust = linhas.filter(l => l.destino !== 'DA' && (l.justificativaValor || '').trim()).sort((x, y) => x.numero - y.numero);
     const sem = linhas.filter(l => entraNaTaxa(l) && !subDe(l.numero).length).sort((x, y) => x.numero - y.numero);
+    const zeradas = linhas.filter(l => entraNaTaxa(l) && !(l.valorPrevisto > 0)).sort((x, y) => x.numero - y.numero);
     baixarRelatorio({
       titulo: `Rubricas da taxa condominial ${ano}`, arquivo: `rubricas_taxa_condominial_${ano}.pdf`, orientacao: 'l',
       linhas: [`Proposta ${ano}: ${(dados.proposta.status || 'PROPOSTA').toLowerCase()} · gerado em ${dataBR(hojeISO())}`,
@@ -143,6 +144,9 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         tabela(`Rubricas da taxa condominial (${tc.length})`, tc, tTC, true),
         ...(og.length ? [tabela(`Outros gastos incorporados à taxa (${og.length})`, og, tOG, true)] : []),
         ...(par.length ? [tabela(`Fora da taxa (${par.length})`, par, tPAR, false)] : []),
+        ...(zeradas.length ? [{ titulo: `Rubricas com valor zerado em ${ano} (${zeradas.length}) - não entram no rateio até receberem valor`, head: ['Nº', 'Despesa', 'Responsável', `Valor ${ano - 1}`, 'Subsídio', 'Situação / justificativa'],
+          body: zeradas.map(l => [l.numero, l.descricao, l.responsavel || '-', l.gastoAnterior ? brl(l.gastoAnterior) : '-', subDe(l.numero).length ? `${subDe(l.numero).length}` : 'sem subsídio', (l.justificativaValor || '').trim() || 'aguardando o subsídio do responsável']),
+          direita: [3], larguras: [8, 60, 45, 28, 28, 100] }] : []),
         ...(comJust.length ? [{ titulo: 'Justificativa do valor de cada rubrica', head: ['Nº', 'Despesa', 'Por que este valor'], body: comJust.map(l => [l.numero, l.descricao, (l.justificativaValor || '').trim()]), larguras: [9, 60, 205] }] : []),
       ],
     });

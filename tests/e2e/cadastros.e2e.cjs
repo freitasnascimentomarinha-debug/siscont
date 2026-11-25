@@ -1610,7 +1610,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const classe = { id: uid(), nome: 'Corvetas Classe Barroso', ativo: true }; db.classes_navio.push(classe);
     const amrj = { id: uid(), codigo: '81100', nome: 'Arsenal de Marinha do Rio de Janeiro', sigla: 'AMRJ', tipo: 'TERRA', ativo: true };
     db.oms.push(amrj);
-    db.rubricas.push({ ano: 2027, numero: 1, descricao: 'Telhados', destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }, { ano: 2027, numero: 2, descricao: 'Água', destino: 'TC', valor_previsto: 500, valor_anual: 500, desconto_geral: 0 }, { ano: 2027, numero: 3, descricao: 'Gás', destino: 'TC', valor_previsto: 400, valor_anual: 400, desconto_geral: 0 });
+    db.rubricas.push({ ano: 2027, numero: 1, descricao: 'Telhados', destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }, { ano: 2027, numero: 2, descricao: 'Água', destino: 'TC', valor_previsto: 500, valor_anual: 500, desconto_geral: 0 }, { ano: 2027, numero: 3, descricao: 'Gás', destino: 'TC', valor_previsto: 0, valor_anual: 0, desconto_geral: 0 });
     db.lotacoes_tc.push({ id: uid(), ano: 2027, om_id: amrj.id, lotacao: 600, lotacao_anterior: 600 });
     const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'siscont-imp-'));
     // histórico: duas abas chamadas "2023" (a segunda é 2024) e uma "2025"
@@ -1678,7 +1678,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const [dpr] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF das rubricas' }).click()]);
     const txtPr = fs.readFileSync(await dpr.path(), 'latin1');
     if (SHOTS) fs.copyFileSync(await dpr.path(), path.join(SHOTS, 'rubricas_taxa_condominial.pdf'));
-    ok(dpr.suggestedFilename() === 'rubricas_taxa_condominial_2027.pdf' && txtPr.includes('Rubricas da taxa condominial') && txtPr.includes('Soma') && txtPr.includes('sem subs') && txtPr.includes('TESTE'), 'PDF das rubricas: tabela com totais, responsável e rubricas sem subsídio');
+    ok(dpr.suggestedFilename() === 'rubricas_taxa_condominial_2027.pdf' && txtPr.includes('Rubricas da taxa condominial') && txtPr.includes('Soma') && txtPr.includes('sem subs') && txtPr.includes('TESTE') && txtPr.includes('valor zerado'), 'PDF das rubricas: tabela com totais, responsável e rubricas sem subsídio');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');
