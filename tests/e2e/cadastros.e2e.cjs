@@ -620,8 +620,8 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
     const d = db.received_documents.find(x => x.document_number === 'Z999.2026.AC.00007');
     ok(d && /Confirmar com a OM/.test(d.pendencia || '') && /PENDÊNCIA:/.test(d.observation || ''), 'ALTCRED gravada com a pendência registrada');
-    await page.getByTestId('alerta-pendencias').waitFor();
-    ok(/1 ALTCRED com pendência/.test(await page.getByTestId('alerta-pendencias').innerText()), 'alerta no topo dos Créditos recebidos');
+    await page.getByLabel('Pendência da Z999.2026.AC.00007').waitFor();
+    ok(/fora do saldo/.test(await page.getByLabel('Pendência da Z999.2026.AC.00007').innerText()) && (await page.getByTestId('alerta-pendencias').count()) === 0, 'o aviso fica na própria ALTCRED, não no topo da página');
     ok((await page.getByTestId('conciliacao-creditos').innerText()).replace(/\s+/g, ' ').includes('Recebido R$ 0,00') || !(await page.getByTestId('conciliacao-creditos').innerText()).includes('1.000,00'), 'crédito com pendência não entra no "Recebido" nem no saldo a destinar');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'creditos-pendencia.png') });
     page.once('dialog', dl => dl.accept());
