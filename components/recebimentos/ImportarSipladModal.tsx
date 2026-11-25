@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { ReceivedDocument } from '../../types';
 import { FINALIDADES } from '../../utils/relatorios';
-import { itensDoPdf, lerSolicitacoesDetalhado, SolicitacaoAltcred } from '../../utils/altcredSiplad';
+import { itensDoPdf, lerSolicitacoesDetalhado, ordenarPorAntiguidade, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, comPendencia, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao } from '../../utils/situacaoSiplad';
@@ -51,7 +51,8 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
         sols.push(...lido.lidas); fora.push(...lido.descartadas);
       }
       setSemSolicitacao(vazios); setDescartadas(fora);
-      const plano = planejarImportacaoSiplad(sols, documentos, await carregarCadastro());
+      // do mais antigo para o mais novo (também é a ordem em que são gravadas)
+      const plano = planejarImportacaoSiplad(ordenarPorAntiguidade(sols), documentos, await carregarCadastro());
       setItens(plano); setDestino({}); setFinalidade({}); setPendencia({});
       // devolvida, cancelada e não processada não são recebimento: já vêm como "Não importar" (dá para trocar)
       setIgnorados(new Set(plano.map((p, k) => (classificarSituacao(p.sol.situacao).importarPadrao ? -1 : k)).filter(k => k >= 0)));

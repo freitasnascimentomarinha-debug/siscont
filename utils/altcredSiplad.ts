@@ -29,6 +29,12 @@ export interface SolicitacaoAltcred {
   avisos: string[];
 }
 
+/** Do mais antigo para o mais novo: data de criação, depois data da situação e número (sem data vai para o fim). */
+export function ordenarPorAntiguidade<T extends { numero: string; dataCriacao: string | null; dataSituacao: string | null }>(sols: T[]): T[] {
+  const chave = (s: T) => s.dataCriacao || s.dataSituacao || '9999-99-99';
+  return [...sols].sort((a, b) => chave(a).localeCompare(chave(b)) || (a.dataSituacao || '9999').localeCompare(b.dataSituacao || '9999') || a.numero.localeCompare(b.numero, 'pt-BR', { numeric: true }));
+}
+
 /** Nº da solicitação: sigla do setor (G424, R, B4D0, P3MA, P3X3...), ano, AC e sequência. */
 export const RE_ALTCRED = /\b[A-Z][A-Z0-9]{0,4}\.\d{4}\.AC\.\d{5}\b/;
 export const RE_FATURA_TEXTO = /\b\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d\b/g;
