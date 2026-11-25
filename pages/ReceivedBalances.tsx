@@ -1120,7 +1120,7 @@ export const ReceivedBalances: React.FC = () => {
         title={confirmDelete?.type === 'doc' ? 'Excluir documento' : 'Excluir baixa'}
         message={mensagemExclusao()}
       />
-      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} invoices={invoices} baixas={allocations} onPagarDepois={isReadOnly ? undefined : setFilaBaixa} />
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={documents} onGravado={refresh} invoices={invoices} baixas={allocations} oms={oms} onPagarDepois={isReadOnly ? undefined : setFilaBaixa} />
       <BaixaAssistidaModal doc={baixaDoc} usuario={user?.name || user?.email || ''} onClose={() => setBaixaDoc(null)} invoices={invoices} documentos={documents} baixas={allocations} oms={oms} onGravado={refresh} />
       <PontosModal alvo={pontosAlvo} onClose={() => setPontosAlvo(null)} podeEditar={!isReadOnly} usuario={user?.name || user?.email || ''}
         onAlterado={async () => {

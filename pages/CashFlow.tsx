@@ -604,7 +604,7 @@ const Lancamentos: React.FC = () => {
       </Gaveta>
 
 
-      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} invoices={invoicesAlt} baixas={baixasAlt} onPagarDepois={isReadOnly ? undefined : setFilaBaixa} />
+      <ImportarSipladModal aberto={sipladAberto} onClose={() => setSipladAberto(false)} documentos={docsCredito} onGravado={refresh} invoices={invoicesAlt} baixas={baixasAlt} oms={omsAlt} onPagarDepois={isReadOnly ? undefined : setFilaBaixa} />
       <BaixaAssistidaModal doc={baixaDoc} usuario={user?.name || user?.email || ''} onClose={() => setBaixaDoc(null)} invoices={invoicesAlt} documentos={docsCredito} baixas={baixasAlt} oms={omsAlt} onGravado={refresh} />
       <Modal isOpen={!!previaNE} onClose={() => setPreviaNE(null)} title={`Prévia da importação de NE — ${previaNE?.arquivo ?? ''}`} maxWidth="max-w-5xl"
         footer={<div className="flex justify-end gap-2">

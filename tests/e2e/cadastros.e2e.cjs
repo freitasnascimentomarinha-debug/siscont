@@ -652,6 +652,7 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     const t = (await cartao.innerText()).replace(/\s+/g, ' ');
     ok(/em aberto R\$ 400,00/.test(t) && /em aberto R\$ 350,00/.test(t), `cada fatura citada mostra a situação no sistema (${t.slice(0, 40)}…)`);
     ok(/ALTCRED nova: ainda não paga nenhuma fatura/.test(t), 'ALTCRED nova: avisa que ainda não paga nenhuma fatura');
+    ok(/2 fatura\(s\) em aberto para esta OM\/comando, somando R\$ 750,00/.test(t), 'mostra quantas faturas em aberto a OM/comando tem para pagar (2, R$ 750,00)');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-situacao-pagamento.png') });
     // pagar logo após gravar: abre a baixa assistida (a baixa só é gravada quando o usuário confere e confirma)
     await page.getByLabel('Pagar faturas depois de gravar: Z999.2026.AC.00010').check();
@@ -694,6 +695,23 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByRole('button', { name: 'Gravar baixas' }).click();
     await page.getByText(/baixa\(s\) gravada\(s\)/).waitFor();
     ok(db.payment_allocations.length >= 2, 'Fluxo de caixa: baixas gravadas depois de conferir e confirmar');
+  });
+
+  await cenario('SIPLAD: avisa quando a OM não tem nenhuma fatura em aberto para a ALTCRED pagar', [pdfSiplad('Processada', 'Z999.2026.AC.00013')], async (page, db, arquivos) => {
+    const setor = db.setores.find(x => x.sigla === 'DGMM');
+    const cmd = { id: uid(), codigo: '12345', nome: 'Comando Teste', sigla: 'ComTeste', setor_id: setor.id, ativo: true };
+    db.comandos.push(cmd);
+    db.invoices = [];   // nenhuma fatura no sistema
+    await page.reload();
+    await page.getByRole('button', { name: 'Créditos recebidos', exact: true }).first().click();
+    await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
+    await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);
+    await page.getByText('Z999.2026.AC.00013').first().waitFor({ timeout: 20000 });
+    const aviso = await page.getByTestId('sem-fatura-para-pagar').innerText();
+    ok(/Nenhuma fatura em aberto para pagar/.test(aviso) && /não tem fatura em aberto no sistema/.test(aviso), 'aviso: a OM não tem nenhuma fatura em aberto para pagar');
+    ok(await page.getByLabel('Pagar faturas depois de gravar: Z999.2026.AC.00013').count() === 0, 'sem fatura em aberto, a opção de pagar depois não é oferecida');
+    ok(/Faturas citadas|12346-EL-08-2026-010-0/.test(await page.getByTestId('item-altcred').first().innerText()) && /não encontrada no sistema/.test(await page.getByTestId('item-altcred').first().innerText()), 'as faturas citadas aparecem como "não encontrada no sistema"');
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'siplad-sem-fatura.png') });
   });
 
   await cenario('Fase 2: PDF do SIPLAD, baixa assistida com sobra para adiantamento e extrato', [pdfSiplad()], async (page, db, arquivos) => {
