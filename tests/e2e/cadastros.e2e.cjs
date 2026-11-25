@@ -1747,7 +1747,9 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
 
   await cenario('Matriz: botões "todas" e "nenhuma" de cada OM e da coluna', [], async (page, db) => {
     const a = { id: uid(), codigo: '81100', nome: 'OM Alfa', tipo: 'TERRA', ativo: true }, b = { id: uid(), codigo: '81200', nome: 'OM Beta', tipo: 'TERRA', ativo: true };
-    db.oms.push(a, b);
+    const g = { id: uid(), codigo: '81300', nome: 'OM Gama', tipo: 'TERRA', ativo: true };
+    db.oms.push(a, b, g);
+    [1, 2, 3].forEach(n => db.matriz_tc.push({ ano: 2027, rubrica: n, om_id: g.id }));
     [1, 2, 3].forEach(n => db.rubricas.push({ ano: 2027, numero: n, descricao: `Rubrica ${n}`, destino: 'TC', valor_previsto: 1000, valor_anual: 1000, desconto_geral: 0 }));
     db.lotacoes_tc.push({ ano: 2027, om_id: a.id, lotacao: 100 }, { ano: 2027, om_id: b.id, lotacao: 100 });
     [1, 2, 3].forEach(n => [a, b].forEach(o => db.matriz_tc.push({ ano: 2027, rubrica: n, om_id: o.id })));
@@ -1764,6 +1766,10 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     ok(await marcadas('OM Alfa') === 0 && await marcadas('OM Beta') === 3, 'botão "nenhuma" da OM desmarca todas as rubricas dela e só dela');
     await linha('OM Alfa').getByRole('button', { name: 'todas' }).click();
     ok(await marcadas('OM Alfa') === 3, 'botão "todas" da OM marca de novo as 3 rubricas');
+    // OM marcada na matriz mas SEM lotação (caso da Diretoria de Sistema de Armas): "nenhuma" também funciona
+    await linha('OM Gama').getByRole('button', { name: 'nenhuma' }).click();
+    await page.waitForTimeout(300);
+    ok(await marcadas('OM Gama') === 0, 'botão "nenhuma" funciona em OM marcada na matriz e sem lotação');
     await linha('OM Alfa').getByRole('button', { name: 'nenhuma' }).click();
     await page.getByRole('button', { name: /Gravar clientes e matriz/ }).click();
     for (let i = 0; i < 40 && db.matriz_tc.some(m => m.om_id === a.id); i++) await page.waitForTimeout(250);
