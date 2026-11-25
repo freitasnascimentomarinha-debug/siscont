@@ -1662,6 +1662,12 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     // alerta das rubricas sem subsídio (a 2 tem valor digitado e nenhum subsídio na planilha)
     ok(/1 rubrica\(s\) sem subsídio.*3/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta: rubrica 3 aparece como "sem subsídio"');
     ok(await page.getByText('sem subsídio', { exact: true }).first().isVisible(), 'marca "sem subsídio" na linha da rubrica');
+    // responsável da rubrica: digitar na tabela, aparece no alerta de "sem subsídio" e é gravado
+    await page.getByLabel('Responsável pela rubrica 3', { exact: true }).fill('1T (EN) TESTE');
+    await page.getByRole('button', { name: 'Gravar rubricas' }).click();
+    for (let i = 0; i < 40 && db.rubricas.find(r => r.numero === 3).responsavel !== '1T (EN) TESTE'; i++) await page.waitForTimeout(250);
+    ok(db.rubricas.find(r => r.numero === 3).responsavel === '1T (EN) TESTE', 'responsável da rubrica gravado');
+    ok(/3 \(1T \(EN\) TESTE\)/.test(await page.getByTestId('alerta-sem-subsidio').locator('..').innerText()), 'alerta de "sem subsídio" mostra o responsável da rubrica');
     // ficha: voltar para o valor digitado (os subsídios continuam como justificativa)
     await page.getByRole('button', { name: 'Ficha da rubrica 1' }).click();
     ok(await page.getByLabel('Valor pela soma dos subsídios').isChecked(), 'ficha: rubrica aparece "pela soma dos subsídios"');

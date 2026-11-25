@@ -40,6 +40,8 @@ export interface RubricaProposta extends RubricaTC {
   justificativaValor?: string | null;
   /** DIGITADO: o valor é o digitado; SUBSIDIOS: o valor é a soma dos subsídios (acompanha as mudanças deles) */
   valorModo?: 'DIGITADO' | 'SUBSIDIOS';
+  /** quem envia o subsídio / atualização desta rubrica (lista de responsáveis) */
+  responsavel?: string | null;
   /** coluna DESCONTOS da planilha importada (conferência) */
   descontoPlanilha?: number | null;
 }
@@ -107,7 +109,7 @@ export async function carregarProposta(ano: number): Promise<DadosProposta> {
       rateioTodas: r.rateio_todas === true, valorNavios: N(r.valor_navios),
       naviosModo: (['NAO', 'INTEGRAL', 'PERCENTUAL', 'FIXO'].includes(r.navios_modo) ? r.navios_modo : (Number(r.percentual_navios || 0) > 0 ? 'PERCENTUAL' : 'NAO')) as NaviosModo,
       descontoPlanilha: r.desconto_planilha == null ? null : Number(r.desconto_planilha),
-      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null, valorModo: r.valor_modo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO',
+      parcelaNavios: N(r.parcela_navios), justificativaValor: r.justificativa_valor ?? null, valorModo: r.valor_modo === 'SUBSIDIOS' ? 'SUBSIDIOS' : 'DIGITADO', responsavel: r.responsavel ?? null,
       criterio: (r.criterio || 'LOTACAO'), percentualOM: r.percentual_om == null ? 100 : Number(r.percentual_om), modoNavios: r.modo_navios === 'CONJUNTO' ? 'CONJUNTO' : 'SEPARADO',
       // antes do 014 só havia a parte dos navios em R$: vira percentual do valor previsto
       percentualNavios: r.percentual_navios != null ? Number(r.percentual_navios) : (r.parcela_navios && Number(r.valor_previsto ?? r.valor_anual) ? Math.round((Number(r.parcela_navios) / Number(r.valor_previsto ?? r.valor_anual)) * 1e6) / 1e4 : 0),
@@ -158,6 +160,11 @@ export async function salvarRubricasProposta(ano: number, rs: RubricaProposta[])
           if (r.destino === 'OG' || r.rateioTodas || ['INTEGRAL', 'FIXO'].includes(naviosModoDe(r))) throw new Error('Falta executar o script supabase/migrations/021_taxa_outros_gastos_navios.sql no Supabase (outros gastos, rateio entre todas e modo dos navios).');
         } else checar(e021);
       }
+    }
+    {
+      // script 046: responsável pela rubrica
+      const { error: e046 } = await supabase.from('rubricas').update({ responsavel: r.responsavel?.trim() || null }).eq('ano', ano).eq('numero', r.numero);
+      if (e046) { if (/responsavel/.test(e046.message || '')) { if (r.responsavel?.trim()) throw new Error('Falta executar o script supabase/migrations/046_rubricas_responsavel.sql no Supabase.'); } else checar(e046); }
     }
     {
       // script 045: valor digitado × pela soma dos subsídios

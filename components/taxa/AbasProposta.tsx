@@ -181,7 +181,8 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         <td className="px-2 text-center text-slate-600">{l.numero}</td>
         <td className="px-1"><select disabled={!podeEditar} className={`${entrada} text-xs w-24`} value={l.destino} onChange={e => mudar(i, { destino: e.target.value as Destino, ...(e.target.value === 'OG' && l.destino !== 'OG' ? { rateioTodas: true } : {}) })} aria-label={`Entra como (linha ${l.numero})`} title="Rubrica da taxa, outros gastos (entra na taxa) ou fora da taxa">
           <option value="TC">Rubrica</option><option value="OG">Outros gastos</option><option value="PAR">Fora da taxa</option></select></td>
-        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} /></td>
+        <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-56 text-xs`} value={l.descricao} onChange={e => mudar(i, { descricao: e.target.value })} aria-label={`Descrição da rubrica ${l.numero}`} title={l.contaContabil ? `Conta contábil ${l.contaContabil}` : undefined} />
+          <input disabled={!podeEditar} className={`${entrada} w-56 text-[11px] mt-0.5 text-slate-600`} placeholder="Responsável" value={l.responsavel || ''} onChange={e => mudar(i, { responsavel: e.target.value })} aria-label={`Responsável pela rubrica ${l.numero}`} title="Quem envia o subsídio / atualização desta rubrica" /></td>
         <td className="px-1"><input disabled={!podeEditar} readOnly={l.valorModo === 'SUBSIDIOS'} title={l.valorModo === 'SUBSIDIOS' ? 'Valor pela soma dos subsídios (para digitar, mude na ficha da rubrica)' : undefined} className={`${entrada} w-28 text-xs text-right ${l.valorModo === 'SUBSIDIOS' ? 'bg-slate-100' : ''}`} inputMode="decimal" value={fmt(l.valorPrevisto)} onChange={e => mudar(i, { valorPrevisto: n2(e.target.value) ?? 0 })} aria-label={`Valor previsto da rubrica ${l.numero}`} /></td>
         <td className="px-2 text-right text-slate-600">{mostrarNavios ? pct(Math.round(c.rub * 100) / 100) : ''}</td>
         <td className="px-1"><input disabled={!podeEditar} className={`${entrada} w-28 text-xs text-right`} inputMode="decimal" value={fmt(l.gastoAnterior)} onChange={e => mudar(i, { gastoAnterior: n2(e.target.value) })} aria-label={`Gasto anterior da rubrica ${l.numero}`} /></td>
@@ -242,7 +243,7 @@ export const AbaRubricas: React.FC<AbaProps & { descontosPorOM: Map<number, numb
         const sem = linhas.filter(l => (l.destino === 'TC' || l.destino === 'OG') && !subDe(l.numero).length);
         if (!sem.length || !dados.subsidios.length) return null;
         const zeradas = sem.filter(l => !(l.valorPrevisto > 0));
-        return <Aviso tom="amber"><b data-testid="alerta-sem-subsidio">Atenção: {sem.length} rubrica(s) sem subsídio</b> — {sem.map(l => l.numero).join(', ')}.{' '}
+        return <Aviso tom="amber"><b data-testid="alerta-sem-subsidio">Atenção: {sem.length} rubrica(s) sem subsídio</b> — {sem.map(l => `${l.numero}${l.responsavel ? ` (${l.responsavel})` : ''}`).join(', ')}.{' '}
           {zeradas.length === sem.length ? 'Todas estão com o valor em branco (R$ 0,00) e não entram no rateio até receberem o subsídio.' : `${zeradas.length} estão com o valor em branco (R$ 0,00) e ${sem.length - zeradas.length} com valor digitado, sem documento que o sustente.`} Importe os subsídios ou preencha a ficha de cada uma quando o responsável enviar.</Aviso>;
       })()}
       {divergentes.length > 0 && <Aviso>Descontos diferentes da planilha importada nas rubricas {divergentes.join(', ')} (passe o mouse no ⚠).</Aviso>}
@@ -312,11 +313,11 @@ async function exportarSubsidios(ano: number, linhas: RubricaProposta[], dados: 
   const wb = XLSX.utils.book_new();
   const destino = { TC: 'Rubrica da taxa', OG: 'Outros gastos (taxa)', DA: 'Navios (diárias)', PAR: 'Fora da taxa' } as const;
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Nº', 'DESPESA', 'ONDE ENTRA', `VALOR ${ano}`, `VALOR ${ano - 1}`, 'DESCONTOS', 'VALOR ATUALIZADO', 'NAVIOS PAGAM', 'JUSTIFICATIVA DO VALOR', 'SUBSÍDIOS (SOMA)', 'Nº DOCUMENTOS'],
+    ['Nº', 'DESPESA', 'ONDE ENTRA', `VALOR ${ano}`, `VALOR ${ano - 1}`, 'DESCONTOS', 'VALOR ATUALIZADO', 'NAVIOS PAGAM', 'JUSTIFICATIVA DO VALOR', 'SUBSÍDIOS (SOMA)', 'Nº DOCUMENTOS', 'RESPONSÁVEL'],
     ...linhas.slice().sort((a, b) => a.numero - b.numero).map(l => {
       const desc = l.descontoGeral + (descontosPorOM.get(l.numero) || 0);
       return [l.numero, l.descricao, destino[l.destino], l.valorPrevisto, l.gastoAnterior ?? '', desc, l.valorPrevisto - desc, l.parcelaNavios ?? '', l.justificativaValor || '',
-        dados.subsidios.filter(s => s.rubrica === l.numero).reduce((s, x) => s + x.valor, 0), dados.anexos.filter(a => a.rubrica === l.numero).length];
+        dados.subsidios.filter(s => s.rubrica === l.numero).reduce((s, x) => s + x.valor, 0), dados.anexos.filter(a => a.rubrica === l.numero).length, l.responsavel || ''];
     }),
   ]), 'RUBRICAS');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['RUBRICA', 'DESCRIÇÃO', 'DOCUMENTO', 'VALOR', 'OBSERVAÇÃO'], ...dados.subsidios.slice().sort((a, b) => a.rubrica - b.rubrica).map(s => [s.rubrica, s.descricao, s.documento || '', s.valor, s.observacao || ''])]), 'SUBSÍDIOS');

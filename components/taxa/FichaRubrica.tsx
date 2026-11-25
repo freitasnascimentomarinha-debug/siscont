@@ -65,6 +65,9 @@ export const FichaRubrica: React.FC<{
     <Modal isOpen onClose={onFechar} title={`Rubrica ${r.numero} — ${r.descricao || 'nova'}`} maxWidth="max-w-3xl">
       <div className="space-y-4 text-sm">
         <Passo n={1} titulo={`Quanto esta despesa vai custar em ${ano}?`} ajuda="Valor previsto para o ano e, se quiser, o motivo desse valor (opcional; fica registrado para conferência)." ok={r.valorPrevisto > 0 && !!r.justificativaValor?.trim()}>
+          <label className="block mb-3 text-sm">Responsável pela rubrica <span className="text-slate-400">(quem envia o subsídio e a atualização)</span>
+            <input disabled={!podeEditar} className={`${entrada} w-full`} value={r.responsavel || ''} onChange={e => onMudar({ responsavel: e.target.value })} aria-label="Responsável pela rubrica" placeholder="posto (setor) nome" />
+          </label>
           <div className="mb-3 flex flex-wrap items-center gap-4 text-sm" role="radiogroup" aria-label="Como definir o valor">
             <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar} checked={!usaSoma} onChange={() => onMudar({ valorModo: 'DIGITADO' })} aria-label="Valor digitado" />Valor digitado</label>
             <label className="flex items-center gap-1.5"><input type="radio" name={`modo-${r.numero}`} disabled={!podeEditar || subsidios.length === 0} checked={usaSoma} onChange={() => onMudar({ valorModo: 'SUBSIDIOS', valorPrevisto: soma })} aria-label="Valor pela soma dos subsídios" />Pela soma dos subsídios ({subsidios.length} · {brl(soma)})</label>
