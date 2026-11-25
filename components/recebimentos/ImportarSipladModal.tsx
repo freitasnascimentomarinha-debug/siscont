@@ -1,8 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { AlertTriangle, FileUp } from 'lucide-react';
 import { ReceivedDocument } from '../../types';
 import { FINALIDADES } from '../../utils/relatorios';
-import { itensDoPdf, lerSolicitacoesDetalhado, ordenarPorAntiguidade, SolicitacaoAltcred } from '../../utils/altcredSiplad';
+import { itensDoPdf, lerSolicitacoesDetalhado, ordemDeExibicao, OrdemAltcred, ordenarPorAntiguidade, ROTULO_ORDEM, SolicitacaoAltcred } from '../../utils/altcredSiplad';
 import { AcaoImportacao, carregarCadastro, comPendencia, comoAdiantamentoImportado, comoRecebimentoOutros, gravarImportacaoSiplad, ItemImportacao, planejarImportacaoSiplad } from '../../services/recebimentosService';
 import { notify } from '../../utils/notify';
 import { classificarSituacao } from '../../utils/situacaoSiplad';
@@ -27,6 +27,10 @@ const lerArquivo = (f: File) => new Promise<ArrayBuffer>((res, rej) => {
 export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => void; documentos: ReceivedDocument[]; onGravado: () => Promise<void> }> = ({ aberto, onClose, documentos, onGravado }) => {
   const ref = useRef<HTMLInputElement>(null);
   const [itens, setItens] = useState<ItemImportacao[]>([]);
+  // ordem de exibição (escolha lembrada neste navegador); a gravação segue sempre da mais antiga para a mais nova
+  const [ordem, setOrdemEstado] = useState<OrdemAltcred>(() => { try { const v = localStorage.getItem('siscont.ordemAltcred') as OrdemAltcred | null; return v && v in ROTULO_ORDEM ? v : 'ANTIGO'; } catch { return 'ANTIGO'; } });
+  const setOrdem = (o: OrdemAltcred) => { setOrdemEstado(o); try { localStorage.setItem('siscont.ordemAltcred', o); } catch { /* sem armazenamento: vale só agora */ } };
+  const ordenados = useMemo(() => ordemDeExibicao(itens.map(i => ({ numero: i.sol.numero, dataCriacao: i.sol.dataCriacao, dataSituacao: i.sol.dataSituacao, valor: i.sol.valor, situacao: classificarSituacao(i.sol.situacao).rotulo })), ordem), [itens, ordem]);
   const [lendo, setLendo] = useState(false);
   const [gravando, setGravando] = useState(false);
   const [semSolicitacao, setSemSolicitacao] = useState<string[]>([]);
@@ -127,6 +131,14 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
             Escolha <b>"Adiantamento"</b> se o valor fica guardado para faturas futuras, ou <b>"Outros serviços"</b> se o crédito foi recebido na R.901.16 para outro fim e não paga fatura: ele fica fora das baixas e do saldo a destinar (e continua no Fluxo de caixa, como toda ALTCRED).
           </p>
         )}
+        {itens.length > 1 && (
+          <label className="flex items-center gap-2 text-xs text-slate-600">Ordem da lista
+            <select className="border border-slate-300 rounded px-2 py-1 text-xs bg-white" value={ordem} onChange={e => setOrdem(e.target.value as OrdemAltcred)} aria-label="Ordem da lista de ALTCRED">
+              {(Object.keys(ROTULO_ORDEM) as OrdemAltcred[]).map(o => <option key={o} value={o}>{ROTULO_ORDEM[o]}</option>)}
+            </select>
+            <span className="text-slate-400">A gravação segue sempre da mais antiga para a mais nova.</span>
+          </label>
+        )}
         {itens.length > 0 && (
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="min-w-full text-sm divide-y divide-slate-200">
@@ -134,7 +146,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                 <tr><th className="px-3 py-2 text-left">ALTCRED</th><th className="px-3 py-2 text-left">Cliente (UG)</th><th className="px-3 py-2 text-right">Valor</th><th className="px-3 py-2 text-left">Situação</th><th className="px-3 py-2 text-left">Destinação</th><th className="px-3 py-2 text-left">O que fazer</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {itens.map((i, n) => (
+                {ordenados.map(n => { const i = itens[n]; return (
                   <tr key={n} className="align-top">
                     <td className="px-3 py-2">
                       <div className="font-mono text-xs font-semibold">{i.sol.numero}</div>
@@ -209,7 +221,7 @@ export const ImportarSipladModal: React.FC<{ aberto: boolean; onClose: () => voi
                       {i.avisos.map(a => <div key={a} className="mt-1 text-amber-700 flex gap-1"><AlertTriangle size={12} className="shrink-0 mt-0.5" />{a}</div>)}
                     </td>
                   </tr>
-                ))}
+                ); })}
               </tbody>
             </table>
           </div>

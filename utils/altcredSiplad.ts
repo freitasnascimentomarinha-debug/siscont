@@ -35,6 +35,26 @@ export function ordenarPorAntiguidade<T extends { numero: string; dataCriacao: s
   return [...sols].sort((a, b) => chave(a).localeCompare(chave(b)) || (a.dataSituacao || '9999').localeCompare(b.dataSituacao || '9999') || a.numero.localeCompare(b.numero, 'pt-BR', { numeric: true }));
 }
 
+export type OrdemAltcred = 'ANTIGO' | 'NOVO' | 'NUMERO' | 'VALOR_MAIOR' | 'VALOR_MENOR' | 'SITUACAO';
+export const ROTULO_ORDEM: Record<OrdemAltcred, string> = {
+  ANTIGO: 'Mais antigo primeiro', NOVO: 'Mais novo primeiro', NUMERO: 'Número da ALTCRED', VALOR_MAIOR: 'Maior valor primeiro', VALOR_MENOR: 'Menor valor primeiro', SITUACAO: 'Situação (e depois a mais antiga)',
+};
+/** Índices dos itens na ordem pedida (a lista original não muda: as escolhas da tela seguem presas ao item). */
+export function ordemDeExibicao<T extends { numero: string; dataCriacao: string | null; dataSituacao: string | null; valor: number; situacao: string }>(sols: T[], ordem: OrdemAltcred): number[] {
+  const idx = sols.map((_, i) => i);
+  const antigos = ordenarPorAntiguidade(sols.map((s, i) => ({ ...s, _i: i }))).map(s => s._i);
+  const posAntigo = new Map(antigos.map((i, p) => [i, p]));
+  const porAntigo = (a: number, b: number) => (posAntigo.get(a)! - posAntigo.get(b)!);
+  switch (ordem) {
+    case 'ANTIGO': return antigos;
+    case 'NOVO': return [...antigos].reverse();
+    case 'NUMERO': return idx.sort((a, b) => sols[a].numero.localeCompare(sols[b].numero, 'pt-BR', { numeric: true }) || porAntigo(a, b));
+    case 'VALOR_MAIOR': return idx.sort((a, b) => sols[b].valor - sols[a].valor || porAntigo(a, b));
+    case 'VALOR_MENOR': return idx.sort((a, b) => sols[a].valor - sols[b].valor || porAntigo(a, b));
+    case 'SITUACAO': return idx.sort((a, b) => (sols[a].situacao || '').localeCompare(sols[b].situacao || '', 'pt-BR') || porAntigo(a, b));
+  }
+}
+
 /** Nº da solicitação: sigla do setor (G424, R, B4D0, P3MA, P3X3...), ano, AC e sequência. */
 export const RE_ALTCRED = /\b[A-Z][A-Z0-9]{0,4}\.\d{4}\.AC\.\d{5}\b/;
 export const RE_FATURA_TEXTO = /\b\d{4,5}-[A-Z]{2}-\d{2}-\d{4}-\d{3}-\d\b/g;

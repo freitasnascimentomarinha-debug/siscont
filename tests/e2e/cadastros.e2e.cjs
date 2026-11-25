@@ -3038,6 +3038,15 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Z999.2026.AC.00004').first().waitFor({ timeout: 20000 });
     const resumo = (await page.getByTestId('resumo-situacoes').innerText()).replace(/\s+/g, ' ');
     ok(/3 solicitação/.test(resumo) && /1 aguardando processamento/.test(resumo) && /1 devolvida à origem/.test(resumo) && /1 processada/.test(resumo), `resumo das situações lido do PDF (${resumo.slice(0, 120)})`);
+    // ordem flexível: a escolha troca a ordem da lista sem perder o que foi marcado
+    const ordemNums = async () => (await page.locator('tbody tr td .font-mono').allInnerTexts()).map(t => t.trim()).filter(t => /\.AC\.\d{5}$/.test(t));
+    const nAnt = await ordemNums();
+    await page.getByLabel('Ordem da lista de ALTCRED').selectOption('NOVO');
+    const nNovo = await ordemNums();
+    ok(nAnt.length === 3 && JSON.stringify(nNovo) === JSON.stringify([...nAnt].reverse()), `ordem "mais novo primeiro" inverte a lista (${nAnt.join(' > ')} → ${nNovo.join(' > ')})`);
+    await page.getByLabel('Ordem da lista de ALTCRED').selectOption('NUMERO');
+    ok(JSON.stringify(await ordemNums()) === JSON.stringify([...nAnt].sort()), 'ordem por número da ALTCRED');
+    await page.getByLabel('Ordem da lista de ALTCRED').selectOption('ANTIGO');
     ok(await page.getByLabel('Ação para Z999.2026.AC.00003').inputValue() === 'IGNORAR', 'devolvida à origem já vem como "Não importar"');
     ok(await page.getByLabel('Ação para Z999.2026.AC.00002').inputValue() === 'NOVA' && await page.getByLabel('Ação para Z999.2026.AC.00004').inputValue() === 'NOVA', 'aguardando e processada vêm para importar');
     ok(await page.locator('table span').filter({ hasText: 'Aguardando processamento' }).first().isVisible() && await page.locator('table span').filter({ hasText: 'Devolvida à origem' }).first().isVisible(), 'etiquetas de situação na tabela de importação');
