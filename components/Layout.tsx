@@ -221,8 +221,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, currentPage, onPageCha
             {lembrarBackup && (
               <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm flex flex-wrap items-center gap-3" role="status">
                 <DatabaseBackup size={18} className="shrink-0" />
-                <span className="flex-1">{diasBackup === null ? 'Nenhum backup completo registrado.' : `Último backup completo há ${diasBackup} dias.`} Recomenda-se um backup por semana.</span>
-                <button onClick={() => navigateTo('admin')} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Fazer backup agora</button>
+                <span className="flex-1">{diasBackup === null ? 'Nenhum backup completo registrado.' : `Último backup completo há ${diasBackup} dias.`} Recomenda-se um backup por semana. O backup é feito somente em <b>Administração › Backup</b>.</span>
               </div>
             )}
             <SeletorExercicio />

@@ -2217,9 +2217,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText('Nenhum registro.').waitFor();
     ok(true, 'filtro por ação');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'fase7-auditoria.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Fazer backup agora' }).click();
+    ok(!(await page.getByRole('button', { name: 'Fazer backup agora' }).count()), 'o lembrete de backup não tem botão: o backup é feito só na Administração');
+    ok(/Administração › Backup/.test(await page.getByRole('status').filter({ hasText: 'backup' }).first().innerText()), 'o lembrete diz onde fazer o backup');
+    await page.getByRole('button', { name: 'Administração' }).first().click();
     await page.getByRole('heading', { name: 'Administração' }).waitFor();
-    ok(true, 'lembrete leva à Administração');
+    ok(true, 'Administração abre normalmente');
   });
 
   await cenario('Fluxo de caixa: lançamentos por mês, rubrica separada da observação, edição rápida e em lote', [], async (page, db) => {
