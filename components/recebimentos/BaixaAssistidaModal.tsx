@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Invoice, OM, PaymentAllocation, ReceivedDocument } from '../../types';
 import { ItemProposta, proporBaixa, validarBaixa } from '../../utils/baixaAssistida';
@@ -46,6 +46,7 @@ export const BaixaAssistidaModal: React.FC<{
     setItens(p.itens);
   }, [doc, candidatas, citadas, citadasParciais, incluirContestadas]);
 
+  const gravandoRef = useRef(false);   // trava na hora (o estado só muda depois): clique duplo não grava duas vezes
   if (!doc) return null;
   const usado = Math.round(itens.reduce((s, i) => s + (i.valor > 0 ? i.valor : 0), 0) * 100) / 100;
   const sobra = Math.round((doc.availableValue - usado) * 100) / 100;
@@ -119,13 +120,15 @@ export const BaixaAssistidaModal: React.FC<{
   };
 
   const gravar = async () => {
+    if (gravandoRef.current) return;
+    gravandoRef.current = true;
     setGravando(true);
     try {
       const r = await gravarBaixaAssistida(doc, itens, invoices, { enviarSobra: enviarSobra && ehPagamento, data, motivoFora: foraUsadas.length ? motivoFora : '', usuario });
       notify.success(`${r.baixas} baixa(s) gravada(s)${r.sobra > 0.005 && enviarSobra && ehPagamento ? `; sobra de ${brl(r.sobra)} enviada para adiantamento` : ''}.`);
       await onGravado();
       onClose();
-    } catch (e) { notify.fail('Erro ao gravar as baixas', e); } finally { setGravando(false); }
+    } catch (e) { notify.fail('Erro ao gravar as baixas', e); } finally { gravandoRef.current = false; setGravando(false); }
   };
 
   return (

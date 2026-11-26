@@ -14,6 +14,8 @@ import { db } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { AlvoPontos, PontoIcone, PontosModal } from '../components/PontosAtencao';
 import { pendentes } from '../utils/pontosAtencao';
+import { executarUmaVez } from '../utils/travaBaixa';
+import { saldoDisponivelDoc } from '../utils/baixas';
 import { ImportarSipladModal } from '../components/recebimentos/ImportarSipladModal';
 import { FILTRO_SITUACAO, classificarSituacao, motivoBloqueio, passaFiltroSituacao } from '../utils/situacaoSiplad';
 import { BaixaAssistidaModal } from '../components/recebimentos/BaixaAssistidaModal';
@@ -425,12 +427,20 @@ export const ReceivedBalances: React.FC = () => {
     return { n: selectedInvoiceIds.length, emAberto, disp, vaiPagar, sobra: r2(disp - vaiPagar), falta: r2(Math.max(0, emAberto - disp)), parciais };
   })();
 
+  /** Uma gravação por vez por ALTCRED: o segundo clique em "Confirmar Pagamento" é recusado. */
   const handleAllocate = async () => {
+    if (isReadOnly || !activeDoc || selectedInvoiceIds.length === 0) return;
+    try { await executarUmaVez(`baixa:${activeDoc.id}`, gravarPagamentos); }
+    catch (err) { notify.error(err instanceof Error ? err.message : 'Não foi possível gravar o pagamento.'); }
+  };
+  const gravarPagamentos = async () => {
     if (isReadOnly) return;
     if (!activeDoc || selectedInvoiceIds.length === 0) return;
     if (motivoBloqueio(activeDoc.situacaoSiplad)) { notify.error(motivoBloqueio(activeDoc.situacaoSiplad)); return; }
 
-    let currentBalance = activeDoc.availableValue;
+    // saldos conferidos no banco agora (não na tela): evita baixa repetida se a tela estava desatualizada
+    const baixasAgora = await db.baixasGravadas();
+    let currentBalance = saldoDisponivelDoc(activeDoc, r2(baixasAgora.filter(a => a.documentId === activeDoc.id).reduce((s, a) => s + a.amount, 0)));
     let created = 0;
     const pagas: string[] = [];
     const dataBaixa = paymentMeta.data || activeDoc.gruDataPagamento || activeDoc.date || hojeISO();
@@ -440,7 +450,7 @@ export const ReceivedBalances: React.FC = () => {
       const inv = invoices.find(i => i.id === invId);
       if (!inv || currentBalance <= 0.005) continue;
 
-      const totalUsed = r2(allocations.filter(a => a.invoiceId === inv.id).reduce((sum, a) => sum + a.amount, 0));
+      const totalUsed = r2(baixasAgora.filter(a => a.invoiceId === inv.id).reduce((sum, a) => sum + a.amount, 0));
       const debt = saldoDaFatura(inv, totalUsed);
 
       const payment = r2(Math.min(debt, currentBalance));

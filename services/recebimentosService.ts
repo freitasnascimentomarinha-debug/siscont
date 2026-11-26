@@ -6,6 +6,7 @@ import { SolicitacaoAltcred } from '../utils/altcredSiplad';
 import { FaturaCandidata, ItemProposta } from '../utils/baixaAssistida';
 import { ehAdiantamento } from '../utils/baixas';
 import { classificarSituacao, motivoBloqueio } from '../utils/situacaoSiplad';
+import { conferirNovasBaixas, executarUmaVez } from '../utils/travaBaixa';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -173,10 +174,17 @@ export function faturasCandidatas(invoices: Invoice[], docs: ReceivedDocument[],
     .filter(f => f.saldo > 0.005);
 }
 
-export async function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string; motivoFora?: string; usuario?: string }) {
+/** Grava as baixas da ALTCRED. Uma gravação por vez por ALTCRED (clique duplo é recusado) e, antes de gravar, confere de novo no banco o saldo das faturas e da ALTCRED. */
+export function gravarBaixaAssistida(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string; motivoFora?: string; usuario?: string }) {
+  return executarUmaVez(`baixa:${doc.id}`, () => gravarBaixaAssistidaSemTrava(doc, itens, invoices, opcoes));
+}
+
+async function gravarBaixaAssistidaSemTrava(doc: ReceivedDocument, itens: ItemProposta[], invoices: Invoice[], opcoes: { enviarSobra: boolean; data: string; motivoFora?: string; usuario?: string }) {
   const motivoFora = (opcoes.motivoFora || '').trim();
   if (itens.some(i => i.foraDestinacao && i.valor > 0.005) && doc.destinacao?.length && !motivoFora) throw new Error('Informe o motivo de a baixa sair fora do que a OM indicou.');
   if (motivoBloqueio(doc.situacaoSiplad)) throw new Error(motivoBloqueio(doc.situacaoSiplad));
+  const erros = conferirNovasBaixas({ doc, itens, faturas: invoices, baixasAtuais: await db.baixasGravadas() });
+  if (erros.length) throw new Error(erros[0]);
   const tipo = doc.operation === OperationType.ADIANTAMENTO ? 'ADIANTAMENTO' : 'PAGAMENTO';
   const tipoFatura = new Map(invoices.map(i => [i.id, i.type]));
   const usados = itens.filter(i => i.valor > 0.005);

@@ -660,9 +660,11 @@ const ok = (c, m) => { if (!c) throw new Error('FALHOU: ' + m); console.log('  �
     await page.getByText(/ALTCRED gravada\(s\) a partir do SIPLAD/).waitFor();
     await page.getByRole('heading', { name: /Baixa assistida — Z999.2026.AC.00010/ }).waitFor({ timeout: 15000 });
     ok(await page.getByLabel('Valor para 12346-EL-08-2026-010-0').inputValue() === '400' && db.payment_allocations.length === 0, 'abriu a baixa assistida da ALTCRED recém-gravada, com as faturas indicadas e nada pago ainda');
-    await page.getByRole('button', { name: 'Gravar baixas' }).click();
+    await page.getByRole('button', { name: 'Gravar baixas' }).dblclick();   // clique duplo: não pode gravar em dobro
     await page.getByText(/baixa\(s\) gravada\(s\)/).waitFor();
-    ok(db.payment_allocations.length >= 2, 'depois de conferir e confirmar, as baixas foram gravadas');
+    await page.waitForTimeout(600);
+    ok(db.payment_allocations.length === 2, `clique duplo em "Gravar baixas" grava cada baixa uma única vez (${db.payment_allocations.length} baixas)`);
+    ok(new Set(db.payment_allocations.map(a => a.invoice_id)).size === 2, 'sem baixa repetida na mesma fatura');
     // reimportar o mesmo PDF: a ALTCRED já existe e já está pagando faturas
     await page.getByRole('button', { name: 'Importar ALTCRED do PDF do SIPLAD' }).click();
     await page.locator('input[type=file][accept*="pdf"]').setInputFiles(arquivos);

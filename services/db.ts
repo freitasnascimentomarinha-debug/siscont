@@ -237,6 +237,8 @@ export const db = {
 
   // --- ALLOCATIONS ---
   getAllocations: async (opts?: { completo?: boolean }): Promise<PaymentAllocation[]> => (await lerCrus(opts?.completo))[1],
+  /** Baixas como estão agora no banco (leitura nova, sem o cache da tela): usada para conferir antes de gravar. */
+  baixasGravadas: async (): Promise<PaymentAllocation[]> => supabaseService.getAllocations({ completo: true }),
   saveAllocation: async (alloc: PaymentAllocation) => { await supabaseService.saveAllocation(alloc); invalidateCache('raw_allocations'); },
   deleteAllocations: async (ids: string[]) => { await supabaseService.deleteAllocations(ids); invalidateCache('raw_allocations'); },
   deleteAllocation: async (id: string) => { await supabaseService.deleteAllocation(id); invalidateCache('raw_allocations'); },
